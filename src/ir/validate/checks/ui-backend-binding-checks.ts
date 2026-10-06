@@ -106,8 +106,18 @@ export function validateUiReadsServed(sys: SystemIR, diags: LoomDiagnostic[]): v
     }
   }
   for (const d of sys.deployables) {
-    if (!d.targetName || !descriptorFor(d.platform).isFrontend) continue;
-    const target = sys.deployables.find((t) => t.name === d.targetName);
+    // A frontend reads through its `targets:` backend; a backend that mounts
+    // a ui itself (`ui: X { … }` on a fullstack deployable — HEEx LiveView,
+    // or a static bundle served beside the api) reads through its OWN
+    // contexts.  Either way only those contexts' aggregates have a client or
+    // a context function for a page to call.
+    const selfHosted = !descriptorFor(d.platform).isFrontend;
+    if (!selfHosted && !d.targetName) continue;
+    if (selfHosted && !d.uiName) continue;
+    // A self-hosted ui whose api handles bind ANOTHER deployable reads
+    // through that backend too — not judged here.
+    if (selfHosted && d.uiBindings.some((b) => b.sourceDeployableName !== d.name)) continue;
+    const target = selfHosted ? d : sys.deployables.find((t) => t.name === d.targetName);
     // An unknown `targets:` is refused elsewhere; nothing to compare against.
     if (!target) continue;
     const served = new Set(d.contextNames);
@@ -159,19 +169,32 @@ export function validateUiReadsServed(sys: SystemIR, diags: LoomDiagnostic[]): v
       for (const p of ui.pages) scan(p.route ? `page ${p.name} (${p.route})` : `page ${p.name}`, p);
       for (const c of ui.components) scan(`component ${c.name}`, c);
       for (const [ctx, m] of [...misses].sort(([a], [b]) => a.localeCompare(b))) {
+        const aggregates = [...m.aggregates].sort().join(", ");
+        const sites = [...m.sites].sort().join(", ");
+        const servedList = [...served].sort().join(", ") || "(none)";
         diags.push({
           severity: "error",
           code: "loom.ui-aggregate-unserved",
-          message: diagMessage("loom.ui-aggregate-unserved", {
-            uiName,
-            dName: d.name,
-            targetName: target.name,
-            subdomain: m.subdomain,
-            ctx,
-            aggregates: [...m.aggregates].sort().join(", "),
-            sites: [...m.sites].sort().join(", "),
-            served: [...served].sort().join(", ") || "(none)",
-          }),
+          message: selfHosted
+            ? diagMessage("loom.ui-aggregate-unserved#self-hosted", {
+                uiName,
+                dName: d.name,
+                subdomain: m.subdomain,
+                ctx,
+                aggregates,
+                sites,
+                served: servedList,
+              })
+            : diagMessage("loom.ui-aggregate-unserved", {
+                uiName,
+                dName: d.name,
+                targetName: target.name,
+                subdomain: m.subdomain,
+                ctx,
+                aggregates,
+                sites,
+                served: servedList,
+              }),
           source: `${d.name}/${uiName}`,
         });
       }

@@ -200,6 +200,40 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/channel.ts
   // ----------------------------------------------------------------------
+  "loom.collection-field-unpersisted#optional-reference": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' is an OPTIONAL reference collection ('X id[]?'). ` +
+    `A reference collection is a set and the empty set already means "none", so the schema has ` +
+    `no optional form of it.  Drop the '?' (declare '${p.field}: X id[]').`,
+  "loom.collection-field-unpersisted#part-reference": (p: { ownerName: unknown; field: unknown }) =>
+    `entity part '${p.ownerName}' field '${p.field}' is a reference collection ('X id[]'), but a ` +
+    `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
+    `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
+    `'X id' and contain one part per referenced id.`,
+  "loom.collection-field-unpersisted#state-value-collection": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' state field '${p.field}' is a value-object collection ('<VO>[]'), ` +
+    `but a ${p.owner} state row is one table row with no child tables, so no backend would store ` +
+    `it.  Keep the collection on an aggregate (where it gets its own child table), or store ` +
+    `scalar collections ('string[]', 'X id[]') on the state row instead.`,
+  "loom.collection-field-unpersisted#nested-in-value-object": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+    voName: unknown;
+    path: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' persists value object '${p.voName}', which holds ` +
+    `a collection of references or value objects ('${p.path}').  A persisted value object ` +
+    `flattens into scalar '<field>_<sub>' columns, and such a collection has no column shape, so ` +
+    `no backend would store it.  Declare the collection directly on the aggregate (or entity ` +
+    `part) instead of inside '${p.voName}'.`,
   "loom.channel-key-missing-field": (p: { name: unknown; key: unknown; evName: unknown }) =>
     `channel '${p.name}' key '${p.key}' is not a field of carried event '${p.evName}'.`,
   "loom.channelsource-transport-invalid": (p: {
@@ -1767,8 +1801,14 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.union-position":
     `An inline 'or' union is a transport shape — it may only appear as a repository find ` +
-    `return type, a payload field, or an operation return, not in this position. Name it ` +
+    `return type or an operation return, not in this position. Name it ` +
     `with 'payload X = A | B' to use it elsewhere.`,
+  "loom.union-position#payload-field":
+    `An inline 'or' union cannot be a payload field: the tagged union wire is emitted only ` +
+    `at the top of an operation or find return, and no backend renders one nested inside a ` +
+    `record (an error payload, a command or workflow input).  Return the union from the ` +
+    `operation itself ('operation x(): A or B'), or give the payload one field per variant ` +
+    `('circle: Circle?', 'square: Square?').`,
   "loom.union-variant-not-carrier": `'slot' is a UI-only marker, not a union variant — every variant must be a carrier type.`,
   "loom.union-duplicate-variant":
     `Duplicate union variant — each variant must be a distinct type so the wire ` +
@@ -2082,6 +2122,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.op}(…)' produces '${p.result}'. The DECLARED type is what the response ` +
     `schema and every backend's numeric coercion are built from, so the mismatch ` +
     `would silently re-code the value. Declare '${p.field}: ${p.result}'${p.hint}.`,
+  "loom.projection-select-duration": (p: { name: unknown; field: unknown }) =>
+    `projection '${p.name}' select '${p.field}' is a 'duration' (a 'datetime - datetime' ` +
+    `span), and a duration is expression-only: it has no column and no wire form on any ` +
+    `backend.  Select the two datetimes instead and compute the span where it is read.`,
   "loom.projection-select-unresolved": (p: {
     name: unknown;
     field: unknown;
@@ -2706,6 +2750,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `'scaffold(subdomains: …)' or remove the pages reading it; or host those pages in a ` +
     `separate ui on a frontend deployable whose 'targets:' serves '${p.ctx}'. One frontend ` +
     `reading several backends is not supported yet (M-T1.35).`,
+  "loom.ui-aggregate-unserved#self-hosted": (p: {
+    uiName: unknown;
+    dName: unknown;
+    subdomain: unknown;
+    ctx: unknown;
+    aggregates: unknown;
+    sites: unknown;
+    served: unknown;
+  }) =>
+    `ui '${p.uiName}' reads ${p.aggregates} from subdomain '${p.subdomain}' (context ` +
+    `'${p.ctx}') in ${p.sites}, but deployable '${p.dName}' mounts that ui itself and hosts ` +
+    `only [${p.served}], so those pages have no context function or api client to call. ` +
+    `Fix one of: add '${p.ctx}' to '${p.dName}' (its 'contexts:' and a served api); remove ` +
+    `the pages reading it; or host those pages in a separate ui on a deployable that serves ` +
+    `'${p.ctx}'.`,
   "loom.current-user-needs-auth-ui": (p: { what: unknown; uiName: unknown; dName: unknown }) =>
     `${p.what} on ui '${p.uiName}' reads 'currentUser', but deployable '${p.dName}' binds no verified session user, so the read emits a dangling reference (react 'undefined.<claim>', invalid Dart on flutter, an unbound match on feliz). Add the auth guard: 'auth: ui' on a frontend deployable, or 'auth: required' on a fullstack deployable that mounts the ui itself.`,
   "loom.auth-ui-unsupported-framework": (p: {

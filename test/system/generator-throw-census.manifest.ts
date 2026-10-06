@@ -593,10 +593,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every page/component action variant-match whose subject is not an aggregate-op method call is refused, and that accepted shape always satisfies detectAwaitedOp; inline-lambda placement is refused by loom.effect-in-lambda (verified).",
   },
   "src/generator/elixir/heex-walker-core.ts#renderVariantMatchStmt$2": {
-    deferred:
-      "A bare `match await Invoice.confirm()` on a LiveView page naming an aggregate from a context the elixir deployable does not host passes the system-wide async-effect check, but the HEEx emitter only knows served aggregates.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-aggregate-unserved"],
+    note: "A page `match await <Agg>.op()` names an aggregate through a bare aggregate ref; loom.ui-aggregate-unserved now also covers a backend that mounts its ui itself (HEEx LiveView), refusing any page read of an aggregate outside the deployable's own contexts \u2014 so every awaited aggregate is a served one.",
   },
 
   // src/generator/elixir/liveview-emit.ts
@@ -605,10 +603,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The validator computes the same transitive per-page instance count of state-declaring components on every phoenixLiveView-mounted ui.",
   },
   "src/generator/elixir/liveview-emit.ts#gatherComponentHandlers": {
-    deferred:
-      "A page using `onClick: Cart.clear` synthesizes a `clear` handle_event clause that collides with a stateful component's own `action clear()`; the validator never sees store-action-ref handlers.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.heex-handler-name-collision"],
+    note: "A bare store-action handler (`onClick: Cart.clear`) now names its own hyphenated event (`store-cart-clear`), which no `snake(action)` clause can spell, so the only cross-surface clause collisions left are page/component action names \u2014 exactly what loom.heex-handler-name-collision refuses.",
   },
 
   // src/generator/elixir/realtime-liveview.ts
@@ -957,16 +953,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/jpa-annotations.ts
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations": {
-    deferred:
-      "An optional reference collection `tags: Tag id[]?` on an aggregate (or any `X id[]` on an entity part, or on a projection/workflow state) gets no AssociationIR, but jpaFieldAnnotations unwraps optional and demands one.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A projection / workflow state row's `X id[]` takes the `stateRow` jsonb arm before the association lookup; every other `X id[]` that is not an aggregate root's own non-optional field (optional, entity part, inside a value object) is refused by loom.collection-field-unpersisted, and enrichment derives one AssociationIR per remaining field.",
   },
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations$2": {
-    deferred:
-      "For aggregates/parts/bases valueCollectionsFor derives one entry per VO-array field (unwrapping optional), so the throw is unreachable there; but a projection (or saga) state field `tags: Tag[]` reaches this lookup with the stub owner {name, associations: []} and crashes one line earlier with 'TypeError: owner.fields is not iterable' (valid model, 0 errors) — repro g5-java-proj-voarray.ddd; fixing that TypeError would make this throw fire.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A `<VO>[]` on a projection / workflow state row (the only owner without a ValueCollectionIR) is refused by loom.collection-field-unpersisted#state-value-collection; for aggregates / parts valueCollectionsFor derives one entry per VO-array field.",
   },
 
   // src/generator/java/emit/projection-reads.ts
@@ -975,10 +967,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Whenever the id-source wire row exists it is the `keyed by` field, which validateKey requires to be type kind 'id' (enrichments.ts:1268-1279 builds the row from that field).",
   },
   "src/generator/java/emit/projection-reads.ts#corrWire": {
-    deferred:
-      "A folded projection with no `keyed by` whose handlers all use `on(e: E) by e.x` passes validation (0 errors) and has no id-source wire field; today generation crashes earlier in src/system/migrations-builder.ts projectionTableShape (TypeError: Cannot read properties of undefined (reading 'replace')) so this throw is masked — repro g5-java-singleton-fold-by.ddd.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-event-unkeyed"],
+    note: "A folded projection with no `keyed by` is refused for every handler, with or without an explicit `by` (loom.projection-event-unkeyed#singleton), so every folded projection reaching the read emitter has an id-source wire field.",
   },
   "src/generator/java/emit/projection-reads.ts#guardProjectionField": {
     invariant:
@@ -987,10 +977,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/projection-state.ts
   "src/generator/java/emit/projection-state.ts#correlationField": {
-    deferred:
-      "Same singleton-with-`by` gap as corrWire: a folded projection without `keyed by` but with `on(...) by ...` validates clean, has correlationField undefined, and would throw here; currently masked by the earlier migrations-builder TypeError (repro g5-java-singleton-fold-by.ddd). Keyed projections are guarded by loom.projection-key-unknown (:607).",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-event-unkeyed", "loom.projection-key-unknown"],
+    note: "A keyless folded projection is refused whether its handlers use `by` or not (loom.projection-event-unkeyed#singleton); a keyed one names a declared state field (loom.projection-key-unknown).",
   },
   "src/generator/java/emit/projection-state.ts#projectionCorrIdClass": {
     guardedBy: ["loom.projection-key-not-id"],
@@ -999,10 +987,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/query-projection-reads.ts
   "src/generator/java/emit/query-projection-reads.ts#groupKeyCoerce": {
-    deferred:
-      "Grouping by a bare `json` column (`group by o.meta; select k = o.meta`) is shape-valid, but groupKeyCoerce has no arm for primitive 'json' (or 'File') and throws.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-columnless-source", "loom.projection-groupby-key-not-columnar"],
+    note: "Every bare source column type has an arm (json and File included); a value-object or collection key is refused as loom.projection-columnless-source, a computed key as loom.projection-groupby-key-not-columnar, and `duration` has no field syntax so it is never a column.",
   },
   "src/generator/java/emit/query-projection-reads.ts#keyCol": {
     guardedBy: [
@@ -1084,10 +1070,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Only &&/|| fall to the default, and both are rejected unless both operands are bool, so they can't have a money/decimal operand.",
   },
   "src/generator/java/render-expr.ts#renderNew": {
-    deferred:
-      "A part builder-call `Line { qty: 1 }` inside an aggregate-nested unit test lowers to a `new` expr, but the Java test renderer's JavaRenderContext has no agg.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.aggregate-test-context"],
+    note: "Part types resolve only inside their own aggregate, where every rendering context sets JavaRenderContext.agg; the one aggregate-scoped body without an aggregate instance \u2014 a nested unit test \u2014 refuses a part builder as loom.aggregate-test-context.",
   },
 
   // src/generator/python/channels-builder.ts
@@ -1214,10 +1198,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/typescript/emit/mikroorm-entities.ts
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType": {
-    deferred:
-      "A root value-object field whose VO contains a VO collection (`tags: Tag[]`) is flattened into sub-columns and recurses into columnsForType with a non-scalar array element; no validator rejects nested VO collections under persistence: mikroorm.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A collection of references or value objects nested inside a persisted value object is refused (loom.collection-field-unpersisted#nested-in-value-object), and a state row's `X id[]` takes the jsonb stateFieldColumns arm, so only primitive / enum arrays reach the array arm.",
   },
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType$2": {
     invariant:
@@ -1270,10 +1252,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A MikroORM value of a kind the queryable oracle refuses (lambda, call, new, …). Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
   "src/generator/typescript/emit/mikroorm-filter.ts#predicateEntry": {
-    deferred:
-      "A capability `filter this.owners.contains(<id>)` over an `X id[]` reference collection is admitted by firstNonQueryablePredicate, but mikroContextFilters calls whereToMikroFilter(pred) with no associations, so containsMembershipFragment returns null and predicateEntry falls through.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "A `this.<refColl>.contains(x)` the queryable oracle admits names an aggregate root's own non-optional `X id[]` (loom.collection-field-unpersisted refuses the other positions), which always has an AssociationIR, and every whereToMikroFilter caller \u2014 context filters and the write-scope guard included \u2014 passes agg.associations, so containsMembershipFragment resolves it; every other shape is measured by test/system/predicate-position-census.test.ts.",
   },
 
   // src/generator/typescript/emit/schema.ts
@@ -1417,10 +1397,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "GroupKeyTransform is the single literal 'startOfDay', and MIKRO_GROUP_KEY_TRANSFORM_SQL is a Record keyed by that type with a startOfDay entry, so the lookup cannot miss. (src/ir/util/projection-aggregate.ts:111,126; src/platform/hono/v4/projection-query-routes-builder.ts:984-989)",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow": {
-    deferred:
-      "A select-only query-time projection derives its row fields from the select expressions' resolved types (selectDerivedFields), so `select span = o.closedAt - o.openedAt` (datetime - datetime = duration) puts a duration into wireShape and zodForRow throws.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-select-duration"],
+    note: "A select-only row field takes its select expression's type, and a `duration`-typed select is refused (loom.projection-select-duration); `duration` has no field syntax, so it never reaches a declared row field either.",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$2": {
     guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],

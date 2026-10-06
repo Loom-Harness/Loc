@@ -92,8 +92,10 @@ export function renderWorkflowStateEntity(
   const fields = wf.stateFields ?? [];
   const stateOnly = fields.filter((f) => f.name !== corr);
   const voLookup = new Map(ctx.valueObjects.map((v) => [v.name, v.fields] as const));
-  // Saga state has no reference/value collections, so jpaFieldAnnotations never
-  // touches `associations` — a bare owner satisfies the type.
+  // A saga state row is one table row: `stateRow` maps a reference collection
+  // onto its jsonb column (no association needed), and a value-object
+  // collection here is refused by `loom.collection-field-unpersisted`, so
+  // jpaFieldAnnotations never reads the owner's associations / fields.
   const owner = { name: wf.name, associations: [] } as unknown as EnrichedAggregateIR;
 
   const javaImports = new Set<string>();
@@ -105,7 +107,7 @@ export function renderWorkflowStateEntity(
     `    ${corrIdClass(wf)} ${jid(corr)};`,
   ];
   for (const f of stateOnly) {
-    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup }));
+    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
     fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
   }
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
@@ -165,7 +167,7 @@ export function renderWorkflowStateEntity(
     ...(durable ? [...accessor("String", "lastEventId"), ...setter("String", "lastEventId")] : []),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
+  const usesHibernateTypes = needsHibernateTypes(stateOnly, { stateRow: true });
   return lines(
     `package ${pkg};`,
     ``,

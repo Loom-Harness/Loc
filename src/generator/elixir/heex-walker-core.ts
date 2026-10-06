@@ -615,15 +615,17 @@ export function walkBodyToHeex(
 
   // Direct store-action handlers (`onClick: Cart.clear`) — a bare store-action
   // reference used as a handler has no matching page `action`, so the button's
-  // `phx-click="clear"` would dangle without a clause.  Synthesize the clause
+  // `phx-click` would dangle without a clause.  Synthesize the clause
   // (dispatch the store action over its per-page assign) exactly like a page
-  // action whose body is the single store-action call, so it is byte-identical
-  // to the wrapped `action discard() { Cart.clear() }` idiom.  Deduped by event
-  // name so a store action onClicked twice (or one also called from a page
-  // action) emits one clause.
+  // action whose body is the single store-action call.  The event is named
+  // `storeActionEvent(store, action)` — a hyphenated name no `snake(action)`
+  // can spell — so it never shares a clause with a page or component action
+  // of the same name (`Cart.clear` beside a component's own `action clear()`
+  // is two handlers, not one).  Deduped by event name so a store action
+  // onClicked twice emits one clause.
   const existingHandlers = new Set(ctx.handlers.map((h) => h.name));
   for (const { store, action } of collectStoreActionRefs(body)) {
-    const name = snake(action);
+    const name = storeActionEvent(store, action);
     if (existingHandlers.has(name)) continue;
     existingHandlers.add(name);
     ctx.usedStores.add(store);
@@ -664,6 +666,14 @@ export function walkBodyToHeex(
     uploadBindings: ctx.uploadBindings,
     tableControls: ctx.tableControls,
   };
+}
+
+/** The `handle_event` name of a bare store-action handler (`onClick:
+ *  Cart.clear` → `"store-cart-clear"`).  Hyphenated like the emitter's other
+ *  synthesized events (`loom-sort`), so it cannot equal a `snake(action)`
+ *  clause a page or component action hoists. */
+function storeActionEvent(store: string, action: string): string {
+  return `store-${snake(store)}-${snake(action)}`;
 }
 
 /** Collect the bare store-action handler references (`action-ref` with a
@@ -784,7 +794,9 @@ export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
       // matching `handle_event` clause is hoisted from `page.actions` at the
       // top of `walkBodyToHeex`.  (Component-level actions, like component-
       // level lambdas, do not hoist to the host LiveView — a pre-existing
-      // HEEx limitation tracked by the parity gate.)
+      // HEEx limitation tracked by the parity gate.)  A STORE action ref
+      // (`Cart.clear`) names its own synthesized clause.
+      if (expr.storeName) return storeActionEvent(expr.storeName, expr.actionName);
       return snake(expr.actionName);
     case "authz-filter":
       // Authorization/tenancy filter sentinel — a query-filter node,
