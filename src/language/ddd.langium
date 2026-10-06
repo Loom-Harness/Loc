@@ -2051,6 +2051,8 @@ Parameter:
 //     statement head, silently so: with `requires` soft, a gate line missing
 //     its subject (`requires .permissions.contains(x)`) parsed as a CALL
 //     statement on a name `requires` instead of failing (review of the sweep).
+//     `precondition` (and `invariant`, below) are also the `ThrowKind` slot
+//     words: soft, `toThrow(precondition)` is ambiguous (see `ThrowKind`).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
@@ -2637,6 +2639,13 @@ PostfixSuffix:
 // has already committed to a member call.  A kind word in any OTHER call is a
 // parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
 // the catalogue stays closed and compiler-known.
+//
+// The slot is unambiguous ONLY while both words stay HARD.  Soften either into
+// `NameRefIdent` and it is also a one-token `CallArg`, so `toThrow(precondition)`
+// parses two ways and ALL(*) logs "Ambiguous Alternatives Detected … inside
+// <PostfixSuffix>" on every run (2026-10-04 re-audit N7 — the 09-28 keyword
+// sweep did this to `precondition`).  `test/language/parsing/grammar-ambiguity.test.ts`
+// pins both the hardness and the silent parse.
 ThrowKind returns string:
     'precondition' | 'invariant';
 
