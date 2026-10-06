@@ -24,7 +24,14 @@ import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
+import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  NO_FOREIGN_VALUE_TYPES,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+} from "../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -164,6 +171,7 @@ import {
   renderDocumentPoco,
   renderDocumentRepositoryImpl,
   renderEntity,
+  renderEnum,
   renderEvent,
   renderEventRecordConfiguration,
   renderEventRecordPoco,
@@ -186,6 +194,7 @@ import {
   renderTestCsproj,
   renderTestsFile,
   renderValidationProblem,
+  renderValueObject,
   renderVoTestsFile,
 } from "./emit.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
@@ -416,10 +425,39 @@ function emitProjectFromContexts(
       fileUpload = { putBytes: `${call}_PutBytes`, getBytes: `${call}_GetBytes` };
     }
   }
+  // Union the hosted contexts into one synthetic context (ambient enums / VOs
+  // deduped by name — see src/ir/util/merge-contexts.ts).
+  const mergedBase = mergeContexts(contexts);
+  // Foreign events a hosted workflow consumes through a wired channel join
+  // the deployable's event vocabulary (record class + DomainEvent routing).
+  // EVERY broker-carried event joins too, subscribed or not — the consumer's
+  // codec must decode a carried type it has no reactor for (the dispatch
+  // no-ops), or the broker driver would wrongly dead-letter it as unknown
+  // (the 8a python fix, applied here for parity).
+  const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
+  const foreignConsumedEvents = system
+    ? resolveForeignEvents(
+        [
+          ...mergedSubscriptions.map((sub) => sub.event),
+          ...channelBindings.flatMap((b) => b.events),
+        ],
+        knownEventNames,
+        system.sys,
+      )
+    : [];
+  // The value objects / enums those foreign events reach: the event record
+  // names them, so the consumer must declare them (eval item 11) — derived
+  // ahead of `emitCommon` because a foreign VO's invariant needs the
+  // `ValueObjectInvariantException` it throws.
+  const foreignValueTypes = system
+    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+    : NO_FOREIGN_VALUE_TYPES;
   emitCommon(ns, out, {
     concurrencyException: emitsConcurrencyException,
     file: hasFileField,
-    valueObjectInvariant: contexts.some(hasValueObjectInvariants),
+    valueObjectInvariant:
+      contexts.some(hasValueObjectInvariants) ||
+      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
   });
   emitDispatcher(ns, out, hasSubscriptions);
@@ -525,36 +563,7 @@ function emitProjectFromContexts(
     }
   }
   // DbContext + project shell are emitted once, with all aggregates
-  // collected from the union of contexts.
-  // Union the hosted contexts into one synthetic context (ambient enums / VOs
-  // deduped by name — see src/ir/util/merge-contexts.ts).  `name` is this
-  // deployable's namespace rather than the first context's.
-  const mergedBase = mergeContexts(contexts);
-  // Foreign events a hosted workflow consumes through a wired channel join
-  // the deployable's event vocabulary (record class + DomainEvent routing).
-  // EVERY broker-carried event joins too, subscribed or not — the consumer's
-  // codec must decode a carried type it has no reactor for (the dispatch
-  // no-ops), or the broker driver would wrongly dead-letter it as unknown
-  // (the 8a python fix, applied here for parity).
-  const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
-  const foreignConsumedEvents = system
-    ? [
-        ...new Set([
-          ...mergedSubscriptions.map((sub) => sub.event),
-          ...channelBindings.flatMap((b) => b.events),
-        ]),
-      ]
-        .filter((name) => !knownEventNames.has(name))
-        .flatMap((name) => {
-          for (const sub of system.sys.subdomains) {
-            for (const c of sub.contexts) {
-              const ev = c.events.find((e) => e.name === name);
-              if (ev) return [ev];
-            }
-          }
-          return [];
-        })
-    : [];
+  // collected from the union of contexts (`mergedBase`, derived above).
   const merged: EnrichedBoundedContextIR = {
     ...mergedBase,
     name: ns,
@@ -566,6 +575,12 @@ function emitProjectFromContexts(
   for (const ev of foreignConsumedEvents) {
     out.set(`Domain/Events/${ev.name}.cs`, renderEvent(ev, ns));
   }
+  for (const e of foreignValueTypes.enums) {
+    out.set(`Domain/Enums/${e.name}.cs`, renderEnum(e, ns));
+  }
+  for (const vo of foreignValueTypes.valueObjects) {
+    out.set(`Domain/ValueObjects/${vo.name}.cs`, renderValueObject(vo, ns));
+  }
   if (system) {
     const hostedIdNames = new Set(
       contexts.flatMap((c) =>
@@ -574,6 +589,7 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(merged.workflows),
     ]);
     for (const name of foreignIdNames) {
@@ -618,7 +634,11 @@ function emitProjectFromContexts(
             : hasSubscriptions
               ? "InProcessDomainEventDispatcher"
               : "NoopDomainEventDispatcher",
-        { hasOutbox: hasOutboxTier, durableBroker: durableBrokerEvents.size > 0 },
+        {
+          hasOutbox: hasOutboxTier,
+          durableBroker: durableBrokerEvents.size > 0,
+          valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+        },
       ),
     );
   }
@@ -999,6 +1019,8 @@ function emitProjectFromContexts(
       // resolved statuses are identical across every hosted context (folded
       // app-wide in enrichment), so any context carries the same map.
       structuralStatuses: contexts[0]?.structuralErrorStatuses,
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoForbiddenDetail: echoesDenialDetail(system?.deployable, system?.sys),
     }),
   );
   // Shared RFC 6901 pointer helper + the replacement for MVC's built-in

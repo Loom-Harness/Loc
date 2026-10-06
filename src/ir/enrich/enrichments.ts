@@ -76,6 +76,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -247,7 +248,10 @@ function enrichSystem(
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
     // always-false carve-out dominates any widened allow scope on the same target.
-    .map((m) => applyPolicyDenies(m));
+    .map((m) => applyPolicyDenies(m))
+    // The bundled dev Keycloak's demo tenant gets a first-boot registry row
+    // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
+    .map((m) => applyDemoTenantSeed(m, sys));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.

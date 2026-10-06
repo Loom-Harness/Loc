@@ -17,6 +17,7 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
@@ -204,6 +205,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       // M-T1.11 (c) — a messaged rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(deployable, sys),
     ),
   );
 

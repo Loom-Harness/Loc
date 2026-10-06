@@ -31,6 +31,12 @@ import type {
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
+import {
+  bundlesDevKeycloak,
+  DEMO_TENANT_DATASET,
+  DEMO_TENANT_ID,
+  demoTenantClaim,
+} from "../ir/util/demo-tenant.js";
 import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
@@ -968,9 +974,7 @@ function keycloakHostPort(sys: SystemIR): number {
 }
 
 function bundlesKeycloak(sys: SystemIR): boolean {
-  const a = sys.auth;
-  if (!a) return false;
-  return !a.provider || a.provider === "keycloak" || a.provider === "custom";
+  return bundlesDevKeycloak(sys);
 }
 
 /** Realm + client identifiers + the issuer URL the bundled Keycloak serves.
@@ -1154,10 +1158,18 @@ function renderKeycloakRealm(sys: SystemIR): string {
     // before.  Demoting it to `user` closed the allow paths and bought no
     // denial in exchange — it made two cross-backend runtime tests unsatisfiable
     // rather than stricter.
+    //
+    // The TENANCY claim is a uuid, not `demo-<field>` (#26): every registry's
+    // self-scope matches `<registry>.id = <claim>` only for a uuid claim, so a
+    // `demo-org-id` tenant could never see its own registry row.  It is the
+    // same `DEMO_TENANT_ID` enrichment seeds a first-boot registry row with
+    // (`src/ir/enrich/demo-tenant.ts`), so the demo user starts with a tenant.
     demoAttributes[f.name] =
       f.name === "role"
         ? ["admin"]
-        : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+        : f.name === demoTenantClaim(sys)
+          ? [DEMO_TENANT_ID]
+          : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
   }
 
   const clientMappers = [...audienceMappers, ...claimMappers];
@@ -1522,6 +1534,18 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
         `    #   ^ ${uiHosts.length} frontends target this api; pick one, or login lands on the api root.`,
       );
     }
+    // The demo tenant's registry row (#26) ships in its own seed dataset,
+    // which — like every non-`default` dataset — runs only when LOOM_SEED
+    // names it.  This dev compose opts the registry's host in, so the realm's
+    // demo user logs in to a tenant that exists; a production deploy that
+    // does not set it never inserts one.
+    const hostsDemoTenant = sys.subdomains.some((m) =>
+      m.contexts.some(
+        (c) =>
+          d.contextNames.includes(c.name) && c.seeds.some((s) => s.dataset === DEMO_TENANT_DATASET),
+      ),
+    );
+    if (hostsDemoTenant) lines.push(`    LOOM_SEED: ${JSON.stringify(DEMO_TENANT_DATASET)}`);
   }
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);

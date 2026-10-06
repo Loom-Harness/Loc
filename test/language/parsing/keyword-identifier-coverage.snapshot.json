@@ -98,7 +98,9 @@
     "paramName",
     "stateField"
   ],
-  "as": [],
+  "as": [
+    "memberAccess"
+  ],
   "asc": [
     "fieldName",
     "fieldNameAfterField",
@@ -760,7 +762,9 @@
     "stateField"
   ],
   "expect": [],
-  "extends": [],
+  "extends": [
+    "memberAccess"
+  ],
   "extern": [
     "fieldName",
     "fieldNameAfterField",
@@ -1776,7 +1780,9 @@
     "paramName",
     "stateField"
   ],
-  "requires": [],
+  "requires": [
+    "memberAccess"
+  ],
   "resource": [
     "fieldName",
     "fieldNameAfterField",
@@ -2243,6 +2249,7 @@
     "stateField"
   ],
   "this": [
+    "memberAccess",
     "nameRef"
   ],
   "timerSource": [
