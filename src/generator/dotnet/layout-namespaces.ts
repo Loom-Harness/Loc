@@ -42,6 +42,8 @@
 // `test/e2e/fixtures/dotnet-build/byfeature.ddd` under LOOM_DOTNET_BUILD.
 // ---------------------------------------------------------------------------
 
+import { rewrite } from "../../util/emission-sink.js";
+
 /** Path prefix the byFeature layout adapter relocates under.  Only files
  *  below it get their namespaces rewritten; everything else only has its
  *  REFERENCES to renamed namespaces fixed. */
@@ -111,7 +113,7 @@ export function rewriteNamespacesForLayout(out: Map<string, string>, root: strin
   // -- 1. Rewrite the relocated files' own namespace declarations. -------
   for (const f of relocated) {
     const content = out.get(f.path)!;
-    out.set(f.path, content.replace(`namespace ${f.oldNs};`, `namespace ${f.newNs};`));
+    rewrite(out, f.path, content.replace(`namespace ${f.oldNs};`, `namespace ${f.newNs};`));
   }
 
   // -- Inventory the namespaces still declared post-rewrite (an old
@@ -156,7 +158,7 @@ export function rewriteNamespacesForLayout(out: Map<string, string>, root: strin
     }
 
     content = rewriteUsings(content, renames, declared, fileNs);
-    if (content !== original) out.set(path, content);
+    if (content !== original) rewrite(out, path, content);
   }
 }
 
