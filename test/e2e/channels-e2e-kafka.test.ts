@@ -14,6 +14,11 @@
 //   3. DLQ parking — a poisoned (malformed) record published straight to the
 //      topic parks on `<address>.dlq` (v1 log + park) and the partition
 //      keeps moving.
+//   4. LATE JOIN on a work queue (ruling D3, eval item 13) — a second system
+//      whose channel is `delivery: queue` / `retention: work` publishes
+//      BEFORE the consuming deployable has ever booted; the consumer's NEW
+//      group must start at the earliest offset and still deliver every
+//      event (a `latest` start silently dropped them all).
 //
 // Opt-in: LOOM_CHANNELS_E2E_KAFKA=1 (npm run test:channels-kafka).  Needs
 // docker + npm network access.  LOOM_CHANNELS_PG_URL /
@@ -359,4 +364,196 @@ describe.skipIf(!ENABLED)("kafka log semantics (M-T4.4 slice 4)", () => {
       "channel_dead_lettered announced by a replica",
     );
   }, 90_000);
+});
+
+// Ruling D3 (eval item 13): a NEW consumer group on a kafka WORK QUEUE starts
+// at the earliest offset.  The producer publishes while the consumer has never
+// booted (its group does not exist yet); the consumer then boots and must
+// still receive every event.  On a `latest` start the backlog is skipped and
+// no shipment is ever created.  A distinct channel name (address) keeps this
+// group isolated from the log scenario above, even on a shared broker.
+const LATE_FIXTURE = FIXTURE.replace("channel Lifecycle {", "channel Backlog {")
+  .replace("delivery: broadcast", "delivery: queue")
+  .replace("retention: log", "retention: work")
+  .replace(
+    "channelSource lifecycleBus { for: Lifecycle, use: bus }",
+    "channelSource backlogBus { for: Backlog, use: bus }",
+  )
+  .replaceAll("channels: [lifecycleBus]", "channels: [backlogBus]");
+const LATE_SALES_PORT = 3227;
+const LATE_SHIP_PORT = 3228;
+const LATE_PG_PORT = 55451; // unique across the channels-e2e suites
+const LATE_KAFKA_PORT = 55685;
+const LATE_ORDERS = 4;
+
+describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earliest (D3)", () => {
+  let dir: string;
+  const apps: ChildProcess[] = [];
+  const dockerNames: string[] = [];
+  let pgUrl: (db: string) => string;
+  let kafkaUrl: string;
+
+  const boot = (app: string, port: number, db: string): void => {
+    const child = spawn(join(dir, "out", app, "node_modules/.bin/tsx"), ["index.ts"], {
+      cwd: join(dir, "out", app),
+      detached: true,
+      env: {
+        ...process.env,
+        DATABASE_URL: pgUrl(db),
+        LOOM_CHANNEL_BACKLOG_BUS_URL: kafkaUrl,
+        PORT: String(port),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const log = join(dir, `${app}-${port}.log`);
+    // Output still buffered when afterAll removes `dir` must not crash the
+    // run (an unhandled ENOENT fails vitest even with every test green).
+    const sink = (d: Buffer): void => {
+      try {
+        appendFileSync(log, d);
+      } catch {
+        /* dir already removed during teardown */
+      }
+    };
+    child.stdout?.on("data", sink);
+    child.stderr?.on("data", sink);
+    apps.push(child);
+  };
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-kf-late-"));
+    writeFileSync(join(dir, "sys.ddd"), LATE_FIXTURE);
+    sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
+    const pgOverride = process.env.LOOM_CHANNELS_PG_URL;
+    const kafkaOverride = process.env.LOOM_CHANNELS_KAFKA_URL;
+    if (pgOverride) {
+      pgUrl = (db) => `${pgOverride.replace(/\/[^/]*$/, "")}/${db}`;
+    } else {
+      sh(
+        `docker run -d --rm --name loom-channels-kf-late-pg -e POSTGRES_PASSWORD=postgres -p ${LATE_PG_PORT}:5432 postgres:18-alpine`,
+      );
+      dockerNames.push("loom-channels-kf-late-pg");
+      pgUrl = (db) => `postgres://postgres:postgres@localhost:${LATE_PG_PORT}/${db}`;
+      await waitFor(
+        async () => {
+          sh(
+            `docker exec loom-channels-kf-late-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+          );
+          return true;
+        },
+        60_000,
+        "postgres accepting CREATE DATABASE",
+      );
+    }
+    if (kafkaOverride) {
+      kafkaUrl = kafkaOverride;
+    } else {
+      sh(
+        `docker run -d --name loom-channels-kf-late-kafka -p ${LATE_KAFKA_PORT}:19092 ` +
+          `-e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller ` +
+          `-e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:19092 ` +
+          `-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,HOST://localhost:${LATE_KAFKA_PORT} ` +
+          `-e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER ` +
+          `-e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 ` +
+          `-e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT ` +
+          `-e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT ` +
+          `-e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 ` +
+          `-e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 ` +
+          `-e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 ` +
+          `-e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 ` +
+          `-e KAFKA_NUM_PARTITIONS=3 ` +
+          `apache/kafka:4.1.0`,
+      );
+      dockerNames.push("loom-channels-kf-late-kafka");
+      kafkaUrl = `localhost:${LATE_KAFKA_PORT}`;
+      await waitFor(
+        async () => {
+          sh(
+            `docker exec loom-channels-kf-late-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092`,
+          );
+          return true;
+        },
+        120_000,
+        "kafka accepting api-versions",
+      );
+    }
+    for (const app of ["sales_api", "ship_api"] as const) {
+      installGeneratedProject(join(dir, "out", app), { flags: [], timeout: 420_000 });
+    }
+    // ONLY the producer boots here — the consumer's group must not exist
+    // until after the events are on the topic.
+    boot("sales_api", LATE_SALES_PORT, "sales_api");
+    await waitFor(ready(LATE_SALES_PORT), 120_000, "salesApi /ready");
+  }, 900_000);
+
+  afterAll(async () => {
+    for (const app of apps) {
+      if (app.pid === undefined) continue;
+      try {
+        process.kill(-app.pid, "SIGKILL");
+      } catch {
+        app.kill("SIGKILL");
+      }
+    }
+    for (const name of dockerNames) {
+      try {
+        sh(`docker rm -f ${name}`);
+      } catch {
+        /* already gone */
+      }
+    }
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }, 60_000);
+
+  it("delivers events published before the consumer's group first joined", async () => {
+    const lateIds: string[] = [];
+    for (let i = 0; i < LATE_ORDERS; i++) {
+      const createRes = await fetch(`http://localhost:${LATE_SALES_PORT}/api/orders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ customerId: `late${i}`, status: "Draft" }),
+      });
+      expect(createRes.status).toBe(201);
+      const { id } = (await createRes.json()) as { id: string };
+      lateIds.push(id);
+      const res = await fetch(`http://localhost:${LATE_SALES_PORT}/api/orders/${id}/place`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(res.ok, `place ${id}`).toBe(true);
+    }
+    // Every event is on the topic (the relay announced each publish) BEFORE
+    // the consumer exists.
+    await waitFor(
+      async () =>
+        (
+          readFileSync(join(dir, `sales_api-${LATE_SALES_PORT}.log`), "utf8").match(
+            /channel_published/g,
+          ) ?? []
+        ).length >= LATE_ORDERS,
+      30_000,
+      "every OrderPlaced published by the relay",
+    );
+    // Now the consumer boots for the first time — a brand-new group.
+    boot("ship_api", LATE_SHIP_PORT, "ship_api");
+    await waitFor(ready(LATE_SHIP_PORT), 120_000, "shipApi /ready");
+    // Count ONLY this scenario's shipments: under LOOM_CHANNELS_PG_URL (CI)
+    // both describes share the `ship_api` database, so the log scenario's
+    // shipments are already in the table.
+    const lateShipments = async (): Promise<string[]> => {
+      const res = await fetch(`http://localhost:${LATE_SHIP_PORT}/api/shipments?pageSize=100`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as { items: { orderRef: string }[] };
+      return body.items.map((s) => s.orderRef).filter((ref) => lateIds.includes(ref));
+    };
+    await waitFor(
+      async () => (await lateShipments()).length >= LATE_ORDERS,
+      30_000,
+      `all ${LATE_ORDERS} backlog shipments created by the late-joining group`,
+    );
+    const refs = await lateShipments();
+    expect(refs.length).toBe(LATE_ORDERS);
+    expect(new Set(refs)).toEqual(new Set(lateIds));
+  }, 240_000);
 });

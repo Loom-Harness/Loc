@@ -745,6 +745,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `policy function '${p.name}' must return 'bool' — an authorization predicate is a boolean point gate.`,
   "loom.policy-fn-cycle": (p: { name: unknown }) =>
     `policy function '${p.name}' is part of a reference cycle. A policy function may not (transitively) reference itself.`,
+  // A policy-function call from a context other than its declaring one (eval
+  // item 39, ruling D9).  Policies are context-local; sharing one across
+  // contexts is a separate mission.
+  "loom.policy-out-of-scope": (p: { name: unknown; declaredIn: unknown; usedIn: unknown }) =>
+    `policy '${p.name}' is declared in context '${p.declaredIn}'; policies are context-local — ` +
+    `redeclare it in '${p.usedIn}' to call it there.`,
   "loom.policy-fn-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -2810,6 +2816,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
     `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
     `whole api is restricted.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A
+  // WARNING with its own code, the same tier as the by-id read above — but
+  // this one HAS recourse, so the message names the exact line to write.
+  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
+    `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
+    `\`requires\` gate, so it serves every row to ANY authenticated caller. Gate it by ` +
+    `declaring the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
+    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one and is ` +
+    `enforced on all five backends (use \`requires true\` to mark it intentionally public).`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for the same RECOURSE reason as the by-id read above: the author cannot gate
   // this one either — a body `requires` here is refused outright by

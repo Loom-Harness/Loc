@@ -457,9 +457,10 @@ function orgContextForbidden(c: Context, requested: string, orgPath: string) {
   // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
   // same reason as the probes: it is infra, not domain surface, and an
   // auth-bearing system's e2e suite would otherwise have to mint a principal
-  // just to empty a table.  It costs nothing to bypass — the route is not
-  // REGISTERED outside a dev profile, so on a real deployment there is no
-  // handler behind the bypassed path.
+  // just to empty a table.  Bypassing the middleware is not bypassing
+  // authentication: the route is registered only with an explicit
+  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-loom-test-reset` header does not match that secret.
   // Ruling D6 (#23): the dev stub refuses a present-but-undecodable
   // `x-loom-dev-claims` header; this is the 400 it answers with.  Not emitted
   // under OIDC — there is no dev stub to throw it.

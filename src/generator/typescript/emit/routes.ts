@@ -14,7 +14,9 @@ import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
 
@@ -42,20 +44,21 @@ export interface ExplicitRouterMount {
  * the documented one (F3).
  *
  * REGISTRATION IS THE SERVER-SIDE HALF OF THE SAFETY CONTRACT.  The route is
- * wrapped in a runtime `if`, not merely guarded inside the handler: outside a
- * dev profile the path is never registered, so a production deploy answers it
- * through the ordinary not-found floor, having touched nothing.  Keying it on
- * `NODE_ENV` — which an operator already sets, and which the Dockerfile pins
- * to `production` — means the documented recipe needs no new environment
- * variable while a real deployment is closed by DEFAULT rather than by
- * remembering to close it.  `LOOM_TEST_RESET=0` forces it off even in a dev
- * profile, for a shared dev host that wants the surface gone.
+ * wrapped in a runtime `if`, not merely guarded inside the handler: unless an
+ * operator sets BOTH `LOOM_TEST_RESET=1` and a `LOOM_TEST_RESET_TOKEN`, the
+ * path is never registered, so a request answers through the ordinary
+ * not-found floor having touched nothing.  Nothing is inferred from
+ * `NODE_ENV`: the reset used to be on by default outside production, which
+ * made `npm run dev` expose an unauthenticated truncate (finding H-30).  With
+ * the switch on but no token the route stays unregistered and boot says why.
  *
- * The other half is client-side and lives in the emitted suite, which only
- * SENDS the request when its base URL is loopback (`__isLoopbackBase`).
- * Neither gate is redundant: this one alone would miss a dev-profile backend
- * on a shared host, that one alone would miss a loopback port-forward into a
- * remote database.
+ * Each request must carry the token in `x-loom-test-reset`, compared with
+ * `timingSafeEqual`; anything else is a 403 that touches nothing.  The path is
+ * in the auth middleware's bypass list (an auth-bearing suite need not mint a
+ * principal to empty a table), so the token is its authentication.
+ *
+ * The client half lives in the emitted suite, which only SENDS the request
+ * when it holds the token and its base URL is loopback (`__isLoopbackBase`).
  *
  * Tables are discovered at RUNTIME rather than baked in at generation time,
  * so the reset also reaches what the model does not describe but the backend
@@ -92,13 +95,21 @@ function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] 
     : "        await db.execute(sql.raw(statement));";
   return [
     "  // Dev-only state reset for the emitted e2e suite — see the note on",
-    "  // `renderTestResetRoute`.  Registered only when asked for, so this",
-    "  // surface does not exist in a real deployment.",
-    `  const testResetEnabled =`,
-    `    process.env.${TEST_RESET_ENV} === "1" ||`,
-    `    (process.env.${TEST_RESET_ENV} !== "0" && process.env.NODE_ENV !== "production");`,
-    "  if (testResetEnabled) {",
+    "  // `renderTestResetRoute`.  Registered only when an operator opts in by",
+    "  // name AND supplies a shared secret; never inferred from a profile.",
+    `  const testResetToken = process.env.${TEST_RESET_TOKEN_ENV} ?? "";`,
+    `  if (process.env.${TEST_RESET_ENV} === "1" && testResetToken === "") {`,
+    "    console.warn(",
+    `      "${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset — the ${TEST_RESET_PATH} route is NOT registered.",`,
+    "    );",
+    "  }",
+    `  if (process.env.${TEST_RESET_ENV} === "1" && testResetToken !== "") {`,
     `    app.post(${JSON.stringify(TEST_RESET_PATH)}, async (c) => {`,
+    `      const given = Buffer.from(c.req.header(${JSON.stringify(TEST_RESET_HEADER)}) ?? "");`,
+    "      const expected = Buffer.from(testResetToken);",
+    "      if (given.length !== expected.length || !timingSafeEqual(given, expected)) {",
+    '        return c.json({ status: "forbidden", detail: "missing or wrong reset token" }, 403);',
+    "      }",
     ...discover,
     "      const targets = found.map(",
     '        (t) => `"${t.schemaname}"."${t.tablename}"`,',
@@ -504,6 +515,7 @@ export function renderHttpIndex(
         : 'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
       usingMikro ? null : 'import type * as schema from "../db/schema";',
       resetSeedImport,
+      'import { timingSafeEqual } from "node:crypto";',
       wireDispatcher
         ? 'import { type DomainEventDispatcher } from "../domain/events";'
         : 'import { type DomainEventDispatcher, NoopDomainEventDispatcher } from "../domain/events";',

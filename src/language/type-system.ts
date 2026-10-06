@@ -1059,7 +1059,51 @@ function typeOfFreeCall(name: string, env: Env): DddType {
   // `function days(...)` shadows the builtin).  Arity / argument type are
   // the validator's job (`loom.duration-arity`), not typing's.
   if (durationUnitOf(name)) return T.prim("duration");
+  // A policy function declared in ANOTHER context (eval item 39, ruling D9).
+  // Policies are context-local, so this call does not resolve — but the
+  // validator reports exactly that as `loom.policy-out-of-scope`, naming both
+  // contexts.  Typing it `bool` (every policy function returns `bool`,
+  // `loom.policy-fn-return-type`) keeps the gate checks downstream from adding
+  // a misleading `'requires' must be of type 'bool', got 'unknown'` on top of
+  // the real diagnostic.  The model never lowers: the out-of-scope error
+  // blocks the build.
+  if (outOfScopePolicyCall(name, env)) return T.prim("bool");
   return T.unknown;
+}
+
+/** The policy function a free call `name(args)` names when that call resolves
+ *  to NOTHING in its own context but a function-form `policy` of that name is
+ *  declared in another bounded context of the same model — the
+ *  `loom.policy-out-of-scope` case.  `undefined` whenever any in-scope
+ *  declaration (function, value object, criterion, local policy, top-level
+ *  function, duration builtin) claims the name first: mirrors
+ *  `typeOfFreeCall`'s resolution order so the validator and the type system
+ *  agree on which calls are out of scope.  Same-document only — a context in
+ *  another file is not visible from here (the call then stays `unknown`). */
+export function outOfScopePolicyCall(
+  name: string,
+  env: Env,
+): { decl: PolicyDecl; declaredIn: BoundedContext; usedIn: BoundedContext } | undefined {
+  const usedIn = envContext(env);
+  if (!usedIn) return undefined;
+  const sym = env.resolve(name);
+  if (sym && (isFunctionDecl(sym.origin) || isValueObject(sym.origin))) return undefined;
+  if (lookupFunctionInScope(name, env)) return undefined;
+  if (lookupValueObjectByName(name, env)) return undefined;
+  if (lookupCriterionByName(name, env)) return undefined;
+  if (lookupPolicyFnByName(name, env)) return undefined;
+  if (lookupTopLevelFunction(name, env)) return undefined;
+  if (durationUnitOf(name)) return undefined;
+  const root = AstUtils.findRootNode(usedIn);
+  for (const node of AstUtils.streamAllContents(root)) {
+    if (!isBoundedContext(node) || node === usedIn) continue;
+    for (const m of node.members) {
+      if (isPolicyDecl(m) && m.returnType !== undefined && m.name === name) {
+        return { decl: m, declaredIn: node, usedIn };
+      }
+    }
+  }
+  return undefined;
 }
 
 /** The user `FunctionDecl` a free call `name(args)` resolves to, or `undefined`
