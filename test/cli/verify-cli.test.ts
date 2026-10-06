@@ -79,6 +79,48 @@ describe("ddd verify", () => {
     expect(r.stderr).toMatch(/gate failed/);
   });
 
+  // Eval item #36: a runner spelling (`failed`) was neither a pass nor a fail to
+  // the join, so a FAILED test left its requirement merely unverified and the
+  // gate exited 0.  An unknown status is malformed input — exit 2, naming the
+  // entry and the value, and pointing at the spelling that was meant.
+  it("exits 2 on an unknown result status, naming the entry and suggesting the fix", () => {
+    for (const [bad, meant] of [
+      ["failed", "fail"],
+      ["passed", "pass"],
+    ] as const) {
+      const p = path.join(tmp, `results-typo-${bad}.json`);
+      fs.writeFileSync(
+        p,
+        JSON.stringify({
+          version: 1,
+          results: [
+            { name: "other", suite: "A", status: "pass" },
+            { name: "go works", suite: "A", status: bad },
+          ],
+        }),
+        "utf8",
+      );
+      const r = run(["verify", ddd, "--results", p, "--out", path.join(tmp, `typo-${bad}`)]);
+      expect(r.status, r.stdout + r.stderr).toBe(2);
+      expect(r.stderr).toContain(`results[1] ("go works") has status "${bad}"`);
+      expect(r.stderr).toContain(`did you mean "${meant}"?`);
+    }
+  });
+
+  it("exits 2 on a result entry with a missing status or name", () => {
+    const p = path.join(tmp, "results-nostatus.json");
+    fs.writeFileSync(p, JSON.stringify({ results: [{ name: "go works", suite: "A" }] }), "utf8");
+    const r = run(["verify", ddd, "--results", p, "--out", path.join(tmp, "nostatus")]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('results[0] ("go works") has status undefined');
+
+    const q = path.join(tmp, "results-noname.json");
+    fs.writeFileSync(q, JSON.stringify({ results: [{ status: "pass" }] }), "utf8");
+    const r2 = run(["verify", ddd, "--results", q, "--out", path.join(tmp, "noname")]);
+    expect(r2.status).toBe(2);
+    expect(r2.stderr).toContain('results[0] has no string "name"');
+  });
+
   it("exits 2 on a missing results file", () => {
     const r = run(["verify", ddd, "--results", path.join(tmp, "nope.json")]);
     expect(r.status).toBe(2);

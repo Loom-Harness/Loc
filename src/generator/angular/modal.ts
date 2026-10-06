@@ -7,6 +7,7 @@ import {
   localizedPageChromeText,
   localizedText,
 } from "../_walker/i18n-emit.js";
+import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
 import {
@@ -58,6 +59,10 @@ export interface AngularModalSpec {
   /** True when the form has ≥1 `File` param — page-shell emits the shared
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
+  /** A `when`-gated op's `can_<op>` probe: page-shell hoists
+   *  `readonly <local> = <hook>(() => <idExpr>)`, with the TEMPLATE-scope
+   *  `idExpr` rebound against `this`.  Absent for an ungated op. */
+  gate?: { local: string; hook: string; idExpr: string };
 }
 
 /** Resolve the operation a Modal's `OperationForm` child targets, plus the
@@ -164,17 +169,19 @@ export function renderAngularModal(
         : 'class="loom-button loom-button-ghost" type="button"';
 
   const bc = ctx.bcByAggregate?.get(aggName);
+  const agg = ctx.aggregatesByName.get(aggName);
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");
   else if (style === "primeng") addNg(ctx, "primeng/button", "ButtonModule");
   addNg(ctx, importFrom, mutationFn);
+  const gate = agg ? opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${aggName}`) : undefined;
+  if (gate) addNg(ctx, importFrom, gate.hook);
 
   // Same constraint source as the standalone operation form (and the zod
   // `<Op>Request`): the aggregate's invariants + this op's `precondition`s,
   // gated to the op's params.  Resolved BEFORE the markup is built so each
   // constrained control can carry the `aria-invalid` / `aria-describedby`
   // matching its inline error.
-  const agg = ctx.aggregatesByName.get(aggName);
   const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
   const available = new Set(op.params.map((p) => p.name));
   const errorFields = new Set(angularValidatorMap(opInvariants, available).keys());
@@ -211,6 +218,7 @@ export function renderAngularModal(
     fieldArrays: parts.fieldArrays,
     fieldGroups: parts.fieldGroups,
     hasFile: parts.hasFileField,
+    ...(gate ? { gate: { local: gate.local, hook: gate.hook, idExpr } } : {}),
   };
   angularSink(ctx).modals.push(spec);
 
@@ -229,7 +237,7 @@ export function renderAngularModal(
   const title = modalTitleOf(call, ctx) ?? label;
   return [
     `<div class="loom-modal">`,
-    `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${openSig}.set(true)' data-testid="${ns}">${triggerLabel}</button>`,
+    `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
     `${inner}@if (${openSig}()) {`,
     `${deep}<div role="dialog" aria-modal="true" aria-labelledby="${titleId}">`,
     `${deep}  <h3 id="${titleId}" class="loom-modal-title">${title}</h3>`,

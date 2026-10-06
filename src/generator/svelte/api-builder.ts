@@ -326,6 +326,21 @@ export function buildSvelteApiModule(
     lines.push(`  }));`);
     lines.push(`}`);
     lines.push("");
+    // useCan<Op><Agg> — the `GET /{id}/can_<op>` probe of a `when`-gated op;
+    // keyed under the record so every record mutation re-queries it.
+    if (op.when) {
+      lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(id: () => string) {`);
+      lines.push(`  return createQuery(() => ({`);
+      lines.push(`    queryKey: ["${tag}", id(), "can", "${op.name}"],`);
+      lines.push(`    enabled: !!id(),`);
+      lines.push(`    queryFn: async () => {`);
+      lines.push(`      const r = await api.get(\`/${tag}/\${seg(id())}/can_${opSnake}\`);`);
+      lines.push(`      return z.object({ allowed: z.boolean() }).parse(r);`);
+      lines.push(`    },`);
+      lines.push(`  }));`);
+      lines.push(`}`);
+      lines.push("");
+    }
   }
 
   if (repo) {

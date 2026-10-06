@@ -129,7 +129,17 @@ export function expectedFrameworkFor(
 
 /** Format a given framework's design pack must declare.  Mirrors
  *  `expectedFrameworkFor`; used by Rule 14 to cross-check the
- *  deployable's `design:` against its framework. */
+ *  deployable's `design:` against its framework.
+ *
+ *  `undefined` means "this framework has no `.hbs` pack pipeline", NOT "any
+ *  pack goes".  The two self-hosting frontends land here deliberately —
+ *  **feliz** (whose `design:` slot selects a daisyUI theme) and **flutter**
+ *  (whose `design:` slot means nothing at all: lowering drops it and the
+ *  Material 3 widgets are emitted procedurally).  Both are handled by their
+ *  own dedicated arm in `checkDeployableDesignPack`, which RETURNS before the
+ *  format cross-check — so do not "fix" this by inventing a pack format for
+ *  them.  A new framework added here without either a format or an arm there
+ *  silently accepts every pack name (the shape this comment exists to stop). */
 export function expectedPackFormatFor(framework: string | undefined): PackFormat | undefined {
   if (framework === "react") return "tsx";
   if (framework === "svelte") return "svelte";

@@ -197,6 +197,10 @@ const PROSE_SAYS_UNDEFINED = [
   // content, not an interpolation reaching one hop too far.
   "loom.frontend-collection-op-unsupported",
   "loom.match-non-exhaustive",
+  // Names the literal the page emitter used to ship for an unbound `of:` read
+  // (`/* unresolved: X */ undefined`).  The word IS the symptom the author will
+  // grep for in the generated page, so it is content, not an interpolation.
+  "loom.ui-read-unresolved#unbound",
   // The boolean-`match` twin of the entry above (M-T9.56 drain of `match.ts`):
   // a `match` with no `else` genuinely EVALUATES to `undefined` when no arm
   // matches, which is the whole reason the warning exists.  The word is the
