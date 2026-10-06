@@ -1,7 +1,6 @@
 // -------------------------------------------------------------------------
-// Derived-need ⊆ sourceType capability check (RFC §5.3), typed remote-call
-// backend support, in-system typed api bindings (M-T4.8), and generic
-// `config` map validation (RFC §8).  Split out of system-checks.ts by
+// Derived-need ⊆ sourceType capability check (RFC §5.3), in-system typed api
+// bindings (M-T4.8), and generic `config` map validation (RFC §8).  Split out of system-checks.ts by
 // packet 2.6 (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
@@ -16,10 +15,8 @@ import type {
   ConfigEntryIR,
   ConfigValueIR,
   EnrichedSystemIR,
-  Platform,
   SystemIR,
 } from "../../types/loom-ir.js";
-import { walkWorkflowStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** Returns a human-readable reason a dataSource of `kind` covers
@@ -72,64 +69,6 @@ export function validateNeedCapabilities(sys: EnrichedSystemIR, diags: LoomDiagn
         }),
         source: `${sys.name}/${resource.name}`,
       });
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Typed remote-call backend support.  `orders.getOrderById(id)` resolves
-// against the callee's derived operation set and types its result; a backend
-// with no typed client would reach the renderer and die on a stack trace.  This
-// gate is the repo's HONEST-gap stance: a `loom.*` code the user can read, not
-// a silent mis-emit.
-//
-// The set is EMPTY — every backend (node, python, dotnet, java, elixir) emits a
-// typed client.  The check is deliberately KEPT rather than deleted with the
-// last entry.  It costs one `.some()` early-exit on models with no api binding,
-// and it is the
-// honest-gap net for the NEXT backend: a sixth platform added without a client
-// would otherwise reach a `render-expr.ts` arm that has no idea what to emit.
-// Adding the new platform key here turns that into a readable `loom.*` error at
-// validation time, which is the whole stance this check exists to hold.
-// ---------------------------------------------------------------------------
-
-/** Backends with no typed in-system api client.  Currently empty — add a key
- *  here when introducing a backend before its client exists. */
-
-export const REMOTE_API_OP_UNSUPPORTED: ReadonlySet<Platform> = new Set<Platform>([]);
-
-export function validateRemoteApiOpSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  // Cheap exit: no api-bound resource ⇒ no typed call can exist.
-  if (!sys.dataSources.some((r) => r.apiName)) return;
-  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
-  for (const dep of sys.deployables) {
-    if (!REMOTE_API_OP_UNSUPPORTED.has(dep.platform)) continue;
-    for (const cn of dep.contextNames) {
-      const ctx = ctxByName.get(cn);
-      if (!ctx) continue;
-      for (const wf of ctx.workflows) {
-        for (const st of wf.statements) {
-          walkWorkflowStmtExprsDeep(st, (e) => {
-            if (e.kind !== "call" || e.callKind !== "remote-api-op") return;
-            const op = e.remoteApiOp;
-            if (!op) return;
-            diags.push({
-              severity: "error",
-              code: "loom.remote-api-op-unsupported",
-              message: diagMessage("loom.remote-api-op-unsupported", {
-                name: wf.name,
-                resourceName: op.resourceName,
-                operationId: op.operationId,
-                apiName: op.apiName,
-                depName: dep.name,
-                platform: dep.platform,
-              }),
-              source: `${sys.name}/${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-          });
-        }
-      }
     }
   }
 }

@@ -145,6 +145,117 @@
         "id": "<volatile:key>",
         "orgId": "<volatile:key>"
       }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amountDue": 1,
+        "id": "<volatile:key>",
+        "number": "LADDER-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amountDue": 1,
+        "id": "<volatile:key>",
+        "number": "LADDER-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 204,
+      "body": ""
     }
   ]
 }

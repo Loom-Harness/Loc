@@ -26,13 +26,13 @@ import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
 // each concrete emits as a standalone table carrying the merged base + own
 // fields (the `wireShape` merge in enrichContext).
 //
-// `sharedTable` (TPH) is implemented on all three DB backends: Hono/Drizzle
+// `sharedTable` (TPH) is implemented on every backend: Hono/Drizzle
 // (hand-rolled shared table + `kind` discriminator, per-concrete columns
 // nullable, repos filter/stamp `kind`), .NET/EF Core (native
-// `HasDiscriminator`), and Phoenix (plain Ecto shared table + a `kind`
-// discriminator column). So a TPH hierarchy is allowed iff its context is
-// hosted by at least one of those backends; otherwise it's an error (not a
-// warning) — there is no implemented emission target.
+// `HasDiscriminator`), Phoenix (plain Ecto shared table + a `kind`
+// discriminator column), Python (SQLAlchemy) and Java (Hibernate). So a TPH
+// hierarchy is allowed iff some backend deployable hosts its context;
+// otherwise it's an error (not a warning) — there is no emission target.
 // `sharedTable` is the omitted-modifier
 // default, so an inheritance hierarchy with no `inheritanceUsing: …` is TPH
 // too. Polymorphic `Party id` refs and `find all Party` remain deferred (the
@@ -41,7 +41,7 @@ import { firstNonGateRef, GATE_ALLOWED_REFS } from "./query-checks.js";
 const DEFAULT_INHERITANCE_LAYOUT = "sharedTable" as const;
 
 /** Map each context name to the set of backend (needsDb) platforms that host
- *  it — a context is TPH-capable iff that set intersects TPH_CAPABLE. */
+ *  it.  An empty / absent set means no backend emits the context at all. */
 
 export function backendPlatformsHostingEachContext(
   loom: EnrichedLoomModel,
@@ -65,13 +65,10 @@ export function validateInheritanceStorage(
   diags: LoomDiagnostic[],
   backendPlatforms: Set<string>,
 ): void {
+  // TPH storage emission ships on every backend, so the hierarchy is
+  // emittable as soon as any backend deployable hosts the context.
+  if (backendPlatforms.size > 0) return;
   const byName = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
-  // TPH storage emission ships on Hono (Drizzle shared table + `kind`), .NET
-  // (EF Core native `HasDiscriminator`), Phoenix (plain Ecto shared table + a
-  // `kind` discriminator column), Python (SQLAlchemy) and Java (Hibernate).
-  const TPH_CAPABLE = new Set(["node", "dotnet", "elixir", "python", "java"]);
-  const tphList = [...TPH_CAPABLE].sort().join(", ");
-  const hostedByCapable = [...backendPlatforms].some((p) => TPH_CAPABLE.has(p));
   for (const agg of ctx.aggregates) {
     if (!agg.isAbstract && !agg.extendsAggregate) continue;
     // A concrete's layout defaults to its base's (resolved within the
@@ -81,17 +78,10 @@ export function validateInheritanceStorage(
     const base = agg.extendsAggregate ? byName.get(agg.extendsAggregate) : undefined;
     const effective = agg.inheritanceUsing ?? base?.inheritanceUsing ?? DEFAULT_INHERITANCE_LAYOUT;
     if (effective !== "sharedTable") continue;
-    // Implemented when a TPH-capable backend (Hono / .NET / Phoenix) hosts the context.
-    if (hostedByCapable) continue;
     const role = agg.isAbstract ? "abstract base" : `extends ${agg.extendsAggregate}`;
     const how = agg.inheritanceUsing
       ? "inheritanceUsing: sharedTable"
       : "the omitted-modifier default (sharedTable)";
-    const others = [...backendPlatforms].filter((p) => !TPH_CAPABLE.has(p));
-    const hostNote =
-      others.length > 0
-        ? `it is hosted by ${others.join(", ")}, where TPH is not implemented`
-        : `no TPH-capable (${tphList}) backend deployable hosts this context`;
     diags.push({
       severity: "error",
       code: "loom.tph-backend-unsupported",
@@ -99,8 +89,6 @@ export function validateInheritanceStorage(
         name: agg.name,
         role,
         how,
-        tphList,
-        hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
@@ -160,110 +148,46 @@ export function validateTphFilterExpressibility(sys: SystemIR, diags: LoomDiagno
 }
 
 // Event-sourced storage emission (`persistedAs: eventLog`, appliers A2) is
-// implemented for the Hono (`node`) and .NET (`dotnet`, EF Core) backends:
-// the `<agg>_events` stream table + fold-on-load repository. So an
-// event-sourced aggregate is allowed iff every backend deployable hosting
-// its context implements it. On a backend that doesn't (Phoenix today) the
-// aggregate would silently fall back to state persistence, losing the event
-// log — an error, not a silent downgrade. Mirrors the TPH storage gate.
-//
-// Phoenix (plain Ecto/Phoenix) hosts pure ES via the per-aggregate stream +
-// fold-on-load data layer (D-VANILLA-ES-HOME), so elixir is ES-capable.
-
-export const EVENT_SOURCING_BACKENDS = new Set(["node", "dotnet", "python", "java", "elixir"]);
+// implemented on every backend: the `<agg>_events` stream table + fold-on-load
+// repository (Phoenix via the per-aggregate stream data layer,
+// D-VANILLA-ES-HOME). So an event-sourced aggregate is an error only when no
+// backend deployable hosts its context — there is no emission target for the
+// event log.  Mirrors the TPH storage gate.
 
 export function validateEventSourcedStorage(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
   backendPlatforms: Set<string>,
 ): void {
-  // Every hosting backend must implement event sourcing; flag any that don't.
-  const unsupported = [...backendPlatforms].filter((p) => !EVENT_SOURCING_BACKENDS.has(p));
-  const anyBackend = backendPlatforms.size > 0;
+  if (backendPlatforms.size > 0) return;
   for (const agg of ctx.aggregates) {
     if (agg.persistedAs !== "eventLog") continue;
-    if (anyBackend && unsupported.length === 0) continue;
-    const hostNote =
-      unsupported.length > 0
-        ? `it is hosted by ${unsupported.join(", ")}, where event-sourced persistence is not implemented`
-        : "no event-sourcing-capable (node / dotnet / java / python / elixir) backend deployable hosts this context";
     diags.push({
       severity: "error",
       code: "loom.event-sourcing-backend-unsupported",
-      message: diagMessage("loom.event-sourcing-backend-unsupported", { name: agg.name, hostNote }),
+      message: diagMessage("loom.event-sourcing-backend-unsupported", { name: agg.name }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
     });
   }
 }
 
-// Event-sourced *workflow* storage gate (workflow-and-applier.md A2-S5b).  A
-// `workflow X eventSourced { … apply(…) }` folds its own emitted events into
-// state via appliers — the saga analogue of a `persistedAs: eventLog`
-// aggregate (emit-only handlers + pure `apply` folds, no mutable state table).
-// The surface (grammar → `WorkflowIR.eventSourced` / `.appliers`) and the
-// emit-only / pure-fold discipline (A1) have landed, and the **node, .NET,
-// Python, Java, and elixir backends all emit the event-sourced workflow
-// runtime** (per-correlation `<wf>_events` stream, fold-on-load,
-// emit→append-own-event dispatch).  A backend that doesn't keeps an
-// `eventSourced` workflow gated — otherwise it silently misgenerates as a
-// state-based saga (the saga emitters key off `correlationField` alone, emit a
-// mutable `<Wf>State` row + dispatcher, and drop the appliers entirely).  A
-// parsed-but-unemitted feature is a footgun, so it fails fast — exactly like the
-// event-sourced *aggregate* storage gate.
-
-export const EVENT_SOURCING_WORKFLOW_BACKENDS = new Set([
-  "node",
-  "dotnet",
-  "python",
-  "java",
-  "elixir",
-]);
-
-export function validateEventSourcedWorkflowStorage(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  const unsupported = [...backendPlatforms].filter((p) => !EVENT_SOURCING_WORKFLOW_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-  const hosts = unsupported.sort().join(", ");
-  for (const wf of ctx.workflows) {
-    if (!wf.eventSourced) continue;
-    diags.push({
-      severity: "error",
-      code: "loom.event-sourced-workflow-unsupported",
-      message: diagMessage("loom.event-sourced-workflow-unsupported", { name: wf.name, hosts }),
-      source: `${ctx.name}/${wf.name}`,
-      origin: wf.origin,
-    });
-  }
-}
-
-// the Hono (`node`), .NET (`dotnet`), Java (`java`), Python (`python`) and
-// elixir backends — the lineage SDK + co-located `<field>_provenance` column +
-// the `provenance_records` flush.  On a backend that doesn't (e.g. react) a
-// `provenanced` field silently behaves like a plain field, dropping the audit
-// trail it promises — an error, not a silent no-op.  Mirrors the event-sourcing
-// storage gate (a parsed-but-unemitted feature is a footgun, so it fails fast).
-
-const PROVENANCE_BACKENDS = new Set(["node", "dotnet", "java", "python", "elixir"]);
+// Provenanced storage (`provenanced` fields) is emitted by every backend — the
+// lineage SDK + co-located `<field>_provenance` column + the
+// `provenance_records` flush.  A context no backend deployable hosts has no
+// such runtime, so a `provenanced` field there would silently behave like a
+// plain field, dropping the audit trail it promises — an error, not a silent
+// no-op.  Mirrors the event-sourcing storage gate.
 
 export function validateProvenancedStorage(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
   backendPlatforms: Set<string>,
 ): void {
-  const unsupported = [...backendPlatforms].filter((p) => !PROVENANCE_BACKENDS.has(p));
-  const anyBackend = backendPlatforms.size > 0;
+  if (backendPlatforms.size > 0) return;
   for (const agg of ctx.aggregates) {
     const provFields = agg.fields.filter((f) => f.provenanced);
     if (provFields.length === 0) continue;
-    if (anyBackend && unsupported.length === 0) continue;
-    const hostNote =
-      unsupported.length > 0
-        ? `it is hosted by ${unsupported.join(", ")}, where the provenance runtime is not emitted`
-        : "no provenance-capable (node / dotnet / java / python / elixir) backend deployable hosts this context";
     const names = provFields.map((f) => f.name).join(", ");
     diags.push({
       severity: "error",
@@ -271,7 +195,6 @@ export function validateProvenancedStorage(
       message: diagMessage("loom.provenanced-backend-unsupported", {
         name: agg.name,
         names,
-        hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
@@ -286,13 +209,10 @@ export function validateProvenancedStorage(
 //     other than `currentUser` (+ constants): the mask is evaluated at DTO
 //     projection as a param-free CALLER predicate, so a row/param reference is
 //     illegal (mirrors the find gate's currentUser-only rule).
-//   - loom.field-mask-unsupported — the field is hosted by a backend whose DTO
-//     projection doesn't yet emit the redaction.  A parsed-but-unredacted mask
-//     is a SECURITY footgun (the sensitive value ships in the clear), so it
-//     fails fast rather than silently no-op'ing.  A backend absent from the set
-//     makes a `mask unless` field a compile error there rather than an
-//     unenforced no-op; adding read redaction to a backend adds its platform
-//     here.
+//   - loom.field-mask-unsupported — no backend deployable hosts the context, so
+//     no DTO projection emits the redaction.  A parsed-but-unredacted mask is a
+//     SECURITY footgun (the sensitive value ships in the clear), so it fails
+//     fast rather than silently no-op'ing.  Every backend emits the redaction:
 //     `node` emits response-boundary read redaction (`toWireMasked`) across its
 //     read routes + explicit handlers; `dotnet` redacts
 //     each masked field's DTO-projection arg via the ambient principal; `python`
@@ -396,14 +316,11 @@ export function maskLaunderingEvents(ctx: BoundedContextIR): Map<string, string>
   return out;
 }
 
-export const FIELD_MASK_BACKENDS = new Set<string>(["node", "dotnet", "python", "java", "elixir"]);
-
 export function validateFieldMask(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
   backendPlatforms: Set<string>,
 ): void {
-  const unsupported = [...backendPlatforms].filter((p) => !FIELD_MASK_BACKENDS.has(p));
   const anyBackend = backendPlatforms.size > 0;
   for (const agg of ctx.aggregates) {
     const masked = agg.fields.filter((f) => f.maskUnless);
@@ -424,16 +341,12 @@ export function validateFieldMask(
         });
       }
     }
-    if (anyBackend && unsupported.length === 0) continue;
+    if (anyBackend) continue;
     const names = masked.map((f) => f.name).join(", ");
     diags.push({
       severity: "error",
       code: "loom.field-mask-unsupported",
-      message: diagMessage("loom.field-mask-unsupported", {
-        name: agg.name,
-        names,
-        unsupported: unsupported.join("/"),
-      }),
+      message: diagMessage("loom.field-mask-unsupported", { name: agg.name, names }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
     });
@@ -503,44 +416,28 @@ export function validateFieldMask(
   }
 }
 
-// Per-operation audit-record emission (`operation … audited`) is implemented for
-// the Hono (`node`), .NET (`dotnet`), Java (`java`), Python (`python`) and
-// elixir-VANILLA backends — an audited public route / command handler / service
-// method appends a who/what/when + before/after snapshot to the audit sink in
-// the operation's save transaction.  Audited LIFECYCLE actions
-// (`audited create` / `destroy`) ship on the same set — the create/destroy
-// handlers stage the audit row (before:null/after=wire on create;
-// before=wire/after:null on destroy) in the lifecycle transaction.  Hosting an
-// `audited` action on a backend that doesn't emit the runtime would silently
-// record nothing — that mismatch is an error, not a silent no-op.  (This gates
-// the per-operation `audited` flag only; the `with audit` capability macro emits
-// stamping rules via `contextStamps`, a separate concern.)
-
-const AUDIT_OP_BACKENDS = new Set(["node", "dotnet", "java", "python", "elixir"]);
-
-const AUDIT_LIFECYCLE_BACKENDS = new Set(["node", "dotnet", "java", "python", "elixir"]);
+// Per-operation audit-record emission (`operation … audited`) and audited
+// LIFECYCLE actions (`audited create` / `destroy`) ship on every backend — an
+// audited public route / command handler / service method appends a
+// who/what/when + before/after snapshot to the audit sink in the operation's
+// save transaction (the create/destroy handlers stage before:null/after=wire
+// and before=wire/after:null).  A context no backend deployable hosts has no
+// audit runtime, so an `audited` action there would silently record nothing —
+// an error, not a silent no-op.  (This gates the per-operation `audited` flag
+// only; the `with audit` capability macro emits stamping rules via
+// `contextStamps`, a separate concern.)
 
 export function validateAuditedOperationSupport(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
   backendPlatforms: Set<string>,
 ): void {
-  const anyBackend = backendPlatforms.size > 0;
-  const opUnsupported = [...backendPlatforms].filter((p) => !AUDIT_OP_BACKENDS.has(p));
-  const lifecycleUnsupported = [...backendPlatforms].filter(
-    (p) => !AUDIT_LIFECYCLE_BACKENDS.has(p),
-  );
+  if (backendPlatforms.size > 0) return;
   const push = (
     agg: BoundedContextIR["aggregates"][number],
     kind: "operation" | "lifecycle action",
     names: string[],
-    unsupported: string[],
-    capable: string,
   ): void => {
-    const hostNote =
-      unsupported.length > 0
-        ? `it is hosted by ${unsupported.join(", ")}, where audit-record emission is not implemented`
-        : `no audit-capable (${capable}) backend deployable hosts this context`;
     diags.push({
       severity: "error",
       code: "loom.audited-backend-unsupported",
@@ -548,35 +445,28 @@ export function validateAuditedOperationSupport(
         name: agg.name,
         kind,
         names: names.join(", "),
-        capable,
-        hostNote,
       }),
       source: `${ctx.name}/${agg.name}`,
       origin: agg.origin,
     });
   };
-  const capableLabel = "Hono (node) / .NET (dotnet) / Java (java) / Python (python) / elixir";
   for (const agg of ctx.aggregates) {
     const auditedOps = agg.operations.filter((o) => o.audited);
-    if (auditedOps.length > 0 && (!anyBackend || opUnsupported.length > 0)) {
+    if (auditedOps.length > 0) {
       push(
         agg,
         "operation",
         auditedOps.map((o) => o.name),
-        opUnsupported,
-        capableLabel,
       );
     }
     const auditedLifecycle = [...(agg.creates ?? []), ...(agg.destroys ?? [])].filter(
       (o) => o.audited,
     );
-    if (auditedLifecycle.length > 0 && (!anyBackend || lifecycleUnsupported.length > 0)) {
+    if (auditedLifecycle.length > 0) {
       push(
         agg,
         "lifecycle action",
         auditedLifecycle.map((o) => o.name || "<create>"),
-        lifecycleUnsupported,
-        capableLabel,
       );
     }
   }

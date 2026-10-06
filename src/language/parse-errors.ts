@@ -43,7 +43,12 @@ import type { LangiumCoreServices, ParseResult } from "langium";
 import { LangiumParserErrorMessageProvider } from "langium";
 import { diagMessage } from "../diagnostics/messages.js";
 import { nearestName } from "../util/edit-distance.js";
-import { isDeclareOnlySoftKeyword, isFieldNameKeyword, isGrammarKeyword } from "./soft-keywords.js";
+import {
+  isDeclareOnlySoftKeyword,
+  isFieldNameKeyword,
+  isGrammarKeyword,
+  isSoftKeyword,
+} from "./soft-keywords.js";
 
 /** How many of the expected tokens a message names before it stops.  Five is
  *  enough to show the SHAPE of the closed set (`node`, `dotnet`, `react`, …)
@@ -128,10 +133,16 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
   const suggestion = isWordLike(actual.image)
     ? nearestName(actual.image, keywords.filter(isWordLike))
     : undefined;
+  // Where a NAME was legal, every soft keyword is legal too — as that name, not
+  // as syntax.  Listing them ('abstract', 'action', 'against', … +237 more)
+  // buries the real alternatives under words the author was never choosing
+  // between; `<ID>` already stands for all of them.  (The did-you-mean above
+  // still sees the full list, so a misspelt soft keyword is still caught.)
+  const shown = terminals.includes("ID") ? keywords.filter((k) => !isSoftKeyword(k)) : keywords;
   return diagMessage("loom.parse-error#unexpected-token", {
     found: actual.image,
     suggestion: suggestion ? ` Did you mean '${suggestion}'?` : "",
-    candidates: renderCandidates(keywords, terminals, suggestion),
+    candidates: renderCandidates(shown, terminals, suggestion),
   });
 }
 
@@ -365,6 +376,17 @@ export function reservedDeclarationName(
   } else {
     if (!isKeywordToken(token.tokenType) || !isWordLike(token.image)) return undefined;
     if (!/^\s*:(?![:=])/.test(text.slice(token.startOffset + token.image.length))) return undefined;
+    // A mismatch against anything but the body's closing `}` is a real syntax
+    // error the keyword merely happens to follow: `timerSource T for: Tick`
+    // is a missing `{`, and chevrotain's "Expecting token of type '{'" is
+    // exactly right there.  Only the block-exit mismatch is the
+    // "declared a field named after a keyword" shape.
+    if (
+      err.name === "MismatchedTokenException" &&
+      !err.message.startsWith("Expecting token of type '}'")
+    ) {
+      return undefined;
+    }
     word = token.image;
     offset = token.startOffset;
   }
