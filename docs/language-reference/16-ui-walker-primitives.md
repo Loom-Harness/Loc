@@ -44,7 +44,7 @@ Positional **slots** are what a primitive renders positionally (`WALKER_PRIMITIV
 | Display | `Skeleton` | 0 | `count`, `height` | |
 | Display | `Loader` | 0 | `size` | `role="status"` |
 | Display | `Stat` | 2 — label, value | — | |
-| Display | `CodeBlock` | 1 — source | `source`, `language`, `title` | vendored highlight.js (`lib/common`, 36 languages) bundled into the app — no CDN; an unknown `language:` renders as plain text; the source is never translated |
+| Display | `CodeBlock` | 1 — source | `source`, `language`, `title` | vendored highlight.js (`lib/common`, 36 languages) bundled into the app — no CDN — as a lazily-loaded chunk fetched only once a code block appears; an unknown `language:` renders as plain text; the source is never translated |
 | Display | `Slot` | 0 | — | the caller's children, `component` bodies only |
 | Formatters | `Money` | 1 — value | `value`, `currency`, `decimals` | verbatim digits, see below |
 | Formatters | `DateDisplay` | 1 — value | `value` | |
