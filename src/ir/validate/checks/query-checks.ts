@@ -17,6 +17,7 @@ import {
   firstColumnVsColumn,
   firstNonQueryablePredicate,
   firstUnknownColumnRef,
+  nearestAggregateMember,
 } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,8 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             message: diagMessage("loom.find-where-unknown-field", {
               name: repo.name,
               findName: find.name,
-              unknown,
+              unknown: unknown.text,
+              suggestion: unknown.suggestion,
               aggName: agg.name,
             }),
             source: `${ctx.name}/${repo.name}.${find.name}`,
@@ -160,7 +162,8 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           severity: "error",
           message: diagMessage("loom.criterion-not-selectable#unknown-field", {
             name: agg.name,
-            unknown,
+            unknown: unknown.text,
+            suggestion: unknown.suggestion,
           }),
           source: `${ctx.name}/${agg.name}`,
           origin: agg.origin,
@@ -300,7 +303,8 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
           code: "loom.retrieval-where-unknown-field",
           message: diagMessage("loom.retrieval-where-unknown-field", {
             name: r.name,
-            unknown,
+            unknown: unknown.text,
+            suggestion: unknown.suggestion,
             aggName: agg.name,
           }),
           source: src,
@@ -330,6 +334,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             name: r.name,
             headName: head.name,
             aggName: agg.name,
+            suggestion: nearestAggregateMember(agg, head.name),
           }),
           source: src,
         });

@@ -6,6 +6,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import {
   capabilitiesFor,
   configSchemaFor,
@@ -218,6 +219,7 @@ function validateManualIndexes(
             label,
             entity: spec.entity,
             col,
+            suggestion: nearestName(col, fields),
           }),
           source: `${sys.name}/${label}`,
         });
@@ -244,7 +246,12 @@ function checkConfigBlock(
       diags.push({
         severity: "warning",
         code: "loom.config-key-unknown",
-        message: diagMessage("loom.config-key-unknown", { label, key: entry.key, sourceType }),
+        message: diagMessage("loom.config-key-unknown", {
+          label,
+          key: entry.key,
+          sourceType,
+          suggestion: nearestName(entry.key, byName.keys()),
+        }),
         source: `${sysName}/${label}`,
       });
       continue;

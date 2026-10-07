@@ -83,3 +83,42 @@ export function nearestType(name: string, candidates: Iterable<string>): string 
   }
   return best;
 }
+
+/** Field-type spellings borrowed from other languages, mapped to the Loom
+ *  primitive(s) they mean.  Edit distance cannot bridge these — `boolean` is
+ *  three edits from `bool`, `integer` is nowhere near `int` — yet they are the
+ *  first thing a newcomer types.  Keyed lower-case; a value with two entries is
+ *  a genuinely ambiguous spelling (`number` is an integer in some languages and
+ *  a float in others), so both are offered rather than one guessed.
+ *
+ *  Every target must be a real `PrimitiveType` keyword — pinned by
+ *  `test/language/type-alias-hint.test.ts` against `primitiveTypeNames()`, so a
+ *  renamed primitive cannot leave the table pointing at nothing. */
+export const OTHER_LANGUAGE_TYPE_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  boolean: ["bool"],
+  integer: ["int"],
+  int32: ["int"],
+  number: ["int", "decimal"],
+  str: ["string"],
+  text: ["string"],
+  varchar: ["string"],
+  uuid: ["guid"],
+  date: ["datetime"],
+  time: ["datetime"],
+  timestamp: ["datetime"],
+  instant: ["datetime"],
+  float: ["decimal"],
+  double: ["decimal"],
+  real: ["decimal"],
+  bigint: ["long"],
+  int64: ["long"],
+  object: ["json"],
+  map: ["json"],
+  dict: ["json"],
+};
+
+/** The Loom primitive(s) an other-language type spelling stands for, or an
+ *  empty list.  Case-insensitive (`Boolean`, `DateTime`, `UUID`). */
+export function typeAliasFor(name: string): readonly string[] {
+  return OTHER_LANGUAGE_TYPE_ALIASES[name.toLowerCase()] ?? [];
+}

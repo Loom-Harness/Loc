@@ -46,6 +46,13 @@ const spaDeployableMissingUi =
   (p: { name: unknown }): string =>
     `${label} deployable '${p.name}' must declare a 'ui:' binding — every page now flows through the page metamodel. Add 'ui: <UiName>' (use 'ui <UiName> { with scaffold(subdomains: [...]) }' for the bulk-CRUD case).`;
 
+/** The " Did you mean 'x'?" tail an unknown-name diagnostic appends when the
+ *  call site found a near miss (`nearestName`, `src/util/edit-distance.ts`).
+ *  Empty when there is none, so a message reads the same as before it learned
+ *  to suggest.  One builder so every site words the suggestion identically. */
+const didYouMean = (suggestion: unknown): string =>
+  suggestion ? ` Did you mean '${suggestion}'?` : "";
+
 export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/_shared.ts
@@ -106,7 +113,11 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     size: unknown;
     fields: unknown;
-  }) => `'${p.type}' has no field '${p.name}'.` + (p.size ? ` Declared fields: ${p.fields}.` : ""),
+    suggestion?: unknown;
+  }) =>
+    `'${p.type}' has no field '${p.name}'.` +
+    didYouMean(p.suggestion) +
+    (p.size ? ` Declared fields: ${p.fields}.` : ""),
   "loom.construction-missing-field": (p: { type: unknown; length: unknown; missing: unknown }) =>
     `'${p.type}' construction is missing required field${p.length}: ${p.missing}.`,
   "loom.create-server-field": (p: { name: unknown; name2: unknown; serverOwned: unknown }) =>
@@ -117,8 +128,10 @@ export const DIAGNOSTIC_MESSAGES = {
     name2: unknown;
     size: unknown;
     createInput: unknown;
+    suggestion?: unknown;
   }) =>
     `'${p.name}' has no create-input field '${p.name2}'.` +
+    didYouMean(p.suggestion) +
     (p.size ? ` Create inputs: ${p.createInput}.` : ""),
   "loom.create-field-type": (p: {
     name: unknown;
@@ -2185,9 +2198,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregation for the per-row read (the repository applies the filters when it hydrates ` +
     `each row), fold the number into a materialized projection ('on(e: …)'), store ` +
     `'${p.source}' relationally, or waive the filters explicitly with 'ignoring'.`,
-  "loom.projection-key-unknown": (p: { name: unknown; correlationField: unknown }) =>
+  "loom.projection-key-unknown": (p: {
+    name: unknown;
+    correlationField: unknown;
+    suggestion?: unknown;
+  }) =>
     `projection '${p.name}' is keyed by '${p.correlationField}', ` +
-    `which is not a declared state field.  Declare it as an id-shaped field, ` +
+    `which is not a declared state field.${didYouMean(p.suggestion)}  Declare it as an id-shaped field, ` +
     `e.g. '${p.correlationField}: <Aggregate> id'.`,
   "loom.projection-key-not-id": (p: { name: unknown; correlationField: unknown }) =>
     `projection '${p.name}' is keyed by '${p.correlationField}', ` +
@@ -2241,9 +2258,11 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
     unknown: unknown;
     aggName: unknown;
+    suggestion?: unknown;
   }) =>
     `repository '${p.name}' find '${p.findName}': ` +
-    `where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.`,
+    `where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.` +
+    didYouMean(p.suggestion),
   "loom.find-where-column-column": (p: { name: unknown; findName: unknown; bothCols: unknown }) =>
     `repository '${p.name}' find '${p.findName}': ` +
     `comparison between two columns (${p.bothCols}) is not queryable. ` +
@@ -2252,8 +2271,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}': a 'filter' capability predicate is not selectable (${p.offending}). ` +
     `Capability filters install at the query layer, so they must lower to the queryable subset: ` +
     `comparisons, &&/||/!, parens, 'this.<column>' / 'this.<vo>.<sub>' refs, 'currentUser.<field>', literals.`,
-  "loom.criterion-not-selectable#unknown-field": (p: { name: unknown; unknown: unknown }) =>
-    `aggregate '${p.name}': a 'filter' capability predicate references unknown field ${p.unknown} on '${p.name}'.`,
+  "loom.criterion-not-selectable#unknown-field": (p: {
+    name: unknown;
+    unknown: unknown;
+    suggestion?: unknown;
+  }) =>
+    `aggregate '${p.name}': a 'filter' capability predicate references unknown field ${p.unknown} on '${p.name}'.` +
+    didYouMean(p.suggestion),
   "loom.seed-raw-non-literal-column": (p: { aggregate: unknown; name: unknown; value: unknown }) =>
     `seed raw '${p.aggregate}.${p.name}': a raw-seed column must be a scalar / enum / id ` +
     `literal (or 'now()'); the value '${p.value}' is computed at ` +
@@ -2266,8 +2290,10 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     unknown: unknown;
     aggName: unknown;
+    suggestion?: unknown;
   }) =>
-    `retrieval '${p.name}': where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.`,
+    `retrieval '${p.name}': where-clause references unknown field ${p.unknown} on aggregate '${p.aggName}'.` +
+    didYouMean(p.suggestion),
   "loom.retrieval-where-column-column": (p: { name: unknown; bothCols: unknown }) =>
     `retrieval '${p.name}': comparison between two columns (${p.bothCols}) is not queryable. ` +
     `eq()/ne()/lt()/etc. require one column and one value (parameter, literal, or enum value).`,
@@ -2275,8 +2301,10 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     headName: unknown;
     aggName: unknown;
+    suggestion?: unknown;
   }) =>
-    `retrieval '${p.name}': sort references unknown field '${p.headName}' on aggregate '${p.aggName}'.`,
+    `retrieval '${p.name}': sort references unknown field '${p.headName}' on aggregate '${p.aggName}'.` +
+    didYouMean(p.suggestion),
   "loom.retrieval-loads-unsupported": (p: { name: unknown }) =>
     `retrieval '${p.name}': explicit 'loads:' is not supported yet — ` +
     `retrievals load the whole aggregate. (Per-operation autoload is planned.)`,
@@ -3345,10 +3373,22 @@ export const DIAGNOSTIC_MESSAGES = {
     contextName: unknown;
   }) =>
     `${p.label}: \`index:\` targets '${p.entity}', which is not an aggregate or contained part in context '${p.contextName}'.`,
-  "loom.resource-index-unknown-column": (p: { label: unknown; entity: unknown; col: unknown }) =>
-    `${p.label}: \`index:\` references '${p.entity}.${p.col}', but '${p.col}' is not a field on '${p.entity}'.`,
-  "loom.config-key-unknown": (p: { label: unknown; key: unknown; sourceType: unknown }) =>
-    `${p.label}: config key '${p.key}' is not recognised by sourceType '${p.sourceType}' — it will be ignored.`,
+  "loom.resource-index-unknown-column": (p: {
+    label: unknown;
+    entity: unknown;
+    col: unknown;
+    suggestion?: unknown;
+  }) =>
+    `${p.label}: \`index:\` references '${p.entity}.${p.col}', but '${p.col}' is not a field on '${p.entity}'.` +
+    didYouMean(p.suggestion),
+  "loom.config-key-unknown": (p: {
+    label: unknown;
+    key: unknown;
+    sourceType: unknown;
+    suggestion?: unknown;
+  }) =>
+    `${p.label}: config key '${p.key}' is not recognised by sourceType '${p.sourceType}' — it will be ignored.` +
+    didYouMean(p.suggestion),
   "loom.config-key-type": (p: { label: unknown; key: unknown; expected: unknown }) =>
     `${p.label}: config key '${p.key}' expects ${p.expected}.`,
   "loom.config-key-required": (p: { label: unknown; name: unknown; sourceType: unknown }) =>
@@ -3644,8 +3684,9 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     arg: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
-    `\`${p.name}\` has no \`${p.arg}:\` argument.  Every emitter reads a ` +
+    `\`${p.name}\` has no \`${p.arg}:\` argument.${didYouMean(p.suggestion)}  Every emitter reads a ` +
     `primitive's named arguments BY NAME, so an unrecognised one — and whatever content it ` +
     `carries — is silently DROPPED from every frontend (and never reaches the message ` +
     `catalog either, so translators cannot even see it went missing).  On a fixed-slot ` +
@@ -4302,9 +4343,10 @@ export const DIAGNOSTIC_MESSAGES = {
     key: unknown;
     aggregate: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
     `e2e: 'api.${p.slug}.create(…)' sends '${p.key}', which is not a create field of ` +
-    `'${p.aggregate}'. The create body is the aggregate's create-input projection and the ` +
+    `'${p.aggregate}'.${didYouMean(p.suggestion)} The create body is the aggregate's create-input projection and the ` +
     `backend rejects an unknown key (422), so the call fails for the typo rather than for ` +
     `whatever the test claims to prove. Accepted keys: ${p.known}.`,
   "loom.e2e-unknown-body-key#operation": (p: {
@@ -4312,9 +4354,10 @@ export const DIAGNOSTIC_MESSAGES = {
     verb: unknown;
     key: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
     `e2e: 'api.${p.slug}.${p.verb}(id, {…})' sends '${p.key}', which is not a parameter of ` +
-    `'${p.verb}'. The operation body carries exactly the declared parameters and the backend ` +
+    `'${p.verb}'.${didYouMean(p.suggestion)} The operation body carries exactly the declared parameters and the backend ` +
     `rejects an unknown key (422), so the call fails for the typo rather than for whatever the ` +
     `test claims to prove. Accepted keys: ${p.known}.`,
   "loom.e2e-unknown-body-key#workflow-run": (p: {
@@ -4322,9 +4365,10 @@ export const DIAGNOSTIC_MESSAGES = {
     key: unknown;
     workflow: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
     `e2e: 'api.${p.slug}.run({…})' sends '${p.key}', which is not a parameter of workflow ` +
-    `'${p.workflow}'. Unlike an aggregate body this one is NOT rejected: the emitted ` +
+    `'${p.workflow}'.${didYouMean(p.suggestion)} Unlike an aggregate body this one is NOT rejected: the emitted ` +
     `'${p.workflow}Request' is a plain object schema on every backend, so an unknown key is ` +
     `DROPPED and the POST still answers 204 — the workflow never receives it, and an assertion ` +
     `resting on it passes while proving nothing. Accepted keys: ${p.known}.`,
@@ -4355,8 +4399,9 @@ export const DIAGNOSTIC_MESSAGES = {
     slug: unknown;
     workflow: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
-    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry.${didYouMean(p.suggestion)} ` +
     `'${p.binding}' is 'api.${p.slug}.instance(…)', whose body is the persisted instance shape ` +
     `of workflow '${p.workflow}': its correlation field, then its state fields. The read is ` +
     `'undefined' at run time, so an assertion over it passes or fails for the wrong reason. ` +
@@ -4389,8 +4434,9 @@ export const DIAGNOSTIC_MESSAGES = {
     verb: unknown;
     aggregate: unknown;
     known: unknown;
+    suggestion?: unknown;
   }) =>
-    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry.${didYouMean(p.suggestion)} ` +
     `'${p.binding}' is 'api.${p.slug}.${p.verb}(…)', whose body is the api-read wire shape of ` +
     `'${p.aggregate}'. The read is 'undefined' at run time, so an assertion over it passes or ` +
     `fails for the wrong reason. Readable: ${p.known}.`,
@@ -4537,16 +4583,28 @@ export const DIAGNOSTIC_MESSAGES = {
   // `src/language/validators/statements.ts` sees every `emit` — aggregate
   // operations included.  Both fire on a workflow emit, which is why the
   // firing fixture raises the pair.
-  "loom.emit-unknown-field": (p: { evName: unknown; f: unknown }) =>
-    `Event '${p.evName}' has no field '${p.f}'.`,
-  "loom.workflow-emit-unknown-field": (p: { name: unknown; evName: unknown; f: unknown }) =>
-    `workflow '${p.name}': emit '${p.evName}' has unknown field '${p.f}'.`,
+  "loom.emit-unknown-field": (p: { evName: unknown; f: unknown; suggestion?: unknown }) =>
+    `Event '${p.evName}' has no field '${p.f}'.` + didYouMean(p.suggestion),
+  "loom.workflow-emit-unknown-field": (p: {
+    name: unknown;
+    evName: unknown;
+    f: unknown;
+    suggestion?: unknown;
+  }) =>
+    `workflow '${p.name}': emit '${p.evName}' has unknown field '${p.f}'.` +
+    didYouMean(p.suggestion),
   "loom.workflow-create-unknown-aggregate": (p: { name: unknown; aggName: unknown }) =>
     `workflow '${p.name}': '${p.aggName}.create(...)' references unknown aggregate '${p.aggName}'.`,
   "loom.workflow-create-missing-field": (p: { name: unknown; aggName: unknown; r: unknown }) =>
     `workflow '${p.name}': '${p.aggName}.create(...)' is missing required field '${p.r}'.`,
-  "loom.workflow-create-unknown-field": (p: { name: unknown; aggName: unknown; p: unknown }) =>
-    `workflow '${p.name}': '${p.aggName}.create(...)' has unknown field '${p.p}'.`,
+  "loom.workflow-create-unknown-field": (p: {
+    name: unknown;
+    aggName: unknown;
+    p: unknown;
+    suggestion?: unknown;
+  }) =>
+    `workflow '${p.name}': '${p.aggName}.create(...)' has unknown field '${p.p}'.` +
+    didYouMean(p.suggestion),
   "loom.workflow-unknown-repository": (p: { name: unknown; repoName: unknown; method: unknown }) =>
     `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references unknown repository '${p.repoName}'.`,
   "loom.workflow-cross-context-repository": (p: {
@@ -4561,8 +4619,9 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
     finds: unknown;
+    suggestion?: unknown;
   }) =>
-    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.  Available: getById, ${p.finds}.`,
+    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  Available: getById, ${p.finds}.`,
   "loom.workflow-currentuser-find": (p: { name: unknown; repoName: unknown; method: unknown }) =>
     `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references a currentUser-bound find, ` +
     `which workflows don't yet pass the user into.  Use 'getById' with an explicit id parameter, ` +
@@ -4660,8 +4719,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' — the only optional source in v1.`,
   "loom.workflow-unknown-binding": (p: { name: unknown; target: unknown; op: unknown }) =>
     `workflow '${p.name}': '${p.target}.${p.op}(...)' references unknown let-binding '${p.target}', or '${p.target}' isn't bound to an aggregate.`,
-  "loom.workflow-unknown-operation": (p: { name: unknown; aggName: unknown; op: unknown }) =>
-    `workflow '${p.name}': aggregate '${p.aggName}' has no operation '${p.op}'.`,
+  "loom.workflow-unknown-operation": (p: {
+    name: unknown;
+    aggName: unknown;
+    op: unknown;
+    suggestion?: unknown;
+  }) =>
+    `workflow '${p.name}': aggregate '${p.aggName}' has no operation '${p.op}'.` +
+    didYouMean(p.suggestion),
   "loom.workflow-private-operation": (p: { name: unknown; aggName: unknown; opName: unknown }) =>
     `workflow '${p.name}': '${p.aggName}.${p.opName}' is private.  Workflows can only call public operations.`,
   "loom.workflow-eventsourced-assign": (p: { name: unknown; segments: unknown }) =>

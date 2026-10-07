@@ -36,6 +36,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import {
   buildCreateInput,
@@ -862,6 +863,7 @@ function checkBody(
             key: entry.name,
             workflow: site.workflow ?? "",
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       } else if (site.kind === "create") {
@@ -874,6 +876,7 @@ function checkBody(
             key: entry.name,
             aggregate: site.aggregate ?? "",
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       } else {
@@ -886,6 +889,7 @@ function checkBody(
             verb: call.verb,
             key: entry.name,
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       }
@@ -1138,6 +1142,7 @@ function checkWorkflowInstanceRead(
       slug: call.slug,
       workflow: wf.name,
       known: readable.join(", ") || "(none)",
+      suggestion: nearestName(field, readable),
     }),
   });
 }
@@ -1202,6 +1207,7 @@ function checkResponseFields(
         verb: call.verb,
         aggregate: resolved.agg.name,
         known: readable.join(", ") || "(none)",
+        suggestion: nearestName(e.member, readable),
       }),
     });
   };
