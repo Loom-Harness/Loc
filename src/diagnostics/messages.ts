@@ -1952,8 +1952,20 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/update-gate-suggestion-checks.ts
   // ----------------------------------------------------------------------
-  "loom.update-gate-suggestion": (p: { name: unknown; fName: unknown; opName: unknown }) =>
-    `'${p.name}.${p.fName}' is assigned by the guarded operation '${p.opName}', but it is also writable through the generic 'update' that 'crudish' emits — a caller can set it on 'update' and skip that gate (and any 'precondition' the operation carries). Consider marking the field 'immutable': that removes it from the update input only — it stays readable, stays settable on 'create', and '${p.opName}' can still assign it.`,
+  "loom.update-gate-suggestion": (p: {
+    name: unknown;
+    fName: unknown;
+    opName: unknown;
+    gate: unknown;
+    hasDefault: unknown;
+  }) =>
+    `'${p.name}.${p.fName}' is assigned by '${p.opName}', which is gated by ${p.gate === "when" ? `its 'when' state gate` : p.gate === "precondition" ? `a 'precondition' on '${p.fName}'` : `'requires'`}, but 'crudish' also exposes the field on its generic 'update' — a caller can set it there and skip that gate. ` +
+    `Mark it 'immutable' to take it off the update input ('${p.opName}' can still assign it).` +
+    (p.gate === "requires"
+      ? ""
+      : p.hasDefault
+        ? ` 'create' still accepts it too, so a client can start an instance in any state; if every instance must start at the default, mark it 'managed' instead (off create and update, initialised from the default).`
+        : ` 'create' still accepts it too, so a client can start an instance in any state; give it a default and mark it 'managed' if the initial state must not be client-chosen.`),
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts

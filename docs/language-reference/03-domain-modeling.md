@@ -564,9 +564,12 @@ Drop the modifier and `status` is a writable update field like any other, so
 `POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
 *update* carries — skipping both the `requires` on `approve()` and its
 `precondition`. The compiler does not decide this for you (a field with no
-modifier is *declared* `editable`), but it points the case out: the advisory
-`loom.update-gate-suggestion` names the field, the guarded operation, and this
-remedy.
+modifier is *declared* `editable`), but it flags the case: the warning
+`loom.update-gate-suggestion` names the field, the gated operation, and this
+remedy. It fires for any gate on the operation — `requires`, a `when` state
+gate, or a `precondition` reading the field and no parameter — so a `when`-only state machine
+with no auth is caught too, and for those it adds that `managed = <default>`
+keeps the field off `create` as well.
 
 ```ddd
 context Orders {
