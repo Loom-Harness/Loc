@@ -102,6 +102,41 @@ export function emittableFinds(repo: RepositoryIR | undefined): FindIR[] {
   return (repo?.finds ?? []).filter((f) => f.name !== "all");
 }
 
+/** The paramless `all` find a repository declares (or the enrichment
+ *  synthesises) — the read the dedicated `all()` method serves. */
+function allFindOf(repo: RepositoryIR | undefined): FindIR | undefined {
+  return repo?.finds.find((f) => f.name === "all" && f.params.length === 0);
+}
+
+/** The lowered `where` of a DECLARED `find all(): X[] where <pred>`, or null
+ *  when `all` carries no filter.  Refuses (throws) on a predicate the
+ *  SQLAlchemy lowering cannot express, rather than dropping it. */
+export function declaredAllFilterPredicate(
+  agg: EnrichedAggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+): PyPredicate | null {
+  const filter = allFindOf(repo)?.filter;
+  if (!filter) return null;
+  return requireLowered(
+    `find 'all' on '${agg.name}'`,
+    lowerToSqlAlchemy(filter, agg, ctx, principalOpts(filter)),
+  );
+}
+
+/** The capability-filter predicate the `all()` read conjoins — the shared one,
+ *  unless the `all` find declares an `ignoring` bypass. */
+function allFindCapabilityFilter(
+  agg: EnrichedAggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+  filterPred: PyPredicate | null,
+): PyPredicate | null {
+  const all = allFindOf(repo);
+  if (!all || !(all.bypassAll || (all.bypassCaps?.length ?? 0) > 0)) return filterPred;
+  return contextFilterPredicate(agg, ctx, { bypassAll: all.bypassAll, bypassCaps: all.bypassCaps });
+}
+
 /** The `from app.auth.user import …` line for a repository module, or null when
  *  it references no symbol.  `User` is needed for a per-find currentUser param;
  *  `require_current_user` is the ambient accessor a principal capability filter
@@ -160,6 +195,9 @@ export function aggUsesPrincipalParamlessRead(
   ctx: EnrichedBoundedContextIR,
 ): boolean {
   return (
+    exprUsesCurrentUser(
+      allFindOf(ctx.repositories.find((r) => r.aggregateName === agg.name))?.filter,
+    ) ||
     aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)) ||
     queryProjectionViews(agg, ctx).some((v) => exprUsesCurrentUser(v.filter))
   );
@@ -298,7 +336,16 @@ export function buildPyRepositoryFile(
     (f) => f.name === "all" && f.params.length === 0 && !f.filter,
   );
   const pagedAll = autoAllFind ? !!pagedReturn(autoAllFind.returnType) : false;
-  const allWhere = rootWhere(null, root, kind, filterPred);
+  // A DECLARED `find all(): X[] where <pred>` keeps its predicate: the `all`
+  // read is excluded from `emittableFinds` (it is this dedicated method), so
+  // its `where` must be AND-ed in here or the list silently returns every row
+  // (eval-closure item 2).  A failed lowering refuses (`requireLowered`), and a
+  // principal read weaves the ambient accessor in — `all()` takes no
+  // `current_user` parameter.  Its `ignoring` stance narrows the capability
+  // filter exactly as a declared find's does.
+  const allPred = declaredAllFilterPredicate(agg, repo, ctx);
+  const allFilterPred = allFindCapabilityFilter(agg, repo, ctx, filterPred);
+  const allWhere = rootWhere(allPred, root, kind, allFilterPred);
   const allSortMap = sortableFields(agg)
     .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(snake(wf))}`)
     .join(", ");

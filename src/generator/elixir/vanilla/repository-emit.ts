@@ -37,6 +37,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   combineWhere,
   findUsesPrincipal,
+  listUsesPrincipal,
   vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
@@ -300,26 +301,55 @@ function renderRepository(
   // stays unpaged — an honest gate; see renderBaseReader.)
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
+  // The LIST read's effective predicate.  A DECLARED `find all(): X[] where
+  // <pred>` is not a custom find (`customFindsOf` drops `all` — `list` IS its
+  // read), so its `where` must be AND-ed in here or the list silently returns
+  // every row (eval-closure item 2).  Its `ignoring` stance narrows the
+  // capability filter exactly as a named find's does (`renderFindFn`); the TPH
+  // `kind` discriminator is never bypassable.  A synthesized `all` carries no
+  // filter and no bypass, so `listEff === capEff` (byte-identical).
+  const listPrincipal = listUsesPrincipal(agg, allFind);
+  const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
+  const listCap = allBypass
+    ? combineWhere(
+        kindFilter,
+        vanillaCapabilityFilter(agg, contextModule, {
+          actor: principal,
+          bypass: { bypassAll: allFind?.bypassAll, bypassCaps: allFind?.bypassCaps },
+        }),
+      )
+    : capEff;
+  const allWhere = allFind?.filter
+    ? renderExpr(allFind.filter, { thisName: "record", contextModule, filterArgs: true })
+    : null;
+  const listEff = combineWhere(allWhere, listCap);
   const ectoImport =
-    finds.length > 0 || capEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
+    finds.length > 0 || capEff || listEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
-  const listHead = principal ? `def list(${actorParam}) do` : "def list do";
-  const listSpec = principal
+  // The LIST head threads the actor when its read references the principal —
+  // a principal capability filter OR a declared `all` predicate reading
+  // `currentUser`.  The arity is kept whenever it is threaded (callers pass the
+  // actor positionally); only the NAME underscores when an `ignoring` bypass
+  // dropped every principal reference from the body (`--warnings-as-errors`).
+  const listActorParam = `${listEff && /\bcurrent_user\b/.test(listEff) ? "" : "_"}current_user \\\\ nil`;
+  const listHead = listPrincipal ? `def list(${listActorParam}) do` : "def list do";
+  const listSpec = listPrincipal
     ? `@spec list(map() | nil) :: {:ok, [${aggModule}.t()]} | {:error, term()}`
     : `@spec list() :: {:ok, [${aggModule}.t()]} | {:error, term()}`;
-  // `list`: bare `Repo.all(<Agg>)` unless a capability filter scopes it.
+  // `list`: bare `Repo.all(<Agg>)` unless a capability filter (or a declared
+  // `all` predicate) scopes it.
   // `Repo.preload/2` accepts the whole list, so the value-collection has_many
   // and reference-collection many_to_many associations come back loaded (and
   // ordinal-ordered, for value collections) in one round-trip.
   const listBody =
-    (capEff
-      ? `from(record in ${aggModule}, where: ${capEff}) |> Repo.all()`
+    (listEff
+      ? `from(record in ${aggModule}, where: ${listEff}) |> Repo.all()`
       : `Repo.all(${aggModule})`) + preload;
   // The paged `list` block (whole spec + def).  The plain block is byte-identical
   // to before the flip; only a paged auto-findAll takes the envelope path.
-  const listQuery = capEff
-    ? `from(record in ${aggModule}, where: ${capEff})`
+  const listQuery = listEff
+    ? `from(record in ${aggModule}, where: ${listEff})`
     : `from(record in ${aggModule})`;
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
@@ -330,10 +360,10 @@ function renderRepository(
     `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
     `sort \\\\ "id"`,
     `dir \\\\ "asc"`,
-    ...(principal ? ["current_user \\\\ nil"] : []),
+    ...(listPrincipal ? [listActorParam] : []),
   ].join(", ");
   const listBlock = listPaged
-    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${principal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
+    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
     total = Repo.aggregate(query, :count, :id)

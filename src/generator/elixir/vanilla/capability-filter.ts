@@ -24,7 +24,10 @@
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  exprUsesCurrentUser,
+} from "../../../ir/types/loom-ir.js";
 import {
   deepScopeAnchorClaim,
   deepScopeTenantClaim,
@@ -40,7 +43,7 @@ import {
   renderGuidClaimSelfScopeEcto,
 } from "../render-expr.js";
 
-export { aggregateUsesPrincipalContextFilter } from "../../../ir/types/loom-ir.js";
+export { aggregateUsesPrincipalContextFilter };
 
 /** True when a repository `find`'s OWN (author-written) `where` predicate reads
  *  the request principal — `find mine(): WorkOrder[] where this.ownerId ==
@@ -53,6 +56,19 @@ export { aggregateUsesPrincipalContextFilter } from "../../../ir/types/loom-ir.j
  *  rendered one — "undefined variable current_user" at `mix compile`. */
 export function findUsesPrincipal(f: { filter?: ExprIR }): boolean {
   return !!f.filter && exprUsesCurrentUser(f.filter);
+}
+
+/** True when the aggregate's LIST read (`list/…`, fronting the `all` find)
+ *  must thread the request actor: a principal capability filter scopes it, or
+ *  a DECLARED `find all(): X[] where <pred>` whose own predicate reads
+ *  `currentUser` (the list conjoins that predicate — eval-closure item 2).
+ *  The repository head, the context defdelegate and the controller's `index`
+ *  call all read this one predicate so their arities cannot drift. */
+export function listUsesPrincipal(
+  agg: AggregateIR,
+  allFind: { filter?: ExprIR } | undefined,
+): boolean {
+  return aggregateUsesPrincipalContextFilter(agg) || (!!allFind && findUsesPrincipal(allFind));
 }
 
 /** One capability/write-scope predicate as an Ecto `where:` fragment, with the
