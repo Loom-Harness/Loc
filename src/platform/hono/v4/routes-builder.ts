@@ -42,6 +42,7 @@ import {
   chainSingleFieldNative,
   openapiLengthMeta,
   orderSingleFieldPatterns,
+  type RefineDecimalMode,
   refineClauseFor,
   takeSingleFieldChain,
 } from "../../../generator/zod-refine.js";
@@ -650,6 +651,7 @@ export function buildRoutesFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        "exact",
       ),
     );
   }
@@ -763,6 +765,7 @@ export function buildRoutesFile(
         // not here.  Passing the create-input set drops those refines so
         // the schema never references an absent field.
         new Set(requiredFields.map((f) => f.name)),
+        "exact",
       ),
     );
     lines.push(
@@ -805,6 +808,7 @@ export function buildRoutesFile(
         // the wire (422) instead of reaching the domain floor.
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
+        "exact",
       ),
     );
   }
@@ -2935,12 +2939,18 @@ export function emitWireSchema(
   fields: { name: string; base: string; default?: string; optional?: boolean }[],
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
+  // How a cross-field refine computes `decimal` arithmetic (RS-37).  "exact"
+  // renders it through decimal.js — only for a file whose `decimal.js` import
+  // follows its body (this router's deferred import, the workflow router's
+  // body scan); a caller without that stays "server-only" and leaves the rule
+  // to the domain's exact check.
+  decimal: RefineDecimalMode = "server-only",
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
   const remaining: InvariantIR[] = [];
   for (const inv of invariants) {
-    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx);
+    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx, decimal);
     if (taken) {
       const list = chainByField.get(taken.field) ?? [];
       list.push(taken.pattern);
@@ -2950,7 +2960,7 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx))
+    .map((inv) => refineClauseFor(inv, ctx, decimal))
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];

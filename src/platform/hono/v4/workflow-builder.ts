@@ -179,6 +179,8 @@ export function buildWorkflowsFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        // Exact decimal refines: this file's decimal.js import is body-scanned.
+        "exact",
       ),
     );
   }

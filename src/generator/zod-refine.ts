@@ -6,6 +6,7 @@ import {
   type SingleFieldPattern,
   singleFieldShape,
 } from "../ir/validate/invariant-classify.js";
+import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
 import { messageCode } from "../util/message-code.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";
@@ -59,6 +60,71 @@ function unrenderable(what: string): never {
   );
 }
 
+/** How a refine treats `decimal` ARITHMETIC (RS-37: decimal arithmetic is
+ *  EXACT on every backend).  A Loom `decimal` is a plain JS `number` on the
+ *  wire, and a native `data.a + data.b` computes in binary floating point —
+ *  `0.1 + 0.2 <= 0.3` DENIED (0.30000000000000004) a body every other backend's
+ *  wire validator admits, so a boundary tie answered 422 on node and 201 on the
+ *  other four.
+ *
+ *   - `"exact"` — render the arithmetic through decimal.js exactly as the node
+ *     domain renderer does (`new Decimal(data.a).plus(data.b).toNumber()`,
+ *     one narrowing at the chain's root), so the wire refine and the domain's
+ *     `_assertInvariants` agree to the bit.  The Hono route schemas take this:
+ *     decimal.js is a generated-node dependency whenever an emitted module
+ *     imports it, and the routes file's deferred import follows the body.
+ *   - `"server-only"` (default) — screen the invariant OUT of the refine; the
+ *     server's exact check still enforces it.  The four JS frontends take
+ *     this: their stacks carry decimal.js only for `money`, and a client-side
+ *     pre-check that disagrees with the server is worse than none. */
+export type RefineDecimalMode = "exact" | "server-only";
+
+/** decimal.js method per `decimal` arithmetic operator — the node domain
+ *  renderer's table (`typescript/render-expr.ts` `DECIMAL_METHOD`). */
+const DECIMAL_METHOD: Partial<Record<BinOp, string>> = {
+  "+": "plus",
+  "-": "minus",
+  "*": "times",
+  "/": "div",
+  "%": "mod",
+};
+
+/** The narrowing suffix of every exact decimal chain — decimal.js
+ *  `toNumber()`, the correctly-rounded nearest double (RS-24's wire width). */
+const DECIMAL_NARROW = ".toNumber()";
+
+/** True iff a binary is `decimal` ARITHMETIC — an arithmetic operator whose
+ *  result types as `decimal` (incl. the widened `int ∘ decimal` mixes and the
+ *  `int / int` division the type system widens to `decimal`). */
+function isDecimalArithmetic(e: ExprIR): boolean {
+  if (e.kind !== "binary" || DECIMAL_METHOD[e.op] === undefined) return false;
+  return e.resultType?.kind === "primitive" && e.resultType.name === "decimal";
+}
+
+/** True iff a `sum` fold's numeric type is `decimal` (λ-body type for
+ *  `sum(λ)`, element type for a bare `decimal[]` sum). */
+function sumIsDecimal(e: Extract<ExprIR, { kind: "method-call" }>): boolean {
+  if (!e.isCollectionOp || e.member !== "sum") return false;
+  const lam = e.args[0];
+  let t = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+  if (!lam) {
+    const rt = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
+    t = rt.kind === "array" ? rt.element : undefined;
+  }
+  return t?.kind === "primitive" && t.name === "decimal";
+}
+
+/** True iff a method call is `decimal.round(n)` — decimal arithmetic too (the
+ *  shared JS intrinsic scales in binary: `1.005.round(2)` answered `1`). */
+function isDecimalRound(e: Extract<ExprIR, { kind: "method-call" }>): boolean {
+  return (
+    !e.isCollectionOp &&
+    e.member === "round" &&
+    e.receiverType.kind === "primitive" &&
+    e.receiverType.name === "decimal"
+  );
+}
+
 /** The collection ops `renderCollectionOp` can render as browser JS.  The
  *  remainder of `COLLECTION_OP_SIGNATURES` (`map` / `sortBy` / `distinct` /
  *  `take` / `skip` / `join` / `min` / `max` / `avg`) has no faithful
@@ -96,7 +162,8 @@ function scalarMethodRenderable(e: Extract<ExprIR, { kind: "method-call" }>): bo
  *  browser JS for the whole expression?  Mirrors `renderRefineExpr`'s arms —
  *  every `false` here corresponds to a node the renderer would otherwise have
  *  to guess at. */
-export function refineRenderable(e: ExprIR): boolean {
+export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server-only"): boolean {
+  const ok = (x: ExprIR): boolean => refineRenderable(x, decimal);
   switch (e.kind) {
     case "literal":
     case "ref":
@@ -104,27 +171,31 @@ export function refineRenderable(e: ExprIR): boolean {
       // resource / unknown) are already excluded by `classifyForWire`.
       return true;
     case "member":
-      return refineRenderable(e.receiver);
+      return ok(e.receiver);
     case "method-call": {
-      const ok = e.isCollectionOp
+      // A `decimal` fold / round is decimal arithmetic — renderable only when
+      // the caller renders it exactly (see `RefineDecimalMode`).
+      if ((sumIsDecimal(e) || isDecimalRound(e)) && decimal !== "exact") return false;
+      const opOk = e.isCollectionOp
         ? REFINE_RENDERABLE_COLLECTION_OPS.has(e.member)
         : scalarMethodRenderable(e);
-      return ok && refineRenderable(e.receiver) && e.args.every(refineRenderable);
+      return opOk && ok(e.receiver) && e.args.every(ok);
     }
     case "paren":
-      return refineRenderable(e.inner);
+      return ok(e.inner);
     case "unary":
-      return refineRenderable(e.operand);
+      return ok(e.operand);
     case "binary":
-      return refineRenderable(e.left) && refineRenderable(e.right);
+      if (isDecimalArithmetic(e) && decimal !== "exact") return false;
+      return ok(e.left) && ok(e.right);
     case "ternary":
-      return refineRenderable(e.cond) && refineRenderable(e.then) && refineRenderable(e.otherwise);
+      return ok(e.cond) && ok(e.then) && ok(e.otherwise);
     case "lambda":
-      return e.body !== undefined && refineRenderable(e.body);
+      return e.body !== undefined && ok(e.body);
     case "object":
-      return e.fields.every((f) => refineRenderable(f.value));
+      return e.fields.every((f) => ok(f.value));
     case "i18nFormat":
-      return refineRenderable(e.inner);
+      return ok(e.inner);
     case "this":
     case "id":
     case "call":
@@ -314,11 +385,12 @@ export function openapiLengthMeta(
 export function takeSingleFieldChain(
   inv: InvariantIR,
   ctx: ClassifyContext,
+  decimal: RefineDecimalMode = "server-only",
 ): { field: string; pattern: SingleFieldPattern } | null {
   if (!classifyForWire(inv, ctx)) return null;
   // Every recognised single-field shape is comparison / `.length` / `matches`
   // — all renderable — but screen anyway so the two gates can never disagree.
-  if (!refineRenderable(inv.expr)) return null;
+  if (!refineRenderable(inv.expr, decimal)) return null;
   const single = singleFieldShape(inv);
   if (!single) return null;
   if (!ctx.available.has(single.field)) return null;
@@ -331,17 +403,21 @@ export function takeSingleFieldChain(
  *  request body, etc.).  Single-field-shape invariants are ALSO
  *  filtered out here so they aren't double-applied; the schema
  *  emitter consumes them via `takeSingleFieldChain` first. */
-export function refineClauseFor(inv: InvariantIR, ctx: ClassifyContext): string | null {
+export function refineClauseFor(
+  inv: InvariantIR,
+  ctx: ClassifyContext,
+  decimal: RefineDecimalMode = "server-only",
+): string | null {
   if (!classifyForWire(inv, ctx)) return null;
   // Local (browser-JS) admission — see the header note.  An invariant this
   // renderer cannot spell keeps its server-side enforcement instead of
   // shipping a broken refine.
-  if (!refineRenderable(inv.expr)) return null;
-  if (inv.guard && !refineRenderable(inv.guard)) return null;
+  if (!refineRenderable(inv.expr, decimal)) return null;
+  if (inv.guard && !refineRenderable(inv.guard, decimal)) return null;
   // A messaged single-field invariant is deliberately kept OUT of the native
   // chain (which has no message slot) so its refine survives — only suppress the
   // refine for a message-less shape the chain already absorbed.
-  if (!inv.message && takeSingleFieldChain(inv, ctx)) return null;
+  if (!inv.message && takeSingleFieldChain(inv, ctx, decimal)) return null;
   const body = renderRefineExpr(inv.expr);
   const guarded = inv.guard ? `!(${renderRefineExpr(inv.guard)}) || (${body})` : body;
   // Author `message "..."` wins over the derived "Invariant violated: <src>"
@@ -394,7 +470,7 @@ export function renderRefineExpr(e: ExprIR): string {
     case "unary":
       return `${e.op}${renderRefineExpr(e.operand)}`;
     case "binary":
-      return renderBinary(e.op, e.left, e.right);
+      return renderBinary(e);
     case "ternary":
       return `${renderRefineExpr(e.cond)} ? ${renderRefineExpr(e.then)} : ${renderRefineExpr(e.otherwise)}`;
     case "lambda":
@@ -486,6 +562,19 @@ function renderMember(e: Extract<ExprIR, { kind: "member" }>): string {
 function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   const recv = renderRefineExpr(e.receiver);
   const args = e.args.map(renderRefineExpr);
+  if (sumIsDecimal(e)) {
+    // Exact `decimal` fold (RS-37) — from a `new Decimal(0)` seed, narrowed once.
+    const fold =
+      args.length === 1
+        ? `(${recv}).reduce((acc, x) => acc.plus((${args[0]})(x)), new Decimal(0))`
+        : `(${recv}).reduce((acc, x) => acc.plus(x), new Decimal(0))`;
+    return `${fold}${DECIMAL_NARROW}`;
+  }
+  if (isDecimalRound(e)) {
+    // Exact half-away-from-zero rounding (RS-37; decimal.js ROUND_HALF_UP).
+    const recvDec = decimalChainOperand(recv, e.receiver) ?? `new Decimal(${recv})`;
+    return `${recvDec}.toDecimalPlaces(${args[0] ?? "0"}, Decimal.ROUND_HALF_UP)${DECIMAL_NARROW}`;
+  }
   if (e.isCollectionOp) {
     return renderCollectionOp(`(${recv})`, e.member, args);
   }
@@ -545,6 +634,21 @@ function renderCollectionOp(recv: string, name: string, args: string[]): string 
   }
 }
 
+/** A `decimal` arithmetic operand's UN-NARROWED `Decimal` text, or null when
+ *  the operand is not itself a decimal chain — so `(a + b) * 3` is one exact
+ *  computation, not two re-rounded doubles (the node domain renderer's
+ *  `decimalChainOperand`). */
+function decimalChainOperand(text: string, e: ExprIR): string | null {
+  if (e.kind === "paren") {
+    const inner = decimalChainOperand(text.slice(1, -1), e.inner);
+    return inner === null ? null : `(${inner})`;
+  }
+  if (isDecimalArithmetic(e) && text.endsWith(DECIMAL_NARROW)) {
+    return text.slice(0, -DECIMAL_NARROW.length);
+  }
+  return null;
+}
+
 /** `null` on one side of an equality — the ONE place a wire refine must not
  *  tighten `==` into `===`.  See `renderBinary`. */
 function isNullLiteral(e: ExprIR): boolean {
@@ -552,7 +656,18 @@ function isNullLiteral(e: ExprIR): boolean {
   return inner.kind === "literal" && inner.lit === "null";
 }
 
-function renderBinary(op: BinOp, left: ExprIR, right: ExprIR): string {
+function renderBinary(e: Extract<ExprIR, { kind: "binary" }>): string {
+  const { op, left, right } = e;
+  // `decimal` arithmetic — EXACT through decimal.js, the node domain
+  // renderer's shape (RS-37).  Only reachable under `RefineDecimalMode`
+  // "exact": `refineRenderable` screens it out otherwise.
+  if (isDecimalArithmetic(e)) {
+    const l = renderRefineExpr(left);
+    const recv = decimalChainOperand(l, left) ?? `new Decimal(${l})`;
+    const r = renderRefineExpr(right);
+    const arg = decimalChainOperand(r, right) ?? r;
+    return `${recv}.${DECIMAL_METHOD[op]}(${arg})${DECIMAL_NARROW}`;
+  }
   // `x == null` / `x != null` render LOOSE, every other comparison strict.
   //
   // Loom has one absence value; JS has two.  A wire-optional field arrives as

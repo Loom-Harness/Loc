@@ -62,7 +62,7 @@ describe("node datetime wire form", () => {
     const repo = (await generateSystemFiles(SOURCE)).get("d/db/repositories/widget-repository.ts")!;
     expect(repo).toContain(`releasedAt: (root.releasedAt as Date)${TRIM}`);
     expect(repo).toContain(
-      `retiredAt: (root.retiredAt == null ? null : (root.retiredAt == null ? null : (root.retiredAt as Date)${TRIM}))`,
+      `retiredAt: (root.retiredAt == null ? null : (root.retiredAt as Date)${TRIM})`,
     );
     // No bare `.toISOString()` survives on the wire path — that spelling is
     // precisely the `.000Z` divergence.
