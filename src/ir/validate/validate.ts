@@ -9,6 +9,7 @@ import {
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateDeclaredCreateParams } from "./checks/create-params-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -302,6 +303,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
     validateServerInitialisedFields(c, diags);
+    validateDeclaredCreateParams(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);

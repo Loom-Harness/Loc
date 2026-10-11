@@ -9,6 +9,7 @@
 // calls in the workflow body).
 // ---------------------------------------------------------------------------
 
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -755,7 +756,7 @@ ${body}
     // unauthorized caller could not compute.
     const createValidateClause = isDoc
       ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
-      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(attrs), :insert)`;
+      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(${declaredCreateParamNames(agg) !== undefined ? `${changesetMod}.take_create_attrs(attrs)` : "attrs"}), :insert)`;
     const createDelegate =
       createClauses.length === 0
         ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`

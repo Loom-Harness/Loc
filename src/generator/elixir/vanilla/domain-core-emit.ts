@@ -1,3 +1,4 @@
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -133,15 +134,20 @@ export function renderAggregatePureCore(
   // matches the loaded/persisted shape.  (Embedded `embeds_many` already default
   // to `[]`; the reset is harmless there.)
   const collectionContainments = agg.contains.filter((c) => c.collection).map((c) => snake(c.name));
+  // A narrowed declared `create(…)` takes only its parameters' keys.
+  const createAttrs =
+    declaredCreateParamNames(agg) !== undefined
+      ? `${changesetMod}.take_create_attrs(attrs)`
+      : "attrs";
   const createBody =
     collectionContainments.length === 0
       ? [
-          `    ${changesetMod}.base_changeset(%__MODULE__{}, attrs)`,
+          `    ${changesetMod}.base_changeset(%__MODULE__{}, ${createAttrs})`,
           "    |> Ecto.Changeset.apply_action(:insert)",
         ]
       : [
           "    with {:ok, record} <-",
-          `           ${changesetMod}.base_changeset(%__MODULE__{}, attrs)`,
+          `           ${changesetMod}.base_changeset(%__MODULE__{}, ${createAttrs})`,
           "           |> Ecto.Changeset.apply_action(:insert) do",
           `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
           "    end",

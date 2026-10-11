@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -308,7 +308,7 @@ export function renderCreateInput(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const declared = new Map(forCreateInput(agg.fields).map((f) => [f.name, f.type] as const));
+  const declared = new Map(createInputFields(agg).map((f) => [f.name, f.type] as const));
   // Emit EXACTLY the fields the test author wrote.
   //
   // Filling each omission from the create-input set would make the assertion

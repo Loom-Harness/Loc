@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedBoundedContextIR,
   ExprIR,
@@ -315,7 +315,7 @@ export function javaWorkflowStmtTarget(
       const agg = ctx.aggregates.find((a) => a.name === s.aggName);
       if (!agg) throw new Error(`workflow factory-let: unknown aggregate '${s.aggName}'`);
       const byName = new Map(s.fields.map((f) => [f.name, f.value]));
-      const args = forCreateInput(agg.fields).map((f) => {
+      const args = createInputFields(agg).map((f) => {
         const v = byName.get(f.name);
         if (!v) return "null";
         collectJavaExprImports(v, imports);

@@ -1,0 +1,95 @@
+// A declared `create(…)`'s parameter list IS the `POST /<plural>` request
+// contract (`declaredCreateParamNames`, src/ir/enrich/wire-projection.ts).
+//
+// `create(patient, minutes, fee)` narrows the create input on an Appointment
+// that also carries a `when`-gated `status`, a nullable `notes`, constant
+// defaults (`room`, `priority`), a bare `bool` and a collection.  Every one of
+// those is outside the create input and must be initialised by the factory —
+// to its declared default, `null`, `false` or `[]` — on every backend.
+//
+// The booted forged-body proof (a POST carrying `"status":"Completed"`) is
+// `test/behavioral/create-contract.mjs`, which generates THIS fixture on node:
+// the `test e2e` below cannot send a key the create does not list (its create
+// call is checked against the contract at compile time).
+system CreateContract {
+  subdomain Care {
+    context Scheduling {
+      enum AppointmentStatus { Requested, Confirmed, Cancelled, Completed }
+
+      valueobject Fee {
+        amount: decimal
+        currency: string
+        invariant currency.length == 3
+      }
+
+      aggregate Appointment {
+        patient: string
+        minutes: int
+        fee: Fee
+        status: AppointmentStatus = Requested
+        notes: string?
+        room: string = "A1"
+        priority: int = 3
+        urgent: bool
+        tags: string[]
+
+        invariant minutes >= 10 && minutes <= 120 message "Duration must be 10–120 minutes"
+
+        create(patient: string, minutes: int, fee: Fee) { }
+
+        operation confirm() when status == Requested {
+          status := Confirmed
+        }
+
+        operation complete(summary: string) when status == Confirmed {
+          status := Completed
+          notes := summary
+        }
+
+        test "the factory initialises every field the create does not list" {
+          let a = Appointment.create({ patient: "p", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })
+          expect(a.status).toBe(Requested)
+          expect(a.room).toBe("A1")
+          expect(a.priority).toBe(3)
+          expect(a.urgent).toBe(false)
+          expect(a.tags.count).toBe(0)
+        }
+      }
+
+      repository Appointments for Appointment { }
+    }
+  }
+
+  api SchedulingApi from Care
+  storage primary { type: postgres }
+  resource schedulingState { for: Scheduling, kind: state, use: primary }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Scheduling]
+    dataSources: [schedulingState]
+    serves: SchedulingApi
+    port: 4000
+  }
+
+  test e2e "a create takes only its params; every other field is initialised by the factory" against d {
+    let a = api.appointments.create({ patient: "p-1", minutes: 30, fee: { amount: 50.00, currency: "EUR" } })
+    let read = api.appointments.getById(a)
+    expect(read.patient).toBe("p-1")
+    expect(read.minutes).toBe(30)
+    expect(read.status).toBe("Requested")
+    expect(read.room).toBe("A1")
+    expect(read.priority).toBe(3)
+    expect(read.urgent).toBe(false)
+    expect(read.tags.length).toBe(0)
+    expect(read.notes).toBeNull()
+
+    // The state machine runs from the defaulted state.
+    api.appointments.confirm(a)
+    let confirmed = api.appointments.getById(a)
+    expect(confirmed.status).toBe("Confirmed")
+
+    // The narrowed input still carries the aggregate's invariant.
+    expect(api.appointments.create({ patient: "p-2", minutes: 5, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)
+  }
+}

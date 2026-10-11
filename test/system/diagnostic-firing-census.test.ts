@@ -644,21 +644,40 @@ system P {
     repository Things for Thing { }
   } }
 }`,
-  // A canonical `create` whose parameter list OMITS a required create-input
-  // field.  `POST /things` still demands `secret` (no emitter reads
-  // `canonicalCreate.params`), so a client written from the declaration 422s on
-  // a field the create never mentions.  The body is the ubiquitous
-  // `field := <same-named param>` idiom, which `loom.lifecycle-body-dropped`
-  // deliberately exempts — that exemption is exactly why this shape was silent.
-  "loom.create-params-not-wire": `
+  // A declared `create(…)` is the create input, so a param must BE a
+  // client-suppliable field — `n` names none.
+  "loom.create-param-not-a-field": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string?
+      create(n: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
+  // would give `secret` a value at creation.
+  "loom.create-param-required-omitted": `
 system P {
   subdomain S { context C {
     aggregate Thing {
       name: string
       secret: string
-      create(name: string) {
-        name := name
-      }
+      create(name: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // `Agg.create({ … })` passing a field the narrowed `create(…)` does not list.
+  "loom.create-call-field-not-in-create": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string
+      rank: int = 1
+      create(name: string) { }
+      test "t" { let t = Thing.create({ name: "a", rank: 2 }) }
     }
     repository Things for Thing { }
   } }

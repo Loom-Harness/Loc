@@ -405,6 +405,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
   { id: "stamps", title: "lifecycle stamps (audit timestamps via stamp blocks)", doc: "capabilities", backends: ALL },
   { id: "field-defaults", title: "field `= default` — omittable create input, declared value applied", doc: "language", backends: ALL },
+  { id: "create-contract", title: "a declared `create(…)`'s params ARE the create input — every unlisted field is initialised by the factory", doc: "language", backends: ALL },
   {
     id: "reserved-words",
     title:
