@@ -6,7 +6,7 @@
 // `<table>_<cols>_uq` index, the Hono per-router 23505 → 409 arm, the Ecto
 // `unique_constraint`) found nothing on the concrete and the key was enforced
 // NOWHERE, on every backend.  Enrichment now copies an ancestor's keys onto
-// each TPC concrete (tagged `inheritedFrom`), so each concrete table carries
+// each TPC concrete, so each concrete table carries
 // its own per-table unique index, and the base raises
 // `loom.unique-tpc-not-hierarchy-wide` because nothing spans the siblings.
 
@@ -57,14 +57,12 @@ const createsIndex = (files: Map<string, string>, name: string): string[] =>
     .map(([p]) => p);
 
 describe("TPC base `unique (…)` → a per-concrete unique index", () => {
-  it("enrichment copies the base key onto each TPC concrete, tagged with its origin", async () => {
+  it("enrichment copies the base key onto each TPC concrete", async () => {
     const loom = await buildLoomModel(system("node"));
     const ctx = loom.systems[0]!.subdomains[0]!.contexts[0]!;
     for (const name of ["Customer", "Supplier"]) {
       const agg = ctx.aggregates.find((a) => a.name === name)!;
-      expect(agg.uniqueKeys, name).toEqual([
-        expect.objectContaining({ columns: ["email"], inheritedFrom: "Party" }),
-      ]);
+      expect(agg.uniqueKeys, name).toEqual([expect.objectContaining({ columns: ["email"] })]);
     }
   });
 
@@ -129,5 +127,13 @@ describe("loom.unique-tpc-not-hierarchy-wide", () => {
     expect(await codes(system("node", "sharedTable"))).not.toContain(
       "loom.unique-tpc-not-hierarchy-wide",
     );
+  });
+
+  it("a rejected base key reports once, on the base — not again on each concrete's copy", async () => {
+    const src = system("node")
+      .replace("email: string\n", "email: string\n        addr: Addr\n")
+      .replace("unique (email)", "unique (addr)")
+      .replace("context Parties {", "context Parties {\n      valueobject Addr { street: string }");
+    expect((await codes(src)).filter((c) => c === "loom.unique-valueobject-field")).toHaveLength(1);
   });
 });

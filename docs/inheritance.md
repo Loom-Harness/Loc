@@ -112,8 +112,7 @@ A `unique (…)` key on an abstract base follows the base's table layout:
 - **`sharedTable` (TPH):** the hierarchy has one table, so it gets one index
   (`parties_email_uq`), and the key is unique across every subtype.
 - **`ownTable` (TPC):** the base owns no table. The enrich pass copies the key
-  onto each concrete, beside the merged fields, and tags each copy with
-  `inheritedFrom`. Each concrete table then gets its own index, named for that
+  onto each concrete, beside the merged fields. Each concrete table then gets its own index, named for that
   table. Every per-table consumer of the key sees it: the migration on all five
   backends, the .NET Dapper `DbSchema` bootstrap, the Hono per-router
   `23505` → 409 arm, and the Ecto `unique_constraint`.

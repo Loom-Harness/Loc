@@ -907,20 +907,13 @@ export function enrichContext(
   // keys are per TABLE, so duplicates ACROSS sibling concretes are not
   // prevented — `loom.unique-tpc-not-hierarchy-wide` says so on the base.  A
   // TPH (`sharedTable`) concrete inherits nothing here: its base owns the one
-  // shared table and already carries the index.  Root-most keys first, each
-  // tagged `inheritedFrom` so a per-aggregate validator can leave the
-  // diagnosis to the declaring base.
+  // shared table and already carries the index.  Root-most keys first.
   const inheritedUniqueKeysFor = (a: AggregateIR, seen: Set<string>): UniqueKeyIR[] => {
     if (!a.extendsAggregate || seen.has(a.name)) return [];
     seen.add(a.name);
     const base = byName.get(a.extendsAggregate);
     if (!base) return [];
-    return [
-      ...inheritedUniqueKeysFor(base, seen),
-      ...(base.uniqueKeys ?? []).map((uk) =>
-        uk.inheritedFrom ? uk : { ...uk, inheritedFrom: base.name },
-      ),
-    ];
+    return [...inheritedUniqueKeysFor(base, seen), ...(base.uniqueKeys ?? [])];
   };
   const withInheritance = ctx.aggregates.map((a) => {
     if (!a.extendsAggregate) return a;
