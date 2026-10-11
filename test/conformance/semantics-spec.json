@@ -747,6 +747,24 @@
         "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-39",
+      "title": "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
+      "trigger": "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
+      "observable": "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+        "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json"
+      ],
+      "tier": "behavioral"
     }
   ]
 }

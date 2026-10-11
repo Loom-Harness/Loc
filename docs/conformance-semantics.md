@@ -1626,7 +1626,7 @@ nothing and the test passes vacuously.
   When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
   merged as prose only, which made any new rule unlandable under the registry's
   gap-free assertion. That has since been closed: the registry was backfilled
-  (it now holds RS-1 … RS-38, contiguous), and `semantics-rules.test.ts` gained
+  (it now holds RS-1 … RS-39, contiguous), and `semantics-rules.test.ts` gained
   the prose-vs-registry parity assertion this finding asked for ("the prose and
   the registry describe the SAME set of rules", plus a per-rule title check), so
   a prose-only rule now fails CI instead of slipping past it.
@@ -1826,3 +1826,33 @@ nothing and the test passes vacuously.
   measured in wave C2 packets 2a / 2f / 2m, built as wave C5 moment 5b. Tier:
   **behavioral** — `test/behavioral/wire-golden/datetime-wire.json`, diffed by all
   seven wire-gated legs, plus the witness's string assertions on every leg.
+
+### RS-39 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
+- **Guarantee.** The `actor` an `audited` command records — and its entity
+  history (`GET /<aggregates>/{id}/history`) serves — is the request principal
+  projected onto the system's declared `user { … }` fields, keyed by the
+  declared names: exactly the body `/api/auth/me` answers. No undeclared claim,
+  no derived tenancy member (`orgPath` / `rootOrg`), no backend-specific key
+  casing. `null` when no principal is bound, which is always the case on a
+  deployable with no auth.
+- **Trigger.** `test/fixtures/corpus/field-mask.ddd` — `auth: required`,
+  `user { id, role, permissions }`, an aggregate-wide `audited` aggregate;
+  create, the audited `promote`, the crudish update, then the history read as
+  the dev-stub principal, whose injected claims carry two keys the `user` block
+  does not declare (`tenantId`, `orgId`). The auth-less null actor is
+  `audit-history.ddd`'s golden.
+- **The split when raised (wave C3 3d, D1).** Four shapes for one principal:
+  node stored the principal object as-is — under the dev stub the merged claim
+  bag, undeclared claims included; .NET serialised its `User` record, PascalCase
+  keys plus computed tenancy members; python never passed an actor, so `null`;
+  java handed Jackson the `User` record; elixir carried only `{ id }`.
+- **Per-backend shape.** node `audit/actor.ts` → `auditActor()`; .NET
+  `RequestContext.PrincipalJson()` over a declared-name dictionary; java a
+  per-service `auditActor()` building a `LinkedHashMap`; python
+  `app/db/audit.py` → `audit_actor()`, read inside `record_audit`; elixir
+  `Audit.record/2`'s `actor/0`, over the principal the Auth plug stashes in the
+  process dictionary.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** Wave C3 packet 3d hand-off D1; fixed in wave C3F packet F5.
+  Tier: **behavioral** — `test/behavioral/wire-golden/field-mask.json`, diffed by
+  every wire-gated leg.

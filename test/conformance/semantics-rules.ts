@@ -1327,6 +1327,36 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
     tier: "behavioral",
   },
+  {
+    id: "RS-39",
+    title:
+      "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
+    trigger:
+      "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
+    observable:
+      "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",
+    // The split when raised (wave C3 3d, D1): node stored the request principal
+    // object as-is — under the dev stub that is the merged claim bag, every
+    // undeclared claim included; .NET serialised the `User` record (PascalCase
+    // keys plus its computed tenancy members); python never passed an actor
+    // (null); java handed Jackson the `User` record (camelCase, but its keys
+    // decided by record introspection); elixir carried only `{id}`.
+    //
+    // Per-backend shape — each projects the declared field list explicitly,
+    // the `/auth/me` projection: node `audit/actor.ts` `auditActor()`; .NET
+    // `RequestContext.PrincipalJson()` over a declared-name dictionary; java a
+    // per-service `auditActor()` LinkedHashMap; python `app/db/audit.py`
+    // `audit_actor()` read by `record_audit`; elixir `Audit.record/2`'s
+    // `actor/0` over the principal the Auth plug stashes.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+      "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json",
+    ],
+    // BEHAVIORAL: the stored actor is only observable through a booted
+    // backend's history read.
+    tier: "behavioral",
+  },
 ];
 
 // ---------------------------------------------------------------------------
