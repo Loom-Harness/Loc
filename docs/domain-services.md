@@ -149,8 +149,14 @@ models both sanctioned crossings, and both sit in the **application layer**
    kind: api, use: <Api> }` and call it from a workflow — a typed in-system
    `remote-api-op`, addressed via the `<RESOURCE>_URL` seam, on every backend.
 2. **The other context's published events**, carried over a `channel` and
-   folded into a **local projection** — the projection is the anti-corruption
-   translation, and the domain then reads only its own model.
+   folded into a **local model** — the fold is the anti-corruption
+   translation, and the domain then reads only its own model.  Which local
+   model depends on the reader: a `projection` is a read model served through
+   its GET endpoint and pages (a workflow cannot load it — no repository;
+   `loom.workflow-unknown-name`), while a workflow reads a local **replica
+   aggregate**, fed by a correlated `create(e: <Event>) by …` starter, through
+   its own repository (`let r = Replicas.find(ForKey(k))` — see
+   [`workflow.md`](workflow.md)).
 
 Either way the callable surface of a context is its api (commands and queries
 routed to aggregate operations and workflows) plus its published events; the
