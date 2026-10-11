@@ -47,3 +47,12 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
 - **Launched** (2026-10-06): this log, plus the `CLAUDE.md` CI-surface refresh, rides the C3 close-out PR #3189 as the fleet's claim. Eight agents launched on `main` @ `d3f226765`.
 - **First run lost** (2026-10-06 → 2026-10-11). All eight packets ran. F2, F1 and F8 handed back and were folded locally; F3–F7 stopped mid-task on the session's weekly usage limit. The idle container was then reclaimed, and with it every unpushed packet branch and the local fold. Lesson for a coordinator: an unpushed fold is not a checkpoint. Push each fold to the wave PR as soon as it is gated, as a draft until the full suite has run. The re-run (2026-10-11) restarts the packets from the hand-back recipes.
 - **F2 folded** (2026-10-11; `claude/c3f-f2` @ `e9cbe64da`). **D8** fixed: an id named like an implicit-using type (`EventId`) gets a `global using EventId = <ns>.Domain.Ids.EventId;` alias, and CA1716 joins the csproj `NoWarn`. EF and Dapper build with 0 warnings / 0 errors in the .NET SDK container. **D5** is covered by open draft #3204 (verified at runtime: duplicate → 409, persists across restart). **D12** is covered by open #3185. Hand-off: `handoffs/wave-c3f-f2.md`.
+- **F3 folded** (2026-10-11; `claude/c3f-f3` @ `1c2c010f9`):
+  - **D6:** MikroORM root `EntitySchema`s declare `uniques:`.
+  - **D7:** the drizzle schema emits `uniqueIndex(...)` (partial when soft-deletable), and `synthDDL` keeps UNIQUE. New `corpus/unique-conflict` fixture with a node-minted golden.
+  - **D18:** a MikroORM `transactional` workflow emits `em.transactional`.
+  - **D20 + D21:** saga load/save convert money and decimal between DB text and `Decimal` on both node adapters, writing the fixed-scale string. `hono-workflow-own-state-assign.test.ts` now pins the conversion.
+  - **D15:** already fixed on `main`; `corpus/intrinsics` now asserts it at runtime.
+  - **One 409 detail:** every node 23505 handler and elixir answer the shared `UNIQUE_CONFLICT_DETAIL` (the sentence .NET, java and python already served), so one golden covers every leg.
+  - **D5 ported:** draft #3204 (`claude/dapper-unique-index`, Dapper `DbSchema.cs` unique indexes — verified at runtime by F2) is merged in as-is. Otherwise the dapper leg would be red on `corpus/unique-conflict`. The merge no-ops once #3204 lands.
+  - Hand-off: `handoffs/wave-c3f-f3.md`.
