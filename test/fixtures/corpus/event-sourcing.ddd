@@ -9,6 +9,11 @@ system Ledger {
       aggregate Account persistedAs: eventLog {
         owner: string
         balance: int
+        // Invariants guard every command's resulting state: the events are
+        // folded, the invariants checked, and only then appended.  A deposit
+        // past the cap is refused at the domain floor (422) and nothing reaches
+        // the stream.
+        invariant balance <= 1000 message "Balance cap exceeded"
         create open(owner: string) { emit Opened { account: id, owner: owner } }
         operation deposit(amount: int) {
           precondition amount > 0
@@ -52,6 +57,11 @@ system Ledger {
     let read = api.accounts.getById(a)
     expect(read.owner).toBe("alice")
     expect(read.balance).toBe(70)
+
+    // A command whose folded state breaks an invariant is refused before the
+    // append, so the balance a later read folds is unchanged.
+    expect(api.accounts.deposit(a, { amount: 5000 })).toThrow(422)
+    expect(api.accounts.getById(a).balance).toBe(70)
 
     // The root LIST route — `all` on an event-sourced aggregate is a bare
     // ARRAY, not the paged envelope, because it FOLDS every stream rather than
