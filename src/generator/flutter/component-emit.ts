@@ -58,6 +58,7 @@ import type {
   UiApiParamIR,
 } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { usesValueEquals } from "../_frontend/value-equals.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
@@ -556,6 +557,7 @@ export function renderComponentsFile(
   // The money runtime (M-T1.21) — a component body/action doing money
   // arithmetic, on demand and with the same marker `index.ts` emits the file on.
   if (usesMoney(blocks.join("\n"))) imports.push("import 'money.dart';");
+  if (usesValueEquals(blocks.join("\n"))) imports.push("import 'value_equals.dart';");
   // A component action that navigates pushes through the out-of-tree bridge —
   // a `State` object's action runs outside a build and reuses the Notifier
   // statement renderer, which spells `navigateTo(` (F2-CFE-1).

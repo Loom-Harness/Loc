@@ -1715,6 +1715,24 @@ export interface WalkerTarget {
     e: Extract<ExprIR, { kind: "binary" }>,
   ): string | null;
 
+  /** VALUE-OBJECT `==` / `!=` (`a == b`, and `a.equals(b)`, which lowers to
+   *  the same node) — the frontend twin of each backend's value-equality leaf.
+   *  A value object compares by its fields; where the host's `==` on the
+   *  page-side representation compares REFERENCES (a plain JSON object on the
+   *  JS frontends, a model class with no `operator ==` on Flutter) the target
+   *  renders a structural comparison instead.
+   *
+   *  Consulted by `emitExpr` FIRST in the binary arm, and only for a node
+   *  `isValueObjectEquality` (`_frontend/value-equals.ts`) accepts — so every
+   *  scalar comparison is untouched.  Return `null` to fall through to the
+   *  other binary seams and `exprBinary`; a target that omits the seam keeps
+   *  its host operator. */
+  exprValueEquality?(
+    left: string,
+    right: string,
+    e: Extract<ExprIR, { kind: "binary" }>,
+  ): string | null;
+
   /** NUMERIC binary-operand adaptation, for a target whose host language does
    *  not follow Loom's numeric-widening rules by itself.  Two divergences:
    *
