@@ -124,7 +124,7 @@ export interface EsInvariantCheck {
  *  reference collection (`X id[]`) is the id list the fold built, readable like
  *  any other field.  What the judgement refuses (a domainService / resource
  *  call) is reported by `loom.elixir-invariant-unenforced` rather than dropped. */
-export function esEnforcedInvariants(agg: AggregateIR): InvariantIR[] {
+function esEnforcedInvariants(agg: AggregateIR): InvariantIR[] {
   return (agg.invariants ?? []).filter((inv) => renderableHere(inv, new Set()));
 }
 
