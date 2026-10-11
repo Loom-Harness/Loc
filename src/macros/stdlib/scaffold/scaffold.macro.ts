@@ -96,9 +96,14 @@ export default defineMacro({
     // The WorkflowsIndex singleton (and its menu link) is emitted only when at
     // least one command-surfaced workflow exists — a context of purely
     // event-triggered sagas would otherwise produce an empty index linking
-    // nowhere.  Its cards list every workflow, matching the prior expander.
-    if (allWorkflows.some((w) => !workflowIsEventTriggeredOnly(w))) {
-      out.push(workflowsIndexPage(allWorkflows));
+    // nowhere.  Its cards list ONLY the command-surfaced workflows: each card's
+    // "Run →" targets `/workflows/<wf>`, the run form `scaffoldWorkflow` emits
+    // only for a command-startable workflow, so an event-only saga's card would
+    // link to a page that does not exist (claims D12).  The saga keeps its
+    // instance list/detail pages and their nav entry.
+    const runnable = allWorkflows.filter((w) => !workflowIsEventTriggeredOnly(w));
+    if (runnable.length > 0) {
+      out.push(workflowsIndexPage(runnable));
     }
 
     return out as never[];

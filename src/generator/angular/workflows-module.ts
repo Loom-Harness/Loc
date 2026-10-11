@@ -1,5 +1,6 @@
 import type { BoundedContextIR, TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
@@ -106,7 +107,7 @@ function instanceEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
         imports.push(`import type { ${base.name} } from "./${lowerFirst(owner.name)}";`);
         continue;
       }
-      const decl = ctx.enums.find((e) => e.name === base.name);
+      const decl = enumPool(ctx).find((e) => e.name === base.name);
       if (decl) {
         locals.push(
           `export type ${decl.name} = ${decl.values.map((v) => JSON.stringify(v)).join(" | ")};`,
