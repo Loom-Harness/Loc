@@ -99,12 +99,15 @@ const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "pytho
  *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
  *    one tracked entity, so `debitTwice` never conflicts and the double debit
  *    commits (M-T6.90).  The key returns with that fix.
- *  - elixir (`vanilla`): FAILS — the stale save inside the workflow answers
- *    500, not 409 (M-T6.92).
+ *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
+ *    the workflow's `Repo.transaction` rolled back but answered 500: the
+ *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
+ *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
+ *    Same 409 `detail` waiver (M-T6.91).
  *  - java (per #3142, not re-booted): the inverse defect — its workflow route never publishes a
  *    workflow-raised event at all, so `audits.total` reads 0 and the e2e
  *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
-const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python"];
+const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
 
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
@@ -281,7 +284,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "an aggregate event raised inside a `transactional` workflow whose later save fails — the event must not outlive the rollback",
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
-    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
+    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
   },
   {
     id: "workflow-create-state",
