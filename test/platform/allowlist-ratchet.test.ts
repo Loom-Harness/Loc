@@ -330,6 +330,18 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The same leg's ExUnit waivers: corpus projects whose emitted `mix test
+  // --warnings-as-errors` suite fails while the prod build compiles.  Empty —
+  // every project that emits a suite passes it — and pinned at zero so a
+  // failing suite is fixed in the emitter, not waived unseen.  The leg itself
+  // fails a waived suite that passes (stale), so this pin and that check
+  // ratchet the register from both sides.
+  {
+    file: "test/e2e/corpus-elixir-build.test.ts",
+    name: "ELIXIR_TEST_WAIVERS",
+    kind: "record",
+    max: 0,
+  },
   // The Flutter parity freeze's pinned-gap allowlist — the sibling of
   // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
   // sweep that built this register MISSED (M-T1.18 recorded the omission in

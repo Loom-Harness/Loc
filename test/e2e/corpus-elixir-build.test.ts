@@ -65,7 +65,9 @@ const ELIXIR_COMPILE_SKIP: Record<string, string> = {
 // still runs its suite, and a suite that now passes fails the cell as a stale
 // entry — fixing the emitter deletes the line in the same change.
 const ELIXIR_TEST_WAIVERS: Record<string, string> = {
-  // __WAIVERS__
+  // (empty — every corpus project that emits an ExUnit suite passes it.  Only
+  //  fixtures with domain-tier `test` blocks emit one; `test e2e` blocks land
+  //  in the generated `e2e/` harness, which this leg does not run.)
 };
 
 // Every corpus feature the manifest declares to generate on the elixir backend
