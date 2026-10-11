@@ -28,6 +28,7 @@ import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields } from "../../construction-default.js";
 import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js";
 import { jid } from "../java-ident.js";
+import { factoryFieldWrite, isOwnedValueList } from "../mutable-list.js";
 import {
   buildJavaRegexFields,
   collectJavaExprImports,
@@ -907,7 +908,8 @@ export function renderJavaEntity(
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        e.${jid(f.name)} = ${dflt === undefined ? jid(f.name) : `${jid(f.name)} != null ? ${jid(f.name)} : ${dflt}`};`;
+            // An owned value list is stored as a mutable copy (`mutable-list.ts`).
+            return `        e.${jid(f.name)} = ${factoryFieldWrite(f.type, jid(f.name), dflt)};`;
           }),
           // Server-seeded literal defaults (RS-11): fields outside the create-
           // input set (`token`/`managed`/`internal`) whose default is a
@@ -963,7 +965,12 @@ export function renderJavaEntity(
         ...(oneToOneParent
           ? [`        p._parent = parent;`, `        p.parentId = parent.id();`]
           : [`        p.parentId = parentId;`]),
-        ...entity.fields.map((f) => `        p.${jid(f.name)} = ${jid(f.name)};`),
+        // `new <Part> { tags: [...] }` passes `List.of(…)`; an omitted
+        // non-nullable list passes `null` — both are stored as a mutable list.
+        ...entity.fields.map(
+          (f) =>
+            `        p.${jid(f.name)} = ${factoryFieldWrite(f.type, jid(f.name), isOwnedValueList(f.type) ? "new java.util.ArrayList<>()" : undefined)};`,
+        ),
         ...partContainPopulate,
         emitTrace ? `        p._assertInvariants("<init>");` : `        p._assertInvariants();`,
         `        return p;`,

@@ -5,6 +5,7 @@ import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { jid } from "./java-ident.js";
+import { mutableListWrite } from "./mutable-list.js";
 import { addJavaExprImport, type JavaRenderContext, renderJavaExpr } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -108,7 +109,10 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       `${INDENT}var ${escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
 
     assign: (s, ix) => {
-      const base = `${INDENT}${renderPath(s.target)} = ${renderJavaExpr(s.value, ctx)};`;
+      // An owned value list is written as a mutable COPY (`mutable-list.ts`):
+      // `tags := [t]` would otherwise store an immutable `List.of(t)`.
+      const rhs = mutableListWrite(s.targetType, s.value, renderJavaExpr(s.value, ctx));
+      const base = `${INDENT}${renderPath(s.target)} = ${rhs};`;
       // NOTE the wrap ORDER: java (like .NET / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       return withProvCapture(

@@ -125,8 +125,24 @@ describe("a value-object field default renders in the WIRE shape", () => {
     // (no-default) collection arm already used `new ArrayList<>()`; the
     // explicit `= []` arm rendered the literal straight through.
     const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
-    expect(src).toContain("e.tags = tags != null ? tags : new ArrayList<>(List.of());");
+    expect(src).toContain(
+      "e.tags = tags != null ? new java.util.ArrayList<>(tags) : new ArrayList<>(List.of());",
+    );
     expect(src).toContain("import java.util.ArrayList;");
+  });
+
+  it("java: every write of an owned value list stores a mutable COPY", async () => {
+    // The default is one of four ways a `List.of(…)` reaches `tags`: a
+    // generated domain test hands `create` / `update` a `List.of(…)` literal,
+    // and `tags := [t]` renders one.  The fixture's domain tests append after
+    // each write; this pins the emitted shape for each.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
+    // create: the supplied list is copied, not aliased.
+    expect(src).toContain("e.tags = tags != null ? new java.util.ArrayList<>(tags)");
+    // update (crudish `tags := tags`) and an operation's `tags := [t]`.
+    expect(src).toContain("this.tags = new java.util.ArrayList<>(tags);");
+    expect(src).toContain("this.tags = new java.util.ArrayList<>(List.of(t));");
+    expect(src).not.toMatch(/this\.tags = (tags|List\.of\(t\));/);
   });
 
   it("java: the entity imports BigDecimal for a default it renders into the factory", async () => {

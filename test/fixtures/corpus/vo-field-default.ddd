@@ -63,6 +63,41 @@ system VoFieldDefault {
         tags: string[] = []
         // An optional VO whose type carries a wire rule (CS8620 on .NET).
         discount: Money?
+
+        // Appending to the list in the SAME unit of work it was written in.
+        // Java's `List.of(…)` is immutable, so a list that reaches the field
+        // as a literal — the `= []` default, a literal handed to `create`,
+        // `:=`, or `update` — throws UnsupportedOperationException on `.add`.
+        // Cross-request e2e cannot see it (a reload is a fresh mutable list);
+        // only these domain tests append to the very object that was written.
+        operation tag(t: string) { tags += t }
+        operation retag(t: string) { tags := [t] }
+
+        test "a defaulted list stays appendable after create" {
+          let i = Invoice.create({ reference: "R" })
+          i.tag("vip")
+          expect(i.tags.length).toBe(1)
+        }
+
+        test "a list supplied to create stays appendable" {
+          let i = Invoice.create({ reference: "R", tags: ["a"] })
+          i.tag("b")
+          expect(i.tags.length).toBe(2)
+        }
+
+        test "a list assigned by an operation stays appendable" {
+          let i = Invoice.create({ reference: "R" })
+          i.retag("a")
+          i.tag("b")
+          expect(i.tags.length).toBe(2)
+        }
+
+        test "a list written by update stays appendable" {
+          let i = Invoice.create({ reference: "R" })
+          i.update("R2", Money { amount: 1, currency: "USD" }, Money { amount: 2, currency: "USD" }, paid, "n", 2, ["x"], Money { amount: 0, currency: "USD" })
+          i.tag("y")
+          expect(i.tags.length).toBe(2)
+        }
       }
 
       repository Invoices for Invoice { }
