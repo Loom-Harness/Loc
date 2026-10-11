@@ -32,12 +32,10 @@ export function validateCrudishHardDelete(sys: EnrichedSystemIR, diags: LoomDiag
     for (const ctx of mod.contexts) {
       for (const agg of ctx.aggregates) {
         if (!(agg.capabilities?.includes("softDeletable") ?? false)) continue;
-        const destroy = agg.canonicalDestroy;
         // Only the destroy `crudish` synthesised: a hand-written `destroy {}`
         // is the author's own, explicit choice of a hard delete.
-        if (!destroy || destroy.origin?.kind !== "macro" || destroy.origin.macro !== "crudish") {
-          continue;
-        }
+        const origin = agg.canonicalDestroy?.origin;
+        if (origin?.kind !== "macro" || origin.macro !== "crudish") continue;
         diags.push({
           severity: "warning",
           code: "loom.crudish-hard-delete",
