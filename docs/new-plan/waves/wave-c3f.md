@@ -56,3 +56,13 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - **One 409 detail:** every node 23505 handler and elixir answer the shared `UNIQUE_CONFLICT_DETAIL` (the sentence .NET, java and python already served), so one golden covers every leg.
   - **D5 ported:** draft #3204 (`claude/dapper-unique-index`, Dapper `DbSchema.cs` unique indexes — verified at runtime by F2) is merged in as-is. Otherwise the dapper leg would be red on `corpus/unique-conflict`. The merge no-ops once #3204 lands.
   - Hand-off: `handoffs/wave-c3f-f3.md`.
+- **F1 folded** (2026-10-11; `claude/c3f-f1` @ `39597e68d`):
+  - **D14 + D16:** string columns are cast with `empty_values: []` and a nil-only `__require_present/2`, so a blank or whitespace string reaches the invariant / messaged `check` — node's `Name is required` + `msg.izdgzf`.
+  - **D19:** projection decimals go through one shared `__decimal_num/1` (`numeric-codec.ts`).
+  - **D24 + D25:** `changeset-ingress.ts` `__loom_decimal_ingress/3` answers node's `Invalid decimal: "…"` at the leaf pointer, top-level and VO leaves alike.
+  - **D17:** already fixed on `main` (C3 3g's D4b); its probe is restored.
+  - **Found and fixed:** a blank VO string leaf was accepted with a 201.
+  - The full elixir behavioural leg passes, 80 cases against the goldens, 0 divergences. Three goldens were re-minted from node.
+  - **Behaviour change:** a LiveView form posting `""` for a required text field now saves `""` (node's wire contract); `phoenix-ui-e2e` confirms in CI.
+  - The `intrinsics` `"   "` probe stays held for F4: the only divergence left is M-T6.87's default sentence.
+  - Hand-off: `handoffs/wave-c3f-f1.md`.
