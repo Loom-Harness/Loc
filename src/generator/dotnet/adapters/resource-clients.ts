@@ -11,7 +11,7 @@
 import type { DataSourceIR, StorageIR } from "../../../ir/types/loom-ir.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { upperFirst } from "../../../util/naming.js";
-import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { resourceEnvUrlVar, resourceSidecarUrl } from "../../../util/resource-env.js";
 
 export interface DotnetResourceAdapter {
   readonly name: string;
@@ -306,7 +306,7 @@ const rabbitmqDotnetAdapter: DotnetResourceAdapter = {
       const cls = upperFirst(r.name);
       lines.push(
         `    private static readonly string ${cls}Url =`,
-        `        Environment.GetEnvironmentVariable("${envVar(r.name)}") ?? "amqp://guest:guest@${r.name}:5672";`,
+        `        Environment.GetEnvironmentVariable("${envVar(r.name)}") ?? ${JSON.stringify(resourceSidecarUrl("rabbitmq", r.storageName))};`,
         `    private static IConnection? _${cls}Conn;`,
         `    private static IChannel? _${cls}Channel;`,
         "",
@@ -421,7 +421,7 @@ const smtpDotnetAdapter: DotnetResourceAdapter = {
       const cls = upperFirst(r.name);
       lines.push(
         `    private static readonly string ${cls}Url =`,
-        `        Environment.GetEnvironmentVariable("${envVar(r.name)}") ?? "smtp://localhost:1025";`,
+        `        Environment.GetEnvironmentVariable("${envVar(r.name)}") ?? ${JSON.stringify(resourceSidecarUrl("smtp", r.storageName))};`,
         `    private static readonly string ${cls}From =`,
         `        Environment.GetEnvironmentVariable("${envStem(r.name)}_FROM") ?? ${JSON.stringify(mailFrom(r, stores))};`,
         "",

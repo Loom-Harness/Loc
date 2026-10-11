@@ -20,13 +20,16 @@ import { lowerFirst } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import {
   DEBIAN_CERTS_LINES,
   NODE_CERTS_LINES,
   NPM_INSTALL_LINES,
 } from "../../_docker/node-stage.js";
+import { bootDbRetryBudgetMs } from "../../_obs/boot-db-retry.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 
 /** Spring Boot release the generated projects build against.  Bumping it
@@ -338,6 +341,13 @@ export function renderApplicationYml(slug: string): string {
     `    url: \${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${slug}}`,
     `    username: \${SPRING_DATASOURCE_USERNAME:postgres}`,
     `    password: \${SPRING_DATASOURCE_PASSWORD:postgres}`,
+    // Boot-time DB-connect retry (`BOOT_DB_RETRY`, eval item #24): Hikari
+    // keeps retrying the pool's first connection for this long (1 s apart)
+    // instead of failing fast, so the boot Flyway run / JPA bootstrap survive
+    // a database that is not reachable YET.  Same wall-clock budget as the
+    // other four backends' capped-backoff loops; past it boot still fails.
+    `    hikari:`,
+    `      initialization-fail-timeout: ${bootDbRetryBudgetMs()}`,
     `  jpa:`,
     `    hibernate:`,
     `      ddl-auto: none`,
@@ -421,12 +431,11 @@ export function renderHealthController(basePkg: string): string {
  * reader of this file would not think to look.  A plain `if` at the top of the
  * method answers the same 404 having touched nothing, and can be read.
  *
- * Java has no production-profile marker the generated app reliably sets (no
- * `spring.profiles.active` is emitted), so — exactly like the python backend,
- * and for the same reason — there is nothing to derive a default from, and the
- * switch is REQUIRED: `LOOM_TEST_RESET=1`, which the generated compose file
- * sets.  That makes this gate strictly tighter than node's or .NET's, never
- * looser.
+ * Opt-in only, never inferred (finding H-30): the handler answers 404 unless
+ * an operator sets BOTH `LOOM_TEST_RESET=1` and a `LOOM_TEST_RESET_TOKEN`, and
+ * 403 unless the request's `x-loom-test-reset` header equals that token
+ * (`MessageDigest.isEqual`, constant-time).  The generated compose file does
+ * not opt in.
  */
 export function renderTestResetController(
   basePkg: string,
@@ -436,12 +445,15 @@ export function renderTestResetController(
   return lines(
     `package ${basePkg}.api;`,
     ``,
+    `import java.nio.charset.StandardCharsets;`,
+    `import java.security.MessageDigest;`,
     `import java.util.ArrayList;`,
     `import java.util.Map;`,
     `import javax.sql.DataSource;`,
     `import org.springframework.http.ResponseEntity;`,
     `import io.swagger.v3.oas.annotations.Hidden;`,
     `import org.springframework.web.bind.annotation.PostMapping;`,
+    `import org.springframework.web.bind.annotation.RequestHeader;`,
     `import org.springframework.web.bind.annotation.RestController;`,
     ...seedRunners.map((r) => `import ${r.fqn};`),
     ``,
@@ -472,11 +484,20 @@ export function renderTestResetController(
     `    }`,
     ``,
     `    @PostMapping("${TEST_RESET_PATH}")`,
-    `    public ResponseEntity<Map<String, Object>> reset() throws Exception {`,
-    `        if (!"1".equals(System.getenv("${TEST_RESET_ENV}"))) {`,
+    `    public ResponseEntity<Map<String, Object>> reset(`,
+    `            @RequestHeader(value = "${TEST_RESET_HEADER}", required = false) String token)`,
+    `            throws Exception {`,
+    `        String expected = System.getenv("${TEST_RESET_TOKEN_ENV}");`,
+    `        if (!"1".equals(System.getenv("${TEST_RESET_ENV}")) || expected == null || expected.isEmpty()) {`,
     `            return ResponseEntity.status(404).body(Map.of(`,
     `                "status", "not_found",`,
-    `                "detail", "state reset is disabled; set ${TEST_RESET_ENV}=1 to enable it"));`,
+    `                "detail", "state reset is disabled; set ${TEST_RESET_ENV}=1 and ${TEST_RESET_TOKEN_ENV} to enable it"));`,
+    `        }`,
+    `        if (token == null || !MessageDigest.isEqual(`,
+    `                token.getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8))) {`,
+    `            return ResponseEntity.status(403).body(Map.of(`,
+    `                "status", "forbidden",`,
+    `                "detail", "missing or wrong reset token"));`,
     `        }`,
     `        var targets = new ArrayList<String>();`,
     `        try (var connection = dataSource.getConnection()) {`,

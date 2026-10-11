@@ -24,7 +24,7 @@
 
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import type { BrokerBinding } from "../../_channels/bindings.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
 import { TS_WIRE_DECODE } from "../wire-codec.js";
 
@@ -187,6 +187,13 @@ export function renderChannelsModule(
       "    address: string,",
       "    group: string | null,",
       "    handler: (envelope: LoomEventEnvelope) => Promise<void>,",
+      ...(hasKafka
+        ? [
+            "    /** Kafka only: a NEW consumer group starts at the earliest offset",
+            "     * (work-queue channels) instead of the latest (log channels). */",
+            "    opts?: { fromBeginning?: boolean },",
+          ]
+        : []),
       "  ): Promise<() => void>;",
       "  close(): Promise<void>;",
       "}",
@@ -431,13 +438,18 @@ export function renderChannelsModule(
             "        messages: [{ key: envelope.loomkey ?? envelope.id, value: JSON.stringify(envelope) }],",
             "      });",
             "    },",
-            "    async subscribe(address, group, handler) {",
+            "    async subscribe(address, group, handler, opts) {",
             "      const consumer = kafka.consumer({ groupId: group ?? address });",
             "      consumers.push(consumer);",
             "      await (async () => {",
             "        await ensureTopic(address);",
             "        await consumer.connect();",
-            "        await consumer.subscribe({ topic: address });",
+            "        // A NEW group's start offset (D3): a work-queue channel",
+            "        // (`retention: work`) starts at the earliest offset so events",
+            "        // published before the group's first join are not lost; a",
+            "        // `retention: log` channel starts at the latest.  A group with",
+            "        // committed offsets resumes from them either way.",
+            "        await consumer.subscribe({ topic: address, fromBeginning: opts?.fromBeginning === true });",
             "        await consumer.run({",
             "          eachMessage: async ({ message }) => {",
             '            const raw = message.value?.toString() ?? "";',
@@ -500,7 +512,7 @@ export function renderChannelsModule(
       "export const CHANNEL_BINDINGS = [",
       ...unique.map(
         (b) =>
-          `  { csName: ${JSON.stringify(b.csName)}, address: ${JSON.stringify(b.address)}, envVar: ${JSON.stringify(b.envVar)}, context: ${JSON.stringify(b.contextName)}, transport: ${JSON.stringify(b.transport)}, group: ${JSON.stringify(b.group)}, queue: ${b.delivery === "queue"}${hasKafka ? `, key: ${JSON.stringify(b.key ?? null)}` : ""} },`,
+          `  { csName: ${JSON.stringify(b.csName)}, address: ${JSON.stringify(b.address)}, envVar: ${JSON.stringify(b.envVar)}, context: ${JSON.stringify(b.contextName)}, transport: ${JSON.stringify(b.transport)}, group: ${JSON.stringify(b.group)}, queue: ${b.delivery === "queue"}${hasKafka ? `, key: ${JSON.stringify(b.key ?? null)}, fromBeginning: ${kafkaStartsAtEarliest(b)}` : ""} },`,
       ),
       "] as const;",
       "",
@@ -731,7 +743,7 @@ export function renderChannelsModule(
       "          id: envelope.id,",
       ...(hasKafka ? ["          ...(envelope.loomkey ? { key: envelope.loomkey } : {}),"] : []),
       "        });",
-      "      }),",
+      hasKafka ? "      }, { fromBeginning: b.fromBeginning })," : "      }),",
       "    );",
       "  }",
       "  return async () => {",

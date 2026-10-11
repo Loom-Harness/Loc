@@ -37,6 +37,7 @@ import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import { renderWorkflowInstanceSerialize } from "./wire-serialize.js";
 
 /** Emit the saga-state schema(s) + the `WorkflowInstancesController` for one
  *  context, returning the instance read routes (`GET /workflows/<snake>/
@@ -63,6 +64,18 @@ export function emitVanillaWorkflowInstances(
   const actions = observable
     .map((wf) => renderInstanceActions(contextModule, appModule, wf, ctx))
     .join("\n\n");
+  // One wire-shape serializer per workflow (`serialize_<wf>/1` + its value-object
+  // helpers, suffixed per workflow); the shared `__decimal_num` /
+  // `__money_round` helpers dedupe by their unsuffixed name.
+  const serializers = new Map<string, string>();
+  for (const wf of observable) {
+    const s = renderWorkflowInstanceSerialize(wf, ctx);
+    serializers.set(`serialize_${snake(wf.name)}`, s.serialize);
+    for (const h of s.helpers) {
+      const name = /defp (\w+)\(/.exec(h)?.[1] ?? h;
+      if (!serializers.has(name)) serializers.set(name, h);
+    }
+  }
 
   out.set(
     `lib/${appName}_web/controllers/workflow_instances_controller.ex`,
@@ -81,6 +94,8 @@ defmodule ${webModule}.WorkflowInstancesController do
 ${renderPathIdCastPlug()}
 
 ${actions}
+
+${[...serializers.values()].join("\n\n")}
 end
 `,
   );
@@ -110,7 +125,7 @@ end
  *  folds the per-correlation `<wf>_events` stream via `<Wf>Stream` —
  *  `list_instances/0` (load-all + group-by-stream_id + fold each, mirroring the
  *  ES-aggregate repository `list/0`) for LIST, `instance_by_id/1` (single-stream
- *  load + fold, nil if empty) for byId.  The projection reads `row.<field>`
+ *  load + fold, nil if empty) for byId.  The serializer reads `record.<field>`
  *  identically on the Ecto row and the folded `<Wf>State` struct, so the wire
  *  keys, route paths, and action names stay identical to the state path. */
 function renderInstanceActions(
@@ -120,9 +135,9 @@ function renderInstanceActions(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const slug = snake(wf.name);
-  const mapFields = (wf.instanceWireShape ?? [])
-    .map((f) => `${f.name}: row.${snake(f.name)}`)
-    .join(", ");
+  // The row projects through `serialize_<wf>/1` (`renderWorkflowInstanceSerialize`)
+  // — the per-type wire coercions, not a raw `row.<field>` dump.
+  const ser = `serialize_${slug}`;
   // The instance-READ gate (`workflow X requires <expr>`) — 403 before the read
   // on BOTH actions, mirroring the projection controller's gate.  `current_user`
   // is bound only when the predicate reads it: an unused binding fails
@@ -158,7 +173,7 @@ ${body}
     return `${wrap(
       `  @doc "GET /api/workflows/${slug}/instances"
   def ${slug}_instances(conn, _params) do`,
-      `    data = Enum.map(${streamMod}.list_instances(), fn row -> %{${mapFields}} end)
+      `    data = Enum.map(${streamMod}.list_instances(), &${ser}/1)
     json(conn, data)`,
     )}
 
@@ -170,7 +185,7 @@ ${wrap(
         ProblemDetails.not_found_response(conn, "${upperFirst(wf.name)}", id)
 
       row ->
-        json(conn, %{${mapFields}})
+        json(conn, ${ser}(row))
     end`,
 )}`;
   }
@@ -178,7 +193,7 @@ ${wrap(
   return `${wrap(
     `  @doc "GET /api/workflows/${slug}/instances"
   def ${slug}_instances(conn, _params) do`,
-    `    data = Enum.map(${appModule}.Repo.all(${stateMod}), fn row -> %{${mapFields}} end)
+    `    data = Enum.map(${appModule}.Repo.all(${stateMod}), &${ser}/1)
     json(conn, data)`,
   )}
 
@@ -190,7 +205,7 @@ ${wrap(
         ProblemDetails.not_found_response(conn, "${upperFirst(wf.name)}", id)
 
       row ->
-        json(conn, %{${mapFields}})
+        json(conn, ${ser}(row))
     end`,
 )}`;
 }
