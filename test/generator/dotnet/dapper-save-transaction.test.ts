@@ -67,9 +67,7 @@ describe("Dapper SaveAsync is transactional", () => {
     const save = repo.slice(repo.indexOf("public async Task SaveAsync"));
 
     // A transaction opens right after the connection.
-    expect(save).toContain(
-      "var __tx = await __lease.BeginTransactionAsync(cancellationToken);",
-    );
+    expect(save).toContain("var __tx = await __lease.BeginTransactionAsync(cancellationToken);");
 
     // Every write in the save path is enrolled in it — the root upsert, the
     // join-table DELETE + INSERT, and the containment DELETE + INSERT.
@@ -111,9 +109,7 @@ describe("Dapper SaveAsync is transactional", () => {
     const del = repo.slice(repo.indexOf("public async Task DeleteAsync"));
     const body = del.slice(0, del.indexOf("\n    }"));
 
-    expect(body).toContain(
-      "var __tx = await __lease.BeginTransactionAsync(cancellationToken);",
-    );
+    expect(body).toContain("var __tx = await __lease.BeginTransactionAsync(cancellationToken);");
     // The join table, the child table and the root all ride the transaction.
     expect(body).toContain("DELETE FROM order_tags");
     expect(body).toContain("DELETE FROM line_items");

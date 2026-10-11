@@ -11,11 +11,14 @@
 // "committed but unannounced".  Runtime-proven on a booted Dapper stack: 70
 // before, 90 after (one Transfer row, one reactor-written Audit row).
 //
-// The runtime gate is the behavioural corpus case
-// `transactional-workflow-event-rollback` on the Dapper leg; this file pins
-// the emitted SHAPE the fix rests on, which a compile gate cannot see — a
-// repository that opens its own connection compiles fine and silently leaves
-// the workflow's transaction.
+// This file pins the emitted SHAPE the fix rests on, which a compile gate
+// cannot see — a repository that opens its own connection compiles fine and
+// silently leaves the workflow's transaction.  The behavioural corpus case
+// `transactional-workflow-event-rollback` discriminates on the Dapper leg
+// (pre-fix `expected 80 to be 90`, post-fix green) but is not keyed for
+// `dotnet` yet: the key would also run the EF leg, where two `getById` handles
+// are ONE tracked entity so `debitTwice` never conflicts, and the Dapper 409's
+// `detail` sentence differs from node's golden.
 
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
@@ -111,7 +114,9 @@ describe("dotnet/dapper: a transactional workflow writes on the unit of work's c
       // A raw open is a connection outside the workflow's transaction; a raw
       // begin is a second transaction the unit of work cannot roll back.
       expect(src, p).not.toMatch(/_db\.OpenConnectionAsync|conn\.BeginTransactionAsync/);
-      expect(src, p).toContain(".Infrastructure.Persistence.DapperConnectionLease.OpenAsync(_db, cancellationToken)");
+      expect(src, p).toContain(
+        ".Infrastructure.Persistence.DapperConnectionLease.OpenAsync(_db, cancellationToken)",
+      );
     }
     // The relational save: its transaction comes FROM the lease (the unit of
     // work's when enlisted) and its commit is the lease's (a no-op when enlisted).
@@ -132,7 +137,9 @@ describe("dotnet/dapper: a transactional workflow writes on the unit of work's c
     );
     const lease = file(files, "/Infrastructure/Persistence/DapperConnectionLease.cs");
     expect(lease).toMatch(/public static Task<IDomainTransaction> BeginAsync\(/);
-    expect(lease).toMatch(/private DapperAmbientTransaction\(\)\s*\{\s*_previous = _current\.Value;\s*_current\.Value = this;/);
+    expect(lease).toMatch(
+      /private DapperAmbientTransaction\(\)\s*\{\s*_previous = _current\.Value;\s*_current\.Value = this;/,
+    );
     // Enlisted leases borrow the ambient connection + transaction and own neither.
     expect(lease).toMatch(
       /if \(DapperAmbientTransaction\.Current is \{ \} ambient\)\s*return new DapperConnectionLease\(ambient\.Connection, ambient\.Transaction, owned: false\);/,
