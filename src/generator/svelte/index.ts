@@ -430,6 +430,9 @@ export function generateSvelteForContexts(
       navSections: navSectionsVM,
       hasNav: navSections.length > 0,
       navUsesSession,
+      // `auth: ui` — the shell header carries the Sign out control (the
+      // AuthGate renders none, so it never floats over page content).
+      authUi,
       // Pack-chrome (M-T1.11): raw source string when i18n is off (byte-identical
       // to the pre-i18n shell), else a Svelte `{t("chrome.skipToContent", "…")}`
       // interpolation keyed to `APP_SHELL_CHROME`; the gated `t` import rides the

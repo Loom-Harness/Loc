@@ -35,6 +35,10 @@ export const theme = createTheme({
     Select: { defaultProps: { radius: "md" } },
     Switch: { defaultProps: { radius: "md" } },
     Table: { defaultProps: { verticalSpacing: "sm", horizontalSpacing: "md" } },
-    Badge: { defaultProps: { radius: "sm" } },
+    // A badge never ellipsizes its label.  Mantine's label is an overflow-
+    // hidden grid item, so its min-content is zero and a crowded table column
+    // squeezes "Closed" to "C…"; pinning the root's min width to its content
+    // makes the column, not the label, give way.
+    Badge: { defaultProps: { radius: "sm" }, styles: { root: { minWidth: "max-content" } } },
   },
 });

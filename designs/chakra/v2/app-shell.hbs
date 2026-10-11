@@ -8,6 +8,7 @@ import {
 } from "@chakra-ui/react";
 import React from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
+{{/if}}{{#if authUi}}import { signOut } from "./auth/session";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
 {{/if}}
@@ -205,7 +206,8 @@ function AppShellLayout() {
           <Box w={7} h={7} borderRadius="md" bg="brand.300" aria-hidden="true" />
           <Text fontWeight={600} fontSize="md" color="white">{{systemNameHuman}}</Text>
         </Box>
-      </Flex>
+{{#if authUi}}        <Button variant="ghost" size="sm" color="white" ml="auto" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}      </Flex>
 
       <Flex flex={1} minH={0}>
         {/* Desktop sidebar */}
