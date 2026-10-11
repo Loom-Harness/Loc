@@ -4,7 +4,7 @@
 // definitions, and each must carry the index:
 //
 //   real Postgres, drizzle  → `db/migrations/*.sql` (the shared MigrationsIR)
-//   PGlite (the playground) → `synthDDL` over the DRIZZLE schema object
+//   PGlite (the playground) → `web/src/runtime/ddl.ts` over the DRIZZLE schema
 //   real Postgres, MikroORM → `orm.schema.updateSchema()` over the EntitySchema
 //                             metadata — the migration files are never run
 //
