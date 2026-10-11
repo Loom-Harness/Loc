@@ -85,6 +85,7 @@ import {
   workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
@@ -1916,6 +1917,7 @@ ${respondErrorTail(
   contextsHaveWireDenials(groups.map((g) => g.ctx)),
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
+  groups.some((g) => aggregatesNeedConcurrency(g.ctx.aggregates)),
 )}
 end
 `;
