@@ -19,6 +19,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -39,6 +40,7 @@ import {
   collectJavaExprImports,
   collectJavaTypeImports,
   type JavaRenderContext,
+  javaValueTypeForId,
   renderJavaExpr,
   renderJavaType,
 } from "../render-expr.js";
@@ -879,11 +881,21 @@ export function renderJavaWorkflows(
     // BeginTransactionAsync(IsolationLevel.X) path.
     const isolation = sys ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
     if (isolation) usesIsolation = true;
+    // `create(…): T { … return <expr> }` — the method returns the WIRE value
+    // (an id's raw `value()`), read inside the class-level `@Transactional`
+    // boundary and handed back after it commits.  No result keeps `void`.
+    const result = commandCreateResult(wf);
+    if (result && workflowResultWireJava(result.type) === "UUID") imports.add("java.util.UUID");
+    const resultLines = result
+      ? [
+          `            var workflowResult = ${renderJavaExpr(result.value, wfRenderCtx)}${result.type.kind === "id" ? ".value()" : ""};`,
+        ]
+      : [];
     methods.push(
       ...(isolation
         ? [`    @Transactional(isolation = Isolation.${javaIsolation(isolation)})`]
         : []),
-      `    public void ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
+      `    public ${result ? workflowResultWireJava(result.type) : "void"} ${lowerFirst(wf.name)}(${wf.params.length > 0 ? `${reqType} request` : ""}) {`,
       // A workflow is a per-dispatch boundary: run it in a child execution frame
       // (fresh scope_id, parent_id ← the request's root scope) so its audit /
       // provenance rows record their call-structure position.
@@ -897,9 +909,11 @@ export function renderJavaWorkflows(
       ...bodyLines,
       ...saves,
       ...stateSave,
+      ...resultLines,
       // `workflow_completed` on the success tail — a thrown guard / domain
       // exception short-circuits before reaching here.
       `            CatalogLog.event(${javaLogEvent("workflowCompleted")}, "workflow", ${JSON.stringify(wf.name)});`,
+      ...(result ? [`            return workflowResult;`] : []),
       // The TERMINAL event of a FAILED run.  Without it a workflow that threw
       // logged `workflow_started` and then nothing at all, so "started but
       // never finished" was indistinguishable from "still running" in the log
@@ -1139,31 +1153,79 @@ export function renderJavaWorkflows(
     ),
   });
 
-  const routes = cmdWorkflows.flatMap((wf) => [
-    `    @PostMapping("/${snake(wf.name)}")`,
-    `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-    wf.params.length > 0
-      ? `    public void ${lowerFirst(wf.name)}(@Valid @RequestBody ${upperFirst(wf.name)}Request request) {`
-      : `    public void ${lowerFirst(wf.name)}() {`,
-    `        workflows.${lowerFirst(wf.name)}(${wf.params.length > 0 ? "request" : ""});`,
-    `    }`,
-    ``,
-  ]);
+  // A `create(…): T` route answers 200 with the value (springdoc infers the 200
+  // + its schema from the return type).  A bare `String` is pre-serialised to a
+  // JSON string: `StringHttpMessageConverter` would otherwise write it raw as
+  // text/plain — the same M-T6.73 fix the explicit-handler routes carry.
+  const ctlImports = new Set<string>();
+  let ctlJson = false;
+  const routes = cmdWorkflows.flatMap((wf) => {
+    const arg = wf.params.length > 0 ? "request" : "";
+    const sig =
+      wf.params.length > 0 ? `@Valid @RequestBody ${upperFirst(wf.name)}Request request` : "";
+    const call = `workflows.${lowerFirst(wf.name)}(${arg})`;
+    const result = commandCreateResult(wf);
+    if (!result) {
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
+        `    public void ${lowerFirst(wf.name)}(${sig}) {`,
+        `        ${call};`,
+        `    }`,
+        ``,
+      ];
+    }
+    const wire = workflowResultWireJava(result.type);
+    if (wire === "UUID") ctlImports.add("java.util.UUID");
+    if (wire === "String") {
+      ctlJson = true;
+      ctlImports.add("org.springframework.http.MediaType");
+      ctlImports.add("org.springframework.http.ResponseEntity");
+      ctlImports.add("tools.jackson.databind.json.JsonMapper");
+      return [
+        `    @PostMapping("/${snake(wf.name)}")`,
+        `    public ResponseEntity<String> ${lowerFirst(wf.name)}(${sig}) {`,
+        `        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)`,
+        `            .body(JSON.writeValueAsString(${call}));`,
+        `    }`,
+        ``,
+      ];
+    }
+    return [
+      `    @PostMapping("/${snake(wf.name)}")`,
+      `    public ${wire} ${lowerFirst(wf.name)}(${sig}) {`,
+      `        return ${call};`,
+      `    }`,
+      ``,
+    ];
+  });
   while (routes[routes.length - 1] === "") routes.pop();
   out.set(`${ctx.name}WorkflowsController.java`, {
     category: "controller",
     content: lines(
       `package ${wctx.basePkg}.api;`,
       ``,
+      ...[...ctlImports].filter((i) => i.startsWith("java.")).map((i) => `import ${i};`),
+      [...ctlImports].some((i) => i.startsWith("java.")) ? `` : null,
       `import jakarta.validation.Valid;`,
       `import org.springframework.http.HttpStatus;`,
+      ...[...ctlImports]
+        .filter((i) => i.startsWith("org."))
+        .sort()
+        .map((i) => `import ${i};`),
       `import org.springframework.web.bind.annotation.*;`,
+      ...(ctlJson ? [`import tools.jackson.databind.json.JsonMapper;`] : []),
       ``,
       `import ${wctx.pkg}.*;`,
       ``,
       `@RestController`,
       `@RequestMapping("${wctx.routePrefix ?? ""}/workflows")`,
       `public class ${ctx.name}WorkflowsController {`,
+      ...(ctlJson
+        ? [
+            `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();`,
+          ]
+        : []),
       `    private final ${serviceName} workflows;`,
       ``,
       `    public ${ctx.name}WorkflowsController(${serviceName} workflows) {`,
@@ -1177,4 +1239,11 @@ export function renderJavaWorkflows(
   });
 
   return out;
+}
+
+/** The Java type a workflow route's declared result crosses the wire as — an
+ *  id's raw `value` type, else the scalar itself.  Only the kinds phase ④
+ *  admits (`loom.workflow-return-type-unsupported`) reach here. */
+function workflowResultWireJava(t: TypeIR): string {
+  return t.kind === "id" ? javaValueTypeForId(t.valueType) : renderJavaType(t);
 }

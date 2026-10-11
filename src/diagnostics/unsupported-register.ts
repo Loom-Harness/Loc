@@ -109,9 +109,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "M-T1.35",
   },
   {
+    code: "loom.workflow-return-type-unsupported",
+    kind: "scope",
+    site: "src/language/validators/structural.ts:438",
+    what:
+      "a workflow `create(…): T` whose `T` is an aggregate / payload / value object / " +
+      "decimal / money / datetime.  The v1 result (B-03) ships `X id` / `string` / `int` / " +
+      "`long` / `bool` on all five backends; the rest need the per-backend response " +
+      "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
+      "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
+    mission: "M-T5.48",
+    verified: false,
+  },
+  {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:392",
+    site: "src/ir/validate/checks/workflow-checks.ts:415",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +

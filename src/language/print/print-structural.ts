@@ -993,10 +993,12 @@ function printWorkflowCreateDecl(node: import("../generated/ast.js").WorkflowCre
   const name = node.name ? ` ${node.name}` : "";
   const params = node.params.map(printParameter).join(", ");
   const by = node.correlation ? ` by ${printExpr(node.correlation)}` : "";
+  // The optional `: T` result sits after the signature modifiers, before `by`.
+  const ret = node.returnType ? `: ${printTypeRef(node.returnType)}` : "";
   // Authorization gate (authorization.md §11.3) — after `by`, before the body;
   // the modifier slots bracket it exactly as the grammar orders them.
   return block(
-    `${callableLead(node)}create${name}(${params})${callableSig(node)}${by}${callableGates(node)}`,
+    `${callableLead(node)}create${name}(${params})${callableSig(node)}${ret}${by}${callableGates(node)}`,
     () => node.body.map(printStmt),
   );
 }

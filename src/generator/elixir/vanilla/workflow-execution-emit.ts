@@ -92,6 +92,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -278,6 +279,8 @@ interface ReadScope {
    *  Defaults to `false`, so every call path that has not reasoned about the
    *  result slot (nested loop bodies, legacy callers) keeps today's real name. */
   discardableBind?: boolean;
+  /** See `LowerBodyOptions.rebindOpTargets`. */
+  rebindOpTargets?: boolean;
 }
 
 const NO_READS: ReadScope = {};
@@ -293,6 +296,13 @@ export interface LowerBodyOptions {
    *  `commandHandler` / `queryHandler` path sets this: `assembleHandlerBody`
    *  closes with `{:ok, <return expr>}`, never with the last bound name. */
   ownResult?: boolean;
+  /** `true` on the workflow `create(…): T` path: an `op-call` whose target a
+   *  LATER read needs (a following statement or the declared result) rebinds
+   *  the updated aggregate — `{:ok, account} <- Context.deposit_account(…)` —
+   *  so `return account.balance` reads the post-operation value the other four
+   *  backends' in-place mutation returns, not the struct as loaded.  Opt-in so
+   *  every existing workflow / handler body stays byte-identical. */
+  rebindOpTargets?: boolean;
 }
 
 export function lowerStatements(
@@ -302,7 +312,7 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false } = opts;
+  const { trailing = [], ownResult = false, rebindOpTargets = false } = opts;
   const lines: BodyLine[] = [];
   // M-T6.21 — the LAST statement that definitely binds fills the with-chain's
   // `{:ok, <result>}` slot (`assembleBody`), so its name is read by
@@ -319,6 +329,7 @@ export function lowerStatements(
     for (const line of lowerStatement(st, contextModule, renderCtx, ctx, stmts.slice(i + 1), {
       trailing,
       discardableBind: i !== resultSlot,
+      ...(rebindOpTargets ? { rebindOpTargets } : {}),
     })) {
       lines.push({ ...line, origin: st.origin });
     }
@@ -362,10 +373,14 @@ function lowerStatement(
       // A `currentUser`-gated op takes a trailing `current_user` arg —
       // `opCallSource` threads the in-scope binding when `ctx` resolves it.
       const call = opCallSource(st, renderCtx, contextModule, ctx);
+      const rebind =
+        reads.rebindOpTargets && bindUsedLater(st.target, rest, reads.trailing)
+          ? snake(st.target)
+          : "_";
       return [
         {
           kind: "with-clause",
-          text: `{:ok, _} <- ${call}`,
+          text: `{:ok, ${rebind}} <- ${call}`,
           bindName: undefined,
         },
       ];
@@ -1365,6 +1380,8 @@ export function collectWorkflowStmtParamRefs(st: WorkflowStmtIR, acc: Set<string
 function referencedParams(wf: WorkflowIR): string[] {
   const refs = new Set<string>();
   for (const st of wf.statements ?? []) collectWorkflowStmtParamRefs(st, refs);
+  // A `create(…): T` result may read a param the body never does.
+  collectParamRefs(commandCreateResult(wf)?.value, refs);
   return (wf.params ?? []).map((p) => p.name).filter((n) => refs.has(n));
 }
 
@@ -1391,13 +1408,22 @@ function assembleBody(
    *  before `workflow_completed`, so a short-circuited `{:error, _}` leaves the
    *  row as it was.  Empty for stateless / key-less workflows. */
   persistLines: string[] = [],
+  /** `create(…): T { … return <expr> }` — the rendered return value.  When
+   *  set it IS the success result (`{:ok, <expr>}`, which the controller
+   *  answers as a 200 body) in every arm, instead of the last-bind default. */
+  declaredResult?: string,
 ): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
   const stmtLines = lines.filter((l) => l.kind === "stmt");
   const lastBind = [...withClauses].reverse().find((l) => l.bindName)?.bindName;
 
-  const resultExpr = lastBind ? `{:ok, ${lastBind}}` : "{:ok, params}";
+  const resultExpr =
+    declaredResult !== undefined
+      ? `{:ok, ${declaredResult}}`
+      : lastBind
+        ? `{:ok, ${lastBind}}`
+        : "{:ok, params}";
   // The `do`-branch body: emits first (only run on with-chain success),
   // then `workflow_completed` (the success tail), then the success result.
   // Indented to match the `with ... do ... end` shape — 6 spaces under
@@ -1413,7 +1439,11 @@ function assembleBody(
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length === 0) {
     // Empty body — keep the stub semantics; still announce completion.
-    return [...at(4, persistLines), `    ${completedCall}`, "    {:ok, params}"].join("\n");
+    return [
+      ...at(4, persistLines),
+      `    ${completedCall}`,
+      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, params}",
+    ].join("\n");
   }
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length > 0) {
@@ -1423,7 +1453,7 @@ function assembleBody(
       ...emitLines.map((l) => `    ${l.text}`),
       ...at(4, persistLines),
       `    ${completedCall}`,
-      "    {:ok, :emitted}",
+      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, :emitted}",
     ].join("\n");
   }
 
@@ -1596,7 +1626,17 @@ function renderWorkflowModule(
   end
 
   def report_result(result), do: result`;
-  const lines = lowerStatements(wf.statements ?? [], contextModuleFq, renderCtx, ctx);
+  // `create(…): T { … return <expr> }` — the declared result closes the chain
+  // (`ownResult`), and its refs count as reads so the binds it names keep their
+  // real names (`trailing`) — the explicit-handler path's exact contract.
+  const result = commandCreateResult(wf);
+  const lines = lowerStatements(
+    wf.statements ?? [],
+    contextModuleFq,
+    renderCtx,
+    ctx,
+    result ? { trailing: [result.value], ownResult: true, rebindOpTargets: true } : {},
+  );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
   // body's writes as real CHANGES — Elixir rebinds `state` in place
@@ -1637,7 +1677,12 @@ function renderWorkflowModule(
           `Repo.update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
         ]
       : [];
-  const body = assembleBody(lines, completedCall, persistLines);
+  const body = assembleBody(
+    lines,
+    completedCall,
+    persistLines,
+    result ? renderExpr(result.value, renderCtx) : undefined,
+  );
   // A workflow that names `currentUser` in a guard/body — or calls a
   // `currentUser`-gated op — threads `current_user \\ nil` into `run/1`
   // (and `run_inner` on the transactional path) so the rendered bare token
@@ -1860,20 +1905,42 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
         // calls a `currentUser`-gated op), bind it off `conn.assigns` and pass it
         // through — mirrors the per-op controller action (api-emit.ts).
         const needsUser = workflowNeedsCurrentUser(wf, g.ctx);
+        // `create(…): T` answers 200 with the value (`respond_result`); a
+        // result-less workflow keeps the shared 204 `respond`.
+        const responder = commandCreateResult(wf) ? "respond_result" : "respond";
         if (needsUser) {
           return `  def ${wfSnake}(conn, params) do
     current_user = Map.get(conn.assigns, :current_user)
-    respond(conn, ${wfMod}.run(params, current_user))
+    ${responder}(conn, ${wfMod}.run(params, current_user))
   end`;
         }
         return `  def ${wfSnake}(conn, params) do
-    respond(conn, ${wfMod}.run(params))
+    ${responder}(conn, ${wfMod}.run(params))
   end`;
       });
     })
     .join("\n\n");
 
   const ctxList = groups.map((g) => upperFirst(g.ctx.name)).join(", ");
+  // `create(…): T` — the value crosses the wire UNWRAPPED (an id is its uuid
+  // string), the same JSON token the other four backends answer.  Every other
+  // result falls through to the shared `respond` (its error arms).  Emitted
+  // only when some workflow declares a result, so the controller is
+  // byte-identical otherwise.
+  const resultResponder = groups.some((g) => g.workflows.some((wf) => commandCreateResult(wf)))
+    ? `
+  # A workflow that declares a result (\`create(…): T { … return x }\`) answers
+  # 200 with that value as the JSON body.  Public, like \`respond\`, so Elixir
+  # 1.18's type checker keeps both clauses at their full domain.
+  def respond_result(conn, {:ok, result}) do
+    conn
+    |> put_status(200)
+    |> json(result)
+  end
+
+  def respond_result(conn, other), do: respond(conn, other)
+`
+    : "";
 
   return `# Auto-generated.
 defmodule ${webModule}.WorkflowsController do
@@ -1916,7 +1983,7 @@ ${respondErrorTail(
   contextsHaveWireDenials(groups.map((g) => g.ctx)),
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
-)}
+)}${resultResponder}
 end
 `;
 }
