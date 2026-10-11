@@ -19,10 +19,12 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //
 // Two halves of the gate are asserted here, because BOTH are what keep the fix
 // honest cross-backend:
-//   * a messaged, param-only precondition takes the new rung;
+//   * a param-only precondition takes the new rung — messaged with its
+//     authored text and code, message-LESS with node's sentence and no code
+//     (D-MESSAGELESS-DEFAULT, RS-40);
 //   * a precondition over `this`-STATE (not wire-translatable on ANY backend —
-//     `corpus/wire-contract`'s `discontinue` is the live example) and a
-//     message-LESS one both stay on the domain floor, byte-identical.
+//     `corpus/wire-contract`'s `discontinue` is the live example) stays on the
+//     domain floor.
 // ---------------------------------------------------------------------------
 
 const SRC = `
@@ -40,8 +42,7 @@ system S {
           precondition amount >= 1 message "Restock amount must be at least 1"
           quantity := quantity + amount
         }
-        // Message-LESS → stays on the domain floor (its wire text would come
-        // from each backend's NATIVE validator chain, not from Loom).
+        // Message-LESS + param-only → the WIRE rung too, with node's sentence.
         operation ship(amount: int) {
           precondition amount >= 1
           quantity := quantity - amount
@@ -72,8 +73,9 @@ system P {
       aggregate Widget {
         quantity: int
         create() { }
+        // Reads THIS-STATE — not wire-translatable, so nothing is tagged.
         operation ship(amount: int) {
-          precondition amount >= 1
+          precondition quantity > 0
           quantity := quantity - amount
         }
       }
@@ -133,12 +135,13 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     );
   });
 
-  it("leaves the message-LESS and this-state preconditions on the domain floor", async () => {
+  it("lifts a message-LESS param precondition with node's sentence and no code; leaves this-state on the domain floor", async () => {
     const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
-    // Message-less: the derived default, domain-floor tuple.
+    // Message-less: node's synthesized sentence, no code (RS-40).
     expect(ctx).toContain(
-      'ensure(amount >= 1, {:precondition_failed, "Precondition failed: amount >= 1"})',
+      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
     );
+    expect(ctx).not.toContain('"Precondition failed: amount >= 1"');
     // Messaged but reads `this.status` — no request body carries it, so it is
     // not wire-translatable on ANY backend and keeps the domain-floor rung —
     // which, since M-T1.11 (c), carries the rule's code and pointer in a map
@@ -182,10 +185,10 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     expect(catchAllIdx).toBeGreaterThan(wireIdx);
   });
 
-  it("is gated: a project with no messaged param precondition tags no wire denial", async () => {
+  it("is gated: a project with no wire-translatable param precondition tags no wire denial", async () => {
     const files = await generateSystemFiles(PLAIN);
     const ctrl = file(files, "/controllers/widget_controller.ex");
-    // The CONTROLLER side is what M-T6.20 gates: without a messaged, param-only
+    // The CONTROLLER side is what M-T6.20 gates: without a param-only
     // precondition nothing is tagged `:validation_failed`, so nothing reaches
     // the wire rung and the denial stays on the domain floor.
     expect(ctrl).not.toContain(":validation_failed");
