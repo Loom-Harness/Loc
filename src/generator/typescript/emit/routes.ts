@@ -494,7 +494,7 @@ export function renderHttpIndex(
       'import { HTTPException } from "hono/http-exception";',
       'import { TrieRouter } from "hono/router/trie-router";',
       'import type { ContentfulStatusCode } from "hono/utils/http-status";',
-      'import { frameworkProblemBody } from "./problem-details";',
+      'import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";',
       usingMikro ? null : 'import { sql } from "drizzle-orm";',
       'import { requestIdMiddleware } from "../obs/request-id";',
       // `recordDomainFault` joins `registry` here for the root DOMAIN ladder
@@ -571,6 +571,9 @@ export function renderHttpIndex(
       "      credentials: true,",
       "    }),",
       "  );",
+      "  // An empty request body reads as `{}` on every route (RS-43) — so a",
+      "  // parameterless command answers a body-less POST the way it answers `{}`.",
+      '  app.use("*", emptyBodyAsEmptyObject);',
       authMount,
       authRoutesMount,
       "  // Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose",

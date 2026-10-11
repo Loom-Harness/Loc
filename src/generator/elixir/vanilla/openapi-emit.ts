@@ -41,6 +41,7 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -522,7 +523,7 @@ function renderApiSpec(
           operationId: "${camelId(opWorkflow(wf.name))}",
           tags: ["workflows"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(wf.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${reqMod}}
             }
@@ -780,7 +781,7 @@ ${pagingQueryParams()}
             %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(op.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${opReqMod}}
             }

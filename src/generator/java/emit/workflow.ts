@@ -45,6 +45,7 @@ import {
 } from "../render-expr.js";
 import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
 import { voRecord } from "./dto.js";
+import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
 import {
   bearsNestedRecord,
@@ -1306,7 +1307,7 @@ export function renderJavaWorkflows(
     `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
     wf.params.length > 0
       ? `    public void ${lowerFirst(wf.name)}(@Valid @RequestBody ${upperFirst(wf.name)}Request request) {`
-      : `    public void ${lowerFirst(wf.name)}() {`,
+      : `    public void ${lowerFirst(wf.name)}(${EMPTY_COMMAND_BODY_PARAM}) {`,
     `        workflows.${lowerFirst(wf.name)}(${wf.params.length > 0 ? "request" : ""});`,
     `    }`,
     ``,
