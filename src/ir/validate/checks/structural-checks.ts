@@ -254,11 +254,11 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
 }
 
 /** The column lists of every `unique (…)` key `agg`'s abstract ancestors
- *  declare, when `agg` is a TPC concrete (the aggregates enrichment copies
- *  those keys onto); empty otherwise. */
+ *  declare, when `agg` is a TPC or TPH concrete (the aggregates enrichment
+ *  copies those keys onto); empty otherwise. */
 function ancestorKeySet(agg: AggregateIR, pool: readonly AggregateIR[]): Set<string> {
   const out = new Set<string>();
-  if (!isTpcConcrete(agg, pool)) return out;
+  if (!isTpcConcrete(agg, pool) && !isTphConcrete(agg, pool)) return out;
   const seen = new Set<string>();
   for (let b = baseOf(agg, pool); b && !seen.has(b.name); b = baseOf(b, pool)) {
     seen.add(b.name);

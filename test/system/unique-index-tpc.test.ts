@@ -137,3 +137,36 @@ describe("loom.unique-tpc-not-hierarchy-wide", () => {
     expect((await codes(src)).filter((c) => c === "loom.unique-valueobject-field")).toHaveLength(1);
   });
 });
+
+// A TPH (`sharedTable`) base's `unique (…)` is ONE index on the shared table
+// (`parties_email_uq`), so it was always created — but the CONCRETE's write
+// surface gates its 23505 mapping on the concrete's own `uniqueKeys`, which were
+// empty: a duplicate POSTed through `/customers` answered 500 on node (the
+// per-router onError had no 23505 arm) and raised `Ecto.ConstraintError` on
+// elixir.  Enrichment now copies the base's keys onto TPH concretes too, and the
+// Ecto changeset names the constraint for the table the row lives in.
+describe("TPH base `unique (…)` → the concrete's write surface maps the 23505", () => {
+  it("still emits exactly one index, on the shared table", async () => {
+    const files = await generateSystemFiles(system("node", "sharedTable"));
+    expect(createsIndex(files, "parties_email_uq")).not.toEqual([]);
+    expect(createsIndex(files, "customers_email_uq")).toEqual([]);
+    expect(createsIndex(files, "suppliers_email_uq")).toEqual([]);
+  });
+
+  it("node: each concrete router maps the 23505 to 409", async () => {
+    const files = await generateSystemFiles(system("node", "sharedTable"));
+    for (const router of ["customer.routes.ts", "supplier.routes.ts"]) {
+      const routes = [...files.entries()].find(([p]) => p.endsWith(router))?.[1];
+      expect(routes, router).toBeDefined();
+      expect(routes, router).toContain('=== "23505"');
+    }
+  });
+
+  it("elixir: each concrete changeset names the SHARED table's index", async () => {
+    const files = await generateSystemFiles(system("elixir", "sharedTable"));
+    const all = [...files.values()].join("\n");
+    expect(all).toContain('unique_constraint(:email, name: "parties_email_uq")');
+    expect(all).not.toContain("customers_email_uq");
+    expect(all).not.toContain("suppliers_email_uq");
+  });
+});

@@ -110,12 +110,20 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 A `unique (…)` key on an abstract base follows the base's table layout:
 
 - **`sharedTable` (TPH):** the hierarchy has one table, so it gets one index
-  (`parties_email_uq`), and the key is unique across every subtype.
+  (`parties_email_uq`), and the key is unique across every subtype. The enrich
+  pass still copies the key onto each concrete, because the concrete's write
+  surface has to know a duplicate can happen. The Hono per-router `23505` →
+  409 arm and the Ecto `unique_constraint` gate on it. The Ecto constraint
+  names the shared table's index. Without the copy, a duplicate posted
+  through `/customers` answered 500.
 - **`ownTable` (TPC):** the base owns no table. The enrich pass copies the key
-  onto each concrete, beside the merged fields. Each concrete table then gets its own index, named for that
-  table. Every per-table consumer of the key sees it: the migration on all five
-  backends, the .NET Dapper `DbSchema` bootstrap, the Hono per-router
-  `23505` → 409 arm, and the Ecto `unique_constraint`.
+  onto each concrete, beside the merged fields. Each concrete table then gets
+  its own index, named for that table. Every per-table consumer of the key sees
+  it: the migration on all five backends, the .NET Dapper `DbSchema` bootstrap,
+  the Hono per-router `23505` → 409 arm, and the Ecto `unique_constraint`.
+
+Both layouts are checked at runtime, on every SQL backend, by the
+migration-evolution tier (`runUniqueIndexEvolutionGate`).
 
 ```ddd
 abstract aggregate Party inheritanceUsing: ownTable {

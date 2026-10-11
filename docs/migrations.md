@@ -493,6 +493,14 @@ CREATE UNIQUE INDEX "accounts_number_uq" ON "ledger"."accounts" ("number") WHERE
 Before this, the diff paired indexes by name only. The flip emitted no index
 step, and the database kept whichever index the first generation created.
 
+The migration-evolution tier runs both directions against a populated database
+on every SQL backend (`runUniqueIndexEvolutionGate`, `npm run
+test:migration-evolution{,-python,-java,-dotnet,-elixir}`):
+- full → partial: the migration applies, a soft-deleted row's key is reused
+  (201), and a live duplicate gets 409;
+- partial → full: a `sql before` dedupe runs, the index is rebuilt full, and a
+  duplicate gets 409.
+
 ### Amending a generation that never applied
 
 Once a generation is emitted it is frozen: the snapshot's `lastVersion` has

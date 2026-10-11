@@ -146,7 +146,7 @@ describe("unique index × softDeletable flip — every backend's migration rende
     for (const [backend, file] of Object.entries(render(mig))) {
       expect(file, `${backend}: migration names the index`).not.toBe("");
       if (backend === "ecto") {
-        const drop = file.indexOf('drop index(:accounts, name: "accounts_number_uq"');
+        const drop = file.indexOf('drop index(:accounts, [], name: "accounts_number_uq"');
         const create = file.indexOf(
           'create index(:accounts, [:number], unique: true, where: "is_deleted = false", name: "accounts_number_uq"',
         );
@@ -168,7 +168,7 @@ describe("unique index × softDeletable flip — every backend's migration rende
     for (const [backend, file] of Object.entries(render(mig))) {
       expect(file, `${backend}: migration names the index`).not.toBe("");
       if (backend === "ecto") {
-        const drop = file.indexOf('drop index(:accounts, name: "accounts_number_uq"');
+        const drop = file.indexOf('drop index(:accounts, [], name: "accounts_number_uq"');
         const create = file.indexOf(
           'create index(:accounts, [:number], unique: true, name: "accounts_number_uq"',
         );

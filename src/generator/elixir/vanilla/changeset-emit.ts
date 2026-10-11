@@ -25,7 +25,7 @@ import type {
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
-import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
+import { baseOf, ownFieldsOf, tableOwnerName } from "../../../ir/util/inheritance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
@@ -588,7 +588,10 @@ ${
   // as 409 Conflict (cross-backend parity with the Hono 23505 → 409 mapping).
   // The error attaches to the first column of a composite key (Ecto ties a
   // multi-column `unique_constraint` to the index by `name:`, not by field).
-  const uniqueTable = plural(snake(agg.name));
+  // The table the row actually lives in: a TPH concrete writes the SHARED base
+  // table, so its unique index (inherited from the base) and its FKs are named
+  // for that table, not for the concrete.
+  const uniqueTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
   const uniqueLines = (agg.uniqueKeys ?? []).map((uk) => {
     const cols = uk.columns.map((c) => snake(c));
     const name = `${uniqueTable}_${cols.join("_")}_uq`;

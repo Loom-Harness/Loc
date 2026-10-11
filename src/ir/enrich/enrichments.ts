@@ -61,7 +61,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
-import { isTpcConcrete } from "../util/inheritance.js";
+import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
@@ -898,16 +898,21 @@ export function enrichContext(
     const base = byName.get(a.extendsAggregate);
     return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
   };
-  // A TPC (`ownTable`) concrete is a standalone table, so every `unique (…)`
-  // key an ancestor declares has to land on IT — otherwise the key reaches no
-  // table at all (an abstract TPC base owns none) and every per-table
-  // derivation keyed on `agg.uniqueKeys` (the migration's `<table>_<cols>_uq`
-  // index on all five backends + Dapper's DbSchema, the Hono per-router
-  // 23505 → 409 arm, the Ecto `unique_constraint`) silently drops it.  The
-  // keys are per TABLE, so duplicates ACROSS sibling concretes are not
-  // prevented — `loom.unique-tpc-not-hierarchy-wide` says so on the base.  A
-  // TPH (`sharedTable`) concrete inherits nothing here: its base owns the one
-  // shared table and already carries the index.  Root-most keys first.
+  // A concrete's writes are bound by every `unique (…)` key an ancestor
+  // declares, so the keys land on the concrete too.  Root-most keys first.
+  //   * TPC (`ownTable`): the concrete is a standalone table — without the copy
+  //     the key reaches no table at all (an abstract TPC base owns none) and
+  //     every per-table derivation keyed on `agg.uniqueKeys` (the migration's
+  //     `<table>_<cols>_uq` index on all five backends + Dapper's DbSchema)
+  //     silently drops it.  The keys are per TABLE, so duplicates ACROSS
+  //     sibling concretes are not prevented — `loom.unique-tpc-not-hierarchy-
+  //     wide` says so on the base.
+  //   * TPH (`sharedTable`): the base's shared table already carries the ONE
+  //     index (`tphTableForAggregate` reads the base's keys; a TPH concrete
+  //     emits no table), but the concrete's WRITE surface still has to map the
+  //     23505 it raises — the Hono per-router 409 arm and the Ecto
+  //     `unique_constraint` (named for the shared table) gate on the
+  //     concrete's own `uniqueKeys`, so without the copy a duplicate answered 500.
   const inheritedUniqueKeysFor = (a: AggregateIR, seen: Set<string>): UniqueKeyIR[] => {
     if (!a.extendsAggregate || seen.has(a.name)) return [];
     seen.add(a.name);
@@ -923,11 +928,12 @@ export function enrichContext(
     const idChanged = idValueType !== a.idValueType;
     const own = a.uniqueKeys ?? [];
     const ownKeys = new Set(own.map((uk) => uk.columns.join(",")));
-    const inherited = isTpcConcrete(a, ctx.aggregates)
-      ? inheritedUniqueKeysFor(a, new Set<string>()).filter(
-          (uk) => !ownKeys.has(uk.columns.join(",")),
-        )
-      : [];
+    const inherited =
+      isTpcConcrete(a, ctx.aggregates) || isTphConcrete(a, ctx.aggregates)
+        ? inheritedUniqueKeysFor(a, new Set<string>()).filter(
+            (uk) => !ownKeys.has(uk.columns.join(",")),
+          )
+        : [];
     if (!fieldsChanged && !idChanged && inherited.length === 0) return a;
     return {
       ...a,
