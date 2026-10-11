@@ -1082,14 +1082,25 @@ function describeLiteral(lit: LiteralKind, value: string): string {
 // Response-field reads — `let x = api.<agg>.getById(…)` then `x.<field>`
 // ---------------------------------------------------------------------------
 
-/** The two verbs whose response body this layer knows exactly: `getById`
- *  serves the api-read wire shape, and `create` answers an id envelope that
- *  every backend widens at most to that same shape.  Checking their union is
- *  what lets `create` reject a genuinely invented field without this gate
- *  having to adjudicate which backends return the whole entity on 201.
- *
- *  Every other verb is skipped — see the header. */
+/** The verbs whose response body this layer knows exactly: `getById` serves
+ *  the api-read wire shape, `create` answers the id envelope
+ *  {@link CREATE_RESPONSE_FIELDS}, and a workflow's `instance` answers its
+ *  persisted instance row.  Every other verb is skipped — its body is either
+ *  not derived here (a find's paged-vs-row split) or not a row at all. */
 const SHAPED_RESPONSE_VERBS = new Set(["getById", "create", "instance"]);
+
+/** The WHOLE body of a `201` create on every backend — and nothing wider:
+ *  Hono `c.json({ id }, 201)`, FastAPI `Create<Agg>Response { id }`, Spring
+ *  `record Create<Agg>Response(id)`, ASP.NET `Create<Agg>Response(Id)`, Phoenix
+ *  `json(%{"id" => record.id})` — for state-backed, document and event-sourced
+ *  aggregates alike, and every `201` in the wire goldens is exactly `{id}`.
+ *  Judging a create result against the entity's read shape would accept
+ *  `w.code` (always `undefined`) and let `expect(w.note).toBeAbsent()` pass
+ *  against an envelope that has no `note` key at all, where the RS-35
+ *  explicit-null contract it claims to check is only observable on a
+ *  `getById` read.  Independent of the aggregate's fields, so an `extends`
+ *  subtype is judged here too. */
+const CREATE_RESPONSE_FIELDS: readonly string[] = ["id"];
 
 /** `.instance(key)` is in the set above; `.instances()` deliberately is NOT.
  *  The list read answers a JSON ARRAY, so a member on its binding is an array
@@ -1178,6 +1189,24 @@ function checkResponseFields(
       if (wf && call.verb === WORKFLOW_ROW_RESPONSE_VERB) {
         checkWorkflowInstanceRead(e.receiver.name, e.member, call, wf, seen, source, diags);
       }
+      return;
+    }
+    if (call.verb === "create") {
+      if (CREATE_RESPONSE_FIELDS.includes(e.member)) return;
+      const key = `${e.receiver.name}.${e.member}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      diags.push({
+        severity: "error",
+        code: "loom.e2e-unknown-response-field",
+        source,
+        message: diagMessage("loom.e2e-unknown-response-field#create", {
+          binding: e.receiver.name,
+          field: e.member,
+          slug: call.slug,
+          aggregate: resolved.agg.name,
+        }),
+      });
       return;
     }
     const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);

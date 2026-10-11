@@ -4394,6 +4394,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.binding}' is 'api.${p.slug}.${p.verb}(…)', whose body is the api-read wire shape of ` +
     `'${p.aggregate}'. The read is 'undefined' at run time, so an assertion over it passes or ` +
     `fails for the wrong reason. Readable: ${p.known}.`,
+  "loom.e2e-unknown-response-field#create": (p: {
+    binding: unknown;
+    field: unknown;
+    slug: unknown;
+    aggregate: unknown;
+  }) =>
+    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
+    `'${p.binding}' is 'api.${p.slug}.create(…)', whose 201 body is the id envelope '{ id }' on ` +
+    `every backend, not the '${p.aggregate}' row. The read is 'undefined' at run time, so an ` +
+    `assertion over it passes or fails for the wrong reason. Read the row back instead — ` +
+    `'let r = api.${p.slug}.getById(${p.binding})', then 'r.${p.field}' — or read only ` +
+    `'${p.binding}.id'.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
