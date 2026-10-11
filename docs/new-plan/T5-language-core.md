@@ -392,3 +392,33 @@ Follow-up of owner ruling **D8** (eval-closure item **#38**; Clinica F-006, Meri
 **The fix:** a small ICU `plural`/`select` evaluator per backend (or one shared helper in each runtime kernel) over the already-parsed interpolation IR; `number`/`date` formats may stay dropped by the M-T1.11 decision. Once it lands, delete the D8 warning in the same PR.
 
 **Verification.** A wire-golden case whose `derived` returns a `plural` and a `select` string, byte-identical on all five backends.
+
+## M-T5.47 — One typing pass: each expression typed once, validators read it, lowering copies it — `in-flight` (slice 1, design) · **L** · P1 ⭐ cost-of-growth
+
+The front end types each expression **two to three times**, by hand-kept copies:
+- `typeOf` / `envForNode` in `src/language/type-system.ts`, used by the validators and the LSP;
+- `inferExprType` / `memberType` / `binaryResultType` in `src/ir/lower/lower-expr.ts`, a second pass whose ~79 comments call it a "mirror";
+- the types lowering threads while it walks, which already disagree with `inferExprType` (`1 + price` infers `int` but lowers `money`).
+
+Each also builds its own environment (five env builders in total). Divergence or a missing env arm caused #3078, #2788, #2907, #3039, #3040, #3064, #2884, #2943, #2968 and #2920. The prototype differential on `main` @ `bce7f409` compared both checkers on 195 429 lowered expressions. They agree on **39.4 %**, and on **57.8 % neither knows the type**: the language side gives `unknown` (gates off), the IR side `string` (passes through).
+
+**The work:** one elaboration pass at `src/language/typing/` (forward-importable by `ir/lower`), with:
+- an AST-anchored type `Ty` that adds unions, generics and record shapes to `DddType`;
+- a total `toTypeIR` projection;
+- one scope model built by the walk from a declarative binder table, made complete by a grammar census;
+- one compilation-unit declaration index;
+- bidirectional `synth` / `check` for literal promotion and lambda params;
+- a derived WeakMap cache;
+- `unknown` that carries a cause.
+
+Lowering copies `toTypeIR(typeAt(node))`. Emission choices like `sum` over `int` → `decimal` become named representation rules, separate from typing.
+
+Slices:
+1. design;
+2. shadow mode with a three-way fleet differential (additive);
+3. cutover per construct family (literals/operators → names/members → calls → lambdas/collections → statements/lets → workflow/handler/test bodies), byte-identical corpus;
+4. delete the mirrors, plus a ratchet that no second inference path exists.
+
+Coordinates with #3125 (let census, the measuring instrument) and #3133 (fail-closed owns the `unknown` refusal policy).
+
+Design: [`M-T5.47-single-typing-pass-design.md`](missions/M-T5.47-single-typing-pass-design.md). Claim: [#3148](https://github.com/Loom-Harness/Loc/pull/3148).

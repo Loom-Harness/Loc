@@ -4,7 +4,14 @@ import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
-import { escapePythonIdent, snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
+import {
+  escapePythonIdent,
+  pythonIdent,
+  pythonWireIdent,
+  snake,
+  upperFirst,
+  workflowFnSnake,
+} from "../../util/naming.js";
 import {
   type CallExpr,
   type ExprTarget,
@@ -372,30 +379,30 @@ function renderRef(e: RefExpr, ctx: PyRenderContext): string {
       // because a message-LESS single-field precondition never reaches the
       // refine (it becomes `Field(ge=1)`), and no fixture compiled a messaged
       // one until `test/fixtures/corpus/validation-messages.ddd`.
-      if (ctx.wireField) return `${ctx.thisName}.${e.name}`;
-      return snake(e.name);
+      if (ctx.wireField) return `${ctx.thisName}.${pythonWireIdent(e.name)}`;
+      return pythonIdent(e.name);
     case "this-prop":
       // Wire DTO: the verbatim camelCase attribute.  Inside the aggregate
       // class: the private backing field.  Outside (row scope, e.g. projection
       // reads): the public property.
-      if (ctx.wireField) return `${ctx.thisName}.${e.name}`;
-      return fromOutside ? `${ctx.thisName}.${snake(e.name)}` : `self._${snake(e.name)}`;
+      if (ctx.wireField) return `${ctx.thisName}.${pythonWireIdent(e.name)}`;
+      return fromOutside ? `${ctx.thisName}.${pythonIdent(e.name)}` : `self._${snake(e.name)}`;
     case "this-vo-prop":
     case "this-derived":
-      if (ctx.wireField) return `${ctx.thisName}.${e.name}`;
-      return `${ctx.thisName}.${snake(e.name)}`;
+      if (ctx.wireField) return `${ctx.thisName}.${pythonWireIdent(e.name)}`;
+      return `${ctx.thisName}.${pythonIdent(e.name)}`;
     case "helper-fn":
-      return `${ctx.thisName}.${snake(e.name)}`;
+      return `${ctx.thisName}.${pythonIdent(e.name)}`;
     case "workflow-fn":
       // Bare reference to a workflow helper — the module-scoped `def` name.
       return workflowFnSnake(e.wfScope!, e.name);
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${pythonWireIdent(e.name)}`;
     case "match-binding":
       // Variant-`match` binding (variant-match.md): Python has no
       // expression-level pattern binding, so the bound name is an alias of the
       // scrutinee dict — render the subject text installed in `ctx.matchBindings`.
-      return ctx.matchBindings?.get(e.name) ?? snake(e.name);
+      return ctx.matchBindings?.get(e.name) ?? pythonIdent(e.name);
     case "current-user":
       return ctx.currentUserExpr ?? "current_user";
     default:
@@ -418,7 +425,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: PyRenderContext): string
     e.receiver.refKind === "param" &&
     ctx.recordParamNames.has(e.receiver.name)
   ) {
-    return snake(e.member);
+    return pythonIdent(e.member);
   }
   // Variant-`match` binding (variant-match.md): a union result is the tagged
   // dict `{"type": tag, **fields}` (see render-stmt's union return), so a field
@@ -445,7 +452,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: PyRenderContext): string
   ) {
     return `len(${recv})`;
   }
-  return `${recv}.${snake(e.member)}`;
+  return `${recv}.${pythonIdent(e.member)}`;
 }
 
 // Scalar-intrinsic snippet table (src/util/intrinsics.ts) — one arm per
@@ -565,7 +572,7 @@ function renderMethodCall(
     const intrinsic = PY_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
     if (intrinsic) return intrinsic(recv, args);
   }
-  return `${recv}.${snake(e.member)}(${args.join(", ")})`;
+  return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
 }
 
 /** True iff a `sum` reduction accumulates MONEY (Python `Decimal`) — the λ-body
@@ -676,7 +683,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       return `${e.name}(${argList})`;
     case "function":
       // Public, like the `def` site (`def is_draft`) and like a VO function.
-      return `${ctx.thisName}.${snake(e.name)}(${argList})`;
+      return `${ctx.thisName}.${pythonIdent(e.name)}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` — a module-scoped `def`, namespaced by its
       // workflow (workflows share the generated file).  Same derivation as the
@@ -687,7 +694,7 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       // `private` (`def _reserve`) — so a sibling-operation self-call only gets
       // the `_` prefix when the target is actually private.
       const prefix = e.targetPrivate ? "_" : "";
-      return `${ctx.thisName}.${prefix}${snake(e.name)}(${argList})`;
+      return `${ctx.thisName}.${prefix}${pythonIdent(e.name)}(${argList})`;
     }
     case "remote-api-op": {
       // A typed in-system call (M-T4.8).  `app/resources/api_clients.py`
@@ -765,7 +772,7 @@ function renderNew(
   const inits = [
     `id=new_${snake(e.partName)}_id()`,
     ...(e.nested ? [] : [`parent_id=${parentRef}`]),
-    ...fields.map((f) => `${snake(f.name)}=${f.value}`),
+    ...fields.map((f) => `${pythonIdent(f.name)}=${f.value}`),
   ];
   return `${e.partName}._create(${inits.join(", ")})`;
 }
