@@ -73,11 +73,7 @@ import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
 import { effectiveGate } from "./gate.js";
-import {
-  ELIXIR_NUMERIC,
-  elixirDecimalNumHelper,
-  elixirMoneyRoundHelper,
-} from "./numeric-codec.js";
+import { ELIXIR_NUMERIC, elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 

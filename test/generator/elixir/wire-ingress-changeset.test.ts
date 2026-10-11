@@ -88,7 +88,9 @@ describe("elixir changeset — a blank string reaches its rule", () => {
     expect(cs.match(/\|> __require_present\(@required_strings\)/g)?.length).toBe(2);
     // Nil-only: `validate_required/2` would call "" missing.
     expect(cs).toContain("defp __require_present(changeset, fields) do");
-    expect(cs).toContain("if is_nil(get_field(cs, field)) and not Keyword.has_key?(cs.errors, field),");
+    expect(cs).toContain(
+      "if is_nil(get_field(cs, field)) and not Keyword.has_key?(cs.errors, field),",
+    );
     // The update seam keeps its absent-key check ahead of the presence check.
     expect(cs.indexOf("|> __require_keys(attrs, @update_required)")).toBeLessThan(
       cs.indexOf("|> __require_present(@required_strings)", cs.indexOf("def update_changeset")),
@@ -121,7 +123,10 @@ describe("elixir changeset — a malformed decimal is node's refusal at the leaf
     );
     // Right after the casts, on both seams, so a top-level cast error is
     // replaced before `validate_required/2` looks at the field.
-    const createBody = cs.slice(cs.indexOf("def base_changeset"), cs.indexOf("def update_changeset"));
+    const createBody = cs.slice(
+      cs.indexOf("def base_changeset"),
+      cs.indexOf("def update_changeset"),
+    );
     expect(createBody).toMatch(
       /\|> cast\(attrs, @string_fields, empty_values: \[\]\)\n\s+\|> __loom_decimal_ingress\(attrs, @decimal_ingress\)/,
     );
@@ -130,7 +135,9 @@ describe("elixir changeset — a malformed decimal is node's refusal at the leaf
 
   it("answers node's text and grammar, at the leaf's pointer, replacing Ecto's cast error", async () => {
     const cs = await emitted("/c/product_changeset.ex");
-    expect(cs).toContain('add_error(field, "Invalid decimal: " <> Jason.encode!(value), loom_path: rest)');
+    expect(cs).toContain(
+      'add_error(field, "Invalid decimal: " <> Jason.encode!(value), loom_path: rest)',
+    );
     expect(cs).toContain("Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)");
     expect(cs).toContain("f == field and opts[:validation] == :cast");
     // A blank optional top-level column stays absent (a LiveView form posts "").

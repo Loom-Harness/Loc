@@ -48,7 +48,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
-import { numericEncode } from "../../_numeric/target.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";

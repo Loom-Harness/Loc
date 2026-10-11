@@ -760,7 +760,8 @@ the conforming backends, and the fix that established it.
   where `money` is a fixed-scale **string** (`"19.5000"`) so no float rounding can
   touch a monetary amount. The two types differ on the wire, and a backend must
   not collapse them into one.
-- **Trigger.** Any GET returning an aggregate — or a nested value object — with
+- **Trigger.** Any GET returning an aggregate, a nested value object or a
+  query-time projection row with
   a `decimal` field.
 - **Why it hid.** Nothing in the vanilla emitter ever *chose* a string. Jason's
   `Decimal` encoder emits a JSON string, so every `%Decimal{}` that reached the
@@ -801,6 +802,9 @@ the conforming backends, and the fix that established it.
   (`value-collections` `$.lineItems[*].amount`); extended to .NET by #2563/#2575;
   amended 2026-08-24 for java by the numeric-types audit
   ([F9](audits/numeric-types-audit-2026-08-23.md), register #2644) → M-T6.46.
+  Extended 2026-10-11 to the elixir **query-time projection** select (a joined
+  `decimal` shipped `"2.5"`; wave C3 3d's D19), which now rides the same shared
+  `__decimal_num/1` — `corpus/datetime-wire`'s `venueFee`.
   Tier: **behavioral** (the java half is pinned statically by
   `test/generator/java/java-decimal-wire.test.ts`, since the behavioral gate is
   blind to it).

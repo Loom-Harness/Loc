@@ -696,7 +696,8 @@ ${
   const updateStrings = updateFields.filter(isStringField);
   const updateReqStrings = updateFields.filter((f) => isRequiredUpdateInput(f) && isStringField(f));
   const ownUpdateStrings =
-    atoms(updateStrings) !== atoms(stringFields) || atoms(updateReqStrings) !== atoms(requiredStrings);
+    atoms(updateStrings) !== atoms(stringFields) ||
+    atoms(updateReqStrings) !== atoms(requiredStrings);
   const updateStringList = ownUpdateStrings ? "@update_string_fields" : "@string_fields";
   const updateReqStringList = ownUpdateStrings ? "@update_required_strings" : "@required_strings";
   const updateStringDecls =

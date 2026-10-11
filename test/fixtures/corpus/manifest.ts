@@ -681,10 +681,10 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "wire-ingress",
     title:
-      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+      "a malformed money on an operation param, the crudish create/update body, or a value-object leaf answers 422 with a pointer-carrying `errors[]` entry — never a 500",
     doc: "language",
     backends: ALL,
-    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update and value-object arms were held until elixir answered node's `Invalid decimal: \"…\"` at the leaf pointer on them (Ecto said \"is invalid\"; a VO leaf was stored verbatim).  The decimal-comma and int32-range arms are still out: a .NET/Dapper comma acceptance and no cross-backend int-range refusal (wave-c3-3d-promote D22, D23).",
   },
 ] as const;
 
