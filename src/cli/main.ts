@@ -78,6 +78,7 @@ import {
   runI18nSync,
 } from "./i18n/index.js";
 import {
+  cliInvocation,
   DESIGN_PACKS,
   type DesignPack,
   designPacksForFormat,
@@ -1309,7 +1310,8 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   }
 
   // --- render + soundness check (guards against template drift) ---
-  const source = renderStarter({ name, template, platform, design });
+  const invocation = cliInvocation(process.argv);
+  const source = renderStarter({ name, template, platform, design, invocation });
   const report = await validate(source, { path: "main.ddd" });
   if (!report.ok) {
     console.error("ddd new: the generated starter failed validation (please report this):");
@@ -1322,7 +1324,7 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   // --- write the starter files ---
   const files = new Map<string, string>([
     ["main.ddd", source],
-    ["README.md", renderReadme({ name, platform, design })],
+    ["README.md", renderReadme({ name, platform, design, invocation })],
     [".loomignore", renderLoomignore()],
     // The MIT grant over the generated output (docs/license-faq.md).  Written
     // HERE, once, at scaffold time — `ddd generate` no longer drops it into
@@ -1345,10 +1347,12 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
       "  platform: node (default) — also: dotnet, elixir, java, python (re-run with --platform <p>)",
     );
   }
-  // `npx ddd`, not a bare `ddd`: a clone's `npm install` links no global
-  // binary, so the bare form is the one command in this output that does not
-  // work when copied (finding F-001).
-  console.log(`  next: cd ${where} && npx ddd generate system main.ddd -o . && docker compose up`);
+  // The invocation that actually ran, not a bare `ddd` (a clone's `npm
+  // install` links no global binary — F-001) and not `npx ddd` (outside the
+  // clone that resolves an unrelated npm package — ruling D11, item 37).
+  console.log(
+    `  next: cd ${where} && ${invocation} generate system main.ddd -o . && docker compose up`,
+  );
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`

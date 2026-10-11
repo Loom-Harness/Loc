@@ -128,8 +128,23 @@ export function buildApiModule(
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
   lines.push(`import { useQuery, useMutation, useQueryClient } from "${queryPackage}";`);
+  // A Vue op hook takes its record id as a `MaybeRefOrGetter`: `setup` runs
+  // once, so a page that hoists the hook over an async QueryView record passes
+  // a getter (`() => rec.data?.id ?? ""`) and the id is read when the mutation
+  // or the `can_<op>` probe actually runs, not frozen at its pre-load `""`.
+  const publicOps = agg.operations.filter((o) => o.visibility === "public");
+  const vueImports = new Set<string>();
   if (isVueQuery && hasVueGetterHook) {
-    lines.push(`import { type MaybeRefOrGetter, computed, toValue } from "vue";`);
+    for (const n of ["type MaybeRefOrGetter", "computed", "toValue"]) vueImports.add(n);
+  }
+  if (isVueQuery && publicOps.length > 0) {
+    vueImports.add("type MaybeRefOrGetter");
+    vueImports.add("toValue");
+    if (publicOps.some((o) => o.when)) vueImports.add("computed");
+  }
+  if (vueImports.size > 0) {
+    const order = ["type MaybeRefOrGetter", "computed", "toValue"];
+    lines.push(`import { ${order.filter((n) => vueImports.has(n)).join(", ")} } from "vue";`);
   }
   // `ifMatch` only where an operation actually sends the precondition, so an
   // aggregate with no guarded write emits the import line it always did.
@@ -460,12 +475,15 @@ export function buildApiModule(
   }
 
   // use<Op><Agg> — one per public operation.
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
+  // Vue reads the id through `toValue` (see the import note above).
+  const idParam = isVueQuery ? "id: MaybeRefOrGetter<string>" : "id: string";
+  const ID = isVueQuery ? "toValue(id)" : "id";
+  for (const op of publicOps) {
     // URL segment from routeSlug (D-URLSTYLE); the hook name + request
     // type stay keyed on op.name.
     const opSnake = snake(op.routeSlug ?? op.name);
     const u = op.returnType ? unionReturn(op.returnType) : null;
-    lines.push(`export function use${upperFirst(op.name)}${agg.name}(id: string) {`);
+    lines.push(`export function use${upperFirst(op.name)}${agg.name}(${idParam}) {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return useMutation({`);
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
@@ -477,22 +495,22 @@ export function buildApiModule(
     // the previous behaviour, rather than a guess.
     const occArg = sendsIfMatchPrecondition(agg, op) ? ", ifMatch(loaded?.version)" : "";
     if (occArg) {
-      lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id]);`);
+      lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", ${ID}]);`);
     }
     if (u) {
       // Union-returning op: parse + RETURN the tagged success variant so the
       // awaiting action's `match` arm carries the payload (the error variant
       // never reaches 200 — it's a thrown non-2xx reified at the call site).
       lines.push(
-        `      const r = await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input${occArg});`,
+        `      const r = await api.post(\`/${tag}/\${seg(${ID})}/${opSnake}\`, input${occArg});`,
       );
       lines.push(`      return ${upperFirst(op.name)}${agg.name}Response.parse(r);`);
     } else {
-      lines.push(`      await api.post(\`/${tag}/\${seg(id)}/${opSnake}\`, input${occArg});`);
+      lines.push(`      await api.post(\`/${tag}/\${seg(${ID})}/${opSnake}\`, input${occArg});`);
     }
     lines.push(`    },`);
     lines.push(`    onSuccess: () => {`);
-    lines.push(`      qc.invalidateQueries({ queryKey: ["${tag}", id] });`);
+    lines.push(`      qc.invalidateQueries({ queryKey: ["${tag}", ${ID}] });`);
     lines.push(`      qc.invalidateQueries({ queryKey: ${aggKey} });`);
     lines.push(`    },`);
     lines.push(`  });`);
@@ -503,12 +521,18 @@ export function buildApiModule(
     // key nests under the record's (`["<tag>", id, …]`), so every mutation
     // that invalidates the record — this op's included — re-queries it.
     if (op.when) {
-      lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(id: string) {`);
+      lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(${idParam}) {`);
       lines.push(`  return useQuery({`);
-      lines.push(`    queryKey: ["${tag}", id, "can", "${op.name}"],`);
-      lines.push(`    enabled: !!id,`);
+      // Vue: reactive options, so a getter id re-keys (and enables) the
+      // probe once the record it reads has loaded.
+      lines.push(
+        isVueQuery
+          ? `    queryKey: computed(() => ["${tag}", ${ID}, "can", "${op.name}"]),`
+          : `    queryKey: ["${tag}", id, "can", "${op.name}"],`,
+      );
+      lines.push(isVueQuery ? `    enabled: computed(() => !!${ID}),` : `    enabled: !!id,`);
       lines.push(`    queryFn: async () => {`);
-      lines.push(`      const r = await api.get(\`/${tag}/\${seg(id)}/can_${opSnake}\`);`);
+      lines.push(`      const r = await api.get(\`/${tag}/\${seg(${ID})}/can_${opSnake}\`);`);
       lines.push(`      return z.object({ allowed: z.boolean() }).parse(r);`);
       lines.push(`    },`);
       lines.push(`  });`);

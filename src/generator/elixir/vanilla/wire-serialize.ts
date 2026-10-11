@@ -46,6 +46,7 @@ import type {
   WireField,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
@@ -335,8 +336,13 @@ function renderShapeSerialize(
   const parts = new Map<string, WireField[]>(
     root.parts.map((p) => [p.name, forApiRead(wireFieldsForPart(p))]),
   );
+  // The POOL, not `ctx.valueObjects`: the wire shape spans contexts, so a field
+  // typed with a value object declared in a sibling context is serialized here
+  // too, and its helper must be defined in this module or the call site names
+  // an undefined function.  Own names shadow; helpers are still emitted only
+  // for the VOs the shape actually reaches.
   const vos = new Map<string, WireField[]>(
-    ctx.valueObjects.map((v) => [v.name, forApiRead(wireFieldsForValueObject(v))]),
+    valueObjectPool(ctx).map((v) => [v.name, forApiRead(wireFieldsForValueObject(v))]),
   );
 
   // Derived wire fields are COMPUTED (not stored columns) — every other backend
