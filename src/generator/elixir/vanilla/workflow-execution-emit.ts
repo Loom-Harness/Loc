@@ -1696,6 +1696,60 @@ function renderWorkflowModule(
     );
     return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
   });
+  // A payload's MONEY fields are wire strings the body hands on unparsed, so a
+  // malformed one ("1.2.3") reached the aggregate's changeset and came back
+  // Ecto's "is invalid" at the AGGREGATE's field (`/amount`).  Every other
+  // backend refuses it at the wire, as node's `Invalid decimal: "1.2.3"` at the
+  // field's whole path (`/c/amount`, RS-33).  Each such field is checked against
+  // node's money grammar before the body runs; a refusal is a changeset error on
+  // the PARAM carrying the field on `loom_path`, which the shared renderer turns
+  // into exactly that pointer.
+  const moneyChecks = params.flatMap((n) => {
+    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
+    const inner = t?.kind === "optional" ? t.inner : t;
+    const payload =
+      inner?.kind === "entity"
+        ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
+        : undefined;
+    if (!payload || inner?.kind !== t?.kind) return [];
+    return payload.fields
+      .filter((f) => {
+        const ft = f.type.kind === "optional" ? f.type.inner : f.type;
+        return ft.kind === "primitive" && ft.name === "money";
+      })
+      .map((f) => `{:${snake(n)}, :${snake(f.name)}, ${snake(n)}.${snake(f.name)}}`);
+  });
+  const moneyGuardOpen =
+    moneyChecks.length > 0
+      ? `    case __loom_payload_money([${moneyChecks.join(", ")}]) do
+      :ok ->
+`
+      : "";
+  const moneyGuardClose =
+    moneyChecks.length > 0
+      ? `
+      {:error, _} = loom_payload_refusal -> loom_payload_refusal
+    end`
+      : "";
+  const moneyGuardHelper =
+    moneyChecks.length > 0
+      ? `
+
+  # node's money grammar, character for character — the payload twin of the
+  # context's operation-param guard.
+  defp __loom_payload_money(checks) do
+    Enum.find_value(checks, :ok, fn {param, field, value} ->
+      if is_nil(value) or (is_binary(value) and Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)) do
+        nil
+      else
+        {:error,
+         {%{}, %{param => :map}}
+         |> Ecto.Changeset.change(%{})
+         |> Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field])}
+      end
+    end)
+  end`
+      : "";
   const paramDestructure =
     params.length > 0
       ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n${payloadRebinds.join("")}`
@@ -1744,7 +1798,13 @@ function renderWorkflowModule(
       : "";
   // `workflow_started` runs first thing in the body (before the destructure +
   // the with-chain), so it fires at run/1 entry on every invocation.
-  const finalBody = `    ${startedCall}\n` + paramDestructure + statePrelude + aliasedBody;
+  const finalBody =
+    `    ${startedCall}\n` +
+    paramDestructure +
+    moneyGuardOpen +
+    statePrelude +
+    aliasedBody +
+    moneyGuardClose;
 
   const transactionalDoc = transactional
     ? "\n\n  Marked `transactional` — the body runs inside `Repo.transaction/1`;\n  a rejection result rolls the transaction back."
@@ -1792,7 +1852,7 @@ ${missingParamsClause}${failureReporter}
 
   defp run_inner(${innerParam}) when is_map(params) do
 ${finalBody}
-  end${helperDefs}
+  end${helperDefs}${moneyGuardHelper}
 end
 `;
     return { content, statementRegions };
@@ -1816,7 +1876,7 @@ ${finalBody}
     end)
     |> report_result()
   end
-${missingParamsClause}${failureReporter}${helperDefs}
+${missingParamsClause}${failureReporter}${helperDefs}${moneyGuardHelper}
 end
 `;
   return { content, statementRegions };

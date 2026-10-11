@@ -226,8 +226,10 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
  *
  *  This is the NATIVE-CHAIN carrier.  Python re-words its `Field(…)`
  *  violations to this same sentence (D-MESSAGELESS-RULE-WIRE-MESSAGE, #15d —
- *  `python/emit/wire-constraints.ts`); .NET (`FluentValidation`), Java and
- *  Elixir (`validate_length`) still carry their own text (M-T6.86).  The message-LESS `.refine(…)`
+ *  `python/emit/wire-constraints.ts`), and so do .NET's FluentValidation arms,
+ *  java's request validator and elixir's precondition rung
+ *  (D-MESSAGELESS-DEFAULT, RS-40); elixir's create/update CHANGESET still
+ *  sends Ecto's own text (M-T6.96).  The message-LESS `.refine(…)`
  *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
  *  is by contrast a CROSS-BACKEND string all five wire validators emit
  *  verbatim, so it is deliberately left alone here.

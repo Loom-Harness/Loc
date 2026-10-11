@@ -19,6 +19,7 @@ import {
   renderIDomainEvent,
   renderId,
   renderInProcessDispatcher,
+  renderInt32RangeConverter,
   renderNoopDispatcher,
   renderTphConcreteIdAlias,
   renderValueObject,
@@ -140,6 +141,9 @@ export function emitCommon(
   // Canonical ISO-8601 UTC instant JSON converters (RS-4 temporal round-trip
   // parity) — registered in Program.cs's controller + minimal-API JSON options.
   out.set("Serialization/CanonicalInstantJsonConverter.cs", renderCanonicalInstantConverter(ns));
+  // The int32 range refusal (RS-39) — registered in the controllers' JSON
+  // options, where request bodies deserialize.
+  out.set("Serialization/Int32RangeJsonConverter.cs", renderInt32RangeConverter(ns));
 }
 
 export function emitDispatcher(

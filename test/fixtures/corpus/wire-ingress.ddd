@@ -15,13 +15,11 @@
 // the leaf's pointer — on elixir the create/update path once answered Ecto's
 // "is invalid" and the value-object leaf was stored verbatim.
 //
-// Two claims the copies carry are NOT asserted here, because promoting them
-// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
-//   - a decimal COMMA ("12,50") is accepted as 1250 on .NET and Dapper — the
-//     guard parses with `NumberStyles.Number`, which allows the invariant
-//     thousands separator — where every other leg answers 422;
-//   - an int past int32 has no cross-backend refusal: node and python answer
-//     422 with their validators' own wording, java and .NET 400.
+// A decimal COMMA and an int past int32 are refused at the field too, with one
+// message on every backend (RS-39) — the first was ACCEPTED as 1250 on .NET and
+// Dapper (`NumberStyles.Number` allows the thousands separator), the second
+// had no contract (two frameworks' texts at 422, a 400 on java and .NET).
+//
 system WireIngress {
   subdomain Shop {
     context Shop {
@@ -32,6 +30,7 @@ system WireIngress {
         qty: int
         best: Offer
         operation reprice(newPrice: money) { price := newPrice }
+        operation restock(n: int) { qty := n }
       }
       repository Products for Product { }
     }
@@ -57,6 +56,12 @@ system WireIngress {
     // no digits at all — each refused with the field's pointer.
     expect(api.products.reprice(p, { newPrice: "1.2.3" })).toThrow(422)
     expect(api.products.reprice(p, { newPrice: "twelve" })).toThrow(422)
+    // A decimal COMMA is not the money grammar — never a thousands separator.
+    expect(api.products.reprice(p, { newPrice: "12,50" })).toThrow(422)
+    // An int past int32 is refused at the field, with the one range sentence
+    // every backend sends (RS-39), on both sides of the range.
+    expect(api.products.restock(p, { n: 3000000000 })).toThrow(422)
+    expect(api.products.restock(p, { n: -3000000000 })).toThrow(422)
 
     // The crudish create and update bodies, and a money leaf inside the value
     // object — each refused at the leaf's own pointer.

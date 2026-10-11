@@ -1327,6 +1327,62 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
     tier: "behavioral",
   },
+  {
+    id: "RS-39",
+    title:
+      "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
+    trigger:
+      '`wire-ingress.ddd`: `reprice` with `"1.2.3"`, `"twelve"` and `"12,50"`; `restock` with ±3000000000',
+    observable:
+      "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
+    // The split when raised (wave C3 3d, D22 / D23): .NET + Dapper parsed money
+    // with NumberStyles.Number, whose AllowThousands accepted "12,50" as 1250;
+    // an int32 overflow answered zod's / pydantic's / elixir's own texts at 422
+    // and a 400 "Malformed JSON" on java (Jackson) and .NET (System.Text.Json),
+    // which fail the whole body on an integer they cannot hold.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d D22 / D23; fixed by wave C3F packet F4 — `INTEGER_RANGE_MESSAGE` in src/util/numeric-range.ts, .NET `WireFormatException.IsMoneyGrammar` + `Int32RangeJsonConverter`, java's `integerOverflowPointer` arm, python's `_int32`",
+      "the witness is test/fixtures/corpus/wire-ingress.ddd (golden test/behavioral/wire-golden/wire-ingress.json), green on all seven wire-gated legs; seams pinned per backend in test/conformance/numeric-ingress-parity.test.ts",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-40",
+    title: "A message-less rule's 422 carries node's sentence on every backend",
+    trigger:
+      '`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: "abc")` against a regex precondition) and `intrinsics.ddd`\'s blank-name create against `invariant name.trim().length > 0`',
+    observable:
+      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
+    // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
+    // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
+    // TARGET, not a conformer: its operation rung follows the rule, its
+    // create/update changeset still sends Ecto's text (M-T6.96).
+    conforms: ["node", "dotnet", "java", "python"],
+    targets: ["elixir"],
+    provenance: [
+      "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
+      "seams pinned in test/conformance/message-less-rule-message.test.ts (node's sentence set derived from its emitted routes)",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-41",
+    title: "A string intrinsic counts and cases the same on every backend",
+    trigger:
+      '`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`\'s derived `middle` / `shout` fields over `"a😀bc"` and `"straße"`',
+    observable:
+      '`"a😀bc".substring(1, 2)` is `"😀b"` and `.substring(2)` is `"bc"` (code points, the unit of `.length`); `"straße".toUpper()` is `"STRASSE"`',
+    // The split when raised (wave C3 3d, D10 / D11): node, java and .NET sliced
+    // UTF-16 units, python code points, elixir graphemes; .NET's
+    // ToUpperInvariant is a simple mapping that keeps ß.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d D10 / D11 (the value table's two named divergences); fixed by wave C3F packet F4 — one snippet per language in src/generator/_expr/code-point.ts",
+      "rows `string_substring_astral`, `string_substring_astral_from`, `string_upper_eszett` of test/generator/_expr/expr-value-table.ts, run through each backend's real renderer; golden test/behavioral/wire-golden/intrinsics.json",
+    ],
+    tier: "static",
+  },
 ];
 
 // ---------------------------------------------------------------------------

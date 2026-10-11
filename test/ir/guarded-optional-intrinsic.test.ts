@@ -144,8 +144,10 @@ describe("F2 — the recommended form compiles on all five backends", () => {
   it("dotnet — `ToUpperInvariant()`, the SAME spelling the unguarded receiver gets", async () => {
     files ??= await generateSystemFiles(SRC);
     const src = emitted("Domain/Notes/Note.cs");
-    expect(src).toContain('this.Note2 != null ? this.Note2.ToUpperInvariant() : "none"');
-    expect(src).toContain("this.Title.ToUpperInvariant()");
+    // The invariant spelling, completed for ß (RS-41) — the same on both.
+    const upper = '.ToUpperInvariant().Replace("\\u00DF", "SS", StringComparison.Ordinal)';
+    expect(src).toContain(`this.Note2 != null ? this.Note2${upper} : "none"`);
+    expect(src).toContain(`this.Title${upper}`);
     // The culture-sensitive spelling belongs to the EF-query table only; a
     // domain body carrying it means the intrinsic table was never consulted.
     expect(src).not.toMatch(/\.ToUpper\(\)/);

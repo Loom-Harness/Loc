@@ -704,20 +704,6 @@ Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-fl
 
 **Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
 
-## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
-
-*Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
-
-A message-less single-field rule (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) is a native wire constraint on every backend. Node's zod chain denies it with the synthesized per-field sentence (`singleFieldMessage` in `src/generator/zod-refine.ts`: "Amount must be at least 1", "Code is not in the expected format"); since #3153 python sends the same sentence (a per-model wrap `field_validator` table in `src/generator/python/emit/wire-constraints.ts`). The other three still diverge, measured on booted legs against `validation-messages` (golden seq 14/15):
-
-- **.NET (EF + Dapper)** — FluentValidation's default: `'Amount' must be greater than or equal to '1'.`, `'Code' is not in the correct format.`
-- **Java** — the derived refine default: `Invariant violated: amount >= 1`.
-- **Elixir** — a message-less PRECONDITION never reaches the wire validator at all: it answers the domain-floor 422 (`title: "Unprocessable Entity"`, `detail: "Precondition failed: amount >= 1"`, no `errors[]`).
-
-**The fix:** each backend's native carrier takes the node sentence as its message (`.WithMessage(…)`, the Bean Validation `message`, the Ecto `message:` option), derived from the same `singleFieldShape` classification; elixir additionally routes a wire-translatable message-less precondition through the shared `errors[]` 422 sender, as M-T6.20 did for the messaged one.
-
-**Verification.** Delete the four `M-T6.86` waivers in `test/_helpers/wire-waivers.ts`; the dotnet / dapper / java / elixir behavioral legs then gate `validation-messages` seq 14/15 against the node golden.
-
 ## M-FT.24 — An op returning an error union: the OpenAPI document and the wire disagree, and the union wire shape has no card — `open` · **M** · P2
 
 *Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) named this id the owner of the union wire shape and deferred the OpenAPI union document to it.*
@@ -735,19 +721,31 @@ Re-proved on `main` @ `cbda91658` with `operation reserve(): Order or NotFound {
 
 **Verification.** The cross-backend OpenAPI parity test and the Schemathesis tier (a served 404 must validate against the document).
 
-## M-T6.87 — A message-less rule, and a missing required field, answer each framework's DEFAULT sentence: five wire contracts for one rule — `open` · **S–M** · P2 ⚠ needs a ruling first
+## M-T6.93 — A MISSING required field answers each framework's sentence: no cross-backend contract for the message — `open` · **M** · P2 ⚠ needs a ruling first
 
-Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
+*Minted 2026-10-11 by wave C3F packet F4, split out of [M-T6.87](archive/T6-done.md#m-t687) when its rule half closed under [D-MESSAGELESS-DEFAULT](../decisions.md#d-messageless-default--every-message-less-wire-rule-answers-nodes-sentence-on-every-backend).*
 
-Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.88 (the java pointer half of the same probe), and [M-T6.83](#m-t683) (the default *invariant* message — a different rule shape, the same "one canonical default sentence" question).
+A request that omits a required member answers 422 at the member's pointer on every backend, but with five messages: node `Invalid input: expected string, received undefined` (zod 4; `Required` under zod 3, i.e. `platform: node@v4`), python `Field required`, .NET/Dapper `The Amount field is required.`, java `must not be null`, elixir `can't be blank`. The owner default for M-T6.87 ("node's sentence is canonical") does not carry over cleanly: node's text is zod's, varies with the zod MAJOR, and names the JSON type (`expected number` / `expected object` / `Invalid option: expected one of …` for an enum), so adopting it means each backend renders a per-type zod sentence — or node, too, sends a Loom-owned one (`<Label> is required`, the `singleFieldMessage` voice).
 
-*Since #3153: the message-less **rule** half is ruled by [D-MESSAGELESS-RULE-WIRE-MESSAGE](../decisions.md#d-messageless-rule-wire-message) (node's synthesized sentence is canonical) and tracked as [M-T6.86](#m-t686); what stays open here is the missing-required-field half.*
+**Decide first:** a `D-` ruling — zod-4's per-type text, or a Loom-owned sentence on all five (node passing it through zod's `error` / `required_error` per major). Then implement at each backend's required-member seam (zod schema, pydantic `missing` in the RequestValidationError handler, the .NET `MissingRequiredMarker` arm + `[Required(ErrorMessage)]`, java `@NotNull(message)`, elixir `validate_required(message:)` — the last is F1's changeset seam) and restore `corpus/workflow-command-payload`'s missing-`amount` probe: `expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`.
 
-## M-T6.88 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
+## M-T6.94 — Feliz and Flutter count string `length` and `substring` in UTF-16 units — `open` · **S** · P3
 
-Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `POST /api/workflows/claim_handling` with `{ "c": { …, no "amount" } }` answers 422 on all five backends (good), but java's `errors[0].pointer` is `/amount` where node / python / .NET / dapper / elixir say `/c/amount`, and its message is `"Invalid decimal: null"` — a decimal-coercion failure reported before (or instead of) the required-field check. The pointer is the contract a frontend binds a control to, so this is a wire defect independent of M-T6.87's message ruling.
+*Minted 2026-10-11 by wave C3F packet F4.*
 
-Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
+RS-31 and RS-41 make `.length` and `.substring` count CODE POINTS on all five backends and on the JS frontends (`_expr/js-intrinsics.ts` is shared). The two non-JS frontends still use the host's UTF-16 count for both: Feliz `(s.Length)` / `s.Substring(…)` (`feliz/fs-expr.ts`), Flutter `s.length` / `s.substring(…)` (`flutter/dart-expr.ts`) — consistent with each other, so a page expression over an astral character reads differently there than on the server that rendered the value. Fix: Dart `s.runes.length` / `String.fromCharCodes(s.runes.skip(a).take(n))`; F# through a Fable-compatible code-point walk. Verification: a frontend value row for `"a😀bc"`.
+
+## M-T6.95 — A NUL in a plain request string: elixir answers 400, and the other four answer 422 with four different messages — `open` · **S–M** · P2
+
+*Minted 2026-10-11 by wave C3F packet F4 (seen by wave C3F packet F8's first run).*
+
+A `string` field cannot hold U+0000 (Postgres `text`), so every backend refuses it at the wire (schemathesis F20) — but not with one contract. node, .NET, java and python answer 422 at the field, with `Invalid input` (zod's default for the message-less `NO_NUL` refine), `The Name field must not contain a NUL character.`, `must not contain a NUL character`, and `Value error, must not contain a NUL character` (a bare `ValueError` in `_reject_nul`); elixir answers **400**. Decide the sentence (one Loom-owned text, like `INTEGER_RANGE_MESSAGE`), route elixir's refusal through the wire-validation 422, make python raise a `PydanticCustomError`, and add a NUL probe to a corpus fixture so the wire golden gates it.
+
+## M-T6.96 — elixir's create/update changeset answers Ecto's text for a message-less single-field rule — `open` · **S** · P2
+
+*Minted 2026-10-11 by wave C3F packet F4; the changeset seam is packet F1's tree, so it was not touched there.*
+
+[D-MESSAGELESS-DEFAULT](../decisions.md#d-messageless-default--every-message-less-wire-rule-answers-nodes-sentence-on-every-backend) / RS-40 put node's `singleFieldMessage` on every backend's wire validator, and elixir's operation rung sends it. Its create/update CHANGESET does not: `invariant seats >= 1 && seats <= 500` renders `validate_number(:seats, greater_than_or_equal_to: 1)` + `validate_number(:seats, less_than_or_equal_to: 500)` with Ecto's own messages ("must be greater than or equal to 1"), where node sends "Seats must be between 1 and 500"; the `len-*` closures carry Ecto's `should be at least %{count} character(s)` tuples. Fix in `src/generator/elixir/vanilla/changeset-emit.ts`: pass `message: <singleFieldMessage(field, pattern)>` on each message-less single-field validator (one sentence per RULE, so a `between` emits it on both halves). Verification: a message-less create-path bound in a corpus fixture's golden.
 
 
 ## M-T6.89 — elixir persists a value object's raw wire map: a missing VO field 500s an aggregate invariant, an undeclared key is stored (and a NUL in one 500s jsonb) — `open` · **S–M** · P2

@@ -609,11 +609,19 @@ export function renderJavaService(
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${jid(f.name)}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(
+          eff(f.type, f.optional),
+          `request.${jid(f.name)}()`,
+          `/${f.name}`,
+          undefined,
+          "at",
+        ),
+      )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request) {`,
+      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
       `        return new ${vo}(${args});`,
       `    }`,
       ``,

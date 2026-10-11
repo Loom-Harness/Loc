@@ -976,6 +976,10 @@ builder.Services.AddControllers(opts =>
         new ${ns}.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new ${ns}.Serialization.CanonicalInstantOffsetJsonConverter());
+    // An int literal past Int32 names itself (RS-39), so ValidationProblem
+    // answers it as a 422 at the field instead of a 400 for the body.
+    opts.JsonSerializerOptions.Converters.Add(
+        new ${ns}.Serialization.Int32RangeJsonConverter());
 });
 
 // Model binding + DataAnnotations run BEFORE any controller action, so a

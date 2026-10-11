@@ -22,6 +22,95 @@
     },
     {
       "seq": 2,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invariant violated: name.trim().length > 0",
+            "pointer": "/name"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "absQty": 1,
+        "cleanName": "a😀bc",
+        "id": "<volatile:key>",
+        "middle": "😀b",
+        "name": "a😀bc",
+        "price": "1.0000",
+        "qty": 1,
+        "shout": "A😀BC",
+        "slug": "a😀bc",
+        "version": 1,
+        "wholePrice": "1.0000"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/products/{id}",
+      "status": 200,
+      "body": {
+        "absQty": 1,
+        "cleanName": "straße",
+        "id": "<volatile:key>",
+        "middle": "tr",
+        "name": "straße",
+        "price": "1.0000",
+        "qty": 1,
+        "shout": "STRASSE",
+        "slug": "straße",
+        "version": 1,
+        "wholePrice": "1.0000"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "DELETE",
+      "path": "/api/products/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -29,16 +118,18 @@
         "absQty": 3,
         "cleanName": "Ada",
         "id": "<volatile:key>",
+        "middle": " A",
         "name": "  Ada  ",
         "price": "18.5000",
         "qty": -3,
+        "shout": "  ADA  ",
         "slug": "ada",
         "version": 1,
         "wholePrice": "19.0000"
       }
     },
     {
-      "seq": 3,
+      "seq": 10,
       "method": "GET",
       "path": "/api/products/by_exact_name?q=Ada",
       "status": 200,
@@ -47,9 +138,11 @@
           "absQty": 3,
           "cleanName": "Ada",
           "id": "<volatile:key>",
+          "middle": " A",
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "shout": "  ADA  ",
           "slug": "ada",
           "version": 1,
           "wholePrice": "19.0000"
@@ -57,7 +150,7 @@
       ]
     },
     {
-      "seq": 4,
+      "seq": 11,
       "method": "GET",
       "path": "/api/products/by_lower_name?q=bob",
       "status": 200,
@@ -66,9 +159,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "ob",
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "shout": "BOB",
           "slug": "bob",
           "version": 1,
           "wholePrice": "7.0000"
@@ -76,7 +171,7 @@
       ]
     },
     {
-      "seq": 5,
+      "seq": 12,
       "method": "GET",
       "path": "/api/products/by_floor_price?whole=18",
       "status": 200,
@@ -85,9 +180,11 @@
           "absQty": 3,
           "cleanName": "Ada",
           "id": "<volatile:key>",
+          "middle": " A",
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "shout": "  ADA  ",
           "slug": "ada",
           "version": 1,
           "wholePrice": "19.0000"
@@ -95,7 +192,7 @@
       ]
     },
     {
-      "seq": 6,
+      "seq": 13,
       "method": "GET",
       "path": "/api/products/by_abs_qty?n=3",
       "status": 200,
@@ -104,9 +201,11 @@
           "absQty": 3,
           "cleanName": "Ada",
           "id": "<volatile:key>",
+          "middle": " A",
           "name": "  Ada  ",
           "price": "18.5000",
           "qty": -3,
+          "shout": "  ADA  ",
           "slug": "ada",
           "version": 1,
           "wholePrice": "19.0000"
@@ -114,7 +213,7 @@
       ]
     },
     {
-      "seq": 7,
+      "seq": 14,
       "method": "GET",
       "path": "/api/products/by_trimmed_query?q=  Bob  ",
       "status": 200,
@@ -123,9 +222,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "ob",
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "shout": "BOB",
           "slug": "bob",
           "version": 1,
           "wholePrice": "7.0000"
@@ -133,7 +234,7 @@
       ]
     },
     {
-      "seq": 8,
+      "seq": 15,
       "method": "GET",
       "path": "/api/products/by_lowered_query?q=BOB",
       "status": 200,
@@ -142,9 +243,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "ob",
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "shout": "BOB",
           "slug": "bob",
           "version": 1,
           "wholePrice": "7.0000"
@@ -152,7 +255,7 @@
       ]
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "GET",
       "path": "/api/products/bobbish",
       "status": 200,
@@ -161,9 +264,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "ob",
           "name": "Bob",
           "price": "7.2500",
           "qty": 4,
+          "shout": "BOB",
           "slug": "bob",
           "version": 1,
           "wholePrice": "7.0000"
@@ -171,14 +276,14 @@
       ]
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 18,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -186,16 +291,18 @@
         "absQty": 4,
         "cleanName": "Bob",
         "id": "<volatile:key>",
+        "middle": "Bo",
         "name": " Bob ",
         "price": "7.2500",
         "qty": -4,
+        "shout": " BOB ",
         "slug": "bob",
         "version": 2,
         "wholePrice": "7.0000"
       }
     },
     {
-      "seq": 12,
+      "seq": 19,
       "method": "GET",
       "path": "/api/products/bobbish",
       "status": 200,
@@ -204,9 +311,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "Bo",
           "name": " Bob ",
           "price": "7.2500",
           "qty": -4,
+          "shout": " BOB ",
           "slug": "bob",
           "version": 2,
           "wholePrice": "7.0000"
@@ -214,7 +323,7 @@
       ]
     },
     {
-      "seq": 13,
+      "seq": 20,
       "method": "GET",
       "path": "/api/products/by_exact_name?q=Bob",
       "status": 200,
@@ -223,9 +332,11 @@
           "absQty": 4,
           "cleanName": "Bob",
           "id": "<volatile:key>",
+          "middle": "Bo",
           "name": " Bob ",
           "price": "7.2500",
           "qty": -4,
+          "shout": " BOB ",
           "slug": "bob",
           "version": 2,
           "wholePrice": "7.0000"
@@ -233,7 +344,7 @@
       ]
     },
     {
-      "seq": 14,
+      "seq": 21,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -243,9 +354,11 @@
             "absQty": 3,
             "cleanName": "Ada",
             "id": "<volatile:key>",
+            "middle": " A",
             "name": "  Ada  ",
             "price": "18.5000",
             "qty": -3,
+            "shout": "  ADA  ",
             "slug": "ada",
             "version": 1,
             "wholePrice": "19.0000"
@@ -254,9 +367,11 @@
             "absQty": 4,
             "cleanName": "Bob",
             "id": "<volatile:key>",
+            "middle": "Bo",
             "name": " Bob ",
             "price": "7.2500",
             "qty": -4,
+            "shout": " BOB ",
             "slug": "bob",
             "version": 2,
             "wholePrice": "7.0000"
@@ -269,14 +384,14 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 22,
       "method": "DELETE",
       "path": "/api/products/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 16,
+      "seq": 23,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 404,
@@ -289,14 +404,14 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 24,
       "method": "GET",
       "path": "/api/products/bobbish",
       "status": 200,
       "body": []
     },
     {
-      "seq": 18,
+      "seq": 25,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -309,7 +424,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 26,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -322,7 +437,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 27,
       "method": "POST",
       "path": "/api/products",
       "status": 400,

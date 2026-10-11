@@ -246,7 +246,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
     doc: "payloads",
     backends: ALL,
-    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
+    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.  A malformed money INSIDE the payload is refused at `/c/amount` on every leg (RS-33; java pointed at the leaf, elixir let it reach the aggregate's changeset).",
   },
   {
     id: "workflow-create-state",
@@ -700,7 +700,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a malformed money on an operation param, the crudish create/update body, or a value-object leaf answers 422 with a pointer-carrying `errors[]` entry — never a 500",
     doc: "language",
     backends: ALL,
-    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update and value-object arms were held until elixir answered node's `Invalid decimal: \"…\"` at the leaf pointer on them (Ecto said \"is invalid\"; a VO leaf was stored verbatim).  The decimal-comma and int32-range arms are still out: a .NET/Dapper comma acceptance and no cross-backend int-range refusal (wave-c3-3d-promote D22, D23).",
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  Every arm is in: the operation param, the crudish create/update body and a value-object leaf (elixir answers node's `Invalid decimal: \"…\"` at the leaf pointer on all three), and — RS-39 — the decimal comma and the int32 range, refused at the field with one message on every backend.",
   },
 ] as const;
 
