@@ -23,7 +23,7 @@ minimal repros in `repro/`; screenshots in `evidence/`. Overlap with in-flight w
 | id | finding | status |
 |---|---|---|
 | H-15 | A declared `find all(): T[]` breaks other aggregates' id pickers (`.data?.items` on an array). `repro/find-all-array-picker.ddd` | #2942 (F-015) |
-| H-24 | An `X id?` claim assigned into a non-optional field validates. .NET fails CS1503 (node/python build). `requires x != null` doesn't narrow. | **new** |
+| H-24 | An `X id?` claim assigned into a non-optional field validates. .NET fails CS1503 (node/python build). `requires x != null` doesn't narrow. | **fixed** (#3162: `loom.create-field-type`; .NET unwraps the narrowed branch) |
 | H-29 | **Timer-driven escalation never runs.** At the 16:30 tick, pg-boss marked the job `failed` with `currentUser is not available`, because the tenant filter on the criterion read calls `requireCurrentUser()` and there's no principal. The failure only appears in `pgboss.job` (nothing in the api logs), and the job is retried 3× and then dropped. Separately, the node API fails `tsc` (nullable claim into Drizzle `eq` ×3; `currentUser` unbound in a timer-driven handler). The image builds anyway because the Dockerfile only runs tsup. | partial #3085 (typecheck in Dockerfile), #3103 (system principal for reactors/timers); the `find … where col == currentUser.<optional>` typing and the silent pg-boss failure are **new** |
 
 ## Runtime / wiring bugs
