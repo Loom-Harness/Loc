@@ -704,6 +704,20 @@ Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-fl
 
 **Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
 
+## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
+
+*Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
+
+A message-less single-field rule (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) is a native wire constraint on every backend. Node's zod chain denies it with the synthesized per-field sentence (`singleFieldMessage` in `src/generator/zod-refine.ts`: "Amount must be at least 1", "Code is not in the expected format"); since #3153 python sends the same sentence (a per-model wrap `field_validator` table in `src/generator/python/emit/wire-constraints.ts`). The other three still diverge, measured on booted legs against `validation-messages` (golden seq 14/15):
+
+- **.NET (EF + Dapper)** — FluentValidation's default: `'Amount' must be greater than or equal to '1'.`, `'Code' is not in the correct format.`
+- **Java** — the derived refine default: `Invariant violated: amount >= 1`.
+- **Elixir** — a message-less PRECONDITION never reaches the wire validator at all: it answers the domain-floor 422 (`title: "Unprocessable Entity"`, `detail: "Precondition failed: amount >= 1"`, no `errors[]`).
+
+**The fix:** each backend's native carrier takes the node sentence as its message (`.WithMessage(…)`, the Bean Validation `message`, the Ecto `message:` option), derived from the same `singleFieldShape` classification; elixir additionally routes a wire-translatable message-less precondition through the shared `errors[]` 422 sender, as M-T6.20 did for the messaged one.
+
+**Verification.** Delete the four `M-T6.86` waivers in `test/_helpers/wire-waivers.ts`; the dotnet / dapper / java / elixir behavioral legs then gate `validation-messages` seq 14/15 against the node golden.
+
 ## M-FT.24 — An op returning an error union: the OpenAPI document and the wire disagree, and the union wire shape has no card — `open` · **M** · P2
 
 *Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) named this id the owner of the union wire shape and deferred the OpenAPI union document to it.*
@@ -726,6 +740,8 @@ Re-proved on `main` @ `cbda91658` with `operation reserve(): Order or NotFound {
 Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
 
 Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.88 (the java pointer half of the same probe), and [M-T6.83](#m-t683) (the default *invariant* message — a different rule shape, the same "one canonical default sentence" question).
+
+*Since #3153: the message-less **rule** half is ruled by [D-MESSAGELESS-RULE-WIRE-MESSAGE](../decisions.md#d-messageless-rule-wire-message) (node's synthesized sentence is canonical) and tracked as [M-T6.86](#m-t686); what stays open here is the missing-required-field half.*
 
 ## M-T6.88 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
 

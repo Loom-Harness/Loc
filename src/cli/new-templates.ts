@@ -56,6 +56,26 @@ export function packFormatOf(design: DesignPack): PackFormat {
   return format;
 }
 
+/** The command that re-runs THIS CLI, derived from the process's own argv
+ *  (`process.argv`: `[node, /abs/path/bin/cli.js, …]`), e.g.
+ *  `node /home/me/Loc/bin/cli.js`.  `ddd new` prints this — in its `next:`
+ *  hint, the `main.ddd` header and the README — instead of `npx ddd`: the
+ *  scaffolded directory has no `package.json`, so `npx ddd` there resolves
+ *  the unrelated public npm package named `ddd`, not Loom (ruling D11).
+ *  Node hands `argv[1]` over already resolved to an absolute path, so the
+ *  line works from any directory.  Falls back to `ddd` only when argv names
+ *  no script (an embedder calling the CLI in-process). */
+export function cliInvocation(argv: readonly string[]): string {
+  const script = argv[1];
+  if (!script) return "ddd";
+  return `node ${shellQuote(script)}`;
+}
+
+/** POSIX-quote `s` when it holds anything a shell would split or expand. */
+function shellQuote(s: string): string {
+  return /^[\w./@%+=:,-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+
 const FORMAT_ORDER: readonly PackFormat[] = ["tsx", "vue", "svelte", "angular", "heex"];
 
 /** Every design pack `ddd new --design` accepts, DERIVED from the built-in
@@ -231,6 +251,8 @@ export function renderStarter(opts: {
   template: StarterTemplate;
   platform: StarterPlatform;
   design: DesignPack;
+  /** The CLI invocation to print in the regenerate hint — `cliInvocation(process.argv)`. */
+  invocation: string;
 }): string {
   const sys = toSystemName(opts.name);
   const domain = opts.template === "crud" ? crudDomain() : blankDomain();
@@ -238,7 +260,7 @@ export function renderStarter(opts: {
 
   return `// ${sys} — scaffolded by \`ddd new\` (template: ${opts.template}, platform: ${opts.platform}).
 // Edit this model, then regenerate:
-//   npx ddd generate system main.ddd -o . && docker compose up
+//   ${opts.invocation} generate system main.ddd -o . && docker compose up
 
 system ${sys} {
 
@@ -264,6 +286,8 @@ export function renderReadme(opts: {
   name: string;
   platform: StarterPlatform;
   design: DesignPack;
+  /** The CLI invocation to print in the run instructions — `cliInvocation(process.argv)`. */
+  invocation: string;
 }): string {
   const backendPort = BACKEND_PORT[opts.platform];
   const liveView = isLiveView(opts.platform, opts.design);
@@ -295,14 +319,15 @@ A Loom project scaffolded with \`ddd new\` — platform **${opts.platform}**${
 
 \`\`\`bash
 # 1. Generate the project tree + docker-compose.yml in place
-npx ddd generate system main.ddd -o .
+${opts.invocation} generate system main.ddd -o .
 
 # 2. Build and start the stack
 docker compose up --build
 \`\`\`
 
-(\`npx ddd\` — a bare \`ddd\` only works if you linked the CLI yourself; from a
-clone of the Loom repo the spelling is \`node bin/cli.js\`.)
+(That is the command that ran \`ddd new\`.  Not \`npx ddd\`: this directory has
+no \`package.json\`, so \`npx ddd\` here fetches an unrelated npm package named
+\`ddd\`.  A bare \`ddd\` works only if you linked the CLI yourself.)
 
 Then open:
 
@@ -316,7 +341,7 @@ The full surface is always \`GET /openapi.json\`.
 
 ## Edit the model
 
-Change \`main.ddd\` and re-run \`npx ddd generate system main.ddd -o .\`.
+Change \`main.ddd\` and re-run \`${opts.invocation} generate system main.ddd -o .\`.
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 
