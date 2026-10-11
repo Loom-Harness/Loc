@@ -3,6 +3,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
@@ -147,7 +148,10 @@ export function renderJavaDocumentRepositoryImpl(
   // (The pre-existing emit hardcoded a fixed import list and omitted this, so a
   // document aggregate with a string-equality find failed to compile.)
   const exprImports = new Set<string>();
-  for (const f of finds) if (f.filter) collectJavaExprImports(f.filter, exprImports);
+  for (const f of finds) {
+    const own = effectiveFindFilter(f, agg);
+    if (own) collectJavaExprImports(own, exprImports);
+  }
   // The in-app filters are rendered from the DESUGARED IR (an `authz-filter`
   // sentinel carries no expression nodes of its own), so collect their imports
   // from the same desugared tree the renderer sees — otherwise a `policy { allow
@@ -179,8 +183,10 @@ export function renderJavaDocumentRepositoryImpl(
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${name}", "rows", ${rowsExpr});`;
   const findLines = finds.flatMap((f) => {
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`);
-    const ownFilter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
+    const ownFilter = own
+      ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true })})`
       : "";
     // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
     // — empty in the no-bypass shape, where `findAll()` already applied them.

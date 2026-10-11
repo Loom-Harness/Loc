@@ -1,4 +1,5 @@
 import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { lines } from "../../../util/code-builder.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -65,7 +66,10 @@ export function renderJavaEventSourcedRepositoryImpl(
   // (notably `java.util.Objects` for `==`, `java.util.Comparator` for a
   // sorted retrieval).  The retrieval helper appends its own below.
   const exprImports = new Set<string>();
-  for (const f of finds) if (f.filter) collectJavaExprImports(f.filter, exprImports);
+  for (const f of finds) {
+    const own = effectiveFindFilter(f, agg);
+    if (own) collectJavaExprImports(own, exprImports);
+  }
   // The command load's in-app write-scope guard renders from the
   // DESUGARED IR, so its imports come from that same tree.
   if (agg.writeScopeFilter)
@@ -78,8 +82,10 @@ export function renderJavaEventSourcedRepositoryImpl(
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${name}", "rows", ${rowsExpr});`;
   const findLines = finds.flatMap((f) => {
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`);
-    const filter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
+    const filter = own
+      ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true })})`
       : "";
     if (isPagedFind(f)) {
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
