@@ -165,6 +165,7 @@ export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagno
               reason: unenforceableReason(inv, opaque),
             }),
             source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
           });
         }
       }
@@ -206,6 +207,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
                   eName: e.name,
                 }),
                 source: `${sys.name}/${dep.name}`,
+                origin: dep.origin,
               });
             });
           }
@@ -236,6 +238,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
                   eName: inner.name,
                 }),
                 source: `${sys.name}/${dep.name}`,
+                origin: dep.origin,
               });
             });
           }

@@ -27,7 +27,12 @@
 // There is deliberately no `test e2e` block — the runtime behaviour of an
 // embedded VO and of a `<VO>[]` collection is already covered by `embedded`
 // and `value-collections`; the new axis here is purely what the VO's fields
-// are TYPED as.
+// are TYPED as.  (Superseded: wave C3 3g added the `test e2e` block below.)
+// The pure-domain `test` block on `Dock` is the unit tier, and it has to
+// name a SECOND aggregate (`Ship.create`) to obtain the id the VO holds — the shape every backend's test emitter once got wrong: four
+// imported only the subject aggregate (#3060), and elixir called a
+// `Ship.create/1` pure core it emitted only for aggregates with their own
+// tests (#3122).
 system Ports {
   subdomain Harbour {
     context Docking {
@@ -51,6 +56,17 @@ system Ports {
         // …and the same VO in a collection, so the id-typed column is proven
         // on the child-table path too.
         berths: Berth[]
+
+        // Pure-domain (unit) test — runs on every backend's unit tier, mints
+        // no wire golden.  It is the one shape that MUST name a second
+        // aggregate: a `Ship id` inside the value object needs a `Ship` to
+        // take it from.
+        test "a ship id carried by a berth survives construction" {
+          let s = Ship.create({ name: "Aurora" })
+          let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+          expect(d.berth.position).toBe(3)
+          expect(d.berth.ship).toBe(s.id)
+        }
       }
 
       repository Ships for Ship { }
