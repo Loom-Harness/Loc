@@ -986,7 +986,7 @@ defmodule ${appModule}Web.BodyParser do
   @impl true
   def init(opts), do: Plug.Parsers.init(opts)
 
-  # The request-body media-type contract every backend shares (RS-43), on the
+  # The request-body media-type contract every backend shares (RS-39), on the
   # API surface (a LiveView form post elsewhere is urlencoded by design):
   #
   #   * an EMPTY body with no Content-Type, or a JSON one, is \`{}\` — which is

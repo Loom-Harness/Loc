@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// `Middleware/EmptyJsonBodyMiddleware.cs` — the .NET half of RS-43: an EMPTY
+// `Middleware/EmptyJsonBodyMiddleware.cs` — the .NET half of RS-39: an EMPTY
 // request body is the empty JSON object on every body-carrying route.
 //
 // MVC's `BodyModelBinder` decides "is there a body?" from
@@ -20,7 +20,7 @@ using Microsoft.AspNetCore.Http.Features;
 namespace ${ns}.Middleware;
 
 /// <summary>
-/// An EMPTY request body is the empty JSON object (RS-43).  A parameterless
+/// An EMPTY request body is the empty JSON object (RS-39).  A parameterless
 /// command (<c>operation confirm()</c>) answers a body-less POST exactly as it
 /// answers <c>{}</c>, and a command with required fields earns the same 422 a
 /// <c>{}</c> earns.  Left alone, MVC answers that request 415 when it carries

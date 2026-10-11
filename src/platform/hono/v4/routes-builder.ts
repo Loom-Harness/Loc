@@ -1984,7 +1984,7 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  // RS-43 — a parameterless command's body is optional (an empty one reads as `{}`).
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
   out.push(
     `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
   );
@@ -2159,7 +2159,7 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  // RS-43 — a parameterless command's body is optional (an empty one reads as `{}`).
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
   out.push(
     `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
   );

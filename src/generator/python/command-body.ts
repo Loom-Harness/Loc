@@ -5,7 +5,7 @@ import { commandBodyOptional } from "../../ir/util/command-body.js";
 const OPTIONAL_BODY_MARK = "Body(default_factory=";
 
 /** The `body` parameter of a command route.  A command with no inputs takes
- *  its (empty) request model with a default (RS-43), so FastAPI publishes the
+ *  its (empty) request model with a default (RS-39), so FastAPI publishes the
  *  request body as optional — the runtime half (an empty body read as `{}`) is
  *  `JsonBodyMiddleware`. */
 export function pyCommandBodyParam(model: string, inputs: readonly unknown[]): string {

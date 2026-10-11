@@ -2087,7 +2087,7 @@ function emitProject(
   // Catalog-identity request log — always-on.  Cross-backend parity
   // with Phoenix's <App>.Telemetry and Hono's pino access log.
   out.set("Middleware/RequestLoggingMiddleware.cs", renderRequestLoggingMiddleware(ns));
-  // RS-43 — an empty request body reads as `{}` (mounted in Program.cs).
+  // RS-39 — an empty request body reads as `{}` (mounted in Program.cs).
   out.set("Middleware/EmptyJsonBodyMiddleware.cs", renderEmptyJsonBodyMiddleware(ns));
   // Prometheus HTTP metrics — catalog-driven, served at /metrics (Program.cs
   // MapMetrics), recorded from RequestLoggingMiddleware's request_end seam.

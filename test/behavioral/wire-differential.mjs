@@ -271,6 +271,9 @@ const __wire = [];
 // recorded \`path\` is TEMPLATED (\`/api/x/{id}\`), which is right for aligning
 // two runs and useless as a URL to request.  Not itself compared.
 const __urls = [];
+// The request bodies, index-aligned with \`__urls\` — what the empty-command-body
+// probe below reads to find a parameterless command.  Not itself compared.
+const __bodies = [];
 // The credentials the tier itself used.  Without them the probes below measure the
 // AUTH arm instead of the framework arm on any \`auth {}\` system — and the two
 // disagree across backends for a reason that has nothing to do with RS-9 (node
@@ -288,6 +291,7 @@ const __record = (dispatch) => {
       // entry in front of every block and shift every seq after it.
       if (r && !__isInfraRequest(req.url)) {
         __urls.push(req.url);
+        __bodies.push(req.body);
         for (const [k, v] of Object.entries(req.headers ?? {})) {
           if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
         }
@@ -442,6 +446,36 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
   if (opts.files) {
     await dispatch({ method: "GET", url: origin + "/files/__loom_absent", headers: { ...__authHeaders } });
   }
+  await __emptyCommandBodyProbes(dispatch);
+};
+
+// ── the empty-command-body probes (RS-39) ──────────────────────────────────
+// An emitted suite calls a parameterless command (\`operation confirm()\`, a
+// workflow started with no input) with the body \`{}\` — so no recording ever
+// sent what a caller with nothing to say actually sends: NO body.  Five
+// backends answered that request four ways (415, 400, 422, a 2xx, and a 500
+// for a body the action never read) with every golden green.
+//
+// The target is the FIRST command the tier itself POSTed \`{}\` to and got a
+// 2xx — evidence the route is served and takes nothing — re-requested three
+// ways: with no body and no Content-Type, with \`Content-Type:
+// application/json\` and zero bytes, and with \`{}\` under a foreign media type.
+// The first two must be answered exactly as \`{}\` is (the re-run may now
+// meet a \`when\` gate the tier's own call closed — that answer is domain, and
+// identical on every backend); the third is the declared 415.
+//
+// Derived from the CASE (the tier's request sequence is one emitted file), so
+// every leg fires the same probes and the recordings keep the same length.
+// Fired LAST, after every other probe, so it only appends trailing ordinals.
+const __emptyCommandBodyProbes = async (dispatch) => {
+  const idx = __wire.findIndex(
+    (e, i) => e.method === "POST" && e.status >= 200 && e.status < 300 && __bodies[i] === "{}",
+  );
+  if (idx < 0) return;
+  const url = __urls[idx];
+  await dispatch({ method: "POST", url, headers: { ...__authHeaders } });
+  await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "" });
+  await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "text/plain" }, body: "{}" });
 };
 
 
