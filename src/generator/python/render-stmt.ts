@@ -1,5 +1,5 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
-import { escapePythonIdent, snake } from "../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
@@ -204,7 +204,9 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
     },
 
     emit: (s) => {
-      const kwargs = s.fields.map((f) => `${snake(f.name)}=${renderPyExpr(f.value)}`).join(", ");
+      const kwargs = s.fields
+        .map((f) => `${pythonIdent(f.name)}=${renderPyExpr(f.value)}`)
+        .join(", ");
       const ev = `${s.eventName}(${kwargs})`;
       if (ctx.eventSourced) {
         return [`${i}__ev = ${ev}`, `${i}self._events.append(__ev)`, `${i}self._apply(__ev)`].join(
