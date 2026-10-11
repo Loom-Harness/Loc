@@ -199,6 +199,11 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(routes).toContain('    pass_: bool = Field(default=False, alias="pass")');
     expect(routes).toContain('def_: Annotated[WireStr, Query(alias="def")]');
     expect(routes).toContain("found.class_(body.except_)");
+    // Pydantic resolves a field validator by ATTRIBUTE, not alias: naming the
+    // alias (`"lambda"`) is a PydanticUserError at import — uvicorn never boots.
+    expect(routes).toContain('    @field_validator("lambda_", mode="wrap")');
+    expect(routes).toContain('                ("lambda_", "greater_than_equal"): ');
+    expect(routes).not.toContain('@field_validator("lambda"');
     expect(read("app/http/wire_models.py")).toContain('    yield_: Int32 = Field(alias="yield")');
   });
 
