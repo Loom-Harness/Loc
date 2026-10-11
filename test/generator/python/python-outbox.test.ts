@@ -67,7 +67,9 @@ describe("python durable-channel outbox", () => {
     expect(dispatch).toContain("await self._inner.dispatch(event)");
     // make_dispatcher now wraps the in-process dispatcher in the outbox one.
     expect(dispatch).toContain('def make_dispatcher(session: AsyncSession) -> "OutboxDispatcher":');
-    expect(dispatch).toContain("return OutboxDispatcher(session, InProcessDispatcher(session))");
+    expect(dispatch).toContain(
+      "return OutboxDispatcher(session, InProcessDispatcher(session, isolate=True))",
+    );
   });
 
   it("payload (de)serialisers round-trip durable event fields", async () => {

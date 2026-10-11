@@ -1,6 +1,7 @@
 import type { BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../../ir/types/migrations-ir.js";
 import { snake } from "../../../util/naming.js";
+import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderPgStep } from "../../sql-pg.js";
 import {
   provenancedAggregates,
@@ -88,6 +89,7 @@ import time
 from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.db.engine import engine
@@ -97,11 +99,44 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations"
 
 _BREAKPOINT = "--> statement-breakpoint"
 
+# Boot-time DB-connect retry (the cross-backend BOOT_DB_RETRY policy): a
+# database that is not reachable YET — connection refused, DNS not resolvable,
+# "the database system is starting up" — is retried with capped exponential
+# backoff before the migration run, so a late db no longer kills the container
+# on first boot.  A migration whose SQL fails is never retried.
+_DB_CONNECT_MAX_ATTEMPTS = ${BOOT_DB_RETRY.maxAttempts}
+_DB_CONNECT_BASE_DELAY_MS = ${BOOT_DB_RETRY.baseDelayMs}
+_DB_CONNECT_MAX_DELAY_MS = ${BOOT_DB_RETRY.maxDelayMs}
+
+
+async def wait_for_db(target: AsyncEngine = engine) -> None:
+    attempt = 1
+    while True:
+        try:
+            async with target.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return
+        except (OSError, OperationalError, InterfaceError) as exc:
+            if attempt >= _DB_CONNECT_MAX_ATTEMPTS:
+                raise
+            delay_ms = min(_DB_CONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), _DB_CONNECT_MAX_DELAY_MS)
+            log(
+                "warn",
+                "db_connect_retry",
+                attempt=attempt,
+                max_attempts=_DB_CONNECT_MAX_ATTEMPTS,
+                delay_ms=delay_ms,
+                error=str(exc),
+            )
+            await asyncio.sleep(delay_ms / 1000)
+            attempt += 1
+
 
 async def run_migrations(target: AsyncEngine = engine) -> None:
     files = sorted(MIGRATIONS_DIR.glob("*.sql")) if MIGRATIONS_DIR.is_dir() else []
     if not files:
         return
+    await wait_for_db(target)
     async with target.begin() as conn:
         await conn.execute(
             text(

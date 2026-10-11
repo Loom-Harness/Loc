@@ -131,6 +131,7 @@ export function validateAggregateConstructible(
       code: "loom.aggregate-not-constructible",
       message: diagMessage("loom.aggregate-not-constructible", { name: agg.name }),
       source: `${ctx.name}/${agg.name}`,
+      origin: agg.origin,
     });
   }
 }
