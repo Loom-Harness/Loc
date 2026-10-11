@@ -26,7 +26,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
-import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
+import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -193,7 +193,9 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   const usedAggs = ctx.aggregates.filter(
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
-  const usesIds = /\bIds\./.test(bodyStr);
+  // Value objects, enums, `Ids` and `Decimal` the body constructs or names —
+  // the same body-derived set the aggregate-level unit tests import.
+  const value = testBodyValueImports(bodyStr, ctx, "../domain");
   // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read).  A workflow-free context has nothing
@@ -203,6 +205,7 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
+  lines.push(...value.decimal);
   lines.push(`import { Pool } from "pg";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(`import { migrate } from "drizzle-orm/node-postgres/migrator";`);
@@ -212,13 +215,13 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   } else {
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
-  if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(
       `import { ${a.name}Repository } from "../db/repositories/${lowerFirst(a.name)}-repository";`,
     );
   }
+  lines.push(...value.domain);
   lines.push("");
   lines.push(
     `let repos: { ${usedAggs.map((a) => `${lowerFirst(a.name)}: ${a.name}Repository`).join("; ")} };`,
