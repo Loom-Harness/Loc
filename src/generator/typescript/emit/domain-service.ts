@@ -35,7 +35,7 @@ import {
   type ReadPort,
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
@@ -61,7 +61,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
 
   const voNames = new Set(valueObjectPool(ctx).map((v: ValueObjectIR) => v.name));
-  const enumNames = new Set(ctx.enums.map((e: EnumIR) => e.name));
+  const enumNames = new Set(enumPool(ctx).map((e: EnumIR) => e.name));
   const aggNames = new Set(ctx.aggregates.map((a) => a.name));
 
   // Types named in any signature (params + returns) — these always need an

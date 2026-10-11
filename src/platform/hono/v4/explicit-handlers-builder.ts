@@ -80,6 +80,7 @@ import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handl
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -907,7 +908,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const voEnumNames = [
-    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
+    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]),
   ]
     .filter(refersTo)
     .sort();
