@@ -2,6 +2,7 @@ import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
+import { opDialogDismissChrome } from "../_walker/i18n-chrome.js";
 import {
   localizedNamedText,
   localizedPageChromeText,
@@ -244,7 +245,7 @@ export function renderAngularModal(
     `${deep}<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}-form">`,
     ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup].map((m) => `${deep}  ${m}`),
     `${deep}  ${formButton(ctx, { type: "submit", emphasis: "primary", label, attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"` })}`,
-    `${deep}  <button ${cancelBtn} (click)='${openSig}.set(false)'>${localizedPageChromeText(ctx, "cancel")}</button>`,
+    `${deep}  <button ${cancelBtn} (click)='${openSig}.set(false)'>${localizedPageChromeText(ctx, opDialogDismissChrome(label))}</button>`,
     `${deep}</form>`,
     `${deep}</div>`,
     `${inner}}`,
