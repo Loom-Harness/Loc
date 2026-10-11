@@ -408,20 +408,12 @@ async function runFrontend(fw) {
 }
 
 /** Probes that FAIL today because the generated app is wrong, keyed by frontend
- *  and exact probe name, each with the defect it shows.  C3 is a test-only wave,
- *  so a defect the leg finds is registered here and handed off rather than
- *  fixed; the entry RATCHETS — a registered probe that passes, or that no longer
- *  runs, fails the leg, so the fix deletes its entry in the same change. */
-const KNOWN_DEFECTS = {
-  flutter: {
-    "action gate: admin's Approve click reaches the backend and approves the job":
-      "(wave C3 3b, D-3b-2): the Flutter `Action` button posts a param-less " +
-      "operation with no body and no `Content-Type: application/json` " +
-      "(src/generator/flutter/flutter-target.ts:674), so the Hono backend answers " +
-      "415 and the button silently does nothing — its snackbar only shows on 2xx. " +
-      "The OperationForm path (riverpod-emit.ts:401) sends both.",
-  },
-};
+ *  and exact probe name, each with the defect it shows.  A defect the leg finds
+ *  and cannot fix in the same change is registered here with its hand-off; the
+ *  entry RATCHETS — a registered probe that passes, or that no longer runs,
+ *  fails the leg, so the fix deletes its entry in the same change.  Empty: every
+ *  probe passes on both frontends. */
+const KNOWN_DEFECTS = {};
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const frontends = asked.length ? asked : ["feliz", "flutter"];

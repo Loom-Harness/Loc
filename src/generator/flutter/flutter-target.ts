@@ -758,9 +758,13 @@ export const flutterTarget: WalkerTarget = {
       (thenArg
         ? flutterActionThen(thenArg, ctx)
         : `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)})));`);
+    // The op is parameter-less, but its route still parses a JSON body: a POST
+    // with no body and no content-type is a 415 on every backend, so send the
+    // empty object every other frontend's one-click action sends.
     const press =
       `() async { ` +
-      `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
+      `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}'), ` +
+      `headers: const {'Content-Type': 'application/json'}, body: '{}'); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
       `${onSuccess} ` +
       `} }`;
