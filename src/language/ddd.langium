@@ -2642,10 +2642,10 @@ PostfixSuffix:
 //
 // The slot is unambiguous ONLY while both words stay HARD.  Soften either into
 // `NameRefIdent` and it is also a one-token `CallArg`, so `toThrow(precondition)`
-// parses two ways and ALL(*) logs "Ambiguous Alternatives Detected … inside
-// <PostfixSuffix>" on every run (2026-10-04 re-audit N7 — the 09-28 keyword
-// sweep did this to `precondition`).  `test/language/parsing/grammar-ambiguity.test.ts`
-// pins both the hardness and the silent parse.
+// parses two ways and ALL(*) prints "Ambiguous Alternatives Detected … inside
+// <PostfixSuffix>" to the user's stdout on every `ddd parse` / `generate` /
+// `verify`.  `test/language/parsing/grammar-ambiguity.test.ts` pins both the
+// hardness and the silent parse.
 ThrowKind returns string:
     'precondition' | 'invariant';
 

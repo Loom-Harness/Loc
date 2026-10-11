@@ -1,9 +1,9 @@
 // The parser's ambiguity channel stays SILENT — on the `toThrow(<kind>)` slot
-// and across the whole `.ddd` corpus.
+// and across the whole `.ddd` corpus (`docs/audits/2026-10-04-testability-reaudit.md` § N7).
 //
-// WHY THIS EXISTS (testability re-audit 2026-10-04, finding N7).  Langium's
-// ALL(*) lookahead (`chevrotain-allstar`) does not reject an ambiguous
-// decision: it picks the lowest alternative and `console.log`s
+// WHY THIS EXISTS.  Langium's ALL(*) lookahead (`chevrotain-allstar`) does
+// not reject an ambiguous decision: it picks the lowest alternative and
+// `console.log`s
 //
 //     Ambiguous Alternatives Detected: <0, 1> in <OR1> inside <PostfixSuffix> Rule,
 //     <precondition, ), expect> may appears as a prefix path in all these alternatives.
@@ -13,17 +13,14 @@
 // and the user reads parser internals on stdout every run.  An ignored warning
 // channel hides the next real one, so this file keeps it at zero.
 //
-// THE N7 MECHANISM.  `PostfixSuffix`'s member call reads
+// THE `toThrow(<kind>)` DEPENDENCY.  `PostfixSuffix`'s member call reads
 // `( throwKind=ThrowKind | (args+=CallArg …)? )`.  That is unambiguous only
 // while the `ThrowKind` words (`precondition`, `invariant`) are HARD: the
 // moment either one is admitted to `NameRefIdent` it is ALSO a one-token
-// `CallArg`, and `toThrow(precondition)` parses two ways.  The 2026-09-28
-// soft-keyword sweep (59d1b258d) did exactly that to `precondition`; the
-// review that followed (f16b261b9) put it back to hard for an unrelated reason
-// (a soft statement head turned a malformed gate into a silent call), which
-// closed N7 by accident.  Nothing pinned the dependency, and the sweep's own
-// policy is "every keyword is soft unless it is on the hard list" — so the
-// next sweep could reopen it.  The structural pin below names the dependency;
+// `CallArg`, and `toThrow(precondition)` parses two ways (the warning above).
+// The grammar's soft-keyword policy is "every keyword is soft unless it is on
+// the hard list", so a keyword sweep can soften a `ThrowKind` word without
+// touching `ThrowKind` at all.  The structural pin below names the dependency;
 // the runtime pin proves the channel is quiet.
 //
 // WHY A FRESH PARSER PER TEST.  The ALL(*) DFA is cached per parser instance
@@ -127,14 +124,14 @@ function toThrowSuffixes(model: Model): string[] {
     .toArray();
 }
 
-describe("toThrow(<kind>) — no grammar ambiguity (N7)", () => {
+describe("toThrow(<kind>) — no grammar ambiguity", () => {
   it("every shipped toThrow form parses with no ambiguity report", () => {
     const { reports, results } = parseCapturingAmbiguity([ALL_TOTHROW_FORMS]);
     const [r] = results;
     expect([...r.lexerErrors, ...r.parserErrors].map((e) => e.message)).toEqual([]);
     expect(
       reports,
-      "the ALL(*) lookahead logged an ambiguity — see N7 in this file's header",
+      "the ALL(*) lookahead logged an ambiguity — see this file's header",
     ).toEqual([]);
     // And each form landed in the slot it always did: the kind words in
     // `throwKind`, never as a `CallArg`; the status as one arg; bare as none.
@@ -156,7 +153,7 @@ describe("toThrow(<kind>) — no grammar ambiguity (N7)", () => {
       throwKinds.filter((k) => readable.has(k)),
       "a ThrowKind word was softened into NameRefIdent: `toThrow(<word>)` now parses both as the " +
         "ThrowKind slot and as a CallArg NameRef, and every parse of it prints a Chevrotain ambiguity " +
-        "warning (N7).  Keep the word on the hard list in ddd.langium, or move the matcher's kind to " +
+        "warning.  Keep the word on the hard list in ddd.langium, or move the matcher's kind to " +
         "an ordinary CallArg resolved in lowering.",
     ).toEqual([]);
   });
