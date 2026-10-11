@@ -388,6 +388,17 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `getUTC*` readers instead of `setHours`.
   "datetime.startOfDay": (recv) =>
     `(let d = (${recv}).ToUniversalTime() in System.DateTime(d.Year, d.Month, d.Day, 0, 0, 0, System.DateTimeKind.Utc))`,
+  "datetime.toDate": (recv) => `((${recv}).ToUniversalTime().ToString("yyyy-MM-dd"))`,
+  // ---- date ---------------------------------------------------------------
+  // A `date` is its ISO `YYYY-MM-DD` text on this frontend (the wire form,
+  // decoded by `Decode.string`), so the components are fixed-position slices.
+  // The day distance parses both ends the same way and ROUNDS: a local-time
+  // parse straddling a DST change is 23 or 25 hours, never a fractional day.
+  "date.year": (recv) => `(int ((${recv}).Substring(0, 4)))`,
+  "date.month": (recv) => `(int ((${recv}).Substring(5, 2)))`,
+  "date.day": (recv) => `(int ((${recv}).Substring(8, 2)))`,
+  "date.daysUntil": (recv, args) =>
+    `(int (System.Math.Round((System.DateTime.Parse(${args[0]}) - System.DateTime.Parse(${recv})).TotalDays)))`,
 };
 
 /**

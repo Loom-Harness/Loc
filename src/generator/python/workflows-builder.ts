@@ -974,6 +974,11 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
       ? `(None if ${attr} is None else iso(${attr}))`
       : `iso(${attr})`;
   }
+  if (t.kind === "primitive" && t.name === "date") {
+    return f.optional || f.type.kind === "optional"
+      ? `(None if ${attr} is None else ${attr}.isoformat())`
+      : `${attr}.isoformat()`;
+  }
   if (t.kind === "primitive" && t.name === "money") {
     // Precise-decimal string on the wire (parity with the other backends).
     const wire = numericEncode(PY_NUMERIC, "money", "dto-map", attr);

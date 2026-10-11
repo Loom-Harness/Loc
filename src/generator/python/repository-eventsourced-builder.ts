@@ -12,6 +12,7 @@ import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { wireHelperImport } from "./py-type-imports.js";
@@ -321,6 +322,8 @@ export function fromData(name: string, t: TypeIR): string {
           return `cast(bool, ${access})`;
         case "datetime":
           return `datetime.fromisoformat(cast(str, ${access}))`;
+        case "date":
+          return `${PY_CALENDAR_DATE}.fromisoformat(cast(str, ${access}))`;
         default:
           return `cast(str, ${access})`;
       }
@@ -348,7 +351,8 @@ function eventToData(events: EventIR[]): string {
 
 export function toData(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && inner.name === "datetime") return `${expr}.isoformat()`;
+  if (inner.kind === "primitive" && (inner.name === "datetime" || inner.name === "date"))
+    return `${expr}.isoformat()`;
   if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
   return expr;
 }
@@ -368,6 +372,10 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     const inner = wf.type.kind === "optional" ? wf.type.inner : wf.type;
     if (inner.kind === "primitive" && inner.name === "datetime") {
       pairs.push(`"${wf.name}": iso(${access})`);
+      continue;
+    }
+    if (inner.kind === "primitive" && inner.name === "date") {
+      pairs.push(`"${wf.name}": ${access}.isoformat()`);
       continue;
     }
     if (inner.kind === "primitive" && inner.name === "money") {

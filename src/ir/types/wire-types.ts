@@ -62,6 +62,7 @@ export type WirePrimitive =
   | "decimal"
   | "money"
   | "bool"
+  | "date"
   | "datetime"
   | "guid"
   | "json"

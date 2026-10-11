@@ -2540,6 +2540,13 @@ function emitResponseDtoSchema(
 const BODY_DATETIME =
   "z.string().datetime({ offset: true, local: true }).transform((s: string) => new Date(s))";
 
+/** An ISO-8601 calendar DATE (`2026-01-01`) — no time, no offset.  It stays the
+ *  string it arrived as (the domain holds the same text), so no client zone can
+ *  move it.  `.date()` refuses a non-date (`2026-02-30`, `2026-01-01T00:00Z`) as
+ *  the typed 422 rather than letting Postgres answer 500, and publishes
+ *  `format: date`.  The same schema serves a body, query and path value. */
+const BODY_DATE = "z.string().date()";
+
 /** A query-string / path-segment `bool`, parsed from its four legal textual
  *  spellings.
  *
@@ -2637,6 +2644,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: QUERY_BOOL,
   datetime: "z.coerce.date()",
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2650,6 +2658,7 @@ const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: BODY_DATETIME,
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2663,6 +2672,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",

@@ -1,0 +1,108 @@
+// The `date` scalar — a CALENDAR date (year, month, day; no time-of-day, no
+// offset).  Wire form is the ISO-8601 calendar date `"2026-01-01"`; the column
+// is Postgres `date`.
+//
+// The point of the type is that no zone can move it.  A `datetime` written as
+// `2026-01-01T00:00:00Z` is December 31 for every reader west of UTC, and every
+// backend, the wire and the column agree with each other about it — so a
+// cross-backend differential cannot see the bug.  Every assertion below reads a
+// date back as the exact STRING that was written: a backend that round-trips
+// through an instant (a JS `Date` at local midnight, a `timestamptz`) answers a
+// different day, and fails here.
+//
+// Positions driven: create + read, update, an OPERATION parameter (elixir's
+// `force_change` seam, which skips cast), a `find` comparing the column with a
+// date parameter (SQL), and the in-memory intrinsics (`year()` / `month()` /
+// `day()` / `daysUntil()`) as derived fields.  An optional date reads `null`
+// when absent.
+system DateScalar {
+  subdomain Care {
+    context Clinic {
+      aggregate Patient with crudish {
+        name: string
+        birthDate: date
+        nextVisit: date?
+        derived birthYear: int = birthDate.year()
+        derived birthMonth: int = birthDate.month()
+        derived birthDay: int = birthDate.day()
+
+        // `today()` is `now().toDate()` — the UTC calendar date.  A precondition,
+        // not an invariant: `now()` is not evaluable in elixir's changeset.
+        operation book(visit: date) {
+          precondition birthDate <= today() message "A birth date cannot be in the future"
+          precondition visit >= birthDate message "A visit cannot precede the birth date"
+          nextVisit := visit
+        }
+
+        derived daysToVisit: int = birthDate.daysUntil(nextVisit ?? birthDate)
+        derived label: string = name + " (" + string(birthDate) + ")"
+
+
+        test "a date's components and day distance" {
+          let p = Patient.create({ name: "Ada", birthDate: "2024-02-28", nextVisit: null })
+          expect(p.birthYear).toBe(2024)
+          expect(p.birthMonth).toBe(2)
+          expect(p.birthDay).toBe(28)
+          p.book("2024-03-01")
+          expect(p.nextVisit).toBe("2024-03-01")
+        }
+      }
+
+      repository Patients for Patient {
+        find bornBefore(cutoff: date): Patient[] where this.birthDate < cutoff
+      }
+    }
+  }
+
+  api ClinicApi from Care
+
+  storage primary { type: postgres }
+  resource clinicState { for: Clinic, kind: state, use: primary, index: [Patient.birthDate] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Clinic]
+    dataSources: [clinicState]
+    serves: ClinicApi
+    port: 4000
+  }
+
+  test e2e "a date crosses the wire and the database as the calendar day it was written" against d {
+    let ada = api.patients.create({ name: "Ada", birthDate: "2026-01-01", nextVisit: null })
+    let bob = api.patients.create({ name: "Bob", birthDate: "1999-12-31", nextVisit: "2026-03-15" })
+
+    let read = api.patients.getById(ada)
+    expect(read.birthDate).toBe("2026-01-01")
+    expect(read.nextVisit).toBe(null)
+    expect(read.birthYear).toBe(2026)
+    expect(read.birthMonth).toBe(1)
+    expect(read.birthDay).toBe(1)
+    expect(read.label).toBe("Ada (2026-01-01)")
+    let bobFirst = api.patients.getById(bob)
+    expect(bobFirst.nextVisit).toBe("2026-03-15")
+    expect(bobFirst.daysToVisit).toBe(9571)
+
+    // The operation-parameter ingress path.
+    api.patients.book(ada, { visit: "2026-02-28" })
+    expect(api.patients.getById(ada).nextVisit).toBe("2026-02-28")
+
+    // A date in a SQL comparison — the column against a bound date parameter.
+    let older = api.patients.bornBefore({ cutoff: "2000-01-01" })
+    expect(older.count()).toBe(1)
+    expect(older.first().name).toBe("Bob")
+    expect(api.patients.bornBefore({ cutoff: "2026-01-02" }).count()).toBe(2)
+    expect(api.patients.bornBefore({ cutoff: "1999-12-31" }).count()).toBe(0)
+
+    // The update ingress path.
+    api.patients.update(bob, { name: "Bob", birthDate: "2000-02-29", nextVisit: null })
+    let bobRead = api.patients.getById(bob)
+    expect(bobRead.birthDate).toBe("2000-02-29")
+    expect(bobRead.nextVisit).toBe(null)
+    expect(bobRead.birthDay).toBe(29)
+
+    let all = api.patients.all()
+    expect(all.total).toBe(2)
+    api.patients.destroy(bob)
+    api.patients.destroy(ada)
+    expect(api.patients.getById(ada)).toThrow(404)
+  }
+}

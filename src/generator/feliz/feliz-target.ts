@@ -217,7 +217,12 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
       `Html.select [ ${tidP}prop.className "select select-bordered w-full"; prop.value ${value}; prop.onChange (fun (v: string) -> dispatch (${fld.setMsg} v))${onBlur}${aria}; prop.children (Html.option [ prop.value ""; prop.text "" ] :: View.idOptions ${listField} (fun x -> x.id) (fun x -> x.${label})) ]`,
     );
   }
-  const typeProp = fld.inputKind === "number" ? "prop.type'.number; " : "";
+  const typeProp =
+    fld.inputKind === "number"
+      ? "prop.type'.number; "
+      : fld.inputKind === "date"
+        ? "prop.type'.date; "
+        : "";
   // A scalar array renders as a comma-separated text input (the encoder splits
   // it into a JSON array); the placeholder hints the format.
   const placeholder = fld.isArray ? `${fld.wireName} (comma-separated)` : fld.wireName;
@@ -243,7 +248,12 @@ function renderRowInput(fld: FelizRowField): string {
     const allOpts = fld.required ? opts : ['Html.option [ prop.value ""; prop.text "" ]', ...opts];
     return `Html.select [ prop.className "select select-bordered"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}); prop.children [ ${allOpts.join("; ")} ] ]`;
   }
-  const typeProp = fld.inputKind === "number" ? "prop.type'.number; " : "";
+  const typeProp =
+    fld.inputKind === "number"
+      ? "prop.type'.number; "
+      : fld.inputKind === "date"
+        ? "prop.type'.date; "
+        : "";
   return `Html.input [ prop.className "input input-bordered"; ${typeProp}prop.placeholder "${fld.wireName}"; prop.value ${value}; prop.onChange (fun (v: string) -> ${set("v")}) ]`;
 }
 

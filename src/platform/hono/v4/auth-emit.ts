@@ -1048,6 +1048,8 @@ function stubValueForType(t: TypeIR): string {
           return "false";
         case "datetime":
           return `new Date(0)`;
+        case "date":
+          return `"1970-01-01"`;
         case "guid":
           return `"00000000-0000-0000-0000-000000000000"`;
         default:

@@ -671,6 +671,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
   },
   {
+    id: "date-scalar",
+    title:
+      "the `date` scalar — a calendar date crosses the wire (`YYYY-MM-DD`) and the `date` column as the day it was written, through create / update / an op param / a SQL `find` comparison, with the `year`/`month`/`day`/`daysUntil` intrinsics and `today()`",
+    doc: "language",
+    backends: ALL,
+    note: "M-T5.39.  Every read-back is asserted as the exact STRING written: a backend that round-trips a date through an instant (a JS `Date` at local midnight, a `timestamptz`) answers the previous day west of UTC and fails it, which a column-type assertion would not.",
+  },
+  {
     id: "stamps-principal",
     title:
       "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",

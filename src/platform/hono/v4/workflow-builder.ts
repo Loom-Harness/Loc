@@ -1714,6 +1714,8 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
         return "false";
       case "datetime":
         return "new Date()";
+      case "date":
+        return "new Date().toISOString().slice(0, 10)";
       case "json":
         return "{}";
       default:

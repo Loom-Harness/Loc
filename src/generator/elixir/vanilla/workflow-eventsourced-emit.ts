@@ -60,6 +60,8 @@ function stateDefault(t: TypeIR): string {
         return "false";
       case "datetime":
         return "DateTime.utc_now()";
+      case "date":
+        return "Date.utc_today()";
       default:
         return '""';
     }

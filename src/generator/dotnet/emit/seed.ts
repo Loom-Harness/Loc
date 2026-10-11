@@ -163,6 +163,9 @@ function coerceSeedValue(type: TypeIR, rendered: string): string {
   if (leaf.kind === "primitive" && leaf.name === "datetime") {
     return `DateTime.Parse(${rendered}, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal)`;
   }
+  if (leaf.kind === "primitive" && leaf.name === "date") {
+    return `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`;
+  }
   return rendered;
 }
 

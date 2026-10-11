@@ -1014,6 +1014,8 @@ function ectoColumnType(t: ColumnType): string {
       return ":boolean";
     case "decimal":
       return ":decimal";
+    case "date":
+      return ":date";
     case "datetime":
       // `timestamptz`, the column every other backend uses: a microsecond UTC
       // instant the `Loom.Datetime` field type reads back at millisecond

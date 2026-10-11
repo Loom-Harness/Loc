@@ -28,6 +28,8 @@ import { renderTsExpr } from "../render-expr.js";
 const TS_TEST_LITERAL: TestLiteralTarget = {
   id: (rendered, targetName) => `Ids.${targetName}Id(${rendered})`,
   datetime: (rendered) => `new Date(${rendered})`,
+  // A `date` is its ISO text on this backend — the literal already is one.
+  date: (rendered) => rendered,
 };
 
 // A currentUser-gated operation's method signature picks up a trailing

@@ -104,6 +104,8 @@ function tickFieldValue(field: FieldIR): string {
     switch (t.name) {
       case "datetime":
         return "DateTime.utc_now()";
+      case "date":
+        return "Date.utc_today()";
       case "int":
       case "long":
         return "0";

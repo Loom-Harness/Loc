@@ -174,6 +174,8 @@ function primTypes(name: string): { sql: string; cs: string } {
       return { sql: "boolean", cs: "bool" };
     case "datetime":
       return { sql: "timestamptz", cs: "DateTime" };
+    case "date":
+      return { sql: "date", cs: "DateOnly" };
     case "guid":
       return { sql: "uuid", cs: "Guid" };
     case "json":
