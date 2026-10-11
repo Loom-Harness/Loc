@@ -19,13 +19,13 @@ import {
   MIKRO_OUTBOX_ROW_CLASS,
   mikroWorkflowRowClass,
 } from "../../../generator/typescript/emit/mikroorm.js";
+import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
   RAW_INSTANT_FN,
   rawInstantFields,
   rawRowWireExpr,
   renderRawInstantHelper,
 } from "../../../generator/typescript/raw-row-wire.js";
-import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
@@ -1727,7 +1727,11 @@ function emitCodecStateHelpers(
   const toDomain = (f: StateNumericField, v: string): string =>
     guard(f, v, numericEncode(TS_NUMERIC, f.kind, "repo-read", v));
   const toRow = (f: StateNumericField, v: string): string =>
-    guard(f, v, f.kind === "money" ? numericEncode(TS_NUMERIC, "money", "dto-map", v) : `String(${v})`);
+    guard(
+      f,
+      v,
+      f.kind === "money" ? numericEncode(TS_NUMERIC, "money", "dto-map", v) : `String(${v})`,
+    );
   const omitted = codec.map((f) => JSON.stringify(f.name)).join(" | ");
   const loadEntries = codec.map((f) => `${f.name}: ${toDomain(f, `row.${f.name}`)}`).join(", ");
   const saveEntries = codec.map((f) => `${f.name}: ${toRow(f, `state.${f.name}`)}`).join(", ");
