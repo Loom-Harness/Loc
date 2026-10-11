@@ -128,6 +128,21 @@ export const DIAGNOSTIC_MESSAGES = {
     actual: unknown;
   }) =>
     `'${p.name}.create' field '${p.name2}' expects a ${p.expFam} value ('${p.expected}') but got '${p.actual}'.`,
+  "loom.create-field-type#nullable": (p: {
+    name: unknown;
+    name2: unknown;
+    expected: unknown;
+    actual: unknown;
+    src: unknown;
+  }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got '${p.actual}' — a ` +
+    `nullable value is not usable where a non-null one is required, and a \`requires\` / ` +
+    `\`precondition\` null test does not narrow it. Narrow it at the use with a ternary on ` +
+    `the same path (\`${p.src} != null ? ${p.src} : <fallback>\`) or \`${p.src} ?? <fallback>\`, ` +
+    `take the value as a non-optional parameter, or declare '${p.name2}' optional.`,
+  "loom.create-field-type#null": (p: { name: unknown; name2: unknown; expected: unknown }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got 'null' — the field ` +
+    `is not optional. Pass a value, or declare '${p.name2}' optional.`,
   "loom.create-field-id-target": (p: {
     name: unknown;
     name2: unknown;
@@ -745,6 +760,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `policy function '${p.name}' must return 'bool' — an authorization predicate is a boolean point gate.`,
   "loom.policy-fn-cycle": (p: { name: unknown }) =>
     `policy function '${p.name}' is part of a reference cycle. A policy function may not (transitively) reference itself.`,
+  // A policy-function call from a context other than its declaring one (eval
+  // item 39, ruling D9).  Policies are context-local; sharing one across
+  // contexts is a separate mission.
+  "loom.policy-out-of-scope": (p: { name: unknown; declaredIn: unknown; usedIn: unknown }) =>
+    `policy '${p.name}' is declared in context '${p.declaredIn}'; policies are context-local — ` +
+    `redeclare it in '${p.usedIn}' to call it there.`,
   "loom.policy-fn-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -1471,6 +1492,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unsupported template format '${p.format}'. Supported ICU formats are ` +
     `\`number\` (incl. \`::currency/USD\`, \`::percent\`), \`date\`/\`time\`, ` +
     `\`plural\`/\`selectordinal\`, and \`select\`.`,
+  "loom.interp-format-dropped-in-domain": (p: { format: unknown; host: unknown }) =>
+    `This '${p.format}' hole sits in a '${p.host}' body, which runs as backend domain code: ` +
+    `every backend renders the hole as its bare value and DROPS the branch text ` +
+    `(\`{n, plural, one {# item} other {# items}}\` yields "3", not "3 items"). ` +
+    `Only a ui page slot renders ICU '${p.format}' (through the i18n runtime). ` +
+    `Spell the branches with \`match\` or a ternary here, or move the template into the page.`,
   "loom.interp-hole-type#select-format": (p: { t: unknown }) =>
     `A 'select' format expects a string or enum value, but this hole is '${p.t}'.`,
   "loom.interp-hole-type#date-format": (p: { kind: unknown; t: unknown }) =>
@@ -2849,6 +2876,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
     `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
     `whole api is restricted.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A
+  // WARNING with its own code, the same tier as the by-id read above — but
+  // this one HAS recourse, so the message names the exact line to write.
+  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
+    `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
+    `\`requires\` gate, so it serves every row to ANY authenticated caller. Gate it by ` +
+    `declaring the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
+    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one and is ` +
+    `enforced on all five backends (use \`requires true\` to mark it intentionally public).`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for the same RECOURSE reason as the by-id read above: the author cannot gate
   // this one either — a body `requires` here is refused outright by

@@ -66,12 +66,17 @@ export function elixirDispatchCall(
   contextModule: string,
   hasDispatcher: boolean,
   channels: ElixirChannelsCfg | undefined,
+  /** A REQUEST-path site that runs after its command committed: route the
+   *  local fan-out through `<Ctx>.Dispatcher.AfterCommit`, which isolates a
+   *  reactor failure (H-28).  Relay / consumer / scheduler sites leave it off. */
+  afterCommit = false,
 ): string | null {
+  const dispatcher = `${contextModule}.Dispatcher${afterCommit ? ".AfterCommit" : ""}`;
   if (channels) {
-    const local = hasDispatcher ? `${contextModule}.Dispatcher` : "nil";
+    const local = hasDispatcher ? dispatcher : "nil";
     return `${channels.appModule}.Channels.dispatch(${evVar}, ${local})`;
   }
-  return hasDispatcher ? `${contextModule}.Dispatcher.dispatch(${evVar})` : null;
+  return hasDispatcher ? `${dispatcher}.dispatch(${evVar})` : null;
 }
 
 /** Does this operation `emit` an event the `<App>.Channels` tee records in
