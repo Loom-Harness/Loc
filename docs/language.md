@@ -258,8 +258,17 @@ is no shared-library / npm-workspace shape; duplication is the
 trade-off for simplicity.
 
 Cross-context type references (`X id`, value-object usage, enum
-values) work freely as long as both types are reachable from the same
-deployable's hosted context set.  The Langium scope provider exports
+values) resolve across context and subdomain boundaries.  A deployable
+need not host the context that DECLARES a value object or enum: when a
+hosted declaration (an aggregate or part field, an operation / find /
+workflow / handler parameter, a hosted value object's or event's field,
+…) names a value object or enum declared in a sibling context the
+deployable does not host, every backend declares that type itself —
+only the ones the hosted surface reaches, transitively through value-object
+fields.  The same holds for an `X id` named by a workflow parameter or
+state field or a broker-consumed foreign event; an
+`X id` *field* on a hosted aggregate whose target `X` is not hosted is
+not yet covered, so host `X`'s context alongside it.  The Langium scope provider exports
 all named declarations — aggregates, entity parts, value objects,
 enums — across subdomain / context boundaries within the same source
 file.

@@ -106,7 +106,8 @@ import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
@@ -777,14 +778,20 @@ export function generateTypeScriptForContexts(
         system.sys,
       )
     : [];
-  // …and the value objects / enums those foreign events' fields reach, which
-  // the consumer does not host either: `domain/value-objects.ts` must DECLARE
-  // them, because `domain/events.ts` imports them from it (eval item 11).
-  const foreignValueTypes = system
-    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+  // …and the value objects / enums those foreign events' fields — or the
+  // hosted contexts' own declarations (D15: a sibling-context enum / VO) —
+  // reach, which the deployable does not host: `domain/value-objects.ts` must
+  // DECLARE them, because `domain/events.ts` and the aggregate modules import
+  // them from it (eval item 11).
+  const foreignValues = system
+    ? foreignValueTypes(
+        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+        system.sys,
+        mergedBase,
+      )
     : NO_FOREIGN_VALUE_TYPES;
   const merged: EnrichedBoundedContextIR = {
-    ...withForeignValueTypes(mergedBase, foreignValueTypes),
+    ...withForeignValueTypes(mergedBase, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
     // Re-derive over the merged union so a reactor in one hosted context can
     // route off a channel declared in another — cross-context choreography
@@ -801,7 +808,7 @@ export function generateTypeScriptForContexts(
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
+    ...valueObjectFieldTypes(foreignValues.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));

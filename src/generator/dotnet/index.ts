@@ -27,7 +27,8 @@ import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
@@ -445,19 +446,24 @@ function emitProjectFromContexts(
         system.sys,
       )
     : [];
-  // The value objects / enums those foreign events reach: the event record
-  // names them, so the consumer must declare them (eval item 11) — derived
-  // ahead of `emitCommon` because a foreign VO's invariant needs the
-  // `ValueObjectInvariantException` it throws.
-  const foreignValueTypes = system
-    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach: the event
+  // record / aggregate names them, so the deployable must declare them (eval
+  // item 11) — derived ahead of `emitCommon` because a foreign VO's invariant
+  // needs the `ValueObjectInvariantException` it throws.
+  const foreignValues = system
+    ? foreignValueTypes(
+        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+        system.sys,
+        mergedBase,
+      )
     : NO_FOREIGN_VALUE_TYPES;
   emitCommon(ns, out, {
     concurrencyException: emitsConcurrencyException,
     file: hasFileField,
     valueObjectInvariant:
       contexts.some(hasValueObjectInvariants) ||
-      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0),
+      foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
   });
   emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
@@ -575,10 +581,10 @@ function emitProjectFromContexts(
   for (const ev of foreignConsumedEvents) {
     out.set(`Domain/Events/${ev.name}.cs`, renderEvent(ev, ns));
   }
-  for (const e of foreignValueTypes.enums) {
+  for (const e of foreignValues.enums) {
     out.set(`Domain/Enums/${e.name}.cs`, renderEnum(e, ns));
   }
-  for (const vo of foreignValueTypes.valueObjects) {
+  for (const vo of foreignValues.valueObjects) {
     out.set(`Domain/ValueObjects/${vo.name}.cs`, renderValueObject(vo, ns));
   }
   if (system) {
@@ -589,7 +595,7 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
+      ...valueObjectFieldTypes(foreignValues.valueObjects),
       ...workflowIdTypeSources(merged.workflows),
     ]);
     for (const name of foreignIdNames) {
@@ -637,7 +643,7 @@ function emitProjectFromContexts(
         {
           hasOutbox: hasOutboxTier,
           durableBroker: durableBrokerEvents.size > 0,
-          valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+          valueObjects: [...valueObjectPool(mergedBase), ...foreignValues.valueObjects],
         },
       ),
     );

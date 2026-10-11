@@ -22,7 +22,8 @@ import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   resolveForeignEvents,
   valueObjectFieldTypes,
   withForeignValueTypes,
@@ -210,12 +211,18 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     knownEventNames,
     args.sys,
   );
-  // The value objects / enums those foreign events reach join too:
-  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
-  // which must therefore declare them (eval item 11).
-  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach join too:
+  // `app/domain/events.py` and the aggregate modules import them from
+  // `app/domain/value_objects.py`, which must therefore declare them (eval
+  // item 11).
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, args.contexts),
+    args.sys,
+    mergedPre,
+  );
   const merged: EnrichedBoundedContextIR = {
-    ...withForeignValueTypes(mergedPre, foreignValueTypes),
+    ...withForeignValueTypes(mergedPre, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -553,7 +560,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
+    ...valueObjectFieldTypes(foreignValues.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
