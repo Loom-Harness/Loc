@@ -49,6 +49,24 @@ describe("a value-object field default renders in the WIRE shape", () => {
     expect(src).not.toContain("MoneySchema.default(new Money(");
   });
 
+  it("hono: every defaulted create field carries exactly ONE `.default(...)`", async () => {
+    // `zodFor(…, "create-body")` bakes the IMPLICIT `.default([])` into a
+    // non-nullable collection; the explicit `= []` then appended its own, so
+    // the schema read `z.array(z.string()).default([]).default([])`.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "node"), "invoice.routes.ts");
+    const create = src.slice(
+      src.indexOf("const CreateInvoiceRequest = z.object({"),
+      src.indexOf('.openapi("CreateInvoiceRequest")'),
+    );
+    expect(create).toContain("  tags: z.array(z.string()).default([]),");
+    // Scalar, enum and VO defaults: the same single-owner rule.
+    for (const field of ["total", "credit", "tier", "note", "seats", "tags"]) {
+      const line = create.split("\n").find((l) => l.startsWith(`  ${field}: `));
+      expect(line, `no create-schema line for ${field}`).toBeDefined();
+      expect(line!.match(/\.default\(/g), `${field}: ${line}`).toHaveLength(1);
+    }
+  });
+
   it(".NET: the request param goes nullable and the controller coalesces", async () => {
     const files = await generateCorpusCase(FEATURE, "dotnet");
     const req = fileEndingWith(files, "InvoiceRequests.cs");

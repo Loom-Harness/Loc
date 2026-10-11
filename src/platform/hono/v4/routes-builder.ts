@@ -737,23 +737,18 @@ export function buildRoutesFile(
           // wire-OPTIONAL and the create handler coalesces the per-request
           // value (`body.X ?? <now()/currentUser.*>`) — see the factory call.
           const serverSourced = d !== undefined && isServerSourcedDefault(d);
-          // A non-nullable bool's `.default(false)` normally comes from
-          // `zodFor` (the implicit bool rule).  When the field carries an
-          // EXPLICIT default we drop that baked-in `.default(false)` and let
-          // the declared literal drive the `.default(...)` below — otherwise a
-          // `bool = true` would emit `z.boolean().default(false).default(true)`.
-          const info = wireTypeInfo(f.type, "request");
-          const plainBool =
-            info.refKind === "primitive" &&
-            info.primitive === "bool" &&
-            !info.isNullable &&
-            !info.isCollection;
+          // Exactly ONE `.default(...)` per field.  `zodFor(…, "create-body")`
+          // bakes in the IMPLICIT create defaults — `.default(false)` on a
+          // bool, `.default([])` on a non-nullable collection.  A field with
+          // an EXPLICIT default gets its `.default(...)` from the declared
+          // literal below instead, so its base is the plain `"body"` schema;
+          // otherwise `bool = true` emits `z.boolean().default(false)
+          // .default(true)` and `tags: string[] = []` emits
+          // `z.array(z.string()).default([]).default([])`.
+          const explicit = d !== undefined && !serverSourced;
           return {
             name: f.name,
-            base:
-              plainBool && d !== undefined && !serverSourced
-                ? "z.boolean()"
-                : zodFor(f.type, "create-body"),
+            base: zodFor(f.type, explicit ? "body" : "create-body"),
             default: d && !serverSourced ? wireDefaultLiteral(f.type, d) : undefined,
             optional: serverSourced || undefined,
           };
