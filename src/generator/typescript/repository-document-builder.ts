@@ -16,6 +16,7 @@ import {
   exprUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -545,11 +546,8 @@ export function findPredicate(
   }
   if (find.params.length === 0) return undefined;
   const conds: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) conds.push(`x.${matched.name} === ${p.name}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    conds.push(`x.${matched.name} === ${p.name}`);
   }
   if (conds.length === 0) return undefined;
   return `(x) => ${conds.join(" && ")}`;

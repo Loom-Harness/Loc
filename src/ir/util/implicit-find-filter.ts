@@ -64,7 +64,15 @@ export function effectiveFindFilter(
       resultType: BOOL,
     };
     out = out
-      ? { kind: "binary", op: "&&", left: out, right: eq, leftType: BOOL, rightType: BOOL, resultType: BOOL }
+      ? {
+          kind: "binary",
+          op: "&&",
+          left: out,
+          right: eq,
+          leftType: BOOL,
+          rightType: BOOL,
+          resultType: BOOL,
+        }
       : eq;
   }
   return out;
