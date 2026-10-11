@@ -444,6 +444,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.seed-raw-document-shape": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-tenant-owned-needs-raw": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   // --- docs-root-relative (no language-reference chapter covers migrations) ---
+  "loom.migration-destructive": "../migrations.md#destructive-changes--the---allow-destructive-gate",
   "loom.migration-rename-inferred":
     "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
