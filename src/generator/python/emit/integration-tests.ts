@@ -155,8 +155,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, lets: Map<string, stri
   }
 }
 
-const mentions = (text: string, name: string): boolean =>
-  new RegExp(`\\b${name}\\b`).test(text);
+const mentions = (text: string, name: string): boolean => new RegExp(`\\b${name}\\b`).test(text);
 
 /** One test function.  Its fixture locals are derived from ITS OWN rendered
  *  body, never pooled across the context's tests: a `<agg>_repo` only when the

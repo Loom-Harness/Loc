@@ -63,7 +63,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
   // rejects an unused local, so a value-object-only body declares no `events`
   // and no repo, and a sibling test's repo never leaks into it.
   const MIXED = SRC.replace(
-    'repository Orders for Order { }',
+    "repository Orders for Order { }",
     `repository Orders for Order { }
     aggregate Customer { name: string }
     repository Customers for Customer { }
