@@ -245,7 +245,7 @@ export function buildPyEmbeddedRepositoryFile(
       aggHasFieldMask(agg),
     ),
     `from app.db.schema import ${row}`,
-    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow" : null,
+    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow, audit_actor" : null,
     // A `paged` find returns the `PagedResult` carrier — in the return
     // annotation AND in the constructor call.  Gated on the emitted body like
     // its four siblings (relational / document / event-sourced / port): the

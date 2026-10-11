@@ -30,7 +30,7 @@
 
 import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import {
   contextsServeHistory,
@@ -80,6 +80,20 @@ function renderAuditModule(
   contexts: BoundedContextIR[],
   sys?: SystemIR,
 ): string {
+  // RS-39: the actor is the declared `user { … }` shape by declared name — the
+  // projection `/auth/me` answers — read off the principal the Auth plug
+  // stashes in the process dictionary.  No `user {}` ⇒ there is never one.
+  const actorBody = sys?.user
+    ? `    case Process.get(:loom_current_user) do
+      nil ->
+        nil
+
+      user ->
+        %{
+${sys.user.fields.map((f) => `          ${JSON.stringify(f.name)} => user[:${snake(f.name)}]`).join(",\n")}
+        }
+    end`
+    : "    nil";
   return `# Auto-generated.
 defmodule ${appModule}.Audit.Json do
   @moduledoc """
@@ -143,7 +157,7 @@ defmodule ${appModule}.Audit do
 
   @doc """
   Insert one audit row through \`repo\`, stamping the ambient correlation / scope
-  / parent ids + the principal \`actor\` (only the id is carried).  \`fields\` is the
+  / parent ids + the principal \`actor\` (its declared \`user\` shape).  \`fields\` is the
   per-action map (operation_id / action / target_type / target_id / before /
   after).  Call inside the action's transaction so the history commits atomically.
 
@@ -167,7 +181,7 @@ defmodule ${appModule}.Audit do
       Map.merge(
         %{
           audit_id: UUIDv7.generate(),
-          actor: if(actor_id, do: %{id: actor_id}, else: nil),
+          actor: actor(),
           at: DateTime.utc_now() |> DateTime.truncate(:second),
           status: "ok",
           correlation_id: RequestContext.correlation_id(),
@@ -184,6 +198,12 @@ defmodule ${appModule}.Audit do
       { name: "actor", valueExpr: "actor_id" },
     ])}
     inserted
+  end
+
+  # The row's actor: the principal the Auth plug stashed, in its DECLARED
+  # \`user { … }\` shape by declared name (the /auth/me body), or nil.
+  defp actor do
+${actorBody}
   end
 end
 

@@ -2109,6 +2109,7 @@ function emitProject(
       hasLogger: emitTrace,
       actorIdProp: options?.actorIdProp,
       hasVersioned,
+      userFields: options?.userFields ?? [],
     }),
   );
   out.set(

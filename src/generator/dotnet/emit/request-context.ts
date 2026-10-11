@@ -1,3 +1,5 @@
+import { upperFirst } from "../../../util/naming.js";
+
 // The ambient execution context for a single request/flow — the one
 // AsyncLocal carrier every governance slice reads from (correlation id,
 // request principal, locale, request logger).  Established at the HTTP
@@ -20,7 +22,15 @@
  */
 export function renderRequestContext(
   ns: string,
-  opts: { hasAuth: boolean; hasLogger: boolean; actorIdProp?: string; hasVersioned?: boolean },
+  opts: {
+    hasAuth: boolean;
+    hasLogger: boolean;
+    actorIdProp?: string;
+    hasVersioned?: boolean;
+    /** Declared `user { … }` field names, in declaration order — the shape
+     *  the audit `actor` records (RS-39), the same one `/auth/me` answers. */
+    userFields?: readonly string[];
+  },
 ): string {
   const { hasAuth, hasLogger, actorIdProp } = opts;
   const hasVersioned = !!opts.hasVersioned;
@@ -70,12 +80,26 @@ export function renderRequestContext(
   // here so consumers (the audited command handler) call a stable
   // `PrincipalJson()` without referencing the auth-only CurrentUser slice or
   // the Auth namespace — when there is no principal slice it is simply null.
+  //
+  // The actor is the DECLARED `user { … }` shape, by declared name (RS-39) —
+  // the `/auth/me` projection.  Serialising the `User` record itself wrote
+  // PascalCase property names plus its derived tenancy members; a dictionary
+  // keeps the declared key spelling verbatim.
+  const actorEntries = (opts.userFields ?? [])
+    .map((f) => `            [${JSON.stringify(f)}] = u.${upperFirst(f)},`)
+    .join("\n");
   const principalJsonMethod = hasAuth
     ? `
-    /// <summary>The bound principal serialized as JSON (audit's actor), or
-    /// null when no principal has been resolved for this flow.</summary>
+    /// <summary>The bound principal in its declared shape, serialized as JSON
+    /// (audit's actor), or null when no principal has been resolved for this
+    /// flow.</summary>
     public string? PrincipalJson()
-        => CurrentUser is { } u ? System.Text.Json.JsonSerializer.Serialize(u) : null;
+        => CurrentUser is { } u
+            ? System.Text.Json.JsonSerializer.Serialize(new System.Collections.Generic.Dictionary<string, object?>
+            {
+${actorEntries}
+            })
+            : null;
 `
     : `
     /// <summary>No principal slice on this carrier (no auth), so there is no

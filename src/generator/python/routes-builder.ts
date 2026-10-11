@@ -78,6 +78,7 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyStampAssignments } from "./emit/aggregate.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
@@ -852,7 +853,7 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
 
 /** The stamp assignments for one lifecycle event (create / update). */
 function stampRules(agg: EnrichedAggregateIR, event: "create" | "update") {
-  return (agg.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments);
+  return pyStampAssignments(agg, event);
 }
 
 /** Whether this aggregate carries a lifecycle stamp for `event`. */

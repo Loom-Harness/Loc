@@ -134,6 +134,23 @@ system MaskedAudit {
     expect(updated.name).toBe("Ada L")
     expect(updated.salary).toBe(null)
 
+    // The AUDIT TRAIL of the same row, read by the same unprivileged principal.
+    // Three entries — the create, the audited `promote`, and the crudish
+    // update (aggregate-wide `audited` covers it).  A masked field's change is
+    // DROPPED, not redacted (docs/audit.md): the update moved `name`, `salary`
+    // and `nationalId`, and this caller sees only `name`.  Each entry's `actor`
+    // is the principal's declared `user` shape (RS-39) — the recorded body is
+    // where the wire golden pins it.
+    let trail = api.employees.history(e)
+    expect(trail.count).toBe(3)
+    expect(trail.first().action).toBe("create")
+    expect(trail.skip(1).first().action).toBe("promote")
+    expect(trail.skip(1).first().changes.first().field).toBe("grade")
+    let edited = trail.skip(2).first()
+    expect(edited.action).toBe("update")
+    expect(edited.changes.count).toBe(1)
+    expect(edited.changes.first().field).toBe("name")
+
     api.employees.destroy(e)
     expect(api.employees.getById(e)).toThrow(404)
     let empty = api.employees.all()
