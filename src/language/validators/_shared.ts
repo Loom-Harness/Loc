@@ -179,7 +179,7 @@ export function canPromoteLiteralTo(
  *  and `checkSingleBinaryOperands` (per-operand checks).  Takes a
  *  bare target name (not a wrapped `DddType`) so the caller doesn't
  *  have to box the type they already have in hand. */
-export function canPromoteAstLitTo(
+function canPromoteAstLitTo(
   expr: import("../generated/ast.js").Expression | undefined,
   target: string,
 ): boolean {

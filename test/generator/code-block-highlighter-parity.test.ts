@@ -93,8 +93,14 @@ describe("CodeBlock highlighter — cross-frontend parity", () => {
     const files = await generateSystemFiles(WITH_CODE_BLOCK);
     for (const fe of FRONTENDS) {
       const mod = file(files, MODULE_PATH[fe]);
-      expect(mod, `${fe}: src/lib/highlight.ts`).toContain(
-        'import hljs from "highlight.js/lib/common";',
+      // Loaded LAZILY.  A static import folds the highlighter into the app's
+      // entry chunk, so every visitor pays for it before first paint whether
+      // or not they ever reach a code block (measured on loom-landing.ddd:
+      // entry 209 KB -> 158 KB gzipped once it was split out).  The static
+      // form must be gone, not merely joined by a dynamic one.
+      expect(mod, `${fe}: src/lib/highlight.ts`).toContain('import("highlight.js/lib/common")');
+      expect(mod, `${fe}: no static highlighter import`).not.toMatch(
+        /^import\s+\w+\s+from\s+"highlight\.js/m,
       );
       expect(file(files, `${fe}/package.json`), `${fe}: package.json`).toContain('"highlight.js"');
       const { path, needle } = INJECTION[fe];

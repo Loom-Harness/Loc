@@ -7,9 +7,11 @@ altitude of a no-code platform &mdash; and walk away with real, owned
 source code across five backends (**Hono**, **.NET**, **Phoenix
 LiveView**, **Java/Spring Boot**, **Python/FastAPI**) and six frontends
 (**React**, **Vue**, **Svelte**, **Angular**, **Feliz** (F#/Fable),
-**Flutter**).  No vendor lock-in.  No scaling cliff.  No drift between
-layers.  Just the model, a visual builder, and full ownership of every
-line that's generated.
+**Flutter**).  No vendor lock-in.  No scaling cliff.  Every layer is
+generated from one model, so the layers share one contract (a target
+can still lag on a feature &mdash; the known gaps are listed; see
+[What's in the box](#whats-in-the-box)).  Just the model, a visual
+builder, and full ownership of every line that's generated.
 
 - All the speed of no-code
 - All the source you'd write by hand
@@ -179,8 +181,9 @@ Requires Node 20+.
 
 **There is no global `ddd` on your PATH after this** — `npm install` in a
 clone does not link the bin.  Every command below is spelled
-`node bin/cli.js <args>` from the repo root; `npx ddd <args>` works too
-(and is what an install from a published package gives you).  Add
+`node bin/cli.js <args>` from the repo root; `npx ddd <args>` works too,
+but only inside the clone &mdash; anywhere else it fetches an unrelated npm
+package named `ddd` (Loom is not published to npm).  Add
 `alias ddd='node "$PWD/bin/cli.js"'` if you want the short form in a shell
 session.
 
@@ -214,8 +217,14 @@ errors.
 (.NET), Phoenix LiveView (Elixir, plain Ecto/Phoenix), Spring Boot
 (Java), and FastAPI (Python).  Six frontends &mdash; React, Vue,
 Svelte, Angular, Feliz (F#/Fable/Elmish), Flutter.  Pick per
-deployable.  Switch any time.  Identical API contracts; idiomatic
-per-runtime output.
+deployable.  Switch any time.  One wire contract, derived from one
+model, and checked on every PR by the cross-backend wire differential
+([`docs/conformance.md`](docs/conformance.md)); idiomatic per-runtime
+output.  Not every feature reaches every backend yet: the known
+per-backend gaps are listed in the
+[unsupported register](src/diagnostics/unsupported-register.ts) (each
+row a `loom.*-unsupported` diagnostic the compiler raises) and in
+[`docs/conformance.md` § What the harness can't catch](docs/conformance.md#what-the-harness-cant-catch).
 
 **Thirteen design packs.** Mantine, shadcn/ui, MUI, Chakra (React),
 Vuetify, shadcnVue (Vue), Flowbite, shadcnSvelte (Svelte), Angular
