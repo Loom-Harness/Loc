@@ -118,7 +118,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`long` / `bool` on all five backends; the rest need the per-backend response " +
       "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
       "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
-    mission: "M-T5.47",
+    mission: "M-T5.48",
     verified: false,
   },
   {
