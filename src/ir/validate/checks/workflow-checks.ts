@@ -6,6 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { lowerFirst } from "../../../util/naming.js";
 import {
+  constructionBlockingInvariants,
   createInputFields,
   isConstructible,
   omittableCreateInputs,
@@ -25,6 +26,7 @@ import { findUsesCurrentUser } from "../../types/loom-ir.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
+  walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../util/walk.js";
@@ -134,6 +136,9 @@ export function validateWorkflows(
 ): void {
   // Repository names this context does NOT declare but a sibling does.
   const foreignRepos = foreignRepositoryOwners(ctx, allCtxs);
+  // Projection names model-wide — the `loom.workflow-unknown-name` gate names
+  // a projection receiver specifically (D3: the docs once promised it).
+  const projectionNames = new Set(allCtxs.flatMap((c) => c.projections.map((p) => p.name)));
   // Reserved-name guard: workflows share the context namespace with
   // aggregates, value objects, enums, events, repositories.
   const namesUsed = new Map<string, string>();
@@ -180,6 +185,7 @@ export function validateWorkflows(
     );
     validateWorkflowBody(ctx, wf, diags, crossContextBindings);
     validateWorkflowInlineRepoCalls(ctx, wf, diags);
+    validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
@@ -345,6 +351,89 @@ function validateWorkflowInlineRepoCalls(
         }),
         source: `${ctx.name}/${wf.name}`,
         origin: wf.origin,
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UNRESOLVED NAMES — `loom.workflow-unknown-name`.
+//
+// A name in a workflow body that lowering could not resolve stays a `ref` with
+// `refKind: "unknown"`, and every backend's expression renderer prints it
+// VERBATIM.  The gate used to look only at a `precondition` / `requires` whose
+// WHOLE expression was such a bare ref, so the common shape — an unresolved
+// RECEIVER, deep inside a `let` — went through.  Claims eval D3:
+//
+//     projection Seen keyed by p { … }
+//     workflow W { create(p: P id) { let s = Seen.byKey(p)  precondition s.at < now() + days(1) } }
+//
+// validated with zero diagnostics and emitted an undefined receiver on all five
+// backends (node `Seen.byKey(p)`, python `Seen`, .NET `Seen.ByKey`, java
+// `Seen.byKey`, elixir `seen.by_key`).  The knock-on is worse than the
+// receiver: `s` is typed by nothing, so `s.at < now() + days(1)` lost its
+// datetime typing and rendered `+` raw.
+//
+// A workflow reads data only through its own context's REPOSITORIES (a
+// let-bound `repo-let` / `repo-run`, which carry the repository as a string,
+// not an expression).  A projection is a read model with no repository, so it
+// is not loadable from a workflow — it is read through its GET endpoint or a
+// page.  The projection case gets its own message naming that, and the
+// supported alternative (a local replica aggregate, fed by a correlated
+// `create(e: Event) by …` starter, read through its repository).
+//
+// Every statement at every depth is walked, each statement's OWN expressions
+// once (`walkWorkflowStmtChildren` without a nested-statement callback, under
+// `walkWorkflowStmtsDeep`).  Names already reported by a more specific gate are
+// skipped, so one defect gets one diagnostic:
+//   * a repository of THIS context  → `loom.workflow-inline-repository-call`;
+//   * a repository of ANOTHER context → `loom.workflow-cross-context-repository`;
+//   * the `__bad__` placeholder `let` → `loom.workflow-unrecognised-statement`.
+// ---------------------------------------------------------------------------
+
+function validateWorkflowUnresolvedNames(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  foreignRepos: ReadonlyMap<string, string>,
+  projectionNames: ReadonlySet<string>,
+  diags: LoomDiagnostic[],
+): void {
+  const ownRepos = new Set(ctx.repositories.map((r) => r.name));
+  // One diagnostic per name per workflow — reaching `Seen` from two bodies is
+  // one thing to fix.
+  const flagged = new Set<string>();
+  for (const body of workflowBodiesLabeled(wf)) {
+    for (const top of body.statements) {
+      walkWorkflowStmtsDeep(top, (st) => {
+        if (st.kind === "expr-let" && st.name === "__bad__") return;
+        walkWorkflowStmtChildren(st, {
+          expr: (root) =>
+            walkExprDeep(root, (e) => {
+              if (e.kind !== "ref" || e.refKind !== "unknown") return;
+              if (ownRepos.has(e.name) || foreignRepos.has(e.name)) return;
+              if (flagged.has(e.name)) return;
+              flagged.add(e.name);
+              const kind = st.kind === "expr-let" ? `let '${st.name}'` : st.kind;
+              diags.push({
+                severity: "error",
+                code: "loom.workflow-unknown-name",
+                message: projectionNames.has(e.name)
+                  ? diagMessage("loom.workflow-unknown-name#projection-receiver", {
+                      name: wf.name,
+                      where: body.label,
+                      kind,
+                      projection: e.name,
+                    })
+                  : diagMessage("loom.workflow-unknown-name", {
+                      name: wf.name,
+                      kind,
+                      exprName: e.name,
+                    }),
+                source: `${ctx.name}/${wf.name}`,
+                origin: wf.origin,
+              });
+            }),
+        });
       });
     }
   }
@@ -1067,6 +1156,104 @@ function validateWorkflowStatements(
    *  on {@link validateWorkflowBody}. */
   crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
+  /** Every check a `let x = Agg.create({ … })` (`factory-let`) owes, wherever
+   *  in the body it sits — the top level AND inside an `if let` branch / a
+   *  `for` body (via {@link checkNestedBodyOpCalls}).  Before it was shared,
+   *  only the TOP-LEVEL arm ran these: the claims eval's `fileClaim` built a
+   *  non-constructible `Claim` inside an `if let` branch, validated clean,
+   *  and node emitted `Claim.create(…)` against a class with no factory
+   *  (TS2551).  Returns whether the aggregate resolved (the caller binds the
+   *  `let` only then). */
+  const checkFactoryLet = (
+    st: Extract<import("../../types/loom-ir.js").WorkflowStmtIR, { kind: "factory-let" }>,
+  ): boolean => {
+    const agg = aggsByName.get(st.aggName);
+    if (!agg) {
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-create-unknown-aggregate",
+        message: diagMessage("loom.workflow-create-unknown-aggregate", {
+          name: wf.name,
+          aggName: st.aggName,
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return false;
+    }
+    // A workflow `Agg.create({...})` invokes the canonical create,
+    // which is parameterized by the aggregate's *create-input* fields
+    // — `forCreateInput` drops the server-populated roles
+    // (`managed`/`token`/`internal`) and the required subset further
+    // drops fields the client may omit (optional, `= default`, bare
+    // `bool`).  Validate against that contract, the same set the
+    // backends' create-call emitters consume, rather than the raw
+    // field list: a `managed` timestamp is neither required here nor a
+    // legal argument (passing one would fail the backend create-call).
+    // The aggregate may have no `create` AT ALL.  An invariant that reaches
+    // outside the create input makes it non-constructible (`isConstructible`),
+    // and every backend then CORRECTLY emits no `static create(...)` — while
+    // this workflow's emitter goes on emitting `Agg.create({ … })` against it
+    // (`http/workflows.ts(46,23): TS2551: Property 'create' does not exist on
+    // type 'typeof Order'. Did you mean '_create'?`).  Checked before the
+    // field contract: when there is no factory, arguing about its arguments
+    // is noise.
+    if (!isConstructible(agg)) {
+      const blocking = constructionBlockingInvariants(agg);
+      diags.push({
+        severity: "error",
+        code: "loom.create-call-not-constructible",
+        message: diagMessage("loom.create-call-not-constructible", {
+          agg: agg.name,
+          blocking:
+            blocking.length > 0
+              ? `  Its invariant${blocking.length === 1 ? "" : "s"} ${blocking
+                  .map((x) => `\`${x}\``)
+                  .join(", ")} reach${blocking.length === 1 ? "es" : ""} outside the create input.`
+              : "",
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return true;
+    }
+    const omittable = omittableCreateInputs(agg);
+    const inputFields = createInputFields(agg).map((f) => f.name);
+    const required = inputFields.filter((n) => !omittable.has(n));
+    const provided = new Set(st.fields.map((f) => f.name));
+    for (const r of required) {
+      if (!provided.has(r)) {
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-create-missing-field",
+          message: diagMessage("loom.workflow-create-missing-field", {
+            name: wf.name,
+            aggName: st.aggName,
+            r,
+          }),
+          source: `${ctx.name}/${wf.name}`,
+          origin: wf.origin,
+        });
+      }
+    }
+    const allowed = new Set(inputFields);
+    for (const p of provided) {
+      if (!allowed.has(p)) {
+        diags.push({
+          severity: "error",
+          code: "loom.workflow-create-unknown-field",
+          message: diagMessage("loom.workflow-create-unknown-field", {
+            name: wf.name,
+            aggName: st.aggName,
+            p,
+          }),
+          source: `${ctx.name}/${wf.name}`,
+          origin: wf.origin,
+        });
+      }
+    }
+    return true;
+  };
   /** The shallow op-call check for a NESTED body — a `for-each` body or an
    *  `if-let` branch.
    *
@@ -1128,6 +1315,11 @@ function validateWorkflowStatements(
       } else if (inner.kind === "emit" || inner.kind === "factory-let") {
         markMutated();
       }
+      // A `factory-let` anywhere under this nested statement owes the same
+      // factory contract as a top-level one (see `checkFactoryLet`).
+      walkWorkflowStmtsDeep(inner, (n) => {
+        if (n.kind === "factory-let") checkFactoryLet(n);
+      });
       if (
         (inner.kind === "repo-let" || inner.kind === "factory-let") &&
         !bindingAgg.has(inner.name)
@@ -1142,23 +1334,9 @@ function validateWorkflowStatements(
     switch (st.kind) {
       case "precondition":
       case "requires":
-        // Type-check happens at lowering via `inferExprType`; we'd
-        // need the AST node to re-check here.  Trust the lowered IR
-        // and emit a warning if the expression looks degenerate
-        // (kind === "ref" with refKind "unknown").
-        if (st.expr.kind === "ref" && st.expr.refKind === "unknown") {
-          diags.push({
-            severity: "error",
-            code: "loom.workflow-unknown-name",
-            message: diagMessage("loom.workflow-unknown-name", {
-              name: wf.name,
-              kind: st.kind,
-              exprName: st.expr.name,
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-        }
+        // Type-check happens at lowering via `inferExprType`.  An unresolved
+        // name anywhere in the guard — bare or as a receiver, at any depth — is
+        // `validateWorkflowUnresolvedNames`'s (`loom.workflow-unknown-name`).
         break;
       case "emit": {
         const ev = eventsByName.get(st.eventName);
@@ -1211,97 +1389,10 @@ function validateWorkflowStatements(
         break;
       }
       case "factory-let": {
-        const agg = aggsByName.get(st.aggName);
-        if (!agg) {
-          diags.push({
-            severity: "error",
-            code: "loom.workflow-create-unknown-aggregate",
-            message: diagMessage("loom.workflow-create-unknown-aggregate", {
-              name: wf.name,
-              aggName: st.aggName,
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-          break;
-        }
-        // A workflow `Agg.create({...})` invokes the canonical create,
-        // which is parameterized by the aggregate's *create-input* fields
-        // — `forCreateInput` drops the server-populated roles
-        // (`managed`/`token`/`internal`) and the required subset further
-        // drops fields the client may omit (optional, `= default`, bare
-        // `bool`).  Validate against that contract, the same set the
-        // backends' create-call emitters consume, rather than the raw
-        // field list: a `managed` timestamp is neither required here nor a
-        // legal argument (passing one would fail the backend create-call).
-        // The aggregate may have no `create` AT ALL.  An invariant that reaches
-        // outside the create input makes it non-constructible (`isConstructible`),
-        // and every backend then CORRECTLY emits no `static create(...)` — while
-        // this workflow's emitter goes on emitting `Agg.create({ … })` against it
-        // (`http/workflows.ts(46,23): TS2551: Property 'create' does not exist on
-        // type 'typeof Order'. Did you mean '_create'?`).  Checked before the
-        // field contract: when there is no factory, arguing about its arguments
-        // is noise.
-        if (!isConstructible(agg)) {
-          const blocking = agg.invariants.map((inv) => inv.source).filter((x) => x.length > 0);
-          diags.push({
-            severity: "error",
-            code: "loom.create-call-not-constructible",
-            message: diagMessage("loom.create-call-not-constructible", {
-              agg: agg.name,
-              blocking:
-                blocking.length > 0
-                  ? `  Its invariant${blocking.length === 1 ? "" : "s"} ${blocking
-                      .map((x) => `\`${x}\``)
-                      .join(", ")} reach${
-                      blocking.length === 1 ? "es" : ""
-                    } outside the create input.`
-                  : "",
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
+        if (checkFactoryLet(st)) {
           bindingAgg.set(st.name, st.aggName);
           markMutated();
-          break;
         }
-        const omittable = omittableCreateInputs(agg);
-        const inputFields = createInputFields(agg).map((f) => f.name);
-        const required = inputFields.filter((n) => !omittable.has(n));
-        const provided = new Set(st.fields.map((f) => f.name));
-        for (const r of required) {
-          if (!provided.has(r)) {
-            diags.push({
-              severity: "error",
-              code: "loom.workflow-create-missing-field",
-              message: diagMessage("loom.workflow-create-missing-field", {
-                name: wf.name,
-                aggName: st.aggName,
-                r,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-          }
-        }
-        const allowed = new Set(inputFields);
-        for (const p of provided) {
-          if (!allowed.has(p)) {
-            diags.push({
-              severity: "error",
-              code: "loom.workflow-create-unknown-field",
-              message: diagMessage("loom.workflow-create-unknown-field", {
-                name: wf.name,
-                aggName: st.aggName,
-                p,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-          }
-        }
-        bindingAgg.set(st.name, st.aggName);
-        markMutated();
         break;
       }
       case "repo-let": {
