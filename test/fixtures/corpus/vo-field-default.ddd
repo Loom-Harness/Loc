@@ -141,6 +141,12 @@ system VoFieldDefault {
     expect(after.total.currency).toBe("GBP")
     expect(after.seats).toBe(3)
     expect(after.tags.length).toBe(1)
+    // The list operations over the wire: replace, then append to what was
+    // stored — each request reloads, so this is the persisted half.
+    api.invoices.retag(i, { t: "solo" })
+    api.invoices.tag(i, { t: "more" })
+    let tagged = api.invoices.getById(i)
+    expect(tagged.tags.length).toBe(2)
     api.invoices.destroy(i)
   }
 

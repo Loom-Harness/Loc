@@ -102,13 +102,54 @@
     },
     {
       "seq": 5,
+      "method": "POST",
+      "path": "/api/invoices/{id}/retag",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/invoices/{id}/tag",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "credit": {
+          "amount": 1,
+          "currency": "GBP"
+        },
+        "discount": null,
+        "id": "<volatile:key>",
+        "note": "changed",
+        "reference": "R2",
+        "seats": 3,
+        "tags": [
+          "solo",
+          "more"
+        ],
+        "tier": "paid",
+        "total": {
+          "amount": 5,
+          "currency": "GBP"
+        },
+        "version": 4
+      }
+    },
+    {
+      "seq": 8,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -121,7 +162,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -134,7 +175,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,
