@@ -206,7 +206,7 @@ function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: st
  *  CS1737 required-before-optional reordering.
  *
  *  Two kinds of omission have no factory default and must be spelled out,
- *  or the call is CS7036 (testability re-audit 2026-10-04, N4):
+ *  or the call is CS7036:
  *    - a PLAIN optional (`note: string?`) is a required `string? note`
  *      parameter, so it gets `null`, which is what omitting it means;
  *    - a SERVER-sourced default (`now()`, `currentUser.*`) is coalesced per
@@ -341,10 +341,9 @@ function renderTestStmt(
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
     // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
     // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
-    // of `DomainException` rather than a subclass.  So `expect(Money { amount:
-    // -1 … }).toThrow()` asserted the wrong type and failed at run time even
-    // though the invariant fired.  It went unnoticed until the gate compiled
-    // and ran this project.
+    // of `DomainException` rather than a subclass.  Asserting `DomainException`
+    // for `expect(Money { amount: -1 … }).toThrow()` compiles, and then fails at
+    // run time even though the invariant fired.
     const exceptionType =
       s.expr.kind === "call" && s.expr.callKind === "value-object-ctor"
         ? "ValueObjectInvariantException"

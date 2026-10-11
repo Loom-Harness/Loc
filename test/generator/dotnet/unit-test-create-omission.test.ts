@@ -1,5 +1,6 @@
-// The emitted .NET xUnit test for an `Agg.create({…})` that OMITS create inputs
-// (testability re-audit 2026-10-04, N4), and for `expect(<VO literal>).toThrow()`.
+// The emitted .NET xUnit test for an `Agg.create({…})` that OMITS create inputs,
+// for `expect(<VO literal>).toThrow()`, and the test csproj's NuGet audit
+// suppressions.
 //
 // The domain factory gives a DEFAULTABLE input a trailing `T? x = null`
 // parameter and materialises its value in the body.  A PLAIN optional and a
@@ -59,10 +60,12 @@ system Acme {
   api DeskApi from Support
   storage pg { type: postgres }
   resource deskState { for: Desk, kind: state, use: pg }
+  storage mail { type: smtp, config: { from: "no-reply@desk.example" } }
+  resource deskMail { for: Desk, kind: mailer, use: mail }
   deployable api {
     platform: dotnet
     contexts: [Desk]
-    dataSources: [deskState]
+    dataSources: [deskState, deskMail]
     serves: DeskApi
     port: 8080
   }
@@ -107,5 +110,21 @@ describe("dotnet — emitted unit test for a create that omits inputs", () => {
     );
     // Aggregate rejections still pin the exact `DomainException`.
     expect(await testFile("TicketTests.cs")).toContain("Assert.Throws<DomainException>(");
+  });
+
+  it("the test csproj suppresses the same MailKit advisories as the API csproj", async () => {
+    // NuGet audits the test project's transitive graph (MailKit arrives over
+    // the ProjectReference), and `<NuGetAuditSuppress>` items do not cross it:
+    // without its own copy the xUnit build is NU1902 under /warnaserror.
+    const advisories = [
+      '<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />',
+      '<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />',
+    ];
+    const api = await testFile("api/Api.csproj");
+    const tests = await testFile("Tests/Api.Tests/Api.Tests.csproj");
+    for (const a of advisories) {
+      expect(api).toContain(a);
+      expect(tests).toContain(a);
+    }
   });
 });

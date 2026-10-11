@@ -41,10 +41,10 @@ interface UnitTestCounts {
  *  `<proj>/Tests/<Ns>.Tests/`, and return its TRX counters.  Returns `null`
  *  when the project emitted no Tests csproj (no `test` blocks).
  *
- *  This exists because the root `dotnet build` every case runs never compiles
- *  the tests: `<Ns>.csproj` carries `<Compile Remove="Tests/**" />`, so a test
- *  project that does not compile still left this gate green (testability
- *  re-audit 2026-10-04, N4).  A run with zero tests also fails here: an empty
+ *  The root `dotnet build` every case runs never compiles the tests:
+ *  `<Ns>.csproj` carries `<Compile Remove="Tests/**" />`, so without this a test
+ *  project that does not compile leaves the gate green.  A run with zero tests
+ *  also fails here: an empty
  *  `dotnet test` exits 0, and that is a false green.  The restore needs xunit /
  *  AwesomeAssertions from NuGet, which the behavioural .NET leg already pulls
  *  in CI. */
@@ -207,13 +207,12 @@ describe.skipIf(!ENABLED)(
 
     // The emitted xUnit project — `Tests/<Ns>.Tests/`, its OWN csproj — must
     // compile under /warnaserror AND pass.  The root build every other case
-    // runs cannot reach it (`<Compile Remove="Tests/**" />`), which is how a
-    // unit test omitting a plain-optional `create({…})` input shipped CS7036 on
-    // every model with that shape (testability re-audit 2026-10-04, N4), and
-    // how `expect(<VO literal>).toThrow()` asserted the wrong exception type
-    // and failed only at run time.  The fixture pins both, and the exact count
-    // pins that the tests RAN: `dotnet test` on a project with no tests exits
-    // 0, which is the false green the generated README's recipe gave.
+    // runs cannot reach it (`<Compile Remove="Tests/**" />`).  The fixture pins
+    // three ways it breaks: a unit test omitting a plain-optional `create({…})`
+    // input (CS7036), `expect(<VO literal>).toThrow()` asserting the wrong
+    // exception type (fails only at run time), and a MailKit advisory the test
+    // csproj does not suppress (NU1902).  The exact count pins that the tests
+    // RAN: `dotnet test` on a project with no tests exits 0.
     it("system emitted xUnit project — `create({…})` omissions + VO `toThrow()` compile and pass", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-unit-"));
       try {
@@ -858,11 +857,7 @@ describe.skipIf(!ENABLED)(
           : [];
         expect(builtDlls.length, "expected at least one built .dll").toBeGreaterThan(0);
         // The generated xUnit `Tests/` project is a SEPARATE csproj that the
-        // build above never compiles.  This case used to only assert it was
-        // emitted, on the grounds that the runner could not restore xunit /
-        // AwesomeAssertions.  The behavioural .NET leg restores them in CI, and
-        // an un-compiled test project is how N4 (testability re-audit
-        // 2026-10-04) shipped.  Build it and run it.
+        // build above never compiles, so build it and run it here.
         const testProj = path.join(proj, "Tests", "DotnetApi.Tests", "DotnetApi.Tests.csproj");
         expect(fs.existsSync(testProj), "generated Tests project").toBe(true);
         runEmittedUnitTests(proj);
