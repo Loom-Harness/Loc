@@ -127,10 +127,8 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
   };
   const { cmd } = step;
 
-  let m: RegExpExecArray | null;
-  if ((m = /^cd (\S+)$/.exec(cmd))) {
-    return isDir(m[1]) ? null : `\`cd ${m[1]}\`: no such emitted directory`;
-  }
+  const cd = /^cd (\S+)$/.exec(cmd);
+  if (cd) return isDir(cd[1]) ? null : `\`cd ${cd[1]}\`: no such emitted directory`;
   // A line that is a placeholder for the reader to fill in, e.g.
   // `LOOM_TEST_RESET=1 <start the backend>`.
   if (/^<[^>]+>$/.test(cmd)) return null;
@@ -165,7 +163,8 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
 
   if (/^uv (sync|run)\b/.test(cmd)) {
     const pyproject = read("pyproject.toml");
-    if (pyproject === undefined) return `\`${cmd}\`: no pyproject.toml in ${step.cwd || "the root"}`;
+    if (pyproject === undefined)
+      return `\`${cmd}\`: no pyproject.toml in ${step.cwd || "the root"}`;
     if (cmd === "uv sync") return null;
     const tool = /^uv run (\S+)/.exec(cmd)?.[1] ?? "";
     if (!new RegExp(`"${tool}[\\[>=<~ "]`).test(pyproject)) {
@@ -187,8 +186,9 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
       const root = csprojs.filter((p) => !p.includes("/"));
       return root.length === 1 ? null : `\`dotnet run\`: ${root.length} csproj files at the root`;
     }
-    if ((m = /^dotnet test(?: (\S+))?$/.exec(cmd))) {
-      const dir = m[1] ?? "";
+    const test = /^dotnet test(?: (\S+))?$/.exec(cmd);
+    if (test) {
+      const dir = test[1] ?? "";
       const own = csprojs.filter((p) =>
         dir ? p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes("/") : !p.includes("/"),
       );
@@ -199,7 +199,8 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
     }
   }
 
-  if ((m = /^(\.\/gradlew|gradle) (\S+)$/.exec(cmd))) {
+  const m = /^(\.\/gradlew|gradle) (\S+)$/.exec(cmd);
+  if (m) {
     const build = read("build.gradle.kts") ?? read("build.gradle");
     if (build === undefined) return `\`${cmd}\`: no Gradle build in ${step.cwd || "the root"}`;
     if (m[1] === "./gradlew" && !has("gradlew")) return `\`${cmd}\`: no gradlew is emitted`;
@@ -263,7 +264,10 @@ describe.each(BACKENDS)("generated README recipes reach the %s tree", (platform)
     const runners = recipes(md)
       .flat()
       .filter((s) => s.cwd === "api" && UNIT_TEST_COMMAND[platform].test(s.cmd));
-    expect(runners.map((s) => s.cmd), "a unit-test recipe for `api/`").not.toEqual([]);
+    expect(
+      runners.map((s) => s.cmd),
+      "a unit-test recipe for `api/`",
+    ).not.toEqual([]);
     // .NET names its test project; it must be the one holding those tests.
     for (const { cmd } of runners) {
       const dir = /^dotnet test (\S+)$/.exec(cmd)?.[1];
