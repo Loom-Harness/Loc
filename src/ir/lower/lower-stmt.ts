@@ -13,16 +13,17 @@ import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag as unionVariantTag } from "../stdlib/unions.js";
 import type { ExprIR, PathIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 import {
+  ambientResourceKind,
   boundApiOf,
   inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
   lowerExprInContext,
-  pathType,
+  passTargetSteps,
+  passType,
   provSiteFor,
   retargetCallArgs,
-  thisTypeOf,
 } from "./lower-expr.js";
 import {
   cstText,
@@ -224,9 +225,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
         // produces for `this.prop.verb(...)`, so the two spellings agree.
         const segs = [lv.head, ...lv.tail];
         let recv: ExprIR = { kind: "this" };
-        let recvType: TypeIR = thisTypeOf(env);
+        const steps = passTargetSteps(lv);
+        let recvType: TypeIR = steps[0] ?? { kind: "primitive", name: "string" };
         for (let i = 0; i < segs.length - 1; i++) {
-          const memberType = pathType({ segments: segs.slice(0, i + 1) }, env, true);
+          const memberType = steps[i + 1] ?? { kind: "primitive", name: "string" };
           recv = {
             kind: "member",
             receiver: recv,
@@ -347,8 +349,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // spellings of one call now produce one IR shape.  (Workflow bodies take
       // their own `resource-call` path in `lower-workflow.ts` and are
       // unaffected.)
-      if (lv.call && lv.tail.length === 1 && env.resources?.has(lv.head)) {
-        const resourceKind = env.resources.get(lv.head)!;
+      const stmtResourceKind =
+        lv.call && lv.tail.length === 1 ? ambientResourceKind(lv.head, env) : undefined;
+      if (stmtResourceKind) {
+        const resourceKind = stmtResourceKind;
         const verb = lv.tail[0]!;
         const args = (lv.args ?? []).map((a) => lowerExpr(a, env));
         const verbDef = findVerb(resourceKind, verb);
@@ -424,7 +428,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // money-typed target lowers as money — `subtotal := 0.50`
       // becomes `lit("money", "0.50")` so the backend emits the
       // precise constructor.
-      const targetType = pathType(path, env, lv.thisRef);
+      const targetType = passType(lv, env);
       const value = lowerExprInContext(stmt.value, targetType, env);
       return {
         stmt: { kind: "assign", target: path, value, targetType, prov },
@@ -432,7 +436,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       };
     }
     if (stmt.op === "+=" || stmt.op === "-=") {
-      const targetType = pathType(path, env, lv.thisRef);
+      const targetType = passType(lv, env);
       const collection = targetType.kind === "array";
       const elementType = collection ? targetType.element : targetType;
       // Element-type context applies for both array push (`+=`) and

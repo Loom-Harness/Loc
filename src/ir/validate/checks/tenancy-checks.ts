@@ -163,6 +163,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
               source: rule.source,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -179,6 +180,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -192,6 +194,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -205,6 +208,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
               level: rule.level,
             }),
             source: src,
+            origin: ctx.origin,
           });
         }
       }
@@ -251,6 +255,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
               source: rule.source,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -267,6 +272,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -280,6 +286,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -292,6 +299,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
               source: rule.source,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -304,6 +312,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
               source: rule.source,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -323,6 +332,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
                 readLevel,
               }),
               source: src,
+              origin: ctx.origin,
             });
           }
         }
@@ -370,6 +380,7 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
               access2: rule.access === "write" ? "write " : "",
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -386,6 +397,7 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
           continue;
         }
@@ -403,6 +415,7 @@ function validatePolicyDenies(sys: SystemIR, diags: LoomDiagnostic[]): void {
               aggregate: rule.aggregate,
             }),
             source: src,
+            origin: ctx.origin,
           });
         }
       }
@@ -454,6 +467,7 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
           name: sys.name,
         }),
         source: `${sys.name}/${ctx.name}`,
+        origin: ctx.origin,
       });
       continue;
     }
@@ -470,6 +484,7 @@ function validateOrgContextGate(sys: SystemIR, diags: LoomDiagnostic[]): void {
           dep: dep.name,
         }),
         source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
       });
     }
   }
@@ -569,6 +584,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
             code: "loom.tenancy-conflicting-stance",
             message: diagMessage("loom.tenancy-conflicting-stance", { name: agg.name }),
             source: `${ctx.name}/${agg.name}`,
+            origin: agg.origin,
           });
           continue;
         }
@@ -584,6 +600,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
                 sysName: sys.name,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
           }
           if (cross) {
@@ -595,6 +612,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
                 sysName: sys.name,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
           }
           continue;
@@ -613,6 +631,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
                 owned: owned ? "'with tenantOwned'" : "'crossTenant'",
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
           }
           continue;
@@ -638,6 +657,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
               baseMarker: baseStance.stance === "tenantOwned" ? "with tenantOwned" : "crossTenant",
             }),
             source: `${ctx.name}/${agg.name}`,
+            origin: agg.origin,
           });
           continue;
         }
@@ -660,6 +680,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
                 marker: baseStance.stance === "tenantOwned" ? "with tenantOwned" : "crossTenant",
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
           } else {
             diags.push({
@@ -667,6 +688,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
               code: "loom.tenancy-stance-unmarked",
               message: diagMessage("loom.tenancy-stance-unmarked", { name: agg.name }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
           }
         }
@@ -687,6 +709,7 @@ export function validateTenancy(sys: SystemIR, diags: LoomDiagnostic[]): void {
                   columns: uk.columns.join(", "),
                 }),
                 source: `${ctx.name}/${agg.name}`,
+                origin: agg.origin,
               });
             }
           }
@@ -776,6 +799,7 @@ export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnost
         code: "loom.tenant-registry-not-constructible",
         message: diagMessage("loom.tenant-registry-not-constructible", { name: registry.name }),
         source: `${ctx.name}/${registry.name}`,
+        origin: registry.origin,
       });
       return;
     }

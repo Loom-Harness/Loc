@@ -225,6 +225,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
           verb: op.verb,
         }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
       return;
     }
@@ -247,6 +248,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
           apiName: op.boundApi,
         }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
     }
   });

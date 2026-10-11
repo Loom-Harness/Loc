@@ -97,8 +97,9 @@ accepts a `region:`), and `smtp` gains a **Mailpit** dev sidecar in the emitted
 `docker-compose.yml` (a catch-all SMTP server with a web inbox on `:8025`).
 
 **Credentials never live in `.ddd` source.** They ride the connection URL at
-runtime: the `smtp` client reads `<RESOURCE>_URL` (default `smtp://<name>:1025`,
-the auth-less dev Mailpit), and when that URL carries userinfo
+runtime: the `smtp` client reads `<RESOURCE>_URL` (default
+`smtp://<storage>:1025` — the auth-less dev Mailpit, addressed by the **storage**
+name compose gives the sidecar, never the resource name), and when that URL carries userinfo
 (`smtp://user:pass@relay:587`) every backend authenticates — with STARTTLS when
 available, or implicit TLS for `smtps://`. Provider sourceTypes read a
 per-runtime key (`SENDGRID_API_KEY`; SES uses the AWS credential chain +
@@ -203,6 +204,12 @@ workflow ArchiveOrder(order: Order id) {
 
 The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
 
+- **lexically shadowable** — unlike `currentUser`, the handle is an ordinary
+  outer name: a parameter or `let` of the same name shadows it inside its
+  scope, so `create(name: string, st: string) { st := st }` next to a
+  `resource st { … }` copies the parameter, not the handle. (An entity field of
+  the same name does not shadow it; rename one of the two if that bites.)
+
 - **workflows only** — resource-ops are legal in a `workflow` body (a
   command `create`, an event-triggered `create(e) by …` starter, an `on(e)`
   reactor) and a command/query handler body's statements, and nowhere else
@@ -269,7 +276,32 @@ with a dev sidecar.
 
 Dev `docker-compose` gains a sidecar per object-store / queue / smtp-mailer
 storage (MinIO for `s3`, `rabbitmq`, **Mailpit** for `smtp`); deployables with
-no such resources are byte-identical.
+no such resources are byte-identical. A sidecar runs under the storage's name, and
+every deployable that wires a `mailer` (smtp) or `queue` (rabbitmq) resource gets
+that address injected as `<RESOURCE>_URL` (plus a `depends_on` on the sidecar):
+
+```ddd
+storage smtp { type: smtp, config: { from: "support@helpdesk.example" } }
+resource mail { for: Desk, kind: mailer, use: smtp }
+```
+
+```yaml
+# docker-compose.yml
+  api:
+    depends_on:
+      smtp:
+        condition: service_started
+    environment:
+      MAIL_URL: "smtp://smtp:1025"
+  smtp:
+    image: axllent/mailpit:latest
+```
+
+Each backend bakes the same URL as its fallback
+(`process.env.MAIL_URL ?? "smtp://smtp:1025"`), derived by one helper
+(`resourceSidecarUrl`, `src/util/resource-env.ts`) on both sides. A rabbitmq
+storage that also carries a channel transport boots without the `guest` account
+(broker auth, `channels.md`), so no queue URL is injected for it.
 
 ## Calling another Loom service — `use: <Api>`
 

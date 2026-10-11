@@ -505,6 +505,7 @@ export function checkUserComponentSupport(
             "through to `walker-core.ts`'s `unknown layout component` give-up",
         }),
         source: `component '${c.name}'`,
+        origin: c.origin,
       });
       continue;
     }
@@ -523,6 +524,7 @@ export function checkUserComponentSupport(
           emitter: d.emitter,
         }),
         source: `component '${c.name}'`,
+        origin: c.origin,
       });
     }
   }
