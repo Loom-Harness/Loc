@@ -40,11 +40,15 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FindIR,
+  InvariantIR,
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { messageCode } from "../../../util/message-code.js";
+import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -62,9 +66,9 @@ export function isEventSourced(agg: AggregateIR): boolean {
 }
 
 /** Does any event-sourced aggregate in this context declare a command body
- *  (create / operation) with a `precondition` / `requires` guard, or an operation
- *  with a `when` state gate?  All three hoist to an `ensure/2` with-clause, so any
- *  of them drives whether the context module emits the private `ensure/2` helper
+ *  (create / operation) with a `precondition` / `requires` guard, an operation
+ *  with a `when` state gate, or an invariant its commands assert?  All four hoist
+ *  to an `ensure/2` with-clause, so any of them drives whether the context module emits the private `ensure/2` helper
  *  (emitting it unused would fail `mix compile --warnings-as-errors`). */
 export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
   return ctx.aggregates
@@ -74,7 +78,72 @@ export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
       (op) =>
         op.when !== undefined ||
         op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
+    ) ||
+    ctx.aggregates.some(
+      (agg) =>
+        isEventSourced(agg) &&
+        esHasCommands(agg) &&
+        esEnforcedInvariants(agg).length > 0,
     );
+}
+
+/** True when the ES aggregate has a command runner the invariants ride: a
+ *  create, or a public operation (the context block's own filter). */
+function esHasCommands(agg: AggregateIR): boolean {
+  return (
+    (agg.creates ?? []).length > 0 ||
+    agg.operations.some((op) => op.visibility === "public" && !CRUD_OP_NAMES.has(op.name))
+  );
+}
+
+/** One aggregate invariant as the event-sourced command path asserts it on the
+ *  FOLDED state, after the command's events are applied and before they are
+ *  appended — node's `_assertInvariants()` after the fold, and the same place
+ *  .NET / java / python check it.  An invariant guards a TRANSITION, so a stored
+ *  stream is never re-checked on load (RS-10).
+ *
+ *  `predicate` is the Elixir boolean (a guarded rule renders as the
+ *  implication `not (guard) or (rule)`); `term` is the denial the runner
+ *  short-circuits to.  The denial rides the `precondition_failed` rung, the
+ *  domain floor (RS-15): 422 "Unprocessable Entity" with the rule's message as
+ *  `detail`, which is what the other four backends' `DomainError` answers.  A
+ *  MESSAGED rule carries its `msg.<hash>` code and pointer in a map detail, so
+ *  ProblemDetails adds the one `errors[]` entry the other backends' coded throw
+ *  gets; a message-less rule's detail is the derived `Invariant violated:
+ *  <source>`, byte-identical to theirs. */
+export interface EsInvariantCheck {
+  readonly predicate: string;
+  readonly term: string;
+  /** The plain message — what a pure-core raise carries. */
+  readonly message: string;
+}
+
+/** The invariants this backend can evaluate against the in-memory folded struct.
+ *
+ *  The judgement is the changeset carrier's (`renderableHere`), with no field
+ *  treated as opaque: an ES aggregate has no association to load, so a
+ *  reference collection (`X id[]`) is the id list the fold built, readable like
+ *  any other field.  What the judgement refuses (a domainService / resource
+ *  call) is reported by `loom.elixir-invariant-unenforced` rather than dropped. */
+export function esEnforcedInvariants(agg: AggregateIR): InvariantIR[] {
+  return (agg.invariants ?? []).filter((inv) => renderableHere(inv, new Set()));
+}
+
+export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantCheck[] {
+  // `this-derived` reads inline their defining expression only when the render
+  // context carries the aggregate's derived index.
+  const ctx: RenderCtx = { ...rc, agg: { derived: agg.derived ?? [] } as RenderCtx["agg"] };
+  return esEnforcedInvariants(agg).map((inv) => {
+    const rule = renderExpr(inv.expr, ctx);
+    const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
+    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const term = inv.message
+      ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${JSON.stringify(
+          messageCode(inv.message.text),
+        )}, pointer: ${JSON.stringify(domainFloorPointer(inv))}}}`
+      : `{:precondition_failed, ${elixirString(message)}}`;
+    return { predicate, term, message };
+  });
 }
 
 /** The private guard helper shared by the ES command runners in a context
@@ -531,6 +600,7 @@ export function renderEsContextBlock(
     ? renderCommandRunner({
         kind: "create",
         op: create,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -546,6 +616,7 @@ export function renderEsContextBlock(
       renderCommandRunner({
         kind: "operation",
         op,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -784,6 +855,8 @@ end
 interface CommandCtx {
   kind: "create" | "operation";
   op: OperationIR;
+  /** The aggregate whose invariants the folded state is checked against. */
+  agg: AggregateIR;
   /** The aggregate's DECLARED name — used verbatim in the `when`-gate denial
    *  message so it reads identically to the other four backends (RS-17). */
   aggName: string;
@@ -866,12 +939,23 @@ function renderCommandRunner(c: CommandCtx): string {
   }
 
   clauses.push(`events = [${eventStructs.join(", ")}]`);
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
 
-  const newState =
+  const fold =
     c.kind === "create"
       ? `${c.foldMod}.from_events(id, events)`
       : `Enum.reduce(events, state, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+  // The aggregate's invariants are asserted on the FOLDED state, before the
+  // append: a command whose events would leave the aggregate invalid is refused
+  // and nothing reaches the log.  With no invariant the fold stays after the
+  // append, so such a runner's output does not change.
+  const invariants = esInvariantChecks(c.agg, { ...exprCtx, thisName: "folded" });
+  let newState = fold;
+  if (invariants.length > 0) {
+    clauses.push(`folded = ${fold}`);
+    for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
+    newState = "folded";
+  }
+  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

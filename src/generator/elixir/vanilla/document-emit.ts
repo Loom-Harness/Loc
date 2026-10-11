@@ -50,6 +50,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
+  ExprIR,
   FieldIR,
   FindIR,
   OperationIR,
@@ -62,7 +63,7 @@ import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/reso
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -250,6 +251,20 @@ ${pureCoreBlock}end
     : `${root}\n${renderDocDataSchema(appModule, ctxModule, agg)}`;
 }
 
+/** A document field's Ecto `default:` — the relational literal rendering, plus
+ *  an ENUM value.  The embed stores an enum as its declared-case string (enum
+ *  casts as `:string`, see {@link castType}), so `status: Status = Draft`
+ *  defaults to `"Draft"`.  `renderEctoDefault` renders literals only, and the
+ *  relational path never needs it to do more: its changeset supplies the
+ *  default through `__default/3` instead.  The document path has no such step,
+ *  so without this arm the default never reached the record and a create that
+ *  omitted the field was refused by `validate_required`, where the other four
+ *  backends store the default. */
+function docEctoDefault(e: ExprIR): string | null {
+  if (e.kind === "ref" && e.refKind === "enum-value") return elixirString(e.name);
+  return renderEctoDefault(e);
+}
+
 /** The `<Agg>.Data` embedded schema — THE domain shape the whole document folds
  *  into (`@primary_key false`, so no `id` leaks into the blob).  Scalar fields
  *  use the same document cast types as the pre-Route-A schemaless changeset (enum
@@ -269,7 +284,7 @@ function renderDocDataSchema(appModule: string, ctxModule: string, agg: Aggregat
   // `errors` array is EMPTY, because the nested embed holds the error (B5).
   // Every other backend applies the default and accepts the same request.
   const fieldLines = fields.map((f) => {
-    const def = f.default ? renderEctoDefault(f.default) : null;
+    const def = f.default ? docEctoDefault(f.default) : null;
     return `    field :${snake(f.name)}, ${castType(f.type)}${def ? `, default: ${def}` : ""}`;
   });
   const containLines = agg.contains.map(

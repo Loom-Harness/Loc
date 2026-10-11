@@ -10,12 +10,12 @@ import type {
   TestIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialTerm, guardRaiseLine } from "./denial.js";
+import { denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
-import { isEventSourced } from "./eventsourced-emit.js";
+import { esInvariantChecks, isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
 import {
   isReturningOperation,
@@ -448,10 +448,10 @@ export function renderEventSourcedPureCore(
   const eventsModule = `${facadeMod}.Events`;
   const out: string[] = [];
   const create = agg.creates?.[0];
-  if (create) out.push(...renderEsPureCreate(facadeMod, foldMod, eventsModule, create));
+  if (create) out.push(...renderEsPureCreate(facadeMod, foldMod, eventsModule, create, agg));
   for (const op of agg.operations) {
     if (ES_CRUD_OP_NAMES.has(op.name)) continue;
-    out.push("", ...renderEsPureOp(appModule, facadeMod, foldMod, eventsModule, op));
+    out.push("", ...renderEsPureOp(appModule, facadeMod, foldMod, eventsModule, op, agg));
   }
   for (const fn of agg.functions ?? []) {
     out.push("", ...renderPureFunction(facadeMod, fn));
@@ -525,6 +525,7 @@ function renderEsPureCreate(
   foldMod: string,
   eventsModule: string,
   create: OperationIR,
+  agg: AggregateIR,
 ): string[] {
   const rc: RenderCtx = { thisName: "state", contextModule: facadeMod, idLocal: "id" };
   // A test passes the create input as an ATOM-keyed map (`%{owner: "Ada"}`); the
@@ -548,7 +549,22 @@ function renderEsPureCreate(
   });
   const attrsArg = reads.length > 0 ? "attrs" : "_attrs";
   const actorArg = opUsesCurrentUser(create) ? ", current_user \\\\ nil" : "";
-  const fold = [`events = [${events.join(", ")}]`, `{:ok, ${foldMod}.from_events(id, events)}`];
+  // The invariants are asserted on the folded state, as the command runner
+  // asserts them before its append, so a create the persisted path refuses
+  // fails here with the same denial term.
+  const invariants = esInvariantChecks(agg, { ...rc, thisName: "folded" });
+  const eventsLine = `events = [${events.join(", ")}]`;
+  const fromEvents = `${foldMod}.from_events(id, events)`;
+  if (invariants.length > 0) {
+    guards.push(
+      eventsLine,
+      `folded = ${fromEvents}`,
+      ...invariants.map(
+        (inv) => `:ok <- if(${inv.predicate}, do: :ok, else: {:error, ${inv.term}})`,
+      ),
+    );
+  }
+  const fold = invariants.length > 0 ? ["{:ok, folded}"] : [eventsLine, `{:ok, ${fromEvents}}`];
   const body =
     guards.length > 0
       ? [`    with ${guards.join(",\n         ")} do`, ...fold.map((l) => `      ${l}`), "    end"]
@@ -570,6 +586,7 @@ function renderEsPureOp(
   foldMod: string,
   eventsModule: string,
   op: OperationIR,
+  agg: AggregateIR,
 ): string[] {
   const rc: RenderCtx = { thisName: "state", contextModule: facadeMod };
   const used = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
@@ -583,6 +600,8 @@ function renderEsPureOp(
     guard: (s) => body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule)),
     emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
   });
+  const reduce = `Enum.reduce(events, state, fn ev, acc -> ${foldMod}.apply_event(acc, ev) end)`;
+  const invariants = esInvariantChecks(agg, { ...rc, thisName: "folded" });
   const paramsArg = used.length > 0 ? "params" : "_params";
   const guard = used.length > 0 ? " when is_map(params)" : "";
   const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
@@ -592,7 +611,19 @@ function renderEsPureOp(
     ...reads,
     ...body,
     `    events = [${events.join(", ")}]`,
-    `    Enum.reduce(events, state, fn ev, acc -> ${foldMod}.apply_event(acc, ev) end)`,
+    ...(invariants.length > 0
+      ? [
+          `    folded = ${reduce}`,
+          // A broken invariant raises the typed guard error, the way a failed
+          // op guard does: the runner refuses the same command on the
+          // `precondition` rung.
+          ...invariants.map(
+            (inv) =>
+              `    if not (${inv.predicate}), do: raise(${guardErrorModule(appModule)}, kind: :precondition, message: ${elixirString(inv.message)})`,
+          ),
+          "    folded",
+        ]
+      : [`    ${reduce}`]),
     "  end",
   ];
 }
