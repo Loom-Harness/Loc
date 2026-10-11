@@ -1,23 +1,18 @@
 // Construction-seedable defaults — which `= default` the domain `create`
 // factory materializes itself.
 //
-// A `field: T = <expr>` whose access modifier keeps it OFF the create input
-// (`managed` / `internal` / `token`) still carries a declared default, and a
-// default is a CONSTRUCTION rule: no client param carries the field, so the
-// public `create` factory is the only place its value can be materialized.
-// Miss it and the field falls to the type zero (`0`, `""`, a CLR/`BigDecimal`
-// zero-or-null) — silently wrong for a counter, an insert failure for a
-// NOT NULL money column.
+// A `field: T = <expr>` the create input does not carry — kept off it by its
+// access modifier (`managed` / `internal` / `token`) or left out of a narrowed
+// declared `create(…)` — still carries a declared default, and a default is a
+// CONSTRUCTION rule: no client param carries the field, so the public `create`
+// factory is the only place its value can be materialized.  Miss it and the
+// field falls to the type zero (`0`, `""`, a CLR/`BigDecimal` zero-or-null) —
+// silently wrong for a counter, an insert failure for a NOT NULL money column.
 //
-// Which defaults qualify used to be decided by `renderDefaultSeed` — the
-// FRONTEND's *client-evaluable* subset, written for `useForm({ defaultValues })`
-// seeding. That is the wrong question to ask about a domain factory, and it is
-// exactly why `money` defaults were dropped on four of five backends: a money
-// literal needs a runtime carrier (`Decimal` / `decimal` / `BigDecimal`) that a
-// plain JS form seed has no way to spell, but every backend's DOMAIN expression
-// renderer emits one natively. The right question is "is this a compile-time
-// constant the domain renderer can emit", so this module asks that instead:
-// the client-evaluable subset PLUS money literals.
+// The question is "is this a compile-time constant every domain expression
+// renderer can emit" — the frontend's client-evaluable seed subset PLUS money
+// literals, which need a runtime carrier (`Decimal` / `decimal` /
+// `BigDecimal`) a JS form seed cannot spell but every backend renders natively.
 //
 // Still excluded, deliberately: `now()` / `currentUser.*` (server-sourced — the
 // audit/prepare path stamps them, see `isServerSourcedDefault`) and sequences /
@@ -31,29 +26,24 @@
 import type { WithAccess } from "../ir/enrich/wire-projection.js";
 import { forCreateInput } from "../ir/enrich/wire-projection.js";
 import type { ExprIR } from "../ir/types/loom-ir.js";
-import { renderDefaultSeed } from "./_frontend/default-seed.js";
+import { isConstantDefault } from "../ir/util/constant-default.js";
 import type { FieldWithDefault } from "./_frontend/server-default.js";
-
-/** A `money("2.50")` default.  Lowered as a plain literal (`lit: "money"`),
- *  outside `renderDefaultSeed`'s client subset because a JS form seed has no
- *  decimal carrier — but a compile-time constant every backend's domain
- *  expression renderer emits (`new Decimal(…)` / `2.50m` / `new BigDecimal(…)`). */
-function isMoneyLiteral(e: ExprIR): boolean {
-  return e.kind === "literal" && e.lit === "money";
-}
 
 /** Whether the `create` factory can seed this default directly — i.e. it is a
  *  compile-time constant (literal incl. money, enum member, or a paren/unary
- *  over one) rather than a server stamp or a deferred lookup. */
+ *  over one) rather than a server stamp or a deferred lookup.  The predicate
+ *  lives at the IR layer (`isConstantDefault`) because the narrowed-create gate
+ *  asks the same question. */
 export function isConstructionSeedableDefault(e: ExprIR): boolean {
-  return isMoneyLiteral(e) || renderDefaultSeed(e) !== null;
+  return isConstantDefault(e);
 }
 
 /**
  * Fields the `create` factory must seed with their declared default because
- * they are outside the create-input set (`forCreateInput` drops
- * `token`/`managed`/`internal`, so no client param carries them) yet their
- * default is {@link isConstructionSeedableDefault}.
+ * they are outside the create-input set (`inputNames` — the aggregate's
+ * `createInputFields`: `forCreateInput` drops `token`/`managed`/`internal`,
+ * and a narrowed declared `create(…)` drops every field its list leaves out)
+ * yet their default is {@link isConstructionSeedableDefault}.
  *
  * The predicate identifies the fields; each backend renders the VALUE with its
  * own domain-expression renderer (`renderTsExpr`/`renderPyExpr`/`renderCsExpr`/
@@ -62,8 +52,8 @@ export function isConstructionSeedableDefault(e: ExprIR): boolean {
  */
 export function constructionSeededFields<T extends WithAccess & FieldWithDefault>(
   fields: readonly T[],
+  inputNames: ReadonlySet<string> = new Set(forCreateInput(fields).map((f) => f.name)),
 ): (T & { default: ExprIR })[] {
-  const inputNames = new Set(forCreateInput(fields).map((f) => f.name));
   return fields.filter(
     (f): f is T & { default: ExprIR } =>
       !inputNames.has(f.name) &&

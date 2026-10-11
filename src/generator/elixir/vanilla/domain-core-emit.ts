@@ -1,3 +1,4 @@
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -159,15 +160,20 @@ export function renderAggregatePureCore(
   // (`expect(d.berth.ship == s.id)`) compared `nil == nil` and passed for any
   // value, where the other four backends compare two real ids.
   const fresh = "%__MODULE__{id: UUIDv7.generate()}";
+  // A narrowed declared `create(…)` takes only its parameters' keys.
+  const createAttrs =
+    declaredCreateParamNames(agg) !== undefined
+      ? `${changesetMod}.take_create_attrs(attrs)`
+      : "attrs";
   const createBody =
     collectionContainments.length === 0
       ? [
-          `    ${changesetMod}.base_changeset(${fresh}, attrs)`,
+          `    ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
           "    |> Ecto.Changeset.apply_action(:insert)",
         ]
       : [
           "    with {:ok, record} <-",
-          `           ${changesetMod}.base_changeset(${fresh}, attrs)`,
+          `           ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
           "           |> Ecto.Changeset.apply_action(:insert) do",
           `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
           "    end",

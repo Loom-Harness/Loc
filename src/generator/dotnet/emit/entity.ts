@@ -1,8 +1,8 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -318,7 +318,7 @@ export function renderEntity(
   // call order + wire DTO, so `Agg.Create(cmd.Field, ...)` binds
   // positionally.  Every constructible aggregate's create is parameterized
   // by this set; there is no parameterless form.
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // Event sourcing (appliers A2.2b): an event-sourced aggregate folds
   // events into state via appliers, is rehydrated by `_FromEvents`, and is
   // constructed by its single `create` action's emit-only body (not a
@@ -913,7 +913,7 @@ export function renderEntity(
   // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
   // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededFields(entity.fields).map(
+    ? constructionSeededFields(entity.fields, new Set(createInputFieldList.map((f) => f.name))).map(
         (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
       )
     : [];

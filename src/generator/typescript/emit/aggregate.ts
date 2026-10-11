@@ -1,8 +1,8 @@
 import { unionMembers } from "../../../generator/_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -74,6 +74,9 @@ interface EntityShape {
    *  Shipment); equals `rootName` for root-level parts (byte-identical). */
   parentName?: string;
   fields: FieldIR[];
+  /** The create factory's input fields — the aggregate's create-input
+   *  contract (`createInputFields`); empty for an entity part. */
+  createInputs: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
   invariants: InvariantIR[];
@@ -249,6 +252,7 @@ function rootShape(a: AggregateIR): EntityShape {
     isRoot: true,
     hasCreate: hasCreate(a),
     fields: a.fields,
+    createInputs: createInputFields(a),
     contains: a.contains,
     derived: a.derived,
     invariants: a.invariants,
@@ -268,6 +272,7 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
     rootName: root.name,
     parentName: directParentName(root, p.name, root.name),
     fields: p.fields,
+    createInputs: [],
     contains: p.contains,
     derived: p.derived,
     invariants: p.invariants,
@@ -739,10 +744,11 @@ function renderEntity(
     ].join("\n");
   });
 
-  // Create-factory input — the create-input set (`forCreateInput`, incl.
-  // optionals) matching the wire DTO.  Every constructible aggregate's
-  // create is parameterized by this set; there is no parameterless form.
-  const createInputs = forCreateInput(e.fields);
+  // Create-factory input — the create-input contract (`createInputFields`,
+  // incl. optionals; narrowed to a declared `create(…)`'s params) matching the
+  // wire DTO.  Every constructible aggregate's create is parameterized by this
+  // set; there is no parameterless form.
+  const createInputs = e.createInputs;
   const createInputNames = new Set(createInputs.map((f) => f.name));
   // A declared default is a CONSTRUCTION rule, so the factory — not the wire —
   // materializes it.  Returns the TS expression for "what this field becomes
@@ -775,7 +781,10 @@ function renderEntity(
   // closes the node gap and the shared predicate closes the `money` half on
   // all four.
   const defaultSeeds = new Map(
-    constructionSeededFields(e.fields).map((f) => [f.name, renderTsExpr(f.default)]),
+    constructionSeededFields(e.fields, createInputNames).map((f) => [
+      f.name,
+      renderTsExpr(f.default),
+    ]),
   );
   const fieldInit = (f: FieldIR): string => {
     if (createInputNames.has(f.name)) {
