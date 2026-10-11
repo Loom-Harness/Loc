@@ -42,6 +42,8 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
+/** The refusal every backend sends past the bound (RS-39), JSON-quoted. */
+const RANGE = JSON.stringify("Integer out of range");
 
 const src = (platform: string): string => `
 system S {
@@ -75,7 +77,7 @@ describe("node — a declared int carries its int4 bound onto the wire", () => {
   it("the request schema bounds AND publishes int32", async () => {
     const routes = await file("node", "http/order.routes.ts");
     expect(routes).toContain(
-      `qty: z.number().int().min(${INT32_MIN}).max(${INT32_MAX}).openapi({ format: "int32" })`,
+      `qty: z.number().int().min(${INT32_MIN}, ${RANGE}).max(${INT32_MAX}, ${RANGE}).openapi({ format: "int32" })`,
     );
   });
 
@@ -83,7 +85,7 @@ describe("node — a declared int carries its int4 bound onto the wire", () => {
     // The coercing twin: `?qty=` reaches the same column as the body field.
     const routes = await file("node", "http/order.routes.ts");
     expect(routes).toContain(
-      `qty: z.coerce.number().int().min(${INT32_MIN}).max(${INT32_MAX}).openapi({ format: "int32" })`,
+      `qty: z.coerce.number().int().min(${INT32_MIN}, ${RANGE}).max(${INT32_MAX}, ${RANGE}).openapi({ format: "int32" })`,
     );
   });
 
@@ -109,7 +111,11 @@ describe("python — the Int32 alias carries the bound and the published format"
   it("wire_models.py declares the alias once", async () => {
     const wire = await file("python", "app/http/wire_models.py");
     expect(wire).toContain("Int32 = Annotated[");
-    expect(wire).toContain(`Field(ge=${INT32_MIN}, le=${INT32_MAX})`);
+    // The bound refuses with the cross-backend range sentence (RS-39), not
+    // pydantic's own "Input should be less than or equal to …".
+    expect(wire).toContain(`if not ${INT32_MIN} <= value <= ${INT32_MAX}:`);
+    expect(wire).toContain(`raise PydanticCustomError("int_range", ${RANGE})`);
+    expect(wire).toMatch(/Int32 = Annotated\[[\s\S]*?AfterValidator\(_int32\)/);
     // WithJsonSchema, not pydantic's own bounds, so the spec matches .NET/java.
     expect(wire).toContain('WithJsonSchema({"type": "integer", "format": "int32"})');
   });
