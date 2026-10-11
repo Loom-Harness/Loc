@@ -598,6 +598,8 @@ export function buildWorkflowsFile(
   // them (byte-identical) and a mikro build with no state store drops them.
   if (/(?<!\.)\bEntityManager\b/.test(bodyStr))
     imports.push(`import { EntityManager } from "@mikro-orm/postgresql";`);
+  if (/(?<!\.)\bIsolationLevel\./.test(bodyStr))
+    imports.push(`import { IsolationLevel } from "@mikro-orm/core";`);
   const workflowRowsReferenced = ctx.workflows
     .filter((w) => !w.eventSourced && !!w.correlationField)
     .map(mikroWorkflowRowClass)
@@ -1037,8 +1039,17 @@ function emitWorkflowRoute(
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
-    const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
-    out.push(`${bi}await db.transaction(async (tx) => {${""}`);
+    // drizzle opens the transaction with `db.transaction(cb, { isolationLevel:
+    // "<sql level>" })`; a MikroORM EntityManager has no `transaction` at all —
+    // its spelling is `em.transactional(cb, { isolationLevel: IsolationLevel.X })`,
+    // whose enum values are the same SQL level strings.  The repositories
+    // fork with `keepTransactionContext`, so their saves join this transaction.
+    const txOpts = !wf.isolation
+      ? ``
+      : usingMikro
+        ? `, { isolationLevel: IsolationLevel.${pgIsolationLevel(wf.isolation).toUpperCase().replace(/ /g, "_")} }`
+        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`;
+    out.push(`${bi}await db.${usingMikro ? "transactional" : "transaction"}(async (tx) => {${""}`);
     for (const r of reposNeeded) {
       out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
     }

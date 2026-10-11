@@ -92,7 +92,6 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/generator/typescript/context-filter-emit.test.ts": 4,
   "test/generator/typescript/criterion-emit.test.ts": 1,
   "test/generator/typescript/domain-service-emit.test.ts": 2,
-  "test/generator/typescript/domain-service-mutating.test.ts": 1,
   "test/generator/typescript/domain-service-reading.test.ts": 4,
   "test/generator/typescript/find-criterion-reify.test.ts": 2,
   "test/generator/typescript/hono-erp-bundle-regressions.test.ts": 1,
