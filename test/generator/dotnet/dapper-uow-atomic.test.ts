@@ -11,14 +11,12 @@
 // "committed but unannounced".  Runtime-proven on a booted Dapper stack: 70
 // before, 90 after (one Transfer row, one reactor-written Audit row).
 //
-// This file pins the emitted SHAPE the fix rests on, which a compile gate
-// cannot see — a repository that opens its own connection compiles fine and
-// silently leaves the workflow's transaction.  The behavioural corpus case
-// `transactional-workflow-event-rollback` discriminates on the Dapper leg
-// (pre-fix `expected 80 to be 90`, post-fix green) but is not keyed for
-// `dotnet` yet: the key would also run the EF leg, where two `getById` handles
-// are ONE tracked entity so `debitTwice` never conflicts, and the Dapper 409's
-// `detail` sentence differs from node's golden.
+// The runtime gate is the behavioural corpus case
+// `transactional-workflow-event-rollback`, armed on the Dapper leg through
+// `ADAPTER_ONLY_CASES` (test/behavioral/registers.mjs): pre-fix it fails there
+// with `expected 80 to be 90`.  This file pins the emitted SHAPE the fix rests
+// on, which no compile gate sees — a repository that opens its own connection
+// compiles fine and silently leaves the workflow's transaction.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
