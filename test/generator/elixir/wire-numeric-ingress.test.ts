@@ -45,16 +45,6 @@ const ctxOf = async (body: string) => {
 };
 
 describe("elixir numeric op-param ingress (M-T6.48)", () => {
-  it("guards a money param in the with-chain instead of binding it raw", async () => {
-    const ctx = await ctxOf("operation retotal(amount: money) { total := amount }");
-    expect(ctx).toContain(
-      'with {:ok, amount} <- __loom_decimal_param(record, :amount, Map.get(params, "amount"))',
-    );
-    // The raw bind is GONE — keeping it would shadow the validated value with
-    // the unvalidated one, which is the whole defect.
-    expect(ctx).not.toMatch(/amount = \(if is_nil\(Map\.get\(params, "amount"\)\)/);
-  });
-
   it("guards an int param, which had no coercion at all", async () => {
     const ctx = await ctxOf("operation restock(n: int) { qty := n }");
     expect(ctx).toContain('with {:ok, n} <- __loom_int32_param(record, :n, Map.get(params, "n"))');

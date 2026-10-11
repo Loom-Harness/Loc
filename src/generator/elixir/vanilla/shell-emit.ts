@@ -17,7 +17,9 @@ import { lines } from "../../../util/code-builder.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
@@ -74,29 +76,29 @@ export function emitVanillaShellFiles(
   // the byte-identical shell (no SPA static plug, no fallback).  Mutually
   // exclusive with LiveView (an embedded-SPA deployable emits no HEEx pages).
   hasEmbeddedSpa = false,
-  // timerSource scheduling (scheduling.md, M-T4.1): the owned-timer supervision
+  // timerSource scheduling (scheduling.md): the owned-timer supervision
   // children (Oban first when present, then the timer GenServer module names),
-  // appended to the supervision tree in `renderApplication`.  Empty ⇒
-  // byte-identical.
+  // appended to the supervision tree in `renderApplication`.  Empty ⇒ no
+  // timer children.
   schedulerChildren: string[] = [],
   // Durable-timer (cron:) support: adds the Oban config block to config.exs.
   usesOban = false,
   // OIDC JWKS strategy child(ren) — started BEFORE the Endpoint so a
   // `first_fetch_sync` fetch warms the signer cache before `/health` serves.
   preEndpointChildren: string[] = [],
-  /** The mounted ui (M-T1.11) — present only when it has extractable
+  /** The mounted ui — present only when it has extractable
    *  user-visible strings, in which case the Gettext backend + `priv/gettext`
    *  catalog are emitted and the `gettext` dep + `html_helpers` import ride
-   *  along.  Undefined ⇒ every emitted file is byte-identical to pre-i18n. */
+   *  along.  Undefined ⇒ no i18n output at all. */
   i18nUi: UiIR | undefined = undefined,
-  /** This deployable's authored backend validation messages (M-T1.11) — the
+  /** This deployable's authored backend validation messages — the
    *  SECOND source of catalog entries beside the ui.  Non-empty turns the
    *  Gettext backend + `priv/gettext` tree + hex dep on even for a
    *  JSON-API-only deployable, whose 422 handler resolves through them. */
   validationMessages: readonly { code: string; text: string }[] = [],
-  /** First-boot seed modules (`<App>.<Ctx>.Seeds`, M-T6.37) — appended to
-   *  `Application.start/2` after the supervision tree is up.  Empty ⇒ every
-   *  emitted file is byte-identical to pre-seeding. */
+  /** First-boot seed modules (`<App>.<Ctx>.Seeds`) — appended to
+   *  `Application.start/2` after the supervision tree is up.  Empty ⇒ no
+   *  seeding calls. */
   seedModules: readonly string[] = [],
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
@@ -179,7 +181,7 @@ export function emitVanillaShellFiles(
   // pure-core op) raises — `<App>.GuardError`, with the rung in its `:kind`
   // field so the controller rescue routes on a FIELD rather than on the
   // message prefix.  Domain layer, not `<App>Web.*`: `function-emit` /
-  // `domain-service-emit` render into `lib/<app>/` (M-T6.20).
+  // `domain-service-emit` render into `lib/<app>/`.
   out.set(`lib/${appName}/guard_error.ex`, renderGuardErrorModule(appModule));
   // The declared-`datetime` column type — a UTC instant at MILLISECOND
   // precision (RS-38).  Every datetime field of every schema is typed as it.
@@ -236,7 +238,7 @@ export function emitVanillaShellFiles(
     );
     out.set(`lib/${appName}_web/nav.ex`, renderLiveNav(appModule));
   }
-  // Translation runtime (M-T1.11) — the Gettext backend, plus the source-language
+  // Translation runtime — the Gettext backend, plus the source-language
   // catalog built from the SAME `buildUiCatalog` the other five frontends'
   // runtimes read, MERGED with this deployable's backend validation messages.
   // Two halves, one `.po` tree: a Loom key is globally unique and is always the
@@ -249,8 +251,8 @@ export function emitVanillaShellFiles(
     out.set(`lib/${appName}_web/gettext.ex`, renderGettextBackend(appName, appModule));
     // The active HEEx pack's DECLARED chrome (D-PACK-CHROME) — English baked
     // into the pack's own `.hbs`, which no IR walk sees.  `pack ?` because a
-    // JSON-API-only deployable reaches this with no pack at all, and since
-    // #2480 that deployable can still have a catalog (authored rule messages).
+    // JSON-API-only deployable reaches this with no pack at all, and that
+    // deployable can still have a catalog (authored rule messages).
     const packChrome = pack ? packChromeCatalog(pack.manifest) : {};
     out.set(
       `priv/gettext/${GETTEXT_DOMAIN}.pot`,
@@ -268,19 +270,19 @@ export function emitVanillaShellFiles(
     }
   }
   out.set(`lib/${appName}_web/controllers/error_json.ex`, renderVanillaErrorJson(appModule));
-  // M-T1.8 — global error boundary + failure sink, the HEEx arm.  Only when
-  // this deployable mounts LiveView: `render_errors`' `formats:` list has
-  // carried `json` only (below), so an HTML-accepting request that errors
+  // Global error boundary + failure sink, the HEEx arm.  Only when
+  // this deployable mounts LiveView: with `json` alone in `render_errors`'
+  // `formats:` list (below), an HTML-accepting request that errors
   // BELOW the router (a bad path, a plug crash before `mount/3`, the initial
-  // disconnected/"dead" render) fell through to Phoenix's own bare built-in
-  // fallback instead of anything this app styles — the dead-render half of
+  // disconnected/"dead" render) would fall through to Phoenix's own bare
+  // built-in fallback instead of anything this app styles — the dead-render half of
   // what a JSX frontend's top-level `ErrorBoundary` covers. A LiveView crash
   // AFTER the socket connects is a different failure and needs no code here:
   // `phoenix_live_view.js` already shows its own reconnect/error overlay and
   // the crashed process's exit is logged through the SAME `:logger` pipeline
   // (`log_formatter.ex`) every other backend's failure sink writes through —
   // OTP supervision gives LiveView the render-time boundary + failure sink
-  // for free once the socket is live; only the DEAD path needed one added.
+  // for free once the socket is live; only the DEAD path needs one added.
   if (hasLiveView) {
     out.set(`lib/${appName}_web/controllers/error_html.ex`, renderVanillaErrorHtml(appModule));
   }
@@ -300,7 +302,7 @@ export function emitVanillaShellFiles(
   );
   out.set(
     `lib/${appName}_web/controllers/test_reset_controller.ex`,
-    renderVanillaTestResetController(appName, appModule, seedModules),
+    renderVanillaTestResetController(appModule, seedModules),
   );
   out.set(
     "config/config.exs",
@@ -325,9 +327,9 @@ function renderVanillaMixExs(
   extraHexDeps: Record<string, string>,
   oidc: boolean,
   hasLiveView: boolean,
-  /** True when the mounted ui has extractable user-visible strings (M-T1.11) —
+  /** True when the mounted ui has extractable user-visible strings —
    *  adds the `gettext` dep the generated backend + `priv/gettext/**` need.
-   *  False ⇒ the dep list is byte-identical to pre-i18n. */
+   *  False ⇒ no `gettext` dep. */
   i18nEnabled = false,
   /** True when that ui INTERPOLATES (D-I18N-HEEX-ICU) — adds the ICU engine the
    *  generated `loom_icu/2` formats through.  Strictly narrower than
@@ -345,7 +347,7 @@ function renderVanillaMixExs(
   const assetsAlias = hasLiveView
     ? `,\n      "assets.build": [\n        "cmd --cd assets npm install --no-audit --no-fund",\n        "cmd --cd assets npm run build"\n      ]`
     : "";
-  // Translation runtime (M-T1.11) — only when the ui has strings to translate.
+  // Translation runtime — only when the ui has strings to translate.
   const gettextDep = i18nEnabled ? `,\n      ${GETTEXT_DEP}` : "";
   // The ICU engine (D-I18N-HEEX-ICU) — second-tier, so a translatable app with
   // no interpolation keeps the pre-slice dep list byte-for-byte.
@@ -462,9 +464,9 @@ function renderVanillaWebModule(
   _appName: string,
   appModule: string,
   hasLiveView: boolean,
-  /** True when the ui translates (M-T1.11) — `import <App>Web.Gettext` joins
+  /** True when the ui translates — `import <App>Web.Gettext` joins
    *  `html_helpers` so `pgettext/2` resolves unqualified inside every `~H`
-   *  template.  False ⇒ byte-identical. */
+   *  template.  False ⇒ no import. */
   i18nEnabled = false,
   /** True when the ui interpolates — `import`s the generated ICU helper so
    *  `loom_icu/2` resolves inside every `~H` template (D-I18N-HEEX-ICU). */
@@ -580,7 +582,7 @@ defmodule ${webModule} do
         // defines the backend module, and a consumer gets `pgettext/2` from
         // `use Gettext, backend: …` — an `import` of the backend brings in
         // nothing, which the real compiler reports as `undefined function
-        // pgettext/2` at every call site (M-T1.11).
+        // pgettext/2` at every call site.
         i18nEnabled ? `\n      use Gettext, backend: ${webModule}.Gettext` : ""
       }${
         // The ICU formatting step that runs over gettext's result.  Named
@@ -674,14 +676,14 @@ end
 type RouterLine = ApiRoute & { guard?: true };
 
 /**
- * The F8 static-sub-path 405 guard on Phoenix (ledger `static-subpath-405`).
+ * The static-sub-path 405 guard on Phoenix.
  *
  * A phoenix router keys on (method, path) IN DECLARATION ORDER, so
  * `DELETE /api/articles/by_owner` falls through `get "/articles/by_owner"`
  * (wrong verb) into `delete "/articles/:id"` and binds `id = "by_owner"` — the
  * request never reaches `NotFoundController` (the only 405+`Allow` source on
  * this backend) and answers the `:id` cast's 422 instead.  Node, java, python
- * and .NET all guard this (#2764); elixir was the one that did not.
+ * and .NET all guard this too.
  *
  * The guard is a `match :*` route at the EXACT static path, spliced in right
  * after the last real route for that path: the real routes still win for the
@@ -925,7 +927,9 @@ ${browserPipeline}${spaPipeline}
 
   # Dev-only state reset for the emitted e2e suite (src/util/test-reset.ts).
   # Outside :api on purpose — infra, like the probes above, so an auth-bearing
-  # system's e2e suite need not mint a principal just to empty a table.
+  # system's e2e suite need not mint a principal just to empty a table.  Not
+  # an auth bypass: the controller requires LOOM_TEST_RESET=1 plus the
+  # LOOM_TEST_RESET_TOKEN secret in the x-loom-test-reset header.
   scope "${TEST_RESET_PATH}" do
     post "/", ${appModule}Web.TestResetController, :reset
   end
@@ -1017,17 +1021,17 @@ end
 }
 
 function renderVanillaFaultHandler(appModule: string): string {
-  // ── the app-global RFC 7807 floor (M-T6.30) ──────────────────────────────
+  // ── the app-global RFC 7807 floor ────────────────────────────────────────
   //
   // The four non-elixir backends install an APP-GLOBAL unhandled-exception
   // handler — `app.onError` (hono), `DomainExceptionFilter` (.NET),
   // `ApiExceptionAdvice` (java), `install_error_handlers` (python) — so ANY
   // unmodelled fault, on any route, in any system, answers the RFC 7807
-  // envelope.  Vanilla Phoenix had none: its sanitized arm lived only inside
-  // the `respond/2` dispatchers that `workflow-execution-emit` /
-  // `explicit-handlers-emit` render, so a plain CRUD system emitted no such arm
-  // AT ALL and a controller raise fell through to the framework — an HTML
-  // debug page in dev (`debug_errors: true`), and in prod a body rendered
+  // envelope.  Vanilla Phoenix has no such floor of its own: the sanitized arm
+  // inside the `respond/2` dispatchers that `workflow-execution-emit` /
+  // `explicit-handlers-emit` render covers only those routes, so without this
+  // a plain CRUD system's controller raise falls through to the framework — an
+  // HTML debug page in dev (`debug_errors: true`), and in prod a body rendered
   // through `Phoenix.Endpoint.RenderErrors` under `application/json`, with the
   // exception's own message as `detail`.  Three ways to violate the contract on
   // the most common system shape.
@@ -1224,15 +1228,14 @@ end
  * defined and the ACTION refuses instead, answering the same 404 having
  * touched nothing.
  *
- * The property that matters is unchanged: a request against a production
- * deployment truncates nothing.  And the default it falls back to is compiled
- * IN — `config/prod.exs` bakes `loom_test_reset_default: false`, so a release
- * built with `MIX_ENV=prod` cannot reach the truncate at all without someone
- * setting `LOOM_TEST_RESET=1` on purpose.  What is lost is only that the path
- * exists to 404 at rather than being absent.
+ * Opt-in only, never inferred from `MIX_ENV` (finding H-30): the action
+ * answers 404 unless an operator sets BOTH `LOOM_TEST_RESET=1` and a
+ * `LOOM_TEST_RESET_TOKEN`, and 403 unless the request's `x-loom-test-reset`
+ * header equals that token (`Plug.Crypto.secure_compare`, constant-time).
+ * What is lost against node/python/.NET is only that the path exists to 404
+ * at rather than being absent.
  */
 function renderVanillaTestResetController(
-  appName: string,
   appModule: string,
   seedModules: readonly string[],
 ): string {
@@ -1252,61 +1255,76 @@ defmodule ${appModule}Web.TestResetController do
   @moduledoc """
   Dev-only state reset for the generated \`e2e/\` suite.
 
-  The suite calls this before every test so each block sees only the rows it
-  creates; without it an exact count assertion is green on a fresh database
-  and red on the second run of the same one.
+  The suite calls this before its tests so a second run against the same
+  database behaves like the first.
 
   Registered unconditionally because a Phoenix router is compiled, so the
-  refusal lives in the action: outside a dev profile this answers 404 and
-  touches nothing.  The suite for its part only SENDS the request when its
-  target is a loopback address, so pointing it at a deployed environment
-  disables the reset by construction.
+  refusal lives in the action: unless ${TEST_RESET_ENV}=1 AND
+  ${TEST_RESET_TOKEN_ENV} are set this answers 404, and without that token in
+  the ${TEST_RESET_HEADER} header it answers 403, touching nothing either way.
+  The suite for its part only SENDS the request when it holds the token and
+  its target is a loopback address.
   """
 
   @doc "POST ${TEST_RESET_PATH} — truncate application tables, re-apply seeds."
   def reset(conn, _params) do
-    if enabled?() do
-      # Discovered at runtime, so this also reaches what the model does not
-      # describe but the backend creates (the outbox, materialized
-      # projections, the seed marker).  Every backend's migration ledger is
-      # excluded — losing one replays the whole chain on the next boot.
-      %{rows: rows} =
-        Ecto.Adapters.SQL.query!(${appModule}.Repo, ${JSON.stringify(resetTableDiscoverySql())}, [])
+    case authorize(conn) do
+      :ok ->
+        do_reset(conn)
 
-      targets = Enum.map(rows, fn [schema, table] -> ~s("#{schema}"."#{table}") end)
-
-      if targets != [] do
-        # One statement for the whole set: CASCADE must see every table at once
-        # or a foreign key makes the order significant, and RESTART IDENTITY
-        # puts sequences back so a generated id is stable across runs.
-        Ecto.Adapters.SQL.query!(
-          ${appModule}.Repo,
-          "truncate table " <> Enum.join(targets, ", ") <> " restart identity cascade",
-          []
-        )
-      end
-${seedCalls}
-      json(conn, %{status: "reset", tables: length(targets)})
-    else
-      conn
-      |> put_status(:not_found)
-      |> json(%{
-        status: "not_found",
-        detail:
-          "state reset is disabled outside a dev profile; set ${TEST_RESET_ENV}=1 to enable it"
-      })
+      {status, detail} ->
+        conn
+        |> put_status(status)
+        |> json(%{status: Atom.to_string(status), detail: detail})
     end
   end
 
-  # \`1\`/\`0\` force the switch either way; unset falls back to the profile this
-  # release was BUILT with (config/{dev,test}.exs bake true, config/prod.exs
-  # bakes false), so a production release is closed without anyone setting
-  # anything.
-  defp enabled? do
-    case System.get_env("${TEST_RESET_ENV}") do
-      "1" -> true
-      "0" -> false
-      _ -> Application.get_env(:${appName}, :loom_test_reset_default, false)
+  defp do_reset(conn) do
+    # Discovered at runtime, so this also reaches what the model does not
+    # describe but the backend creates (the outbox, materialized
+    # projections, the seed marker).  Every backend's migration ledger is
+    # excluded — losing one replays the whole chain on the next boot.
+    %{rows: rows} =
+      Ecto.Adapters.SQL.query!(${appModule}.Repo, ${JSON.stringify(resetTableDiscoverySql())}, [])
+
+    targets = Enum.map(rows, fn [schema, table] -> ~s("#{schema}"."#{table}") end)
+
+    if targets != [] do
+      # One statement for the whole set: CASCADE must see every table at once
+      # or a foreign key makes the order significant, and RESTART IDENTITY
+      # puts sequences back so a generated id is stable across runs.
+      Ecto.Adapters.SQL.query!(
+        ${appModule}.Repo,
+        "truncate table " <> Enum.join(targets, ", ") <> " restart identity cascade",
+        []
+      )
+    end
+${seedCalls}
+    json(conn, %{status: "reset", tables: length(targets)})
+  end
+
+  # 404 unless switched on by name WITH a token (never inferred from MIX_ENV);
+  # 403 unless the request carries that token.
+  defp authorize(conn) do
+    expected = System.get_env("${TEST_RESET_TOKEN_ENV}") || ""
+
+    cond do
+      System.get_env("${TEST_RESET_ENV}") != "1" or expected == "" ->
+        {:not_found,
+         "state reset is disabled; set ${TEST_RESET_ENV}=1 and ${TEST_RESET_TOKEN_ENV} to enable it"}
+
+      Plug.Crypto.secure_compare(given_token(conn), expected) ->
+        :ok
+
+      true ->
+        {:forbidden, "missing or wrong reset token"}
+    end
+  end
+
+  defp given_token(conn) do
+    case get_req_header(conn, "${TEST_RESET_HEADER}") do
+      [token | _] -> token
+      [] -> ""
     end
   end
 end
@@ -1456,7 +1474,8 @@ end
 `;
 }
 
-/** M-T1.8 (HEEx arm) — the DEAD-render (disconnected, pre-socket) error page.
+/** HEEx arm of the error boundary — the DEAD-render (disconnected,
+ *  pre-socket) error page.
  *  Sibling of `ErrorJSON` above, same minimal independent-module shape (a
  *  bare `render/2`, no template files, no `use <App>Web, :html` / CoreComponents
  *  coupling) so it needs nothing the LiveView spine doesn't already always
@@ -1569,11 +1588,6 @@ import_config "#{config_env()}.exs"
 function renderVanillaDev(appName: string, appModule: string): string {
   return `import Config
 
-# Whether the dev-only state reset (src/util/test-reset.ts) may run when
-# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
-# for a release: a dev build is a dev machine.
-config :${appName}, loom_test_reset_default: true
-
 # Honor DATABASE_URL when set (containerized dev + e2e harnesses point
 # the app at a provisioned database / port), otherwise fall back to the
 # local default.  Ecto rejects mixing \`url:\` with discrete host/database
@@ -1605,13 +1619,6 @@ config :${appName}, ${appModule}Web.Endpoint,
 
 function renderVanillaProd(appName: string, appModule: string): string {
   return `import Config
-
-# Whether the dev-only state reset (src/util/test-reset.ts) may run when
-# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
-# for a release: a MIX_ENV=prod release is a
-# deployment, and must not carry a reachable truncate.  Only an explicit
-# LOOM_TEST_RESET=1 can override this.
-config :${appName}, loom_test_reset_default: false
 
 # Start the Phoenix endpoint's HTTP server in a release (a \`mix release\`
 # doesn't run \`mix phx.server\`, so without this the released container boots
@@ -1673,11 +1680,6 @@ end
 
 function renderVanillaTest(appName: string, appModule: string): string {
   return `import Config
-
-# Whether the dev-only state reset (src/util/test-reset.ts) may run when
-# LOOM_TEST_RESET is unset.  Baked in at BUILD time, which is the right notion
-# for a release: a test build is a test run.
-config :${appName}, loom_test_reset_default: true
 
 config :${appName}, ${appModule}.Repo,
   username: "postgres",

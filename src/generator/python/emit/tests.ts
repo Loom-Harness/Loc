@@ -14,6 +14,7 @@ import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake } from "../../../util/naming.js";
 import {
+  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestLiteral,
   type TestLiteralTarget,
@@ -405,7 +406,10 @@ export function renderExplicitMatcher(
       : `    assert ${expected} in ${actual}`;
   }
   if (!op) return null;
-  const cmp = `${actual} ${op} ${expected}`;
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as a `datetime`, so a value stored as the raw string fails.
+  const dt = coerceMatcherExpected(expr, expected, PY_TEST_LITERAL);
+  const cmp = `${actual} ${op} ${dt ?? expected}`;
   return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
 }
 

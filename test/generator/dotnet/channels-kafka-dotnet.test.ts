@@ -86,7 +86,7 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
       expect(mod).toContain(
         '"loom.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
-          '", false, "order"',
+          '", false, "order", false)',
       );
       // Idempotent topic ensure before the group join.
       expect(mod).toContain("await EnsureTopicAsync(address);");
@@ -149,6 +149,29 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     expect(consumer).toContain('if (binding.Queue || binding.Transport == "kafka")');
     expect(consumer).toContain(
       '"channel_consumed", binding.Address, envelope.Type, envelope.Id, envelope.LoomKey',
+    );
+    // The new-group start offset rides the binding (D3); `retention: log`
+    // keeps the latest.
+    expect(consumer).toContain(
+      "await transport.SubscribeAsync(binding.Address, binding.Group, binding.FromBeginning,",
+    );
+    expect(consumer).toContain(
+      "AutoOffsetReset = fromBeginning ? AutoOffsetReset.Earliest : AutoOffsetReset.Latest,",
+    );
+  });
+
+  it("starts a NEW group at earliest on a work-queue channel (D3, item 13)", async () => {
+    const files = await generateSystemFiles(
+      FIXTURE.replace("delivery: broadcast", "delivery: queue").replace(
+        "retention: log",
+        "retention: work",
+      ),
+    );
+    const mod = find(files, "ship_api", "ChannelTransport.cs");
+    expect(mod).toContain('"loom.Orders.Lifecycle.shipApi", true, "order", true)');
+    // Other transports inherit the interface's default 4-arg overload.
+    expect(mod).toContain(
+      "Task SubscribeAsync(string address, string? group, bool fromBeginning, Func<LoomEventEnvelope, Task> handler) =>",
     );
   });
 

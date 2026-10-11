@@ -98,7 +98,7 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/generator/typescript/hono-erp-bundle-regressions.test.ts": 1,
   "test/generator/typescript/hono-workflow-nested-saves.test.ts": 1,
   "test/generator/typescript/interpolation.test.ts": 2,
-  "test/generator/typescript/intrinsic-trim.test.ts": 7,
+  "test/generator/typescript/intrinsic-trim.test.ts": 5,
   "test/generator/typescript/nested-parts.test.ts": 3,
   "test/generator/typescript/paged-emit.test.ts": 3,
   "test/generator/typescript/retrieval-criterion-reify.test.ts": 1,
@@ -141,10 +141,10 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/dotnet-tracing.test.ts": 3,
   "test/generator/dotnet/dotnet-transitive-vo-nested.test.ts": 1,
   "test/generator/dotnet/dotnet-workflow-instances.test.ts": 1,
-  "test/generator/dotnet/generator-dotnet.test.ts": 66,
+  "test/generator/dotnet/generator-dotnet.test.ts": 58,
   "test/generator/dotnet/intrinsic-math.test.ts": 5,
   "test/generator/dotnet/intrinsic-strings.test.ts": 3,
-  "test/generator/dotnet/intrinsic-trim.test.ts": 3,
+  "test/generator/dotnet/intrinsic-trim.test.ts": 1,
   "test/generator/dotnet/nested-parts.test.ts": 2,
   "test/generator/dotnet/operation-return-emit.test.ts": 2,
   "test/generator/dotnet/operation-scalar-return-emit.test.ts": 1,
@@ -180,22 +180,14 @@ const PARSE_STRING_ALONGSIDE_HONO: Readonly<Record<string, string>> = {
   "test/generator/typescript/avg-desugar.test.ts":
     "a dedicated `parses + validates cleanly` case that asserts `errors` is empty itself; the generate calls use `parseValid`",
   "test/generator/typescript/interpolation.test.ts": "same — the phase-④ assertion IS the test",
-  "test/generator/typescript/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/stdlib.test.ts": "same — the phase-④ assertion IS the test",
   "test/generator/typescript/toplevel-function.test.ts": "same — the phase-④ assertion IS the test",
-  "test/ir/collection-op-lambda-element-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → legacy-generate hop, still to migrate",
-  "test/ir/collection-op-let-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → `generateHono` hop, still to migrate",
 };
 
 const PARSE_STRING_ALONGSIDE_DOTNET: Readonly<Record<string, string>> = {
   "test/generator/dotnet/intrinsic-math.test.ts":
     "a dedicated `parses + validates cleanly` case that asserts `errors` is empty itself; the five generate calls use `parseValid`",
   "test/generator/dotnet/intrinsic-strings.test.ts": "same — the phase-④ assertion IS the test",
-  "test/generator/dotnet/intrinsic-trim.test.ts": "same — the phase-④ assertion IS the test",
-  "test/ir/collection-op-lambda-element-type.test.ts":
-    "OWNED BY ANOTHER PACKET (test/ir/** fence) — a real `parseString` → `generateDotnet` hop, still to migrate",
 };
 
 function testFiles(dir: string, out: string[] = []): string[] {

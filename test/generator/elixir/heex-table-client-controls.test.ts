@@ -74,6 +74,11 @@ system Shop {
   }
   api ShopApi from M
   ui ShopUi {
+    // The of: read binds through this handle. Without it the read names
+    // nothing, and loom.ui-read-unresolved refuses the model — before that
+    // gate this fixture emitted undefined into the page while
+    // ddd generate system reported success.
+    api ShopApi: ShopApi
     page Listing {
       route: "/listing"
       state { q: string = "" }
@@ -92,10 +97,10 @@ system Shop {
   resource cState { for: C, kind: state, use: loomDb }
   deployable phoenixApp {
     platform: elixir, contexts: [C], dataSources: [cState], serves: ShopApi,
-    ui: ShopUi, port: 4000
+    ui: ShopUi { ShopApi: phoenixApp }, port: 4000
   }
   deployable web {
-    platform: static, targets: phoenixApp, ui: ShopUi, port: 3000
+    platform: static, targets: phoenixApp, ui: ShopUi { ShopApi: phoenixApp }, port: 3000
   }
 }
 `;
@@ -178,7 +183,8 @@ describe("HEEx client table controls — the rows expression", () => {
       // The react header's own sort binding: `onClick={… setSortKey("code") …}`.
       for (const m of c.matchAll(/setSortKey\("(\w+)"\)/g)) reactFields.add(m[1]!);
     }
-    expect([...reactFields].sort()).toEqual(["code", "id", "total", "version"]);
+    // no `version`: the optimistic-concurrency counter is not a scaffold column.
+    expect([...reactFields].sort()).toEqual(["code", "id", "total"]);
     const live = await one(CLIENT_SRC, "/order_list_live.ex");
     for (const f of reactFields) expect(live).toContain(`{"${f}", `);
   });

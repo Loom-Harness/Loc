@@ -406,7 +406,10 @@ function primitiveAnchor(c: Ctx): string {
 function primitiveIdLink(c: Ctx): string {
   const idExpr = String(c.idExpr ?? "''");
   const prefix = String(c.pathPrefix ?? "/");
-  return `TextButton(onPressed: () => Navigator.of(context).pushNamed('${dartStr(prefix)}' + ${idExpr}.toString()), child: Text(${idExpr}.toString()))`;
+  // A referenced record with a `display` is labelled by the `LoomRefLabel`
+  // child the target wraps around the id text (its loading / error fallback).
+  const label = `${String(c.refOpen ?? "")}Text(${idExpr}.toString())${String(c.refClose ?? "")}`;
+  return `TextButton(onPressed: () => Navigator.of(context).pushNamed('${dartStr(prefix)}' + ${idExpr}.toString()), child: ${label})`;
 }
 
 /** True when rendered Dart references an `intl` formatter (`NumberFormat` /

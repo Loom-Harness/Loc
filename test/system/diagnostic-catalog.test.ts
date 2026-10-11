@@ -106,6 +106,7 @@ function catalogedSources(): string[] {
   // is listed so invariant 3 counts its catalog entries as REACHED rather
   // than orphaned.
   out.push(path.join("src", "language", "parse-errors.ts"));
+  out.push(path.join("src", "language", "misplaced-declaration.ts"));
   // Phase ⑨ — the migration derivation's own refusals (F-018).  Like the
   // `_expr/target.ts` entry above, these are THROWN errors whose `code` is a
   // class property, not `accept()`/object-literal sites, so only the orphan

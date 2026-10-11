@@ -19,6 +19,7 @@ import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/p
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
@@ -83,6 +84,7 @@ import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
 import { buildVueRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { VUE_REF_LABEL, VUE_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { renderVueStoreModule } from "./store-builder.js";
 import {
   renderVueComponentFile,
@@ -146,7 +148,7 @@ export function generateVueForContexts(
   deployable: DeployableIR,
   options: GenerateVueOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/vue/index");
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   // Same-origin relative `/api` base; `vite dev` proxies it to the
@@ -747,6 +749,12 @@ export function generateVueForContexts(
   // pack.json.  vuetify ships neither; shadcnVue ships globals-css /
   // lib-utils / the components-ui barrel plus the `components-ui-*`
   // source-copy glob (`src/components/ui/{1}.vue`).
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<LoomRefLabel"))) {
+    out.set(VUE_REF_LABEL_PATH, VUE_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 
@@ -754,7 +762,7 @@ export function generateVueForContexts(
   // React generator) so every emitter above stays path-agnostic.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/vue/index");
   for (const [path, content] of out) {
     prefixed.set(`${pathPrefix}${path}`, content);
   }

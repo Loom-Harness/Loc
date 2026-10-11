@@ -424,7 +424,11 @@ export function checkDeployableRealizationAxes(d: Deployable, accept: Validation
 }
 
 /** Rule 14 — design-pack format must match the deployable's
- *  framework.  Three cases:
+ *  framework.  Two frameworks short-circuit first, because they
+ *  self-host and have no `.hbs` pack pipeline: **feliz** (`design:`
+ *  selects a daisyUI theme → validated against `DAISYUI_THEMES`) and
+ *  **flutter** (`design:` means nothing → warn that it is inert).
+ *  For everything else, three cases:
  *    1. `design:` set to a built-in name (mantine/shadcn/mui/chakra/
  *       coreComponents) whose format doesn't match the deployable's
  *       framework → error.  Suggests the valid built-ins for the
@@ -480,6 +484,26 @@ export function checkDeployableDesignPack(
         { node: d, property: "design", code: "loom.design-theme-unknown" },
       );
     }
+    return;
+  }
+  // Flutter, like Feliz, self-hosts: it has NO `.hbs` pack pipeline at all and
+  // renders Material 3 widgets procedurally (`src/generator/flutter/pack.ts`).
+  // Unlike Feliz its `design:` slot means nothing either — lowering
+  // (`src/ir/lower/lower-deployment.ts`) drops `design` outright for
+  // `platform: flutter`, and no Flutter emitter reads `deployable.design`, so
+  // the generated project is identical with `design: mantine`, with
+  // `design: shadcn`, and with no `design:` line.  Without this arm the value
+  // was simply ACCEPTED: `expectedPackFormatFor("flutter")` is `undefined`
+  // (Flutter has no PackFormat to compare against), so the Case-1a format
+  // cross-check below never fires and the author believes they chose a design.
+  // Warning, not error, on the Case-3 precedent above: the value is inert, not
+  // wrong, and the `.ddd` still generates.
+  if (framework === "flutter") {
+    accept(
+      "warning",
+      diagMessage("loom.design-pack-ignored#flutter", { design: d.design, name: d.name }),
+      { node: d, property: "design", code: "loom.design-pack-ignored" },
+    );
     return;
   }
   const expectedFormat = expectedPackFormatFor(framework);

@@ -14,7 +14,7 @@
 //
 // Neither honoured the read's own `ignoring` clause: `find … ignoring
 // tenantOwned` still returned only the caller's tenant, with no diagnostic,
-// while `FILTER_BYPASS_FAMILIES` certifies java as honouring the clause.
+// while the validator certified java as honouring the clause.
 //
 // EVERY assertion here is paired presence + ABSENCE.  The failure mode is a
 // RETAINED conjunct, which a presence-only assertion cannot see — that is

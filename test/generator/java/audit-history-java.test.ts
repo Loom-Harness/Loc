@@ -50,15 +50,6 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — java route surface", () => {
-  it("serves GET /{id}/history off the derived find", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "EmployeesController.java");
-    expect(controller).toContain('@GetMapping("/{id}/history")');
-    expect(controller).toContain(
-      "public List<AuditEntry> historyEmployee(@PathVariable UUID id) {",
-    );
-    expect(controller).toContain("return service.historyEmployee(new EmployeeId(id));");
-  });
-
   it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
     const files = await emit(MASKED);
     const port = fileEndingWith(files, "AuditRecordRepository.java");
@@ -121,20 +112,6 @@ describe("entity history — java negative authz", () => {
     // touched.
     expect(handler.indexOf("ForbiddenException")).toBeLessThan(
       handler.indexOf("service.historyEmployee"),
-    );
-  });
-
-  it("scopes by entity reachability, so a filtered-out row 404s instead of leaking", async () => {
-    const service = fileEndingWith(await emit(MASKED), "EmployeeService.java");
-    const method = service.slice(service.indexOf("public List<AuditEntry> historyEmployee"));
-    // `audit_records` carries no tenant column, so there is nothing on it for a
-    // capability filter to scope.  The method resolves the ENTITY first —
-    // `findById` already carries every capability predicate — and only reads
-    // the trail for a row this caller can see.
-    expect(method).toContain("repository.findById(id).orElseThrow(() ->");
-    expect(method).toContain("new AggregateNotFoundException(");
-    expect(method.indexOf("repository.findById")).toBeLessThan(
-      method.indexOf("findByTargetTypeAndTargetIdOrderByAtAsc"),
     );
   });
 

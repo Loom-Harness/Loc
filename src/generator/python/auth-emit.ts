@@ -5,6 +5,7 @@ import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
+import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { renderPyType } from "./render-expr.js";
@@ -312,6 +313,17 @@ UserVerifier = Callable[[Request], Awaitable[User | None]]
 _registered: UserVerifier | None = None
 
 
+class MalformedDevClaimsError(Exception):
+    """A present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header (dev stub only).
+
+    The auth middleware answers it 400 — refused rather than ignored, because
+    ignoring it ran the request as the built-in identity.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)})
+
+
 def register_user_verifier(fn: UserVerifier) -> None:
     """Register the verifier.  Calling more than once overwrites."""
     global _registered
@@ -372,8 +384,10 @@ function renderAuthMiddleware(
   // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
   // same reason as the probes: it is infra, not domain surface, and an
   // auth-bearing system's e2e suite would otherwise have to mint a principal
-  // just to empty a table.  It costs nothing — the route is not DEFINED unless
-  // the switch is on, so there is no handler behind the bypassed path.
+  // just to empty a table.  Bypassing the middleware is not bypassing
+  // authentication: the route is defined only with an explicit
+  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-loom-test-reset` header does not match that secret.
   const bypass = oidc
     ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
     : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
@@ -421,7 +435,7 @@ function renderAuthMiddleware(
     "from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint",
     "",
     "from app.auth.user import current_user_var",
-    "from app.auth.verifier import verify_user_or_throw",
+    "from app.auth.verifier import MalformedDevClaimsError, verify_user_or_throw",
     hierarchy ? "from app.db.engine import session_factory" : null,
     orgContext
       ? "from app.obs.log import log, set_actor_id"
@@ -441,6 +455,20 @@ function renderAuthMiddleware(
     "                return await call_next(request)",
     "        try:",
     "            user = await verify_user_or_throw(request)",
+    // Dev stub only (ruling D6): a present-but-undecodable dev-claims header
+    // is a malformed REQUEST, not missing credentials.
+    "        except MalformedDevClaimsError as err:",
+    "            return JSONResponse(",
+    "                {",
+    '                    "type": "about:blank",',
+    '                    "title": "Bad Request",',
+    '                    "status": 400,',
+    '                    "detail": str(err),',
+    '                    "instance": request.url.path,',
+    "                },",
+    "                status_code=400,",
+    '                media_type="application/problem+json",',
+    "            )",
     "        except Exception:",
     // RFC 7807, the envelope every other error on this API sends, plus the
     // `WWW-Authenticate` challenge RFC 9110 §15.5.2 makes a MUST on any 401.

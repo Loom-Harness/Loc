@@ -158,6 +158,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": null,
+          "venueName": null,
           "venueOpenedAt": null
         },
         {
@@ -165,6 +166,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": 40,
+          "venueName": "Hall",
           "venueOpenedAt": "<timestamp>"
         }
       ]

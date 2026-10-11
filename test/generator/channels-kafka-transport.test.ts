@@ -98,7 +98,26 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     // The consumer group is the deployable-suffixed address; the binding
     // carries the channel's declared partition-key field.
     expect(files.get("ship_api/http/channels.ts")).toContain(
-      'group: "loom.Orders.Lifecycle.shipApi", queue: false, key: "order"',
+      'group: "loom.Orders.Lifecycle.shipApi", queue: false, key: "order", fromBeginning: false },',
+    );
+    // The new-group start offset rides the binding (D3); `retention: log`
+    // keeps the latest — a fresh group does not replay the whole log.
+    const ship = files.get("ship_api/http/channels.ts") ?? "";
+    expect(ship).toContain(
+      "await consumer.subscribe({ topic: address, fromBeginning: opts?.fromBeginning === true });",
+    );
+    expect(ship).toContain("}, { fromBeginning: b.fromBeginning }),");
+  });
+
+  it("starts a NEW group at the earliest offset on a work-queue channel (D3, item 13)", async () => {
+    const files = await generateSystemFiles(
+      FIXTURE.replace("delivery: broadcast", "delivery: queue").replace(
+        "retention: log",
+        "retention: work",
+      ),
+    );
+    expect(files.get("ship_api/http/channels.ts")).toContain(
+      'group: "loom.Orders.Lifecycle.shipApi", queue: true, key: "order", fromBeginning: true },',
     );
   });
 

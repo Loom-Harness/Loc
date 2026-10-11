@@ -115,11 +115,10 @@ Notes:
     predicates name `tenant_id` / `is_deleted`, which the triple has not — and
     before that gate existed it was a **silent cross-tenant count** on .NET/EF,
     which registers no `HasQueryFilter` for a document aggregate;
-  - (`platform: java` used to refuse it too, under
-    `loom.projection-whole-table-aggregation-unsupported` — its JPQL needed a
-    JPA entity a document aggregate never gets.  Since M-T4.2 java runs that
-    read natively against the `(id, data, version)` table, so this is no longer
-    a per-backend reason.)
+  - (`platform: java` used to refuse it too — its JPQL needed a JPA entity a
+    document aggregate never gets.  Since M-T4.2 java runs that read natively
+    against the `(id, data, version)` table, so this is no longer a
+    per-backend reason.)
 
   A scaffold whose default output fails `ddd parse` is worse than one tile
   short, so the skip lives in the macro. A row count over a document aggregate

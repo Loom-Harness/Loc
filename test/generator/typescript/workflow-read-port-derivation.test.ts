@@ -140,7 +140,7 @@ const SRC = `
       create(holder: string) {
         if let stale = Accounts.find(Archived) {
           precondition Screening.isReconciled(holder)
-          stale.update({ holder: holder, archived: false })
+          stale.update(holder, false)
         }
         let acct = Account.create({ holder: holder, archived: false })
       }

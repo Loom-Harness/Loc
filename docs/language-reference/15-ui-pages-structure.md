@@ -14,6 +14,8 @@ A `ui` is a `SystemMember` (peer to `subdomain`, `deployable`, `theme`, `layout`
 
 Every frontend deployable **must** name a ui — its absence is a hard error (`loom.react-deployable-missing-ui` and the `vue`/`svelte`/`angular`/`feliz`/`flutter` siblings); a frontend deployable without a ui is a host with no mount point. The deployable side of the binding (`platform:`, `targets:`, `auth:`, `design:`) belongs to [2. Systems & topology](02-systems-and-topology.md), which also owns the system-level `theme { … }` block.
 
+A frontend is generated against the ONE backend its `targets:` names, so every aggregate the ui's pages read must belong to a context that backend serves. A page reading any other — typically a `with scaffold(subdomains: [A, B])` whose target serves only `A` — is `loom.ui-aggregate-unserved` (the error names the ui, the subdomain and the `targets:` deployable); binding the ui's api handles to several different backends is `loom.ui-multi-backend-unsupported`.
+
 ```ddd
 system Frontends {
   subdomain Sales {

@@ -1849,6 +1849,18 @@ export function wireValue(
     const comp = inner === "__e" ? `list(${expr})` : `[${inner} for __e in ${expr}]`;
     return optional ? `(None if ${expr} is None else ${comp})` : comp;
   }
+  if (t.kind === "entity") {
+    // A DERIVED entity-typed member (`derived byPriceDesc: LineItem[]`) holds
+    // domain instances exactly like a containment, so each crosses the wire
+    // through the part's own projection — inlined, because this renderer also
+    // serves the query-projection routes where the repository's `_wire_<part>`
+    // helper is not in scope.  Returning the instance handed a dataclass to the
+    // response model, which 500'd on its Decimal price (wave C3 D1).
+    const part = ctx.aggregates.flatMap((a) => a.parts).find((p) => p.name === t.name);
+    if (!part) return expr;
+    const obj = `{${wireProjection(part, expr, ctx).join(", ")}}`;
+    return optional ? `(None if ${expr} is None else ${obj})` : obj;
+  }
   if (t.kind === "genericInstance" && t.ctor === "provenanced") {
     // (M-T6.12) Fold the domain's split pair into the one wire carrier.  `expr`
     // is the VALUE attribute (`root.total`); its lineage sibling is the

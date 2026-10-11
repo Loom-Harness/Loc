@@ -225,7 +225,7 @@ The Flutter target ships the display path, forms (9 field kinds), workflows, `ma
 **Phase 3 — realtime + expr seam (P2):** (M-F) **SHIPPED** ([#2619](https://github.com/Loom-Harness/Loc/pull/2619)): `generator/flutter/realtime.ts` consumes the SSE wire behind one conditional-import façade — the browser's own `EventSource` on the web, a line parser over a streamed `package:http` response natively — and `flutter` is in `SSE_REALTIME_FRONTENDS` (`system-checks.ts`), so an `on <channel>.<Event>` handler is honoured instead of warned-then-dropped. What still raises `loom.ui-realtime-unsupported` on a flutter ui is the honest half: a target backend that serves no SSE wire. (M-G, verify-first) a Dart method-call seam if the JS-style `recv.member(args)` at `walker-core.ts:1472` really diverges.
 **Phase 4 — verification gates (P2, Linux-only per pinned decision 2026-07-20) — M-H and M-I shipped:** (M-H) an Android `flutter build apk --debug` compile job now runs in `generated-flutter-build.yml` (Java 17 + Android SDK setup, `flutter create --platforms=android .` then the build) alongside the existing web build; (M-I) a headless runtime smoke (`flutter test`, device-free) runs in the same workflow ahead of the web build — flutter now has a runtime gate. **iOS build (macOS/nightly) + on-device `integration_test` remain out of per-PR scope** (no macOS host in the Linux-only gate) — see the proposal's Phase 4 decision block.
 **Window additions (2026-08-10):** #2490 fixed a Phase-1-class silent failure — a Flutter deployable literally named `web` generated an app that could not be built (the Dart package name was `snake(deployable.name)`; `web` is a real pub.dev package AND a transitive dep of `http`, so pub resolved it to the local root and version solving failed before compiling, naming neither the deployable nor the collision; now routed through `dartPackageName` — denylist + `_app` suffix, deliberately not a blanket suffix). Open PR #2491 is the same class: a parameterless `find` emitted `({})` as a `.family` record key — Dart's empty record type is `()` — so `reads.dart` did not parse (19 cascading errors); the CI fixture had no parameterless Flutter-reachable read, so `flutter analyze` stayed green through a non-parsing file (the fixture grows the case in the same PR). `KNOWN_FLUTTER_GAPS` (`test/generator/flutter/parity-freeze.test.ts`) is **EMPTY** — all four form-field shapes (nested-VO sub-field, VO-array with non-scalar sub-field, bool-element array, enum-element array) were closed with real Dart widgets by wave C1 packet 1e-ii — and it **is now registered in `allowlist-ratchet.test.ts` at `max: 0`** (wave C2 packet 2j; the 2026-07-13 sweep that built that register had missed this construct, and this note is what recorded the omission without acting on it).
-**Phase state (2026-08-24):** Phase 1's silent-drop goal is met (M-A markers emit, M-B's standalone primitives all render, M-C's auth gate ships #2619); Phase 2 is closed (M-D reads both marker families, M-E's freeze test exists); Phase 3's M-F shipped with the same PR as M-C; Phase 4's M-H/M-I shipped. **What is left of the whole mission is the four `KNOWN_FLUTTER_GAPS` WIDGETS behind M-A's markers** (nested-VO / mixed-VO-array / bool- and enum-element arrays inside a CreateForm — loud today, still unrendered) plus M-G, which is still verify-first and may be a no-op. The runtime half is M-T9.14's, and its named remainder — a `frontend-fullstack-e2e` cell — **merged 2026-08-24** as [#2663](https://github.com/Loom-Harness/Loc/pull/2663) (`test/behavioral/run-ui-flutter.mjs`, a BLOCKING nightly cell); what M-T9.14 still lacks is per-kind `ExprIR` pinning and a runtime auth-UI leg.
+**Phase state (2026-08-24):** Phase 1's silent-drop goal is met (M-A markers emit, M-B's standalone primitives all render, M-C's auth gate ships #2619); Phase 2 is closed (M-D reads both marker families, M-E's freeze test exists); Phase 3's M-F shipped with the same PR as M-C; Phase 4's M-H/M-I shipped. **What is left of the whole mission is the four `KNOWN_FLUTTER_GAPS` WIDGETS behind M-A's markers** (nested-VO / mixed-VO-array / bool- and enum-element arrays inside a CreateForm — loud today, still unrendered) plus M-G, which is still verify-first and may be a no-op. The runtime half is M-T9.14's, and its named remainder — a `frontend-fullstack-e2e` cell — **merged 2026-08-24** as [#2663](https://github.com/Loom-Harness/Loc/pull/2663) (`test/behavioral/run-ui-flutter.mjs`, a BLOCKING nightly cell); what M-T9.14 still lacked was per-kind `ExprIR` pinning and a runtime auth-UI leg — both built in wave C3 packet 3b (2026-09-28; see M-T9.14).
 Sources: [flutter-parity-and-native-gates](../old/proposals/flutter-parity-and-native-gates.md), [flutter-mobile-implementation](../old/plans/flutter-mobile-implementation.md).
 
 ## M-T1.20 — Frontend surface gaps: the five rejections outside the pack matrix — `open`; the `first`/`firstOrNull` arm is `open` (D-FIRST-ON-EMPTY applied by Wave C2 packet 2n) · **M** · P2
@@ -514,6 +514,12 @@ One tree-fenced packet (`src/generator/{vue,angular,feliz,flutter}/`, scaffold `
 
 **Verification.** Every repro becomes a corpus fixture (or a pack-build matrix cell) that builds on its target; F9's arms get a fixture that reaches them so `KNOWN_FLUTTER_GAPS` is honest again (that fixture is on [M-T9.74](T9-toolchain-health.md#m-t974)'s list), and each drop becomes a `giveUp()` or a validator code. Mutation-prove each gate by file-copy revert.
 
+**Added 2026-09-29 (evaluation-closure Wave A follow-up B-A9, found by #3090):**
+
+| id | Item | Evidence | Sz |
+|---|---|---|---|
+| F12 | **Feliz**: a scaffolded parameterless `OperationForm` and a hand-written `Action` on the same operation collide (duplicate Msg / update arm) | found while building #3090 | S |
+
 ## M-T1.37 — Scaffolded forms cannot edit `X id[]` / `string[]` on the four static frontends — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-FORMS (leftover-waves-2026-09-28).**
@@ -551,3 +557,27 @@ Item **P10** (#2989). The four static-bundle frontends mount a top-level error b
 **The fix:** an Elmish/Riverpod/LiveView equivalent that renders the same `app-error` contract, then assert it in each self-hosting frontend's smoke leg.
 
 **Verification.** Seed a render-time crash in each generated shell and watch its smoke leg go red (mutation proof).
+
+## M-T1.41 — The Vue, Svelte and Angular field-shape waivers have no owner — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **G8-10f**. `test/system/frontend-field-shape-coverage.test.ts` carries a `MISSING` map it labels "DEBT, not policy": **vue** `decimal`, `datetime`, `scalar-array`, `file`; **svelte** `id-ref-optional`, `scalar-array`; **angular** `id-ref`, `id-ref-optional`, `file`. Each entry is a field shape that framework's build-gate scaffold aggregate never renders, so a generator regression on that shape cannot turn `generated-{vue,svelte,angular}-build` red. No mission named them.
+
+**The fix:** add each shape to that framework's build-gate scaffold aggregate and delete its waiver entry in the same PR (the map ratchets). One framework per PR is fine.
+
+**Verification.** The framework's `generated-*-build` leg builds the widened aggregate; the waiver map shrinks; mutation-proved by breaking one shape's form-field emission and watching the build leg go red.
+
+## M-FT.5 — `Action` `then:` effects and the parameterless-op affordance on Feliz and Flutter — `in-flight` ([#3090](https://github.com/Loom-Harness/Loc/pull/3090)) · **S–M** · P2
+
+*Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). Scoped by the owner to the two self-hosted frontends.*
+
+The register's premise ("`Action` has no toast slot on any of the six frontends") is stale: `Action { x.op, then: toast("…") }` renders on react, vue, svelte and angular (`page-metamodel.md` documents the `then:` slot). What was still broken on `main` @ `cbda91658`:
+
+- **Flutter** ignored the author's `then:` and showed a hard-coded `SnackBar('<Op> done')`.
+- **Feliz** `renderAction` never read `then:`.
+- **Feliz, silent compile break:** an `Action` inside a byId `QueryView` without a literal `single: true` emitted `dispatch (ArchiveNote id)` with no `ArchiveNote` Msg case and no `Api.archiveNote` (FS0039), because `collectPageActions` read the literal flag while the renderer derives the single-record shape.
+
+[#3090](https://github.com/Loom-Harness/Loc/pull/3090) (eval-closure Wave A, agent A9) fixes all three and pins them in `test/generator/action-then-self-hosted.test.ts`. When it merges, flip this heading to `done`, archive it, and delete the M-FT.5 row from the field-test register.
+
+**Verification.** The #3090 test plus the `generated-feliz-build` and Flutter analyze legs on a byId `QueryView` carrying an unflagged `Action` with `then:`.

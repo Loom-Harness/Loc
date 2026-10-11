@@ -21,6 +21,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
@@ -32,18 +33,16 @@ const N = 1000;
 function entrySource(deplDir) {
   const J = JSON.stringify;
   return `
-import { synthDDL } from ${J(join(REPO, "web/src/runtime/ddl.ts"))};
+${MIGRATOR_IMPORT}
 import { createApp } from ${J(join(deplDir, "http/index.ts"))};
 import * as schema from ${J(join(deplDir, "db/schema.ts"))};
 import { drizzle } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { is, Table } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
 
 export async function boot() {
   const pglite = new PGlite();
-  await pglite.exec(synthDDL(schema, { is, Table, getTableConfig }));
   const db = drizzle(pglite, { schema });
+  ${applyMigrationsStmt(deplDir)}
   const app = createApp(db);
   const dispatch = (path, init) => app.fetch(new Request("http://x" + path, init));
   const close = () => pglite.close?.();

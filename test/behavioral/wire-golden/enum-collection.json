@@ -1,0 +1,169 @@
+{
+  "case": "enum-collection",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/teches",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/teches/{id}",
+      "status": 200,
+      "body": {
+        "certifications": [
+          "gas",
+          "high-voltage"
+        ],
+        "grade": "Senior",
+        "id": "<volatile:key>",
+        "name": "Ada",
+        "skillCount": 2,
+        "skills": [
+          "HVAC",
+          "Electrical"
+        ],
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/teches/{id}/retrain",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/teches/{id}",
+      "status": 200,
+      "body": {
+        "certifications": [
+          "gas",
+          "high-voltage"
+        ],
+        "grade": "Senior",
+        "id": "<volatile:key>",
+        "name": "Ada",
+        "skillCount": 3,
+        "skills": [
+          "Plumbing",
+          "HVAC",
+          "Electrical"
+        ],
+        "version": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/teches/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/teches/{id}",
+      "status": 200,
+      "body": {
+        "certifications": [],
+        "grade": "Junior",
+        "id": "<volatile:key>",
+        "name": "Ada",
+        "skillCount": 0,
+        "skills": [],
+        "version": 3
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/teches",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "certifications": [],
+            "grade": "Junior",
+            "id": "<volatile:key>",
+            "name": "Ada",
+            "skillCount": 0,
+            "skills": [],
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/teches/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/teches/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Tech {id} not found",
+        "instance": "/api/teches/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/teches",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/teches",
+        "instance": "/api/teches",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/teches",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/teches",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

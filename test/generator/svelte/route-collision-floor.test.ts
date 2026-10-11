@@ -16,6 +16,7 @@
 // model.
 
 import { describe, expect, it } from "vitest";
+import { validate } from "../../../src/api/index.js";
 import { generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
 const sys = (alphaRoute: string, betaRoute: string) => `
@@ -82,5 +83,14 @@ system ScaffoldYield {
     const routes = [...files.keys()].filter((k) => k.endsWith("+page.svelte"));
     expect(routes.some((k) => k.includes("/a/"))).toBe(true);
     expect(routes.some((k) => k.includes("/b/"))).toBe(true);
+  }, 60_000);
+
+  // `/foo` and `/foo/` are one SvelteKit directory (`routeToKitDir` drops
+  // empty segments) and one address to every router. The gate used to compare
+  // the raw strings, so this pair was `0 error(s)` and then hit the floor
+  // above (found by the #3133 throw census).
+  it("refuses two routes that differ only by a trailing slash", async () => {
+    const r = await validate(sys("/foo", "/foo/"));
+    expect(r.diagnostics.map((d) => d.code)).toContain("loom.ui-page-route-collision");
   }, 60_000);
 });

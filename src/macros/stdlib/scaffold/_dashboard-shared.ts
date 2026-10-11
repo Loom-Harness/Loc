@@ -30,16 +30,12 @@ import { isBoundedContext, isProjection, isProperty } from "../../../language/ge
  *        (`tenantOwned`, `softDeletable`, any `filter`) the tile is refused by
  *        `loom.projection-document-source-capability-filtered` — and BEFORE
  *        that gate existed it was a silent cross-tenant leak on EF Core, which
- *        registers no `HasQueryFilter` for a document aggregate;
- *      * on `platform: java` it is refused outright by
- *        `loom.projection-whole-table-aggregation-unsupported` (and its grouped
- *        twin `loom.projection-groupby-unsupported-backend`), because a document
- *        aggregate has no JPA entity for the JPQL to name.
+ *        registers no `HasQueryFilter` for a document aggregate.
  *
  *    A scaffold whose default output fails `ddd parse` on a supported backend
  *    is worse than one tile short, so the document case is skipped in the macro
  *    rather than gated after it.  A row count over a document aggregate is
- *    still perfectly writable BY HAND on the four backends that emit it — this
+ *    still perfectly writable BY HAND on every backend — this
  *    only decides what the scaffold claims unasked. */
 export function hasDashboardTable(agg: Aggregate): boolean {
   return !agg.isAbstract && agg.persistedAs !== "eventLog" && fieldsAreColumns(agg);

@@ -1,11 +1,21 @@
 // Extern operations (extern.md): body carries only preconditions; the
 // user-supplied handler owns the mutation.
+//
+// RUNTIME + COMPILE (wave C3 packet 3a, M-T9.13).  The register entry named
+// the blocker exactly ("give `Order` a create, then drive the PRECONDITIONS
+// gating the user handler"), so `Order` gained `crudish`.  What the block at
+// the bottom proves is the half of `extern` the generator owns: every
+// precondition is evaluated BEFORE control reaches the user handler, so a
+// refused call answers 422 and never reaches the scaffold.  The handler bodies
+// stay uncalled on purpose — an unimplemented `extern` throws an honest
+// fail-fast, and asserting that 500 would pin the scaffold instead of the
+// feature.  The non-extern `cancel` is the control.
 system ExternSys {
   subdomain Sales {
     context Sales {
       enum OrderStatus { Draft, Confirmed, Cancelled }
       event OrderConfirmed { order: Order id, at: datetime }
-      aggregate Order {
+      aggregate Order with crudish {
         customerId: string
         status: OrderStatus
         riskScore: int
@@ -15,7 +25,9 @@ system ExternSys {
           precondition isMutable()
           precondition riskScore < 80
         }
-        operation flag(score: int) extern { precondition score >= 0 }
+        // MESSAGED since wave C3, for the reason `vo-id-reference.ddd` gives: a
+        // message-less param bound answers each framework's default text.
+        operation flag(score: int) extern { precondition score >= 0 message "A risk flag cannot be negative" }
         operation cancel() { precondition isMutable()  status := OrderStatus.Cancelled }
       }
       repository Orders for Order { }
@@ -30,5 +42,34 @@ system ExternSys {
     dataSources: [salesState]
     serves: SalesApi
     port: 4000
+  }
+
+  test e2e "extern preconditions refuse before the user handler is reached" against d {
+    let risky = api.orders.create({ customerId: "c-1", status: "Draft", riskScore: 90 })
+    let safe = api.orders.create({ customerId: "c-2", status: "Draft", riskScore: 10 })
+
+    // `riskScore < 80` — the SECOND precondition of `confirm`.
+    expect(api.orders.confirm(risky)).toThrow(422)
+    // `score >= 0` on `flag`'s own parameter.
+    expect(api.orders.flag(safe, { score: -1 })).toThrow(422)
+
+    // The control: the non-extern `cancel` mutates…
+    api.orders.cancel(safe)
+    expect(api.orders.getById(safe).status).toBe("Cancelled")
+    // …and now `isMutable()` — the FIRST precondition of `confirm`, a function
+    // call — refuses the order the risk rule would have admitted.
+    expect(api.orders.confirm(safe)).toThrow(422)
+    expect(api.orders.cancel(safe)).toThrow(422)
+    // The refusals wrote nothing.
+    expect(api.orders.getById(risky).status).toBe("Draft")
+    expect(api.orders.getById(risky).riskScore).toBe(90)
+
+    // The crudish routes, so every derived route has a caller.
+    api.orders.update(risky, { customerId: "c-1", status: "Draft", riskScore: 70 })
+    expect(api.orders.getById(risky).riskScore).toBe(70)
+    expect(api.orders.all().total).toBe(2)
+    api.orders.destroy(risky)
+    api.orders.destroy(safe)
+    expect(api.orders.getById(safe)).toThrow(404)
   }
 }

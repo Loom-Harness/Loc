@@ -72,7 +72,8 @@ import { originFor } from "./origin.js";
 // side-effecting calls) is enforced by the phase-⑦ discipline validator,
 // not here — lowering preserves source fidelity.
 export function lowerApply(a: Apply, env: Env): ApplyIR {
-  const eventName = a.event.ref?.name ?? a.event.$refText;
+  // `event` is absent on a parse-recovered `apply Foo {` (missing `(e: …)`).
+  const eventName = a.event?.ref?.name ?? a.event?.$refText ?? "";
   const inner = withLocal(env, a.param, "param", { kind: "entity", name: eventName });
   const statements: StmtIR[] = [];
   let bodyEnv = inner;

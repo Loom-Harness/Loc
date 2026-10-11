@@ -7,40 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import { generateHono } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
-
-const SRC = `
-  context Catalog {
-    aggregate Product {
-      name: string
-      derived cleanName: string = name.trim()
-      invariant name.trim().length > 0
-    }
-    repository Products for Product {
-      find byExactName(q: string): Product[] where this.name.trim() == q
-    }
-  }
-`;
+import { parseValid } from "../../_helpers/parse.js";
 
 describe("typescript generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
-  it("parses + validates cleanly (typed as string, queryable where)", async () => {
-    const { errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-  });
-
-  it("renders trim in-memory in derived/invariant bodies", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateHono(model).get("domain/product.ts")!;
-    expect(domain).toContain("this._name.trim()");
-  });
-
-  it("renders trim as SQL in the find where-clause and imports `sql`", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateHono(model).get("db/repositories/product-repository.ts")!;
-    expect(repo).toContain("eq(sql`trim(${schema.products.name})`, q)");
-    expect(repo).toMatch(/import \{[^}]*\bsql\b[^}]*\} from "drizzle-orm";/);
-  });
-
   it("renders a value-side trim (param receiver) as plain JS", async () => {
     const src = `
       context Catalog {

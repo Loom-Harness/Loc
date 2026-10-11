@@ -9,6 +9,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
+import { projectionSourceTable } from "../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -18,7 +19,11 @@ import {
   groupKeyOf,
   wholeTableAggregates,
 } from "../../ir/util/projection-aggregate.js";
-import { aggregateArgColumn, sqlColumnName } from "../../ir/util/projection-column.js";
+import {
+  aggregateArgColumn,
+  isValueObjectLeaf,
+  type ProjectionColumn,
+} from "../../ir/util/projection-column.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
@@ -76,8 +81,8 @@ import {
 // plus a per-context `Api/<Ctx>QueryProjectionsController.cs` exposing
 // `GET /projections/<slug>` (sibling of the folded `<Ctx>ProjectionsController`
 // at the same prefix; distinct projection names ⇒ distinct slugs ⇒ no route
-// collision).  Only backends in `PROJECTION_QT_SUPPORTED` are permitted a
-// query-time projection by the IR validator; dotnet joins node/python/elixir/java.
+// collision).  Every backend emits query-time projections; dotnet was the last
+// to join (after node/python/elixir/java).
 // ---------------------------------------------------------------------------
 
 export function emitQueryProjections(
@@ -523,9 +528,16 @@ function efAggregationIgnoreClause(
  *  `whereToSql`.  `undefined` ⇒ no `WHERE` at all. */
 function dapperAggregationWhere(
   proj: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
   capabilityFilters: readonly ExprIR[],
 ): string | undefined {
   const filter = proj.query!.filter;
+  // A TPH (`sharedTable`) concrete reads its root's shared table, so the `kind`
+  // discriminator scopes it — the same `kind = '…'` conjunct every Dapper
+  // repository read over that table carries.  Without it the aggregate counted
+  // every sibling concrete's rows too (eval item 10).
+  const { kind } = projectionSourceTable(proj.query!.source!, ctx.aggregates);
+  const kindPart = kind ? [`kind = '${kind.replace(/'/g, "''")}'`] : [];
   const parts = [...(filter ? [filter] : []), ...capabilityFilters].map((p) => {
     try {
       return whereToSql(p);
@@ -536,7 +548,15 @@ function dapperAggregationWhere(
       );
     }
   });
-  return parts.length > 0 ? parts.join(" AND ") : undefined;
+  const all = [...kindPart, ...parts];
+  return all.length > 0 ? all.join(" AND ") : undefined;
+}
+
+/** The physical table a Dapper direct-table projection arm reads: the table
+ *  OWNER of the source (a TPH concrete owns none — its rows live in the root's
+ *  shared table, scoped by `dapperAggregationWhere`'s `kind` conjunct). */
+function dapperProjectionTable(source: string, ctx: EnrichedBoundedContextIR): string {
+  return dapperAggregateTable(projectionSourceTable(source, ctx.aggregates).tableOwner);
 }
 
 /** True when this aggregate's DECLARED wire field crosses as a float64.
@@ -617,9 +637,45 @@ function sqlAggregate(
   const agg = s.aggregate;
   if (agg.op === "count" || !agg.arg) return "count(*)::int";
   const cast = aggregateLandsOnDouble(s, ctx) ? "double precision" : "numeric";
-  // Dapper writes the SQL itself, so a VALUE-OBJECT LEAF is the flattened
-  // physical column (`amount_amount`) — the outermost member names nothing.
-  return `${agg.op}(${sqlIdent(sqlColumnName(aggregateArgColumn(agg.arg, src, ctx)))})::${cast}`;
+  return `${agg.op}(${dapperColumnSql(aggregateArgColumn(agg.arg, src, ctx))})::${cast}`;
+}
+
+/** A resolved projection column as Dapper SQL.  A plain field is its snake
+ *  column.  A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) is NOT a column on
+ *  Dapper: `fieldColumn` stores the whole VO as ONE `jsonb` column serialised
+ *  by System.Text.Json with default options — so its keys are the C# property
+ *  names (`{"Amount":10.5,"Currency":"EUR"}`), nested VOs as nested objects.
+ *  The leaf is therefore a jsonb text extraction cast back to the leaf's SQL
+ *  type; naming the flattened `amount_amount` the other backends store was a
+ *  `column does not exist` 500 at request time (eval item 14b). */
+function dapperColumnSql(col: ProjectionColumn): string {
+  const column = sqlIdent(snake(col.path[0]!));
+  if (!isValueObjectLeaf(col)) return column;
+  const keys = col.path.slice(1).map(upperFirst);
+  const extract =
+    keys.length === 1 ? `${column}->>'${keys[0]}'` : `${column}#>>'{${keys.join(",")}}'`;
+  const cast = jsonbLeafCast(col.fields.at(-1)?.type);
+  return cast ? `(${extract})::${cast}` : extract;
+}
+
+/** The Postgres type a jsonb-extracted VO leaf casts back to — the type the
+ *  column would carry if it were flattened, so the aggregate computes exactly
+ *  as over a real column.  Undefined keeps the text. */
+function jsonbLeafCast(t: TypeIR | undefined): string | undefined {
+  if (!t) return undefined;
+  const inner = t.kind === "optional" ? t.inner : t;
+  if (inner.kind !== "primitive") return undefined;
+  switch (inner.name) {
+    case "money":
+    case "decimal":
+      return "numeric";
+    case "int":
+      return "integer";
+    case "long":
+      return "bigint";
+    default:
+      return undefined;
+  }
 }
 
 /** The CLR type the aggregate's aliased column lands on — the Npgsql mapping of
@@ -732,7 +788,7 @@ function renderAggregateHandler(
   // …and its EF twin: the model-level query filters this read BYPASSES.
   const efIgnore = efAggregationIgnoreClause(proj, ctx, usingDapper);
   const where = usingDapper
-    ? dapperAggregationWhere(proj, caps)
+    ? dapperAggregationWhere(proj, ctx, caps)
     : filter
       ? renderCsExpr(filter, { thisName: "o", efQuery: true })
       : undefined;
@@ -795,7 +851,7 @@ function renderAggregateHandler(
           `        public ${sqlAggregateRowCs(s, ctx)} ${escapeCsharpIdent(snake(s.field))} { get; set; }`,
       )
       .join("\n");
-    const sql = `SELECT ${cols.join(", ")} FROM ${sqlIdent(dapperAggregateTable(source))}${
+    const sql = `SELECT ${cols.join(", ")} FROM ${sqlIdent(dapperProjectionTable(source, ctx))}${
       where ? ` WHERE ${where}` : ""
     }`;
     const args = aggregates
@@ -930,7 +986,7 @@ function renderGroupedHandler(
   const caps = usingDapper ? aggregationCapabilityFilters(proj, ctx) : [];
   const efIgnore = efAggregationIgnoreClause(proj, ctx, usingDapper);
   const where = usingDapper
-    ? dapperAggregationWhere(proj, caps)
+    ? dapperAggregationWhere(proj, ctx, caps)
     : filter
       ? renderCsExpr(filter, { thisName: "o", efQuery: true })
       : undefined;
@@ -1036,7 +1092,7 @@ function renderGroupedHandler(
     ),
   ].join(", ");
   const groupSql =
-    `SELECT ${selectSql} FROM ${sqlIdent(dapperAggregateTable(source))}` +
+    `SELECT ${selectSql} FROM ${sqlIdent(dapperProjectionTable(source, ctx))}` +
     `${where ? ` WHERE ${where}` : ""}` +
     ` GROUP BY ${groupExprs.join(", ")} ORDER BY ${groupExprs.join(", ")}`;
   const groupRowDecl = usingDapper

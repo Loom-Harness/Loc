@@ -119,6 +119,7 @@ function validateWorkflowSource(
         wfName: wf.name,
       }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -131,6 +132,7 @@ function validateWorkflowSource(
         wfName: wf.name,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.joins.length > 0) {
@@ -139,6 +141,7 @@ function validateWorkflowSource(
       code: "loom.projection-workflow-source-join-invalid",
       message: diagMessage("loom.projection-workflow-source-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
@@ -149,6 +152,7 @@ function validateWorkflowSource(
         name: proj.name,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
 }
@@ -182,6 +186,7 @@ function validateProjectionSource(
       code: "loom.projection-source-self",
       message: diagMessage("loom.projection-source-self", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -196,6 +201,7 @@ function validateProjectionSource(
         srcName: src.name,
       }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -205,6 +211,7 @@ function validateProjectionSource(
       code: "loom.projection-source-join-invalid",
       message: diagMessage("loom.projection-source-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
@@ -213,25 +220,20 @@ function validateProjectionSource(
       code: "loom.projection-source-ignoring-no-effect",
       message: diagMessage("loom.projection-source-ignoring-no-effect", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
 }
 
-/** The query-time comprehension gates (read-path-architecture.md rev.13).  The
- *  generalised `projection` surface (grammar + IR + lowering) lands here ahead
- *  of the per-backend query-time emit, so a query-time / `join` projection is
- *  parsed, lowered, and validated — but HONESTLY REJECTED until a backend ports
- *  the emit (PR-C onward), rather than silently mis-emitted by the folded path.
+/** The query-time comprehension gates (read-path-architecture.md rev.13).  A
+ *  query-time / `join` projection is parsed, lowered, and validated here; every
+ *  backend emits it (ported PR-C onward).
  *
  *   - `loom.projection-query-and-fold-invalid` — a `from` source AND
  *     `on(e)` folds together (a seed-then-update read model) is a RESERVED
  *     combo (proposal § "Exotic combos are deferred behind gates").
- *   - `loom.projection-query-time-unsupported` — the HONEST not-yet-emitted
- *     gate: any comprehension clause (`from`/`where`/`join`/`select`) is
- *     surface+IR-complete but has no backend emitter yet.  Lifted per backend
- *     as each ports the query-time projection emitter.  (The `order by` clause, the
- *     groupby / singleton-whole-table-aggregation / paged-sort refinements land
- *     WITH that emit, where they first become reachable.)
+ *   (The per-backend "not yet emitted" gate that once sat beside these was
+ *   deleted when every backend ported the query-time projection emitter.)
  */
 function validateQueryComprehension(
   ctx: BoundedContextIR,
@@ -249,6 +251,7 @@ function validateQueryComprehension(
         source: q.source,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
   // The `where` is a SELECTION position, exactly like a `find … where` and a
@@ -274,6 +277,7 @@ function validateQueryComprehension(
           offending,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -299,6 +303,7 @@ function validateQueryComprehension(
             sourceKind: q.sourceKind,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     } else {
@@ -310,6 +315,7 @@ function validateQueryComprehension(
           source: q.source,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -323,9 +329,8 @@ function validateQueryComprehension(
   // A recognised WHOLE-TABLE AGGREGATION is exempt here: lowering normalises it
   // into `select.aggregate` (a disciplined shape a ported emitter consumes), so
   // it is a real feature rather than a bad name.  Whether the HOSTING backend
-  // has ported that emit is a deployable-level fact, so it is gated in
-  // `validateWholeTableAggregationBackend` (system-checks.ts) instead — this
-  // check has no platform in scope.  What is left here is the genuine typo.
+  // has ported that emit would be a deployable-level fact — and every backend
+  // has, so there is no such gate.  What is left here is the genuine typo.
   // MIXING an aggregation with a per-row `select` is a GROUP BY — one row per
   // distinct value of the per-row column, not one row for the table.  That is
   // the GROUPED read model (M-T4.2): declare it with an explicit `group by`
@@ -347,6 +352,7 @@ function validateQueryComprehension(
         perRow3: perRow.map((f) => `<source>.${f}`).join(", "),
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
   if (grouped) validateGroupBy(ctx, proj, diags);
@@ -384,6 +390,7 @@ function validateQueryComprehension(
             source: q.source,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -407,14 +414,9 @@ function validateQueryComprehension(
         hint,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
-  // The HONEST "not yet emitted on this backend" gate
-  // (`loom.projection-query-time-unsupported`) is a SYSTEM-level check
-  // (`validateQueryTimeProjectionBackend`), keyed on the target deployable's
-  // platform — node emits it (PR-C), the other backends still error — mirroring
-  // `validatePagedQueryHandlerBackend`.  It can't live here because a
-  // context-level check has no deployable/platform in scope.
 }
 
 /** The declared row field an aggregate `select` fills must have the
@@ -482,6 +484,7 @@ function checkAggregateDeclaredType(
             : "",
     }),
     source: `${ctx.name}/${proj.name}`,
+    origin: proj.origin,
   });
 }
 
@@ -521,6 +524,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-source-invalid",
       message: diagMessage("loom.projection-groupby-source-invalid", { name: proj.name, why }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -538,6 +542,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
         correlationField: proj.correlationField,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.joins.length > 0) {
@@ -546,6 +551,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-join-invalid",
       message: diagMessage("loom.projection-groupby-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   const selects = q.selects ?? [];
@@ -555,6 +561,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-no-aggregate",
       message: diagMessage("loom.projection-groupby-no-aggregate", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   // Grouping keys must be source columns — bare, or wrapped in ONE of the
@@ -574,6 +581,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
           source: q.source,
         }),
         source: at,
+        origin: proj.origin,
       });
     } else if (!keys.some((k) => sameGroupKey(k, key))) {
       keys.push(key);
@@ -595,6 +603,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
           field: s.field,
         }),
         source: at,
+        origin: proj.origin,
       });
     }
   }
@@ -615,6 +624,7 @@ function validateKey(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomDiagn
         ),
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
     return;
   }
@@ -627,6 +637,7 @@ function validateKey(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomDiagn
         correlationField: proj.correlationField,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
 }
@@ -648,6 +659,7 @@ function validateHandlers(
           event: h.event,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
     seen.add(h.event);
@@ -674,6 +686,7 @@ function validateHandlers(
                   param: h.param,
                 }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }
@@ -694,6 +707,7 @@ function validateHandlers(
             impurity,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }

@@ -206,7 +206,7 @@ export function renderExecutionContextFilter(basePkg: string): string {
     `        var spanContext = span.getSpanContext();`,
     `        MDC.put(RequestContext.TRACE_ID, spanContext.getTraceId());`,
     `        MDC.put(RequestContext.SPAN_ID, spanContext.getSpanId());`,
-    `        try (Scope ignored = span.makeCurrent()) {`,
+    `        try (Scope _ = span.makeCurrent()) {`,
     `            chain.doFilter(request, response);`,
     `        } finally {`,
     `            // Close the span at the same seam: rename to the resolved route`,

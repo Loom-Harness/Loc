@@ -336,6 +336,7 @@ export function checkTableFilterSupport(
             deployable,
           }),
           source: where,
+          origin: host.origin,
         });
         return;
       }
@@ -346,6 +347,7 @@ export function checkTableFilterSupport(
         code: "loom.table-filter-server-paged",
         message: diagMessage("loom.table-filter-server-paged", { where, filter }),
         source: where,
+        origin: host.origin,
       });
     });
   }
@@ -409,6 +411,7 @@ export function checkControlledModalOpForm(
           deployable,
         }),
         source: where,
+        origin: host.origin,
       });
     });
   }
@@ -439,6 +442,7 @@ export function checkFixedSlotArity(
             slots: spec.slots ?? "its declared slots",
           }),
           source: where,
+          origin: host.origin,
         });
         return;
       }
@@ -456,6 +460,7 @@ export function checkFixedSlotArity(
         code: "loom.page-primitive-extra-children",
         message: diagMessage("loom.page-primitive-extra-children#modal-op-form", { where }),
         source: where,
+        origin: host.origin,
       });
     });
   }
@@ -524,6 +529,7 @@ export function checkPrimitiveNamedArgs(
               name: e.name,
             }),
             source: where,
+            origin: host.origin,
           });
           continue;
         }
@@ -542,6 +548,7 @@ export function checkPrimitiveNamedArgs(
             suggestion: nearestName(argName, accepted),
           }),
           source: where,
+          origin: host.origin,
         });
       }
     });
@@ -611,6 +618,7 @@ export function checkPrimitiveNamedArgValues(
             fallback: FALLBACK_VALUE[`${e.name}.${argName}`] ?? accepted[accepted.length - 1],
           }),
           source: where,
+          origin: host.origin,
         });
       }
     });
@@ -660,6 +668,7 @@ export function checkFrontendCollectionOps(
       code: "loom.frontend-collection-op-unsupported",
       message: diagMessage("loom.frontend-collection-op-unsupported", { where, op }),
       source: where,
+      origin: "origin" in host ? host.origin : undefined,
     });
   };
   // Scope-tracking walk over TWO binding kinds, both grown as we descend into a

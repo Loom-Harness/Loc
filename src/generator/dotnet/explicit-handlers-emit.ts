@@ -52,6 +52,7 @@ import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
+import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
@@ -601,8 +602,9 @@ export function emitExplicitHandlers(
     }
     const agg = primaryAgg(h);
     const home = handlerHome(ns, agg, "Command").dir;
-    out.set(`${home}/${h.name}Command.cs`, renderRecord(h, ns, ctx, agg, "Command"));
-    out.set(
+    supersede(out, `${home}/${h.name}Command.cs`, renderRecord(h, ns, ctx, agg, "Command"));
+    supersede(
+      out,
       `${home}/${h.name}Handler.cs`,
       renderHandlerClass(h, ns, ctx, agg, "Command", resourceClasses),
     );
@@ -629,12 +631,26 @@ export function emitExplicitHandlers(
     }
     const agg = primaryAgg(h);
     const home = handlerHome(ns, agg, "Query").dir;
-    out.set(`${home}/${h.name}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
-    out.set(
+    supersede(out, `${home}/${h.name}Query.cs`, renderRecord(h, ns, ctx, agg, "Query"));
+    supersede(
+      out,
       `${home}/${h.name}Handler.cs`,
       renderHandlerClass(h, ns, ctx, agg, "Query", resourceClasses),
     );
   }
+}
+
+/** Write an explicit handler's record / handler class, REPLACING the auto-CQRS
+ *  slice of the same name when there is one.  A `commandHandler CreateOrder`
+ *  (hand-written, or synthesised by `with scaffoldHandlers`) lands on exactly
+ *  the path the aggregate's auto `create` slice already wrote
+ *  (`Application/Orders/Commands/CreateOrderCommand.cs`), and the declared
+ *  application layer is the authoritative one — so this is a deliberate
+ *  supersede, spelled through the write-once sink's `rewrite`, not a silent
+ *  clobber.  The two records are positional-compatible (same field order), so
+ *  the auto controller's `new CreateOrderCommand(...)` binds either. */
+function supersede(out: Map<string, string>, path: string, content: string): void {
+  rewrite(out, path, content);
 }
 
 /** The `{token}` names in a route path — the params bound from the URL rather

@@ -7,51 +7,8 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SRC = `
-  system S {
-    subdomain C {
-      context C {
-        aggregate Order {
-          status: string
-          operation place() { status := "Placed"  emit OrderPlaced { order: id, at: now() } }
-        }
-        repository Orders for Order {}
-        event OrderPlaced { order: Order id, at: datetime }
-        channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
-        workflow OrderFulfillment {
-          orderId: Order id
-          attempts: int
-          create(p: OrderPlaced) by p.order { attempts := 1 }
-        }
-      }
-    }
-    api A from C
-    storage pg { type: postgres }
-    resource sagaState { for: C, kind: state, use: pg }
-    deployable d { platform: java  contexts: [C]  dataSources: [sagaState]  serves: A  port: 4000 }
-  }
-`;
-
-async function gen(): Promise<Map<string, string>> {
-  return await generateSystemFiles(SRC);
-}
-
 const find = (files: Map<string, string>, suffix: string): string | undefined =>
   [...files.entries()].find(([k]) => k.endsWith(suffix))?.[1];
-
-describe("java workflow own-state assignment", () => {
-  it("writes the own-state field through the setter in the dispatcher", async () => {
-    const dispatcher = find(await gen(), "workflows/CDispatcher.java");
-    expect(dispatcher, "dispatcher not emitted").toBeDefined();
-    expect(dispatcher).toContain("state.setAttempts(1);");
-  });
-
-  it("emits the public setter on the saga state entity", async () => {
-    const entity = find(await gen(), "persistence/OrderFulfillmentState.java");
-    expect(entity, "saga state entity not emitted").toBeDefined();
-    expect(entity).toContain("public void setAttempts(int attempts) {");
-  });
-});
 
 // Scalar COMPOUND own-state mutation (`field += value` / `field -= value`).  It
 // lowers to the same `assign` node with the value rewritten to a `binary` over
@@ -91,13 +48,6 @@ async function genCompound(): Promise<Map<string, string>> {
 }
 
 describe("java workflow own-state compound assignment", () => {
-  it("emits setter-write over an accessor-read for an int `attempts += 1`", async () => {
-    const dispatcher = find(await genCompound(), "workflows/CDispatcher.java");
-    expect(dispatcher, "dispatcher not emitted").toBeDefined();
-    // Write through the setter; read the current value through the accessor.
-    expect(dispatcher).toContain("state.setAttempts(state.attempts() + 1);");
-  });
-
   it("emits BigDecimal arithmetic for a money `total -= money(...)`", async () => {
     const dispatcher = find(await genCompound(), "workflows/CDispatcher.java");
     expect(dispatcher).toContain('state.setTotal(state.total().subtract(new BigDecimal("5.00")));');

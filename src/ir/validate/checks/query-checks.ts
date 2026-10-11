@@ -47,6 +47,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             offending,
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       };
       const offending = firstNonQueryablePredicate(find.filter);
@@ -83,6 +84,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
               aggName: agg.name,
             }),
             source: `${ctx.name}/${repo.name}.${find.name}`,
+            origin: repo.origin,
           });
           continue;
         }
@@ -114,6 +116,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             bothCols,
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
     }
@@ -140,6 +143,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             offending,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
           code: "loom.criterion-not-selectable",
         });
         continue;
@@ -162,6 +166,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             suggestion: unknown.suggestion,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
           code: "loom.criterion-not-selectable",
         });
       }
@@ -210,6 +215,7 @@ export function validateRawSeedColumns(ctx: BoundedContextIR, diags: LoomDiagnos
               value: describeSeedValue(f.value),
             }),
             source: `${ctx.name}/seed ${seed.dataset}`,
+            origin: ctx.origin,
           });
         }
       }
@@ -397,6 +403,7 @@ export function validateFindGates(ctx: BoundedContextIR, diags: LoomDiagnostic[]
             offending,
           }),
           source: `find/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
     }
@@ -427,6 +434,7 @@ export function validateProjectionGates(ctx: BoundedContextIR, diags: LoomDiagno
           offending,
         }),
         source: `projection/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -459,6 +467,7 @@ export function validateWorkflowInstanceReadGates(
           offending,
         }),
         source: `workflow/${wf.name}`,
+        origin: wf.origin,
       });
     }
   }

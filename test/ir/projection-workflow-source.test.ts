@@ -8,7 +8,6 @@
 //   loom.projection-workflow-source-eventsourced-invalid — event-sourced source (deferred)
 //   loom.projection-workflow-source-join-invalid      — a `join` over a workflow source
 //   loom.projection-workflow-source-ignoring-no-effect  — an `ignoring` over a workflow source
-//   loom.projection-workflow-source-unsupported-backend   — a backend that hasn't ported the emit
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -91,9 +90,7 @@ describe("query-time projection `from <Workflow>` validation", () => {
   });
 
   it("accepts a workflow-sourced projection on every shipping backend", async () => {
-    // All five backends have ported the saga-state read, so none trips the
-    // backend-support gate (`loom.projection-workflow-source-unsupported-backend`
-    // stays a dormant safety-net for future backends).
+    // All five backends have ported the saga-state read, so none is gated.
     for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
       const cs = await codes(
         `projection P { orderId: Order id  attempts: int  from Fulfil as f where f.attempts > 0 select orderId = f.orderId, attempts = f.attempts }`,
