@@ -192,6 +192,11 @@ export const APP_SHELL_CHROME: Record<string, string> = {
   // keeps OUTSIDE the token, so i18n-off still concatenates to the byte-identical
   // "← Back to home" while translators see one clean phrase.
   [chromeKey("backToHome")]: "Back to home",
+  // The route-level `Suspense` fallback's accessible name while a lazy page
+  // chunk downloads.  Its own key rather than the `Loader()` primitive's
+  // `chrome.loading`: this table and the primitive table stay disjoint, and the
+  // shell key must reach the catalog whether or not a page renders a Loader.
+  [chromeKey("routeLoading")]: "Loading",
 };
 
 /** Chrome a FORM renders — currently the id/enum picker's "Select…".
