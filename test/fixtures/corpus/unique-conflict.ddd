@@ -13,7 +13,8 @@
 //   - a single-column key: a second create with the same email is refused;
 //   - a compound key: a repeated (sku, region) PAIR is refused, while a pair
 //     that repeats only one half is accepted;
-//   - an update INTO a taken key is refused, and leaves the row unchanged;
+//   - an update INTO a taken key (or a taken pair) is refused, and leaves the
+//     row unchanged;
 //   - a key freed by a destroy can be taken again.
 system UniqueConflictSystem {
   subdomain Directory {
@@ -69,5 +70,12 @@ system UniqueConflictSystem {
     expect(api.listings.getById(eu).title).toBe("Lamp")
     expect(api.listings.getById(us).region).toBe("us")
     expect(api.listings.getById(other).sku).toBe("B-2")
+
+    // Moving one half onto a taken pair is refused; onto a free pair, allowed.
+    expect(api.listings.update(other, { sku: "A-1", region: "us", title: "Desk" })).toThrow(409)
+    api.listings.update(other, { sku: "A-1", region: "apac", title: "Desk" })
+    expect(api.listings.getById(other).region).toBe("apac")
+    api.listings.destroy(us)
+    expect(api.listings.all().total).toBe(2)
   }
 }

@@ -228,6 +228,74 @@
     },
     {
       "seq": 17,
+      "method": "POST",
+      "path": "/api/listings/{id}/update",
+      "status": 409,
+      "body": {
+        "detail": "A resource with these values already exists.",
+        "instance": "/api/listings/{id}/update",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/listings/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/listings/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "region": "apac",
+        "sku": "A-1",
+        "title": "Desk",
+        "version": 2
+      }
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/listings/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/listings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "region": "eu",
+            "sku": "A-1",
+            "title": "Lamp",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "region": "apac",
+            "sku": "A-1",
+            "title": "Desk",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/members",
       "status": 405,
@@ -240,7 +308,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -253,7 +321,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 24,
       "method": "POST",
       "path": "/api/members",
       "status": 400,
