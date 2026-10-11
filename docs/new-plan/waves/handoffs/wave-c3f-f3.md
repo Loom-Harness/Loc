@@ -96,8 +96,23 @@ until their legs confirm in CI; deleting them then is the remaining M-T9.42 prom
 
 ## Gates
 
-`npx tsc -b` ✓ · `node scripts/test-typecheck.mjs` ✓ · `npx biome ci .` ✓ ·
-`web/scripts/test-ddl.mjs` ✓ · `test/generator/{typescript,hono,_numeric}` 127 files / 749 ✓ ·
-`test/generator/elixir/vanilla-unique-conflict`, `test/ir/structural-conflict-status`,
-`test/conformance/{override-status-census,corpus-coverage}`, `test/behavioral/golden-coverage` ✓ ·
-`test/system` + `test/ir` — see the final report.  No mission rows touched.
+- `npx tsc -b` ✓ · `node scripts/test-typecheck.mjs` ✓ · `npx biome ci .` ✓ · `web/scripts/test-ddl.mjs` ✓
+- `test/generator/{typescript,hono,_numeric}` 127 files / 749 ✓ · `test/adapters` 24 / 304 ✓
+- `test/generator/elixir/vanilla-unique-conflict`, `test/conformance/{override-status-census,corpus-coverage}`,
+  `test/behavioral/golden-coverage` ✓
+- `test/ir` 316/318 files: `api-caller-census` caught two real gaps, both fixed (`89242407c`:
+  `unique-conflict` now calls every listing route; `domain-services`' workflow runs pinned as the
+  not-lifted workflow-run class).  `model-exprs-completeness` times out at 30 s — it walks only
+  `examples/*.ddd`, untouched here; load average was ~20 on the shared machine.
+- `test/system` 139/146 files: `harness-schema-source` caught a `synthDDL` mention in the new
+  agreement test's comment — fixed (`f87e02458`).  The other eight failures are all
+  `Test timed out` (openapi-component-uniqueness, ddd-source-census, diagnostic-firing,
+  e2e-fixture-validation, e2e-state-reset, emitted-unbound-symbols, playground-remaining-examples,
+  unknown-cascade) plus worker OOM exits under the same load; `e2e-state-reset` re-run alone
+  passed.  CI's per-PR run must confirm these.
+- Conformance spot-run (`behavioural-coverage`, `problem-arm-census`, `feature-doc-coverage`,
+  `semantics-rules`, `internal-fault-parity`) ✓; `corpus-mutation` 4 timeouts on untouched fixtures.
+
+No mission rows touched.  M-T9.42's count (T9 "20 of 42") is the coordinator's to re-derive: this
+branch adds `unique-conflict`, the domain-service workflow tiers and the own-state money arm as
+runtime-carried scenarios, with the other backends' string copies still to delete once CI confirms.
