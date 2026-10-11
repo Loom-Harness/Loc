@@ -238,12 +238,21 @@ function shellQuote(v: string): string {
 /** What a deployable's emitted project supports, derived from the files it
  *  actually emitted.  Both members are optional: an unrecognised layout
  *  contributes no recipe rather than a guessed one, and the compose recipe
- *  plus `<slug>/Dockerfile` still cover it. */
+ *  plus `<slug>/Dockerfile` still cover it.
+ *
+ *  Each layout is keyed off the build manifest its backend really writes, and
+ *  its commands name only what that project has.  A recipe naming a file the
+ *  generator does not emit (`requirements.txt` beside a uv `pyproject.toml`,
+ *  `./mvnw` beside a Gradle build) fails on the reader's first try; one aimed
+ *  at the wrong project (`dotnet test` at the API root) runs zero tests and
+ *  exits 0, which is worse.  `test/system/readme-recipes.test.ts` checks
+ *  every recipe, on every backend, against the files the run emitted. */
 interface ProjectLayout {
   /** Shell steps that start the deployable on the host, after `cd <slug>`. */
   run?: (env: Record<string, string>, d: DeployableIR) => string[];
-  /** The one command that runs the project's emitted unit tests. */
-  test?: string;
+  /** Shell steps, after `cd <slug>`, that install what the project's emitted
+   *  unit tests need and then run them. */
+  test?: string[];
   /** True for an emitted path (relative to the deployable dir) that is one of
    *  those unit tests — so a project with no emitted tests says nothing. */
   isTestFile: (rel: string) => boolean;
@@ -251,7 +260,8 @@ interface ProjectLayout {
 
 function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
   const slug = ctx.slugOf(d.name);
-  const pkg = ctx.emitted.get(`${slug}/package.json`);
+  const own = (rel: string) => ctx.emitted.get(`${slug}/${rel}`);
+  const pkg = own("package.json");
   if (pkg !== undefined) {
     const scripts = packageScripts(pkg);
     return {
@@ -271,49 +281,83 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
               `${envPrefix({ ...env, PORT: String(dep.port) })}npm run dev`,
             ]
           : undefined,
-      test: scripts.test ? "npm test" : undefined,
+      test: scripts.test ? ["npm install", "npm test"] : undefined,
       isTestFile: (rel) => rel.endsWith(".test.ts") || rel.endsWith(".test.tsx"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p.endsWith(".csproj"))) {
+  // .NET: the API project is the one csproj at the deployable root.  The
+  // xUnit project is a SEPARATE csproj below it, which the API project
+  // excludes (`<Compile Remove="Tests/**" />`), so `dotnet test` must name
+  // it: at the root it finds no tests and still exits 0.
+  const csprojs = emittedUnder(ctx, slug, (rel) => rel.endsWith(".csproj"));
+  if (csprojs.some((rel) => !rel.includes("/"))) {
+    const testDirs = csprojs
+      .filter((rel) => rel.includes("/"))
+      .filter((rel) => /<IsTestProject>\s*true\s*<\/IsTestProject>/i.test(own(rel) ?? ""))
+      .map((rel) => rel.slice(0, rel.lastIndexOf("/")));
     return {
       run: (env, dep) => [
         `${envPrefix({ ...env, ASPNETCORE_URLS: `http://localhost:${dep.port}` })}dotnet run`,
       ],
-      test: "dotnet test",
-      isTestFile: (rel) => rel.endsWith("Tests.cs") || rel.startsWith("Tests/"),
+      test: testDirs.length > 0 ? testDirs.map((dir) => `dotnet test ${dir}`) : undefined,
+      isTestFile: (rel) => testDirs.some((dir) => rel.startsWith(`${dir}/`) && rel.endsWith(".cs")),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "pom.xml")) {
+  // Java: a Gradle (Kotlin DSL) Spring Boot build.  No wrapper is emitted, so
+  // the recipes call `gradle` — the command its own Dockerfile builds with.
+  const gradle = own("build.gradle.kts");
+  if (gradle !== undefined) {
     return {
-      run: (env, dep) => [
-        `${envPrefix({ ...env, SERVER_PORT: String(dep.port) })}./mvnw spring-boot:run`,
-      ],
-      test: "./mvnw test",
-      isTestFile: (rel) => rel.endsWith("Test.java") || rel.endsWith("Tests.java"),
+      run: /org\.springframework\.boot/.test(gradle)
+        ? (env, dep) => [`${envPrefix({ ...env, SERVER_PORT: String(dep.port) })}gradle bootRun`]
+        : undefined,
+      test: ["gradle test"],
+      isTestFile: (rel) => rel.startsWith("src/test/") && rel.endsWith(".java"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "mix.exs")) {
+  if (own("mix.exs") !== undefined) {
     return {
       run: (env, dep) => [
         "mix deps.get",
         `${envPrefix({ ...env, PORT: String(dep.port) })}mix phx.server`,
       ],
-      test: "mix test",
+      test: ["mix deps.get", "mix test"],
       isTestFile: (rel) => rel.endsWith("_test.exs"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "requirements.txt" || p === "pyproject.toml")) {
+  // Python: a uv project — `pyproject.toml` and no requirements file; its
+  // Dockerfile runs `uv sync`.  A plain `uv sync` also installs the `dev`
+  // dependency group, which is where pytest is declared, so one sync serves
+  // both recipes, and `uv run` executes inside the environment it made.
+  const pyproject = own("pyproject.toml");
+  if (pyproject !== undefined) {
     return {
-      run: (env, dep) => [
-        "pip install -r requirements.txt",
-        `${envPrefix(env)}uvicorn app.main:app --port ${dep.port}`,
-      ],
-      test: "pytest",
+      run: /\buvicorn\b/.test(pyproject)
+        ? (env, dep) => [
+            "uv sync",
+            `${envPrefix(env)}uv run uvicorn app.main:app --port ${dep.port}`,
+          ]
+        : undefined,
+      test: /\bpytest\b/.test(pyproject) ? ["uv sync", "uv run pytest"] : undefined,
       isTestFile: (rel) => /(^|\/)test_[^/]+\.py$/.test(rel),
     };
   }
   return { isTestFile: () => false };
+}
+
+/** The emitted paths under `<slug>/` that `match`, relative to it. */
+function emittedUnder(
+  ctx: SystemReadmeContext,
+  slug: string,
+  match: (rel: string) => boolean,
+): string[] {
+  const prefix = `${slug}/`;
+  const found: string[] = [];
+  for (const path of ctx.emitted.keys()) {
+    const rel = path.slice(prefix.length);
+    if (path.startsWith(prefix) && match(rel)) found.push(rel);
+  }
+  return found.sort();
 }
 
 function hasEmitted(
@@ -321,11 +365,7 @@ function hasEmitted(
   slug: string,
   match: (rel: string) => boolean,
 ): boolean {
-  const prefix = `${slug}/`;
-  for (const path of ctx.emitted.keys()) {
-    if (path.startsWith(prefix) && match(path.slice(prefix.length))) return true;
-  }
-  return false;
+  return emittedUnder(ctx, slug, match).length > 0;
 }
 
 function capitalize(s: string): string {
@@ -357,7 +397,7 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   const unit = sys.deployables
     .map((d) => ({ slug: ctx.slugOf(d.name), layout: layoutFor(d, ctx) }))
     .filter(
-      (u): u is { slug: string; layout: ProjectLayout & { test: string } } =>
+      (u): u is { slug: string; layout: ProjectLayout & { test: string[] } } =>
         u.layout.test !== undefined && hasEmitted(ctx, u.slug, u.layout.isTestFile),
     );
   // A standalone project is one with its OWN package.json — that is precisely
@@ -408,8 +448,7 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   for (const u of unit) {
     lines.push("```bash");
     lines.push(`cd ${u.slug}`);
-    if (u.layout.test === "npm test") lines.push("npm install");
-    lines.push(u.layout.test);
+    lines.push(...u.layout.test);
     lines.push("```");
     lines.push("");
   }
