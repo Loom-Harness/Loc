@@ -53,7 +53,6 @@ describe("scaffold list sortable columns = server sort whitelist (F4)", () => {
     expect(headers).toEqual(accepted);
     // …while every other list column still RENDERS (the `version` token is
     // transport-only and is not a list column at all — M-T3.4).
-    for (const col of ["Salary", "Owner Ref", "Nick", "Score"])
-      expect(list).toContain(`"${col}"`);
+    for (const col of ["Salary", "Owner Ref", "Nick", "Score"]) expect(list).toContain(`"${col}"`);
   });
 });
