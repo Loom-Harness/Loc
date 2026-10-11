@@ -34,7 +34,8 @@ name: Schemathesis contract fuzzing
 #
 # Local: `npm run test:schemathesis` (node) and
 # `npm run test:schemathesis-{python,java,dotnet,elixir}` — each needs
-# `uv tool install schemathesis` + `cd test/behavioral && npm ci`, and the four
+# `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` +
+# `cd test/behavioral && npm ci`, and the four
 # booted legs need a reachable Postgres.  Findings register:
 # docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
 # root-cause rules in test/behavioral/schemathesis-waivers.json, scoped per
@@ -144,8 +145,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      # `jsonschema-rs` is pinned beside schemathesis because schemathesis
+      # leaves it unpinned, and 0.56.0 removed a method its data generator
+      # calls: every operation with a parameter then errored inside the fuzzer
+      # before a request was sent (`'builtins.CanonicalSchema' object has no
+      # attribute 'is_satisfiable'`).  The harness counts such an operation as a
+      # finding (`<op>::error:<type>`); the pin is what keeps it from occurring.
+      # Bump the two together.
       - name: Install schemathesis
-        run: pipx install schemathesis==4.24.3
+        run: |
+          pipx install schemathesis==4.24.3
+          pipx inject schemathesis jsonschema-rs==0.49.1
 
       # --- per-backend toolchains (the versions their behavioral legs use) ---
       - name: Set up uv (python backend)
