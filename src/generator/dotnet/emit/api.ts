@@ -1475,8 +1475,8 @@ public static class ValidationProblem
         // "The request field is required." the same rejection records against
         // the action parameter.
         static bool IsIntegerRange(ModelError error) =>
-            error.ErrorMessage == ${ns}.Serialization.Int32RangeJsonConverter.Message
-            || error.Exception?.Message == ${ns}.Serialization.Int32RangeJsonConverter.Message;
+            error.ErrorMessage == global::${ns}.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::${ns}.Serialization.Int32RangeJsonConverter.Message;
         var outOfRange = context.ModelState
             .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
             .Select(entry => entry.Key)
@@ -1495,7 +1495,7 @@ public static class ValidationProblem
                 .Select(key => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
-                    ["message"] = ${ns}.Serialization.Int32RangeJsonConverter.Message,
+                    ["message"] = global::${ns}.Serialization.Int32RangeJsonConverter.Message,
                 })
                 .ToArray();
             return new ObjectResult(rangeProblem)

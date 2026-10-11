@@ -1728,7 +1728,7 @@ function renderWorkflowModule(
   const moneyGuardClose =
     moneyChecks.length > 0
       ? `
-      {:error, _} = __loom_refusal -> __loom_refusal
+      {:error, _} = loom_payload_refusal -> loom_payload_refusal
     end`
       : "";
   const moneyGuardHelper =
