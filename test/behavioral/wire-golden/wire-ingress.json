@@ -68,6 +68,63 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invalid decimal: \"1.2.3\"",
+            "pointer": "/price"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invalid decimal: \"1.2.3\"",
+            "pointer": "/best/price"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/products/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Invalid decimal: \"1.2.3\"",
+            "pointer": "/price"
+          }
+        ],
+        "instance": "/api/products/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -84,7 +141,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 8,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -109,14 +166,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "POST",
       "path": "/api/products/{id}/reprice",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -133,14 +190,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -157,14 +214,14 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "DELETE",
       "path": "/api/products/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 14,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 404,
@@ -177,7 +234,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -190,7 +247,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -203,7 +260,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "POST",
       "path": "/api/products",
       "status": 400,

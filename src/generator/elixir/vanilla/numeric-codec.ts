@@ -91,3 +91,34 @@ export function elixirMoneyRoundHelper(): string {
     `  defp __money_round(other), do: other`,
   ].join("\n\n");
 }
+
+/** The full `defp __decimal_num/1` clause set — the RS-24 plain-`decimal` twin
+ *  of {@link elixirMoneyRoundHelper}, shared by an aggregate's own `to_wire`
+ *  (`wire-serialize.ts`) and a query-time projection's per-row decimal select
+ *  (`query-projections-emit.ts`).  Jason encodes a bare `%Decimal{}` as a JSON
+ *  STRING, where every other backend puts a plain `decimal` on the wire as a
+ *  NUMBER; `Decimal.to_float/1` reproduces node's float64 exactly.  Nil-safe
+ *  (an optional decimal, an absent join), and a non-Decimal passes through.
+ *
+ *  The BINARY clause is the second writer, the same shape `__money_round/1`
+ *  carries: a value object persists as a plain `:map` (jsonb), and the two
+ *  paths that write one disagree about a decimal subfield — CREATE's changeset
+ *  cast stores the raw JSON number, while an OPERATION's `force_change` stores
+ *  a computed `%Decimal{}`, which Jason writes as a string.  Parsing the binary
+ *  reproduces the oracle from either storage form.  Scoped by TYPE: callers
+ *  apply it only to entries already typed as a plain `decimal`, so `money`
+ *  (a fixed-scale string, RS-12) never reaches it. */
+export function elixirDecimalNumHelper(): string {
+  const num = (e: string): string => numericEncode(ELIXIR_NUMERIC, "decimal", "dto-map", e);
+  return (
+    `  defp __decimal_num(nil), do: nil\n\n` +
+    `  defp __decimal_num(%Decimal{} = dec), do: ${num("dec")}\n\n` +
+    `  defp __decimal_num(bin) when is_binary(bin) do\n` +
+    `    case Decimal.parse(bin) do\n` +
+    `      {dec, ""} -> ${num("dec")}\n` +
+    `      _ -> bin\n` +
+    `    end\n` +
+    `  end\n\n` +
+    `  defp __decimal_num(other), do: other`
+  );
+}

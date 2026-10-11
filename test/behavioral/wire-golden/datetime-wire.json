@@ -28,6 +28,7 @@
       "body": {
         "capacity": 40,
         "deletedAt": null,
+        "fee": 2.5,
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",
@@ -42,6 +43,7 @@
       "body": {
         "capacity": 12,
         "deletedAt": null,
+        "fee": 1.25,
         "id": "<volatile:key>",
         "name": "Annex",
         "openedAt": "<timestamp>",
@@ -158,6 +160,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": null,
+          "venueFee": null,
           "venueName": null,
           "venueOpenedAt": null
         },
@@ -166,6 +169,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": 40,
+          "venueFee": 2.5,
           "venueName": "Hall",
           "venueOpenedAt": "<timestamp>"
         }
@@ -181,6 +185,7 @@
           {
             "capacity": 40,
             "deletedAt": null,
+            "fee": 2.5,
             "id": "<volatile:key>",
             "name": "Hall",
             "openedAt": "<timestamp>",
@@ -221,6 +226,7 @@
       "body": {
         "capacity": 40,
         "deletedAt": null,
+        "fee": 2.5,
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",

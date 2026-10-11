@@ -48,10 +48,9 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
-import { numericEncode } from "../../_numeric/target.js";
 import { provenancedEntries } from "../../_payload/provenanced-wire.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
+import { elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { provColumn } from "./provenance-emit.js";
 
 /** A derived wire field is projected only when its expression evaluates cleanly
@@ -557,49 +556,9 @@ function renderShapeSerialize(
     helpers.set("__money_round", elixirMoneyRoundHelper());
   }
 
-  // RS-24 plain-decimal helper.  Jason's `Decimal` encoder emits a JSON STRING;
-  // node/.NET/Java/Python all put a plain `decimal` on the wire as a NUMBER.
-  // `Decimal.to_float/1` reproduces the ORACLE exactly — node's value is a
-  // float64 to begin with — so this is the coercion that closes the gap rather
-  // than merely narrowing it.  Nil-safe (an optional decimal), and passes a
-  // non-Decimal through untouched (a jsonb-sourced value may already be a
-  // float/integer).
-  if (usedDecimal) {
-    // The BINARY clause is not defensive padding — it is the second writer.
-    // A value object persists as a plain `:map` (jsonb), and the two paths that
-    // write one disagree about the encoding of a decimal field:
-    //
-    //   - CREATE goes through the changeset cast, so the raw JSON number the
-    //     client sent (`100`) is what lands in the column;
-    //   - an OPERATION computes (`Decimal.add(...)`) and `force_change`s the
-    //     resulting map, so a `%Decimal{}` reaches Jason, which encodes a
-    //     Decimal as a STRING — the column then holds `"125"`.
-    //
-    // On the way back out the jsonb value is already a bare string, so the
-    // `%Decimal{}` clause never matches and the wire shipped `"125"` where the
-    // other four backends ship `125` — an RS-24 break visible only AFTER an
-    // operation had written the value.  Parsing the binary here reproduces the
-    // oracle from either storage form.  Scoped by TYPE: this helper is only
-    // applied to entries the emitter already typed as a plain `decimal`, so
-    // `money` (which must stay a fixed-scale string, RS-12) is untouched — it
-    // rides `__money_round/1` instead.
-    //
-    // Found 2026-08-05 by the caller-census drain: `corpus/domain-services`'
-    // `deposit`/`withdraw` were driven for the first time and the balance came
-    // back quoted.
-    helpers.set(
-      "__decimal_num",
-      `  defp __decimal_num(nil), do: nil\n\n` +
-        `  defp __decimal_num(%Decimal{} = dec), do: ${numericEncode(ELIXIR_NUMERIC, "decimal", "dto-map", "dec")}\n\n` +
-        `  defp __decimal_num(bin) when is_binary(bin) do\n` +
-        `    case Decimal.parse(bin) do\n` +
-        `      {dec, ""} -> ${numericEncode(ELIXIR_NUMERIC, "decimal", "dto-map", "dec")}\n` +
-        `      _ -> bin\n` +
-        `    end\n` +
-        `  end\n\n` +
-        `  defp __decimal_num(other), do: other`,
-    );
-  }
+  // RS-24 plain-decimal helper — one definition shared with the query-time
+  // projection reads (`numeric-codec.ts` carries the rationale).
+  if (usedDecimal) helpers.set("__decimal_num", elixirDecimalNumHelper());
 
   // `mask unless` read redaction (authorization.md §5): the masked root wire
   // fields, projected fail-closed against the ambient principal.  When present,
