@@ -116,6 +116,9 @@ system MessagedRules {
     expect(api.products.create({ name: "", sku: { code: "GAD" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
     //   the messaged VALUE-OBJECT invariant, its pointer the leaf `/sku/code`.
     expect(api.products.create({ name: "Gadget", sku: { code: "G" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
+    //   …and a BLANK leaf, which has to reach the same rule rather than be
+    //   cast to nil and skipped by every length validator.
+    expect(api.products.create({ name: "Gadget", sku: { code: "" }, quantity: 1, reorderLevel: 1 })).toThrow(422)
     let stillOne = api.products.all()
     expect(stillOne.total).toBe(1)
     let read = api.products.getById(p)
