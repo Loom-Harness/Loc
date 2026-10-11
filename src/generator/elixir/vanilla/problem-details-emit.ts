@@ -331,9 +331,9 @@ export function renderVanillaProblemDetailsModule(
   @doc """
   Send a 422 ProblemDetails carrying an EXPLICIT \`errors[]\` list — the
   wire-validation rung for a denial that never builds an \`Ecto.Changeset\`
-  (a messaged \`precondition\` over the operation's own request params,
+  (a \`precondition\` over the operation's own request params,
   which the other four backends lift into the \`<Op>Request\` validator).  Each
-  entry is \`%{pointer:, message:, code:}\`; the code resolves through the same
+  entry is \`%{pointer:, message:, code:}\` (no code for a message-less rule); the code resolves through the same
   catalog the changeset path uses, so both rungs localise identically.
   """
   def validation_errors_response(conn, errors) when is_list(errors) do
@@ -342,6 +342,12 @@ export function renderVanillaProblemDetailsModule(
 
   defp render_wire_error(%{pointer: pointer, message: message, code: code}) do
     %{pointer: pointer, message: ${localizeMessages ? "localize(code, message)" : "message"}, code: code}
+  end
+
+  # A message-LESS rule's entry has no code: its sentence is the one node's
+  # validator sends, and a code is the i18n key of AUTHORED text only.
+  defp render_wire_error(%{pointer: pointer, message: message}) do
+    %{pointer: pointer, message: message}
   end`
     : "";
   // A `unique (...)` breach surfaces as a changeset `constraint: :unique` error

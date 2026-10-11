@@ -239,31 +239,35 @@ export function createModelValidator(
     const fails = inv.guard
       ? `not (${renderPyNegatedGuard(inv.guard, { thisName: "self", wireField: true })} or (${pred}))`
       : renderPyNegatedGuard(inv.expr, { thisName: "self", wireField: true });
-    // A messaged rule raises PydanticCustomError so the wire error carries a
-    // stable content-hash `type` (surfaced as `errors[].code`, the i18n key) —
-    // and cleanly drops the "Value error, " prefix a bare ValueError adds. A
-    // message-less rule keeps `raise ValueError(...)`, byte-identical.
+    // Every rule raises a PydanticCustomError, never a bare ValueError: a
+    // ValueError's wire message is prefixed "Value error, " — on a body node
+    // answers with the rule's own sentence.  A MESSAGED rule's error `type` is
+    // its stable content-hash code (surfaced as `errors[].code`, the i18n key);
+    // a message-LESS one is `invariant`, which carries no code — the handler
+    // surfaces only `msg.` types — and node's refine default text
+    // (`Invariant violated: <src>`, D-MESSAGELESS-RULE-WIRE-MESSAGE).
     //
     // The FIELD the error points at is the other half of that contract, and an
     // error raised from a `model_validator` carries NO `loc` — so `errors[]`
     // answered `pointer: ""` where Hono's refine (which passes `path`) answered
     // `/amount`. `ValidationError.from_exception_data` is the one Pydantic API
-    // that lets a raise name its own `loc`, so a single-field messaged rule now
-    // points at its field on python too. A rule with no derivable field (a
-    // genuine cross-field comparison) keeps the bare raise, which is also what
-    // Hono does — it omits `path` in exactly the same case.
-    const path = inv.message ? pickErrorPath(inv) : null;
+    // that lets a raise name its own `loc`, so a rule with a derivable field
+    // points at it on python too, messaged or not. A rule with no derivable
+    // field (a genuine cross-field comparison) keeps the bare raise, which is
+    // also what Hono does — it omits `path` in exactly the same case.
+    const path = pickErrorPath(inv);
     // `input` is a REQUIRED key of the `InitErrorDetails` TypedDict (mypy
     // --strict says so), and the offending value is the honest thing to put
     // there — it never reaches the wire (the 422 handler projects only
     // pointer/message/code), but it is what shows up in a raw pydantic error in
     // the logs.  `None` when the path isn't a field this request body carries.
     const input = path && available.has(path) ? `self.${path}` : "None";
-    const raise = inv.message
-      ? path
-        ? `raise ValidationError.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    InitErrorDetails(\n                        type=PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)}),\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
-        : `raise PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)})`
-      : `raise ValueError(${JSON.stringify(`Invariant violated: ${inv.source}`)})`;
+    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const errorType = inv.message ? messageCode(inv.message.text) : "invariant";
+    const custom = `PydanticCustomError(${JSON.stringify(errorType)}, ${JSON.stringify(text)})`;
+    const raise = path
+      ? `raise ValidationError.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    InitErrorDetails(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
+      : `raise ${custom}`;
     return lines(`        if ${fails}:`, `            ${raise}`);
   });
   return lines(
