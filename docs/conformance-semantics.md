@@ -1826,3 +1826,122 @@ nothing and the test passes vacuously.
   measured in wave C2 packets 2a / 2f / 2m, built as wave C5 moment 5b. Tier:
   **behavioral** — `test/behavioral/wire-golden/datetime-wire.json`, diffed by all
   seven wire-gated legs, plus the witness's string assertions on every leg.
+
+### RS-39 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
+- **Guarantee.** A request number that does not fit its declared type is a
+  **422** wire-validation refusal (RS-29's `Validation failed` rung) with one
+  `errors[]` entry at the field's full pointer (RS-33), and the same message on
+  every backend:
+
+  | input | message |
+  |---|---|
+  | a `money` string outside node's grammar `^-?[0-9]+(\.[0-9]+)?$` — `"1.2.3"`, `"twelve"`, **`"12,50"`** | `Invalid decimal: "12,50"` |
+  | a `money` string whose integer part overflows `NUMERIC(19,4)` | `Money out of range: "…"` |
+  | an `int` literal outside int32 — `3000000000`, `-3000000000` | `Integer out of range` |
+
+  The money grammar admits no grouping, no exponent, no leading `+` and no
+  surrounding whitespace, so `"12,50"` is never 1250 and never 12.5.
+- **Trigger.** `test/fixtures/corpus/wire-ingress.ddd`: `reprice` with
+  `"1.2.3"`, `"twelve"` and `"12,50"`; `restock` with ±3000000000.
+- **The split when raised (wave C3 3d, D22 / D23).** `.NET` and Dapper parsed
+  money with `decimal.TryParse(…, NumberStyles.Number, …)`, which carries
+  `AllowThousands`, so `"12,50"` was **accepted as 1250** while the other five
+  legs answered 422 — and the static test pinned `TryParse`'s presence, not its
+  style. An int32 overflow had no contract at all: node 422 with zod's text
+  (`Too big: expected number to be <=2147483647`, a zod-major-specific
+  sentence), python 422 with pydantic's (`Input should be less than or equal to
+  2147483647`), elixir 422 with `Integer out of range: 3000000000`, and java and
+  .NET **400 `Malformed JSON in request body`** — Jackson and System.Text.Json
+  fail the whole body on an integer they cannot hold, and both advice layers
+  read that as an unreadable body.
+- **Per-backend shape.** The sentence is `INTEGER_RANGE_MESSAGE`
+  (`src/util/numeric-range.ts`), owned by Loom rather than any framework, like
+  `MONEY_RANGE_MESSAGE`. node passes it to the int32 `.min`/`.max` pair; python's
+  `Int32` / `Int32Param` raise it from `_int32` as a `PydanticCustomError`;
+  elixir's op-param guard and changeset send it bare; java's
+  `HttpMessageNotReadableException` arm finds the `InputCoercionException` in
+  the cause chain and reads the field's path off Jackson's exception;
+  .NET registers `Int32RangeJsonConverter`, which throws it for an integer
+  LITERAL that does not fit (a fractional `1.5` still falls through to the
+  reader's own error and the 400), and `ValidationProblem.FromModelState`
+  answers it at the converted `$.n` path. .NET's money parse is gated by
+  `WireFormatException.IsMoneyGrammar`, a hand loop of node's regex, before a
+  `TryParse` whose style admits only what the grammar does.
+- **Not part of the guarantee (named).** `long` keeps its ruled ceiling
+  (`D-LONG-AVG-DEFAULTS`: node refuses past 2^53−1, the others carry int64); a
+  fractional value for an `int` is refused on every backend but its message is
+  each framework's.
+- **Conforms.** node, dotnet, dapper, java, python, elixir, mikroorm.
+- **Provenance.** Wave C3F packet F4. Tier: **behavioral** —
+  `wire-golden/wire-ingress.json` (node-minted; seq 4–6 are the three new
+  refusals), diffed by all seven wire-gated legs; statically pinned by
+  `test/generator/dotnet/wire-numeric-ingress.test.ts` (the money style and its
+  grammar gate) and `test/conformance/numeric-ingress-parity.test.ts` (the
+  range seam per backend).
+
+### RS-40 · A message-less rule's 422 carries node's sentence on every backend
+- **Guarantee.** A rule with no `message "…"` that rides the wire validator —
+  an `invariant` over request fields, an operation `precondition` over its
+  params — refuses with the sentence node's zod chain sends for it, at the
+  pointer node's chain names, and with **no** `errors[].code`:
+  - a single-field shape (`amount >= 1`, `code.matches("^[A-Z]{3}$")`,
+    `label.length <= 16`) → `singleFieldMessage` in `src/generator/zod-refine.ts`
+    ("Amount must be at least 1", "Code is not in the expected format");
+  - any other shape (`name.trim().length > 0`, a conjunction) → node's refine
+    default `Invariant violated: <source>`, at the field `pickErrorPath` names.
+- **Trigger.** `test/fixtures/corpus/validation-messages.ddd` seq 14/15
+  (`ship(amount: 0)`, `retag(code: "abc")`) and
+  `test/fixtures/corpus/intrinsics.ddd`'s blank-name create.
+- **The split when raised (M-T6.86, M-T6.87, wave C3 D13).** Five sentences
+  for one rule: FluentValidation's `'Amount' must be greater than or equal to
+  '1'.` on .NET and Dapper; java's generic `Invariant violated: amount >= 1` for
+  a single-field shape it had already classified; elixir did not lift a
+  message-less precondition to the wire rung at all and answered the domain
+  floor (`Precondition failed: …`, no `errors[]`); and python prefixed a
+  message-less `model_validator` raise with pydantic's `Value error, ` and,
+  having no `loc`, pointed at `""`.
+- **Why node's.** Ruled as `D-MESSAGELESS-DEFAULT` (which extends
+  `D-MESSAGELESS-RULE-WIRE-MESSAGE` from python to every backend and from the
+  single-field shape to every message-less rule): node is the wire oracle, its
+  sentence already names the field's label without the server's regex, and a
+  code is the i18n key of AUTHORED text only.
+- **Not part of the guarantee (named).** A MISSING required field's sentence is
+  still each framework's (`M-T6.89`). Elixir's create/update CHANGESET still
+  carries Ecto's text for a message-less single-field rule
+  (`validate_number(:seats, greater_than_or_equal_to: 1)` → "must be greater
+  than or equal to 1", `M-T6.92`), and applies `validate_required` before the
+  invariant, so a whitespace-only string is "can't be blank" there until wave
+  C3F packet F1's D14 fix lands.
+- **Conforms.** node, dotnet, dapper, java, python; elixir on the operation
+  (precondition) rung.
+- **Provenance.** Wave C3F packet F4 (the four `M-T6.86` waivers in
+  `test/_helpers/wire-waivers.ts` deleted). Tier: **behavioral** —
+  `wire-golden/validation-messages.json` and `wire-golden/intrinsics.json`.
+
+### RS-41 · A string intrinsic counts and cases the same on every backend
+- **Guarantee.** `s.substring(start, len?)` counts **code points**, the unit of
+  `s.length` (RS-31): `"a😀bc".substring(1, 2)` is `"😀b"` and
+  `"a😀bc".substring(2)` is `"bc"` everywhere. `s.toUpper()` applies the Unicode
+  full mapping's `ß` → `SS`: `"straße".toUpper()` is `"STRASSE"` everywhere.
+- **Trigger.** The evaluated value table
+  (`test/generator/_expr/expr-value-table.ts` rows `string_substring_astral`,
+  `string_substring_astral_from`, `string_upper_eszett`) and the derived
+  `middle` / `shout` fields of `test/fixtures/corpus/intrinsics.ddd`.
+- **The split when raised (wave C3 3d, D10 / D11).** node, java and .NET sliced
+  UTF-16 units (`"😀"`), python sliced code points (`"😀b"`), elixir's
+  `String.slice/3` sliced graphemes; the table recorded both as named
+  divergences. .NET's `ToUpperInvariant` is a simple one-to-one mapping and kept
+  `ß`.
+- **Per-backend shape.** One snippet per language in
+  `src/generator/_expr/code-point.ts` beside the `.length` ones (`[...s].slice`,
+  `EnumerateRunes().Skip().Take()`, `codePoints().skip().limit()`,
+  `Enum.slice(String.to_charlist(s), …)`; python's slicing already is); .NET's
+  upper case is `ToUpperInvariant().Replace("ß", "SS", Ordinal)`.
+- **Not part of the guarantee (named).** The rarer full-mapping expansions
+  (ligatures such as `ﬁ`, polytonic Greek) follow each platform, and an
+  intrinsic in a `where` follows the database's `upper()`. The Feliz and Flutter
+  frontends still count `length` and `substring` in UTF-16 units, consistently
+  with each other (`M-T6.90`).
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** Wave C3F packet F4. Tier: **unit** (the value table runs each
+  backend's real renderer) plus **behavioral** (`wire-golden/intrinsics.json`).
