@@ -178,6 +178,7 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
             carries: owner.carries.join(", ") || "none",
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }
@@ -199,6 +200,7 @@ export function validateChannelWiring(sys: SystemIR, diags: LoomDiagnostic[]): v
           csNames: csNames[0],
         }),
         source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
       });
     }
   }

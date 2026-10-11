@@ -28,6 +28,7 @@ import type {
 } from "../../../language/generated/ast.js";
 import { aggregateServesHistory } from "../../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../../util/audit-names.js";
+import { CAPABILITIES_TAG } from "../../../util/capability-tag.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { PRINCIPAL_TYPE_NAME } from "../../../util/principal.js";
 import { PROVENANCE_VALUE_FIELD } from "../../../util/provenance-carrier.js";
@@ -46,6 +47,7 @@ import {
   stringLit,
   ternaryExpr,
 } from "../../api/index.js";
+import { VERSIONED_TOKEN_FIELD } from "../../prelude.js";
 import { ROW_COUNT } from "./_dashboard-shared.js";
 
 /** `scaffoldNewForm` — scaffolds the create page body:
@@ -737,7 +739,7 @@ function buildDataCardParts(
 ): { card: Expression; related: Expression[] } {
   const slug = snake(plural(agg.name));
   const rows: Array<{ name?: string; value: Expression }> = [];
-  for (const f of apiVisibleProperties(agg.members)) {
+  for (const f of userFacingProperties(agg)) {
     if (f.type.array) continue;
     const name = String(f.name);
     const vo = valueObjectTarget(f.type);
@@ -984,7 +986,7 @@ function columnAccessor(
  *  the type kinds it needs (id target, primitive name, enum-vs-VO) are all
  *  reachable through the post-link cross-references. */
 export function scalarColumnsForAggregate(agg: Aggregate): ScaffoldColumn[] {
-  return columnsFromProperties(apiVisibleProperties(agg.members));
+  return columnsFromProperties(userFacingProperties(agg));
 }
 
 /** One `ScaffoldColumn` per displayable property — dispatched by type, skipping
@@ -1014,6 +1016,30 @@ function propertiesOf(members: readonly { $type: string }[]): Property[] {
  *  list/detail sites. */
 function apiVisibleProperties(members: readonly { $type: string }[]): Property[] {
   return propertiesOf(members).filter((p) => p.access !== "internal" && p.access !== "secret");
+}
+
+/** The aggregate-root properties a scaffold LIST column / DETAIL row renders:
+ *  the API-visible ones minus the optimistic-concurrency counter.  That counter
+ *  is transport-only — read to detect a conflict, echoed back as the update's
+ *  If-Match / `version` precondition, never something a user reads or edits
+ *  (`updatePreconditions`, src/ir/enrich/wire-projection.ts) — so a "Version"
+ *  column on every list is noise.  It stays on the wire, the DTOs, and the
+ *  update forms' precondition plumbing; only the display bodies drop it. */
+function userFacingProperties(agg: Aggregate): Property[] {
+  return apiVisibleProperties(agg.members).filter((p) => !isConcurrencyToken(agg, p));
+}
+
+/** True iff `p` is the field the `versioned` capability contributes (spliced by
+ *  default onto every non-event-sourced aggregate, M-T3.4): the aggregate is
+ *  tagged `versioned` AND the property is that capability's `token`-access
+ *  `version` field.  Derived from facts already on the AST — the expander's
+ *  capability tag plus the field's declared access — rather than the name alone,
+ *  so a user's own `version` property (an editable `version: int` the expander
+ *  keeps in place of the splice, or any `version` on an event-sourced aggregate,
+ *  which is never versioned) still renders. */
+function isConcurrencyToken(agg: Aggregate, p: Property): boolean {
+  const caps = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
+  return caps.includes("versioned") && p.access === "token" && p.name === VERSIONED_TOKEN_FIELD;
 }
 
 /** Dispatch a field's display `kind` from its AST type.  Arrays never have a

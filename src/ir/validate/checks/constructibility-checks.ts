@@ -113,6 +113,7 @@ export function validateServerInitialisedFields(
           access: f.access ?? "managed",
         }),
         source: `${ctx.name}/${agg.name}.${f.name}`,
+        origin: f.origin,
       });
     }
   }

@@ -15,7 +15,7 @@
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
-import { humanize, plural, snake } from "../../util/naming.js";
+import { elixirString, humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -40,6 +40,7 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
+import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
@@ -237,12 +238,15 @@ ${heading}${childrenHeex}
   const op = agg?.operations.find((o) => o.name === opName);
   const params = op ? op.params.map((p) => ({ name: p.name, type: p.type })) : [];
 
+  const gated = !!(agg && op && servesCanProbe(agg, op));
   ctx.formBindings.push({
     kind: "operation",
     name: ofName,
     op: opSnake,
     modalId,
     params,
+    ...(gated ? { gated: true } : {}),
+    ...(agg && op && liveViewCallsOp(agg, op) ? { callsOp: true } : {}),
   });
 
   // Trigger button surface from the `trigger: Button(...)` arg.
@@ -278,14 +282,25 @@ ${heading}${childrenHeex}
         )
       : [`    <%!-- ${opSnake} has no parameters --%>`];
 
+  // A `when`-gated op: the trigger (and the modal's submit) render `disabled`
+  // while `@can_<op>` — assigned from the façade's `can_<op>_<agg>(record)`
+  // probe on load and after every op submit — is false, with the reason as the
+  // tooltip.  Un-gated ops render byte-identically.
+  const canAssign = `@can_${opSnake}`;
+  const disabledAttr = gated
+    ? ` disabled={!${canAssign}} title={unless ${canAssign}, do: ${elixirString(
+        `${humanize(opName)} is not available in the current state`,
+      )}}`
+    : "";
+  const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
   return [
-    `<.button phx-click={show_modal("${modalId}")}${testidAttr}>${label}</.button>`,
+    `<.button phx-click={show_modal("${modalId}")}${disabledAttr}${testidAttr}>${label}</.button>`,
     `<.modal id="${modalId}">`,
     `  <:title>${heading}</:title>`,
     `  <.simple_form for={@${formAssign}} phx-change="validate_${opSnake}" phx-submit="submit_${opSnake}">`,
     ...inputs,
     `    <:actions>`,
-    `      <.button type="submit">${heading}</.button>`,
+    `      <.button type="submit"${submitDisabled}>${heading}</.button>`,
     `    </:actions>`,
     `  </.simple_form>`,
     `</.modal>`,
@@ -1370,17 +1385,31 @@ export function renderAlert(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
 /** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>` */
 export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let aggName = "";
+  let target = "";
   const positionals = expr.args.filter((_, i) => !expr.argNames?.[i]);
   const valueExpr = positionals[0];
-  const valueHeex = valueExpr ? renderInTemplate(valueExpr, ctx) : "";
+  let valueHeex = valueExpr ? renderInTemplate(valueExpr, ctx) : "";
   for (let i = 0; i < expr.args.length; i++) {
     const name = expr.argNames?.[i];
     const arg = expr.args[i]!;
-    if (name === "of" && arg.kind === "ref") aggName = snake(plural(arg.name));
+    if (name === "of" && arg.kind === "ref") {
+      target = arg.name;
+      aggName = snake(plural(arg.name));
+    }
   }
   const testidAttr = testIdAttr(expr, ctx);
   if (aggName && valueExpr) {
     const idVal = renderExpr(valueExpr, { ...ctx, position: "template" });
+    // The link TEXT is the target's `display` when its façade serves the batch
+    // label seam — the LiveView loads `@<x>_labels` (one query per page,
+    // `ref-label.ts`).  An id the map lacks falls back to the id itself.
+    // A link from the row's OWN id (`IdLink(row.id, of: Self)`, the list's ID
+    // column) keeps the id — the label already has its own column.
+    const selfId = valueExpr.kind === "member" && valueExpr.member === "id";
+    if (!selfId && ctx.refLabelTargets?.has(target)) {
+      ctx.refLabelBindings.add(target);
+      valueHeex = `<%= Map.get(@${snake(target)}_labels, ${idVal}) || ${idVal} %>`;
+    }
     return `<.link navigate={~p"/${aggName}/#{${idVal}}"}${testidAttr}>${valueHeex}</.link>`;
   }
   return `<span${testidAttr}>${valueHeex}</span>`;

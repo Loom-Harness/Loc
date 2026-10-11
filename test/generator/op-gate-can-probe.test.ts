@@ -193,6 +193,11 @@ const ACTION_CASES: { platform: string; disabled: string; ungated: RegExp }[] = 
     disabled: "prop.disabled (model.CanCompleteTask = Loaded false)",
     ungated: /CanArchive|can_archive/,
   },
+  {
+    platform: "flutter",
+    disabled: "onPressed: opBlocked ? null : () async { final res = await http.post(",
+    ungated: /canArchive|can_archive/,
+  },
 ];
 
 describe("a `when`-gated `Action` button disables on its can_<op> probe", () => {
@@ -201,7 +206,7 @@ describe("a `when`-gated `Action` button disables on its can_<op> probe", () => 
       const files = await generateSystemFiles(ACTION_MODEL(c.platform));
       const src = [...files.entries()]
         .filter(([p]) => p.startsWith("web/") && !p.includes("/e2e/"))
-        .filter(([p]) => /\.(tsx?|vue|svelte|fs)$/.test(p))
+        .filter(([p]) => /\.(tsx?|vue|svelte|fs|dart)$/.test(p))
         .map(([, s]) => s)
         .join("\n");
       expect(src).toContain("can_complete");
@@ -209,4 +214,22 @@ describe("a `when`-gated `Action` button disables on its can_<op> probe", () => 
       expect(src).not.toMatch(c.ungated);
     });
   }
+});
+
+// Vue's `setup` runs once, so an `Action` hoisted over an async QueryView
+// record must hand its hooks a GETTER — a plain `rec.data?.id ?? ""` is read
+// before the record loads and freezes at `""` (the mutation then POSTs to
+// `/tasks//complete`, and the probe never fires).  The hooks take a
+// `MaybeRefOrGetter` and read it through `toValue` when they run.
+describe("vue: an `Action` over an async record binds its hooks to a getter id", () => {
+  it("hoists the op + probe hooks with a getter, read by toValue at run time", async () => {
+    const files = await generateSystemFiles(ACTION_MODEL("vue"));
+    const page = [...files.entries()].find(([p]) => p.endsWith("pages/task_view.vue"))?.[1];
+    const api = [...files.entries()].find(([p]) => p.endsWith("src/api/task.ts"))?.[1];
+    expect(page).toContain('reactive(useCompleteTask(() => taskById.data?.id ?? ""))');
+    expect(page).toContain('reactive(useCanCompleteTask(() => taskById.data?.id ?? ""))');
+    expect(api).toContain("export function useCompleteTask(id: MaybeRefOrGetter<string>)");
+    expect(api).toContain("api.post(`/tasks/${seg(toValue(id))}/complete`");
+    expect(api).toContain('queryKey: computed(() => ["tasks", toValue(id), "can", "complete"])');
+  });
 });
