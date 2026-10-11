@@ -118,6 +118,7 @@ function validateWorkflowSource(
         wfName: wf.name,
       }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -130,6 +131,7 @@ function validateWorkflowSource(
         wfName: wf.name,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.joins.length > 0) {
@@ -138,6 +140,7 @@ function validateWorkflowSource(
       code: "loom.projection-workflow-source-join-invalid",
       message: diagMessage("loom.projection-workflow-source-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
@@ -148,6 +151,7 @@ function validateWorkflowSource(
         name: proj.name,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
 }
@@ -181,6 +185,7 @@ function validateProjectionSource(
       code: "loom.projection-source-self",
       message: diagMessage("loom.projection-source-self", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -195,6 +200,7 @@ function validateProjectionSource(
         srcName: src.name,
       }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -204,6 +210,7 @@ function validateProjectionSource(
       code: "loom.projection-source-join-invalid",
       message: diagMessage("loom.projection-source-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.bypassAll || (q.bypassCaps?.length ?? 0) > 0) {
@@ -212,6 +219,7 @@ function validateProjectionSource(
       code: "loom.projection-source-ignoring-no-effect",
       message: diagMessage("loom.projection-source-ignoring-no-effect", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
 }
@@ -242,6 +250,7 @@ function validateQueryComprehension(
         source: q.source,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
   // The `where` is a SELECTION position, exactly like a `find … where` and a
@@ -267,6 +276,7 @@ function validateQueryComprehension(
           offending,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -292,6 +302,7 @@ function validateQueryComprehension(
             sourceKind: q.sourceKind,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     } else {
@@ -303,6 +314,7 @@ function validateQueryComprehension(
           source: q.source,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -339,6 +351,7 @@ function validateQueryComprehension(
         perRow3: perRow.map((f) => `<source>.${f}`).join(", "),
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
   if (grouped) validateGroupBy(ctx, proj, diags);
@@ -376,6 +389,7 @@ function validateQueryComprehension(
             source: q.source,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
         continue;
       }
@@ -415,6 +429,7 @@ function validateQueryComprehension(
         hint,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
 }
@@ -484,6 +499,7 @@ function checkAggregateDeclaredType(
             : "",
     }),
     source: `${ctx.name}/${proj.name}`,
+    origin: proj.origin,
   });
 }
 
@@ -523,6 +539,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-source-invalid",
       message: diagMessage("loom.projection-groupby-source-invalid", { name: proj.name, why }),
       source: at,
+      origin: proj.origin,
     });
     return;
   }
@@ -540,6 +557,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
         correlationField: proj.correlationField,
       }),
       source: at,
+      origin: proj.origin,
     });
   }
   if (q.joins.length > 0) {
@@ -548,6 +566,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-join-invalid",
       message: diagMessage("loom.projection-groupby-join-invalid", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   const selects = q.selects ?? [];
@@ -557,6 +576,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
       code: "loom.projection-groupby-no-aggregate",
       message: diagMessage("loom.projection-groupby-no-aggregate", { name: proj.name }),
       source: at,
+      origin: proj.origin,
     });
   }
   // Grouping keys must be source columns — bare, or wrapped in ONE of the
@@ -576,6 +596,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
           source: q.source,
         }),
         source: at,
+        origin: proj.origin,
       });
     } else if (!keys.some((k) => sameGroupKey(k, key))) {
       keys.push(key);
@@ -597,6 +618,7 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
           field: s.field,
         }),
         source: at,
+        origin: proj.origin,
       });
     }
   }
@@ -613,6 +635,7 @@ function validateKey(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomDiagn
         correlationField: proj.correlationField,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
     return;
   }
@@ -625,6 +648,7 @@ function validateKey(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomDiagn
         correlationField: proj.correlationField,
       }),
       source: `${ctx.name}/${proj.name}`,
+      origin: proj.origin,
     });
   }
 }
@@ -646,6 +670,7 @@ function validateHandlers(
           event: h.event,
         }),
         source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
       });
     }
     seen.add(h.event);
@@ -675,6 +700,7 @@ function validateHandlers(
                   param: h.param,
                 }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }
@@ -695,6 +721,7 @@ function validateHandlers(
             impurity,
           }),
           source: `${ctx.name}/${proj.name}`,
+          origin: proj.origin,
         });
       }
     }

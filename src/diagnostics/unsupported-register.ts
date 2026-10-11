@@ -664,7 +664,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.vanilla-document-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/datasource-checks.ts:571",
+    site: "src/ir/validate/checks/datasource-checks.ts:575",
     what:
       "elixir `shape: document`, the residue after CRUD + scalar finds/ops landed: a PROVENANCED " +
       "op, or a body/find predicate reading a dereferenced cross-aggregate entity, a " +
@@ -713,7 +713,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:221",
+    site: "src/ir/validate/checks/test-checks.ts:242",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -727,7 +727,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:404",
+    site: "src/ir/validate/checks/test-checks.ts:426",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,
@@ -775,7 +775,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1284",
+    site: "src/ir/validate/checks/workflow-checks.ts:1365",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -799,7 +799,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1297",
+    site: "src/ir/validate/checks/workflow-checks.ts:1379",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,

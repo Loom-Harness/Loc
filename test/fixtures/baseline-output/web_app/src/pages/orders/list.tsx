@@ -50,7 +50,6 @@ export default function OrderList() {
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "version") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("version"); setSortDir("asc"); } }}>{t("page.List.columnHeader.q0zd4n", "Version")}{sortKey === "version" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -60,7 +59,6 @@ export default function OrderList() {
                       <Table.Td><Text>{row.customerId}</Text></Table.Td>
                       <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
                       <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
-                      <Table.Td><Text>{row.version}</Text></Table.Td>
                     </Table.Tr>
                   )) }
                 </Table.Tbody>
@@ -91,7 +89,6 @@ export default function OrderList() {
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                     <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "version") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("version"); setSortDir("asc"); } }}>{t("page.List.columnHeader.q0zd4n", "Version")}{sortKey === "version" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -101,7 +98,6 @@ export default function OrderList() {
                       <Table.Td><Text>{row.customerId}</Text></Table.Td>
                       <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
                       <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
-                      <Table.Td><Text>{row.version}</Text></Table.Td>
                     </Table.Tr>
                   )) }
                 </Table.Tbody>

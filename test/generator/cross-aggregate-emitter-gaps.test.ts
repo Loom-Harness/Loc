@@ -8,8 +8,10 @@
 //
 //   A  a unit-test body naming a second aggregate emitted `Ship.create(...)`
 //      with no import — node TS2304, python F821, dotnet CS0246, java
-//      `cannot find symbol`.  Elixir is unaffected: it spells the sibling
-//      fully qualified (`D.Docking.Ship.create`), so it needs no import.
+//      `cannot find symbol`.  Elixir needs no import — it spells the sibling
+//      fully qualified (`D.Docking.Ship.create`) — but the function it names
+//      is the sibling's PURE core, which was emitted only on an aggregate with
+//      its OWN tests: `Ship.create/1 is undefined` at `mix test` (#3122).
 //   B  python hydrated a CROSS-CONTEXT value object as an opaque column
 //      (`berth=row.berth`) against flattened `berth_ship`/`berth_position`
 //      columns — AttributeError on every read.  Node/dotnet/java were measured
@@ -62,11 +64,11 @@ const CROSS_CONTEXT = `system Ports {
 
 /** One context, two aggregates, and a value object holding a reference from one
  *  to the other — the smallest model whose unit test MUST name a sibling.
- *  Deliberately inline rather than the `vo-id-reference` corpus fixture: giving
- *  that fixture a `test` block needed a chain of per-backend concessions (a C#
- *  non-constant default, an elixir list literal, an elixir aggregate with no
- *  emitted factory), none of them this defect.  The import question is answered
- *  here; the fixture keeps its own subject. */
+ *  Inline so the import question is answered here; the `vo-id-reference`
+ *  corpus fixture now carries the same shape as its own unit block.  Note the
+ *  elixir corpus leg runs `mix compile` on the PROD build, which never compiles
+ *  `test/*.exs` — so the elixir half of that block is guarded by the shape
+ *  test below, not by the corpus leg. */
 const SIBLING = (platform: string) => `system Ports {
   subdomain Harbour { context Docking {
     aggregate Ship with crudish { name: string }
@@ -94,6 +96,9 @@ const SIBLING = (platform: string) => `system Ports {
     port: 4000
   }
 }`;
+
+const CRUDISH_SHIP = "aggregate Ship with crudish { name: string }";
+const BARE_CREATE_SHIP = "aggregate Ship { name: string  create(name: string) { } }";
 
 describe("A — a unit-test body may name a second aggregate", () => {
   it("node imports the sibling aggregate from its own module", async () => {
@@ -169,6 +174,55 @@ describe("A — a unit-test body may name a second aggregate", () => {
     );
     expect(src).toMatch(/[A-Z]\w*\.Docking\.Ship\.create\(/);
     expect(src).not.toContain("@tag :skip");
+  });
+
+  it("elixir: the sibling create the test calls is a function the sibling module defines", async () => {
+    // The qualified spelling above is only half the contract: the test calls
+    // `<App>.Docking.Ship.create/1` — the PURE domain core — and that core was
+    // emitted only on an aggregate declaring its OWN `test` blocks.  `Ship`
+    // has none, so the call named a function nothing defined (`Ship.create/1
+    // is undefined` at `mix test`).  Asserted against both shapes the defect
+    // was seen with: `with crudish` and a bare declared `create`.
+    for (const ship of [CRUDISH_SHIP, BARE_CREATE_SHIP]) {
+      const model = SIBLING("elixir").replace(CRUDISH_SHIP, ship);
+      expect(model).toContain(ship);
+      const files = await generateSystemFiles(model);
+      const test = fileEndingWith(files, "test/docking/dock_test.exs");
+      const call = test.match(/([A-Z]\w*\.Docking\.Ship)\.create\(/);
+      expect(call, "the test no longer calls the sibling's create — the probe is stale").not.toBe(
+        null,
+      );
+      const shipModule = fileEndingWith(files, "lib/d/docking/ship.ex");
+      expect(shipModule).toContain(`defmodule ${call![1]} do`);
+      expect(shipModule, `${ship}: Ship.create/1 is called but not defined`).toMatch(
+        /^ {2}def create\(attrs\) when is_map\(attrs\) do$/m,
+      );
+    }
+  });
+
+  it("elixir: the vo-id-reference corpus unit block calls a Ship.create/1 that exists", async () => {
+    // The corpus elixir leg compiles the PROD build only and never sees
+    // `test/*.exs`, so this is the gate for the fixture's elixir half.
+    const files = await generateCorpusCase("vo-id-reference", "vanilla");
+    expect(fileEndingWith(files, "test/docking/dock_test.exs")).toMatch(
+      /[A-Z]\w*\.Docking\.Ship\.create\(/,
+    );
+    expect(fileEndingWith(files, "lib/d/docking/ship.ex")).toMatch(
+      /^ {2}def create\(attrs\) when is_map\(attrs\) do$/m,
+    );
+  });
+
+  it("elixir: an aggregate NO unit test reaches keeps a schema-only module", async () => {
+    // The guard against over-emitting: the pure core is reached only from a
+    // unit test, so an aggregate no test names stays the plain schema.
+    const files = await generateSystemFiles(
+      SIBLING("elixir").replace(
+        'let s = Ship.create({ name: "Aurora" })\n        let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })',
+        'let d = Dock.create({ name: "North", berth: Berth { ship: "00000000-0000-0000-0000-000000000001", position: 3 } })',
+      ),
+    );
+    expect(fileEndingWith(files, "test/docking/dock_test.exs")).not.toContain("Ship.create(");
+    expect(fileEndingWith(files, "lib/d/docking/ship.ex")).not.toContain("def create(");
   });
 
   it("a test body that names NO sibling keeps an import-clean header", async () => {

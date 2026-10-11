@@ -48,7 +48,7 @@ system RtShop {
     context Fulfillment {
       aggregate Order { customerId: string  status: string  total: int }
       repository Orders for Order { }
-      event OrderPlaced { order: Order id, at: datetime }
+      event OrderPlaced { order: Order id, at: datetime, note: string }
       channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
     }
   }
@@ -96,7 +96,7 @@ const OUT_OF_SUBSET: ReadonlyArray<{
 }> = [
   {
     label: "a method call on the binding",
-    toast: `toast(e.order.toUpper())`,
+    toast: `toast(e.note.toUpper())`,
     detail: /`method-call` expression/,
     elixirProbe: {
       kind: "method-call",
