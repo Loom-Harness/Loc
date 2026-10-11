@@ -121,6 +121,10 @@ describe("naming — target-language keyword escaping", () => {
     expect(escapePythonIdent("def")).toBe("def_");
     expect(escapePythonIdent("base")).toBe("base"); // not a Python keyword
     expect(escapePythonIdent("order")).toBe("order");
+    // Soft keywords are legal identifiers (PEP 634) — a member named `case`
+    // stays `case`, as on node/elixir.
+    expect(escapePythonIdent("case")).toBe("case");
+    expect(escapePythonIdent("match")).toBe("match");
   });
 
   it("Elixir escapes keywords with a trailing underscore, passes non-keywords through", () => {
