@@ -33,10 +33,7 @@ import {
   renderExprWith,
   type UnaryExpr,
 } from "../_expr/target.js";
-import {
-  isValueObjectType,
-  renderValueObjectEquality,
-} from "./vanilla/value-object-type-emit.js";
+import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Phoenix LiveView / Elixir backend.

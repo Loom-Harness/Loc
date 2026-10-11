@@ -22,11 +22,11 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
-import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -49,9 +49,9 @@ import {
 import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { valueObjectColumnType } from "./value-object-type-emit.js";
 import { isRefCollField, manyToManyLine, refCollFields } from "./ref-collection-emit.js";
 import { valueCollectionModule, valueCollectionsWithVo } from "./value-collection-schema-emit.js";
+import { valueObjectColumnType } from "./value-object-type-emit.js";
 
 /** An aggregate's nested entity-part containments are persisted RELATIONALLY
  *  (each part a child table the root `has_many`s + `cast_assoc`s, §11c) rather
@@ -124,7 +124,15 @@ export function emitVanillaSchemas(
     for (const part of agg.parts) {
       out.set(
         `lib/${appSnake}/${ctxSnake}/${snake(part.name)}.ex`,
-        renderPartSchema(appModule, ctxModule, part, enumsByName, relational, agg, voColumnsOf(ctx)),
+        renderPartSchema(
+          appModule,
+          ctxModule,
+          part,
+          enumsByName,
+          relational,
+          agg,
+          voColumnsOf(ctx),
+        ),
       );
     }
   }
