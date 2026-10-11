@@ -79,6 +79,10 @@ interface Target {
     map: Mapper;
     ApiError: new (status: number, message: string, body?: unknown) => unknown;
   };
+  /** For a target whose mapper is a free function the FORM must call and
+   *  render (rather than a form runtime that owns both), assert the emitted
+   *  CreateForm does both for `field`. */
+  readonly wired?: (files: ReadonlyMap<string, string>, field: string) => void;
 }
 
 const TARGETS: readonly Target[] = [
@@ -153,7 +157,51 @@ export const loaded = { ApiError, run };`;
       return { ApiError, map: run };
     },
   },
-  { id: "angular", platform: "angular", design: "primeng" },
+  {
+    id: "angular",
+    platform: "angular",
+    design: "primeng",
+    load: (files) => {
+      const fn = evalModule(file(files, "web/src/lib/server-errors.ts"), "applyServerErrors");
+      return {
+        ApiError: apiErrorOf(files, "web/src/api/client.ts"),
+        // A Reactive `FormGroup` reduced to what the mapper touches: one control
+        // per field the CreateForm renders, recording the `server` error it is
+        // given.  The control set is read off the emitted component, so a
+        // pointer naming a field the form does not render finds no control.
+        map: (error) => {
+          const out: Record<string, string> = {};
+          const fields = angularFormControls(files);
+          const form = {
+            get: (path: string) =>
+              fields.has(path)
+                ? {
+                    setErrors: (e: { server: string }) => {
+                      out[path] = e.server;
+                    },
+                    markAsTouched: () => {},
+                  }
+                : null,
+          };
+          const outcome = (fn as (e: unknown, f: unknown) => { kind: string; title?: string })(
+            error,
+            form,
+          );
+          if (outcome.kind === "global") out.__global = outcome.title!;
+          return out;
+        },
+      };
+    },
+    wired: (files, field) => {
+      const component = angularFormComponent(files);
+      expect(component, "the CreateForm submit must hand a rejection to the mapper").toMatch(
+        /catch \(e\) \{\s*placeServerErrors\(e, this\.\w+\);/,
+      );
+      expect(component, `the "${field}" field must render its server message`).toContain(
+        `.controls.${field}.errors?.['server']`,
+      );
+    },
+  },
   { id: "feliz", platform: "feliz", framework: "feliz" },
   { id: "flutter", platform: "flutter", framework: "flutter" },
 ];
@@ -161,9 +209,6 @@ export const loaded = { ApiError, run };`;
 /** `<target>` → the defect that keeps it from mapping a real 422 today.
  *  Deleting a line is how the gap closes; a stale line fails the gate. */
 const WAIVERS: Readonly<Record<string, string>> = {
-  angular:
-    "no mapper: a CreateForm's submit awaits `mutateAsync` with no catch, so a 422 " +
-    "reaches the app-level LoomErrorHandler banner and no field is marked",
   feliz:
     'no mapper: the HTTP helper returns `Error (sprintf "HTTP %d" statusCode)` and ' +
     "drops the ProblemDetails body before any form sees it",
@@ -182,6 +227,22 @@ function file(files: ReadonlyMap<string, string>, p: string): string {
     );
   }
   return src;
+}
+
+/** The Angular CreateForm page component — the one declaring a FormGroup. */
+function angularFormComponent(files: ReadonlyMap<string, string>): string {
+  const hit = [...files].find(
+    ([p, s]) => p.startsWith("web/src/app/pages/") && s.includes("new FormGroup("),
+  );
+  if (!hit) throw new Error("no Angular page component declares a FormGroup");
+  return hit[1];
+}
+
+/** The control names of the Angular CreateForm's `FormGroup({ name: …, … })`. */
+function angularFormControls(files: ReadonlyMap<string, string>): Set<string> {
+  const group = /new FormGroup\(\{([^\n]*)\}\);/.exec(angularFormComponent(files));
+  if (!group) throw new Error("FormGroup initialiser not found");
+  return new Set([...group[1]!.matchAll(/(\w+): new FormControl/g)].map((m) => m[1]!));
 }
 
 /** The text of the brace-delimited block that starts at `head` (inclusive). */
@@ -294,6 +355,7 @@ describe("frontend ACL — a booted backend's 422 lands on the field it names", 
       expect(mapped, `${t.id}: the 422 did not land on the form field`).toEqual({
         [field]: FIELD_ERROR!.message,
       });
+      t.wired?.(files, field);
     });
   }
 });
