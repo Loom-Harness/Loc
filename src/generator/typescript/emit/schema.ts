@@ -306,10 +306,22 @@ export function renderSchema(
   // `text(col, { enum: [...] })` is type-identical to `pgEnum(...)` on the TS
   // side (drizzle infers the same `"Draft" | "Confirmed" | …` union for reads
   // and writes) and emits the TEXT column the migration actually creates.
-  const enumLines = enumPool(ctx).map(
-    (e) =>
-      `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
-  );
+  // Own enums always (unchanged output); a SIBLING context's enum only when a
+  // column here actually names its `<enum>Values` const — a deployable that
+  // does not host the declaring context must still declare it (claims D1), but
+  // an unreferenced sibling enum would be a dead export.
+  const tablesText = tables.join("\n\n");
+  const siblingEnumNames = new Set((ctx.siblingEnums ?? []).map((e) => e.name));
+  const enumLines = enumPool(ctx)
+    .filter(
+      (e) =>
+        !siblingEnumNames.has(e.name) ||
+        new RegExp(`\\b${lowerFirst(e.name)}Values\\b`).test(tablesText),
+    )
+    .map(
+      (e) =>
+        `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
+    );
   // Derive the drizzle-pg-core import list from what the body actually
   // calls — every helper here is invoked as a function (`text(...)`,
   // `jsonb(...)`, etc.), so a `\b<name>\(` scan is exact and keeps the
