@@ -20,7 +20,7 @@ import { renderPyExpr } from "./render-expr.js";
 import {
   aggHasFieldMask,
   authUserImport,
-  emittableFinds,
+  emittableMethodFinds,
   findExecutedLine,
   PY_PAGED_FIND_PARAMS,
   pyInMemoryPagedFind,
@@ -100,7 +100,7 @@ export function buildPyEventSourcedRepositoryFile(
     "        return [",
     `            ${agg.name}._from_events(${agg.name}Id(sid), evs) for sid, evs in by_stream.items()`,
     "        ]",
-    ...emittableFinds(repo).flatMap((f) => ["", inMemoryFind(agg, f)]),
+    ...emittableMethodFinds(repo).flatMap((f) => ["", inMemoryFind(agg, f)]),
     "",
     // `expected_version` (pairwise F8): the routes emit
     // `repo.save(found, expected_version=_expected)` for EVERY `versioned`

@@ -59,6 +59,8 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
 } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName, variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -825,10 +827,17 @@ export function buildRoutesFile(
       // a paged find adds `page` / `pageSize` query controls (P3b).  An empty
       // `<Find>Query = z.object({})` would be dead code otherwise.
       const paged = pagedReturn(find.returnType);
-      if (find.params.length === 0 && !paged) continue;
+      if (!findValidatesRequest(find)) continue;
       lines.push(`const ${upperFirst(find.name)}Query = z.object({`);
       for (const p of find.params) {
         lines.push(`  ${p.name}: ${zodFor(p.type, "query")},`);
+      }
+      if (find.retrieval) {
+        // A retrieval route's optional row window — `Repo.run(R(args), page)`.
+        lines.push(
+          `  offset: z.coerce.number().int().min(0).max(${RETRIEVAL_MAX_OFFSET}).optional(),`,
+          `  limit: z.coerce.number().int().min(1).max(${RETRIEVAL_MAX_LIMIT}).optional(),`,
+        );
       }
       if (paged) {
         // Server-side pagination + sort controls (M-T2.6).  `sort` is a
@@ -2362,6 +2371,20 @@ function emitFindRoute(
     out.push(...maskUserBind(agg, "    "));
     out.push(
       `    return c.json({ ...result, items: result.items.map((r) => ${wireResp(agg, "repo", "r")}) } as z.infer<typeof ${paged.name}>, 200);`,
+    );
+    out.push(`  },`);
+    out.push(`);`);
+    return out;
+  }
+  if (find.retrieval) {
+    // The route answers through the retrieval's own `run<Retrieval>` (it
+    // carries the declared `sort:`); the window rides its `page` argument.  A
+    // `currentUser` in the retrieval's `where` is bound by `run` itself.
+    const runArgs = [...baseArgs, "{ offset: params.offset, limit: params.limit }"].join(", ");
+    out.push(`    const result = await repo.run${upperFirst(find.retrieval)}(${runArgs});`);
+    out.push(...maskUserBind(agg, "    "));
+    out.push(
+      `    return c.json(result.map((r) => ${wireResp(agg, "repo", "r")}) as z.infer<typeof ${agg.name}Response>[], 200);`,
     );
     out.push(`  },`);
     out.push(`);`);

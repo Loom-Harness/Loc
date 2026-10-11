@@ -12,6 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -162,7 +163,8 @@ export function renderMikroEmbeddedRepository(
   const dbg = (find: string, rowsExpr: string) =>
     `    requestLog().debug({ event: "find_executed", aggregate: "${agg.name}", find: "${find}", rows: ${rowsExpr} });`;
 
-  const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((f) => {
+  const methodFinds = repositoryMethodFinds(repo);
+  const findMethods = [...methodFinds, ...synthProjectionFinds(agg.name, ctx)].map((f) => {
     const name = lowerFirst(f.name);
     const paged = pagedReturn(f.returnType);
     const isList = f.returnType.kind === "array";

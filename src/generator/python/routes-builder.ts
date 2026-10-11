@@ -10,6 +10,8 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
 } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -486,6 +488,13 @@ export function conflictResolver(ctx: EnrichedBoundedContextIR): (name: string) 
 export const PY_PAGED_CONTROLS: readonly string[] = [
   `page: Annotated[int, Query(ge=1, le=${PAGED_MAX_PAGE})] = ${PAGED_DEFAULT_PAGE}`,
   `pageSize: Annotated[int, Query(ge=1, le=${PAGED_MAX_PAGE_SIZE})] = ${PAGED_DEFAULT_PAGE_SIZE}`,
+];
+
+/** A retrieval route's optional row window — the HTTP face of
+ *  `Repo.run(R(args), page)`; absent = the whole result. */
+export const PY_RETRIEVAL_WINDOW: readonly string[] = [
+  `offset: Annotated[int | None, Query(ge=0, le=${RETRIEVAL_MAX_OFFSET})] = None`,
+  `limit: Annotated[int | None, Query(ge=1, le=${RETRIEVAL_MAX_LIMIT})] = None`,
 ];
 
 /** The canonical dashed-hex uuid form.
@@ -1552,6 +1561,30 @@ function findRoute(
       '        "total": result.total,',
       '        "totalPages": result.total_pages,',
       "    }",
+    );
+  }
+  if (find.retrieval) {
+    // The retrieval route answers through `run_<retrieval>` (it carries the
+    // declared `sort:`); the optional `offset` / `limit` window rides its
+    // paging arguments.  Defaulted params last (python syntax).
+    const windowSig = [
+      ...params,
+      ...(needsUser ? ["request: Request"] : []),
+      "session: SessionDep",
+      ...PY_RETRIEVAL_WINDOW,
+    ].join(", ");
+    const runArgs = [
+      ...find.params.map((p) => pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)),
+      "offset",
+      "limit",
+    ].join(", ");
+    return lines(
+      `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
+      `async def ${findSnake}_${snake(plural(agg.name))}(${windowSig}) -> list[dict[str, object]]:`,
+      userBind,
+      gateLines,
+      "    repo = _repo(session)",
+      `    return [${wireResp(agg, "r")} for r in await repo.run_${snake(find.retrieval)}(${runArgs})]`,
     );
   }
   if (isList) {

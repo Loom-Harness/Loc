@@ -1,0 +1,43 @@
+// Retrieval GET routes.  Compiled by build-generated-elixir-vanilla so the
+// emitted `GET /<plural>/<retrieval>` controller actions — a parameterised
+// retrieval (id + int + bool params, the `window_param/4` offset/limit reader),
+// a param-less one and a `requires`-gated one — plus the scaffolded LiveView
+// list whose filter bar reads the parameterised retrieval through
+// `run_<retrieval>_<agg>`, pass `mix compile --warnings-as-errors`.
+system Shelf {
+  subdomain Core {
+    context Books {
+      aggregate Author with crudish {
+        name: string
+        derived display: string = name
+      }
+      aggregate Book with crudish {
+        title: string
+        author: Author id
+        pages: int
+        inPrint: bool = true
+      }
+      criterion ByAuthor(a: Author id) of Book = author == a
+      retrieval BooksOf(a: Author id) of Book requires true {
+        where: ByAuthor(a)
+        sort: [pages desc, title asc]
+      }
+      retrieval Thick(min: int, printed: bool) of Book = pages >= min && inPrint == printed
+      retrieval InPrint of Book = inPrint == true
+      repository Authors for Author { }
+      repository Books for Book { }
+    }
+  }
+  api ShelfApi from Core
+  ui Web with scaffold(subdomains: [Core]) { }
+  storage pg { type: postgres }
+  resource bookState { for: Books, kind: state, use: pg, index: [Book.pages] }
+  deployable app {
+    platform: elixir
+    contexts: [Books]
+    dataSources: [bookState]
+    serves: ShelfApi
+    ui: Web
+    port: 4000
+  }
+}

@@ -39,7 +39,11 @@ import {
   renderJavaType,
 } from "../render-expr.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
-import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
+import {
+  JAVA_FIND_ABSENCE_THROW,
+  JAVA_PAGED_QUERY_PARAMS,
+  JAVA_RETRIEVAL_WINDOW_PARAMS,
+} from "./common.js";
 import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
@@ -448,6 +452,20 @@ export function renderJavaController(
           ...(f.requires ? findGateLines(f, locals) : []),
           `        var result = service.${jid(f.name)}(${pagedArgs});`,
           `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
+          `    }`,
+          ``,
+        ];
+      }
+      if (f.retrieval) {
+        // A retrieval route: the service answers through `run<Retrieval>`
+        // (declared `sort:`), with the optional row window passed through.
+        const windowParams = [...declared, ...JAVA_RETRIEVAL_WINDOW_PARAMS].join(", ");
+        const windowArgs = [args, "offset, limit"].filter(Boolean).join(", ");
+        return [
+          `    @GetMapping("${relativeOpPath(entry)}")`,
+          `    public List<${agg.name}Response> ${f.name}${agg.name}(${windowParams}) {`,
+          ...(f.requires ? findGateLines(f) : []),
+          `        return service.${jid(f.name)}(${windowArgs});`,
           `    }`,
           ``,
         ];

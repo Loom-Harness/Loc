@@ -277,6 +277,8 @@ export function emitFindQueriesAndHandlers(
           ...(pagedReturn(find.returnType)
             ? ["int Page", "int PageSize", "string Sort", "string Dir"]
             : []),
+          // A retrieval route's optional row window.
+          ...(find.retrieval ? ["int? Offset", "int? Limit"] : []),
         ].join(", "),
         returnType: queryReturn,
         extraUsings: pagedUsings,
@@ -331,6 +333,16 @@ function buildFindHandlerBody(
   // zero-arg `all` find compiles cleanly.
   const argList = allArgs.join(", ");
   const callArgs = argList.length > 0 ? `${argList}, cancellationToken` : `cancellationToken`;
+  if (find.retrieval) {
+    // The retrieval route answers through `Run<Retrieval>Async` (it carries the
+    // declared `sort:`); the window rides its `page` tuple.
+    const runArgs = [...baseArgs, "(query.Offset, query.Limit)"].join(", ");
+    return (
+      gate +
+      `        var domain = await _repo.Run${upperFirst(find.retrieval)}Async(${runArgs}, cancellationToken: cancellationToken);\n` +
+      `        return domain.Select(d => ${projectEntityExpr("d", agg, ctx)}).ToList();\n`
+    );
+  }
   if (pagedReturn(find.returnType)) {
     // Repo returns `Paged<Agg>` (domain); map each item to its response DTO
     // and re-wrap, preserving the page metadata (P3b).

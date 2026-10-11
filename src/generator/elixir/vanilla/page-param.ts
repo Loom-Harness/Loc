@@ -25,6 +25,8 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
 } from "../../../ir/stdlib/generics.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 
@@ -107,6 +109,53 @@ export const PAGE_PARAM_HELPER = `
       ]}}
   end`;
 
+/** The `with` clauses that validate a retrieval route's optional
+ *  `?offset=&limit=` row window (absent → `nil`, i.e. unbounded), and the
+ *  bound names they introduce. */
+export const WINDOW_OFFSET_VAR = "offset_arg";
+export const WINDOW_LIMIT_VAR = "limit_arg";
+export const WINDOW_WITH_CLAUSES: readonly string[] = [
+  `{:ok, ${WINDOW_OFFSET_VAR}} <- window_param(params, "offset", 0, ${RETRIEVAL_MAX_OFFSET})`,
+  `{:ok, ${WINDOW_LIMIT_VAR}} <- window_param(params, "limit", 1, ${RETRIEVAL_MAX_LIMIT})`,
+];
+
+/** The emitted `window_param/4` — the retrieval-route twin of `page_param/4`:
+ *  same lenient coercion, same §3.2 refusal of an out-of-bounds value, but an
+ *  absent value is `nil` (no window) rather than a default. */
+export const WINDOW_PARAM_HELPER = `
+  # A retrieval route's optional \`offset\` / \`limit\` query control.  Absent /
+  # blank / unparseable → nil (the whole result); a value outside the bounds
+  # this app PUBLISHES is refused with the §3.2 \`errors[]\` 422.
+  defp window_param(params, key, min, max) do
+    case params[key] do
+      v when is_integer(v) ->
+        __window_bounds(v, key, min, max)
+
+      v when is_binary(v) ->
+        case Integer.parse(v) do
+          {n, _} -> __window_bounds(n, key, min, max)
+          _ -> {:ok, nil}
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp __window_bounds(n, _key, min, max) when n >= min and n <= max, do: {:ok, n}
+
+  defp __window_bounds(_n, key, min, max) do
+    {:error,
+     {:invalid_paging,
+      [
+        %{
+          pointer: "/" <> key,
+          message: "must be between #{min} and #{max}",
+          code: nil
+        }
+      ]}}
+  end`;
+
 /** Does any read in these contexts publish a paged envelope?  Gates the
  *  `ProblemDetails.validation_errors_response/2` responder the refusal sends
  *  through — an unused `def`/`defp` fails `mix compile --warnings-as-errors`,
@@ -115,7 +164,7 @@ export function contextsHavePagedReads(contexts: readonly EnrichedBoundedContext
   return contexts.some(
     (c) =>
       (c.repositories ?? []).some((r) =>
-        (r.finds ?? []).some((f) => !!pagedReturn(f.returnType)),
+        (r.finds ?? []).some((f) => !!pagedReturn(f.returnType) || f.retrieval !== undefined),
       ) || (c.queryHandlers ?? []).some((h) => !!h.returnType && !!pagedReturn(h.returnType)),
   );
 }

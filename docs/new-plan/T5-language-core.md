@@ -145,7 +145,7 @@ Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement`
 
 Sources: [M-T5.28](archive/T5-done.md#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
 
-## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `open` · **L** · P1
+## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `partial` (slices 1, 2, 4, 5 landed by the `claude/retrieval-routes` PR; 3 and 6 open) · **L** · P1
 
 Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with a four-declaration model (`aggregate` + `criterion` + `retrieval` + `repository`, `platform: node`):
 
@@ -168,9 +168,15 @@ The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` 
 
 **Verification when it lands.** Per-backend route-emission cases (the five-case shape of `test/system/projection-param-threading.test.ts`), a gated-retrieval 403 case, and the generated node project booted against Postgres so the route is proved to answer a filtered read, not merely to exist. Mutation-proof each gate by file-copy revert.
 
-Claimed 2026-10-11 by the `claude/retrieval-routes` draft PR (the #2861 author's claim went stale when it merged); #2874 and #2877 both defer to this mission by name.
+**Landed (slices 1, 2, 4, 5).** `retrieval X(…) of T requires <expr> { … }` parses and lowers to `RetrievalIR.requires`. Enrich derives one retrieval-backed `FindIR` (`FindIR.retrieval`) per author-declared retrieval over a repository-backed single-table relational aggregate, so the shared api-surface derivation serves it on all five backends as `GET /api/<aggs>/<snake name>` — params from the query string, an optional `?offset=` / `?limit=` window, the gate as a 403 before the read, answered by `run<Retrieval>` (declared `sort:` honoured); the repository emits no duplicate find method. OpenAPI and every generated frontend client pick it up; the scaffold list filter bar reads parameterised retrievals; `loom.repository-find-deprecated` fires at full strength with accurate text. Other shapes are refused a route (`loom.retrieval-unrouted`, warning); a read-name clash is `loom.retrieval-route-collision`. Verified by `test/system/retrieval-routes.test.ts` and a node boot against Postgres answering a filtered, sorted, windowed read.
 
-**Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
+**Still open.**
+
+- **Slice 3 — retire `scaffoldPaged` / `scaffoldPagedApi`.** Not tractable yet: a retrieval route answers a windowed list (`offset`/`limit`), not the `paged` envelope (`page`/`pageSize`/`total`/`totalPages` + `sort`/`dir`) those macros emit, so retiring them would drop the count a paged list UI needs. Retire them once a retrieval can be served paged (a COUNT beside `run<Retrieval>`, the declared `sort:` as the default order) — which is also slice 6's enabler.
+- **Slice 6** below — unblocked by slice 2.
+- Event-sourced / `document` / `embedded` / inheritance-subtype aggregates have no `run<Retrieval>` on every backend, hence no route (`loom.retrieval-unrouted`); serving them is its own piece of work.
+
+**Slices added 2026-09-29 (evaluation-closure review; slice 2 above has landed):**
 
 - **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
 - **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**

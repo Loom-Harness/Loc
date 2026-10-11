@@ -23,7 +23,7 @@ import { wireHelperImport } from "./py-type-imports.js";
 import {
   aggHasFieldMask,
   authUserImport,
-  emittableFinds,
+  emittableMethodFinds,
   hydrateField,
   partWireMethod,
   persistField,
@@ -62,7 +62,7 @@ export function buildPyEmbeddedRepositoryFile(
   // `repo.delete(id)`).  One row — containments / ref-collections fold into the
   // row's jsonb.  (The embedded `save` is already versioned.)
   const emitsDelete = !!agg.canonicalDestroy;
-  const findUser = emittableFinds(repo).some(findUsesCurrentUser);
+  const findUser = emittableMethodFinds(repo).some(findUsesCurrentUser);
   // An embedded aggregate's root scalars are real columns, so a capability
   // `filter` AND-s into every root read exactly like the relational path
   // (DEBT-02 tail).  Non-principal AND principal predicates are wired — the
@@ -110,7 +110,7 @@ export function buildPyEmbeddedRepositoryFile(
     // `false`: the embedded repo loads the whole aggregate from one jsonb column
     // (no per-row child SELECT), so it emits no `_hydrate_many` — find methods
     // must stay on the per-row `_hydrate` comprehension.
-    ...emittableFinds(repo).flatMap((f) => [
+    ...emittableMethodFinds(repo).flatMap((f) => [
       "",
       relationalFindMethod(agg, f, ctx, filterPred, false),
     ]),

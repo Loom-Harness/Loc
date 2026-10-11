@@ -1705,7 +1705,9 @@ Criterion:
         '=' body=Expression
     );
 
-// Retrieval — a named query *bundle*: a composed predicate (`where`,
+// Retrieval — a named query *bundle*, served as `GET /<aggs>/<snake name>`:
+// an optional `requires` endpoint gate (the same slot and scope as
+// `find … requires`), a composed predicate (`where`,
 // the same expression position as `criterion`/`find … where`, so it
 // references criteria and `this.<field>` candidate refs) plus the
 // shaping a real query carries — `sort` ordering and a `loads` fetch
@@ -1713,7 +1715,7 @@ Criterion:
 // on `Repo.run(R(args), page?)`, never part of the declaration.
 //
 //   retrieval AllActive of Customer = ActiveCustomer
-//   retrieval HighValueInRegion(region: string) of Order {
+//   retrieval HighValueInRegion(region: string) of Order requires currentUser.isAdmin {
 //     where: InRegion(region) && OrderTotalAtLeast(1000)
 //     sort:  [total desc, createdAt asc]
 //     loads: [this.lines[].product]
@@ -1724,6 +1726,7 @@ Criterion:
 // `sort` / `loads` / `asc` / `desc` keeps parsing.
 Retrieval:
     'retrieval' name=ID ('(' (params+=Parameter (',' params+=Parameter)*)? ')')? 'of' target=TypeRef
+    ('requires' gate=Expression)?
     (
         '=' where=Expression
       | '{' 'where' ':' where=Expression

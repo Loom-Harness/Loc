@@ -43,6 +43,7 @@ import type {
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -139,7 +140,7 @@ export function emitVanillaEventSourcedFiles(
  *  enrichment-synthesized `all` (the `list/0` CRUD seam covers it). */
 export function customFindsOfAgg(ctx: BoundedContextIR, agg: AggregateIR): FindIR[] {
   const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
-  return (repo?.finds ?? []).filter((f) => f.name !== "all");
+  return repositoryMethodFinds(repo).filter((f) => f.name !== "all");
 }
 
 function toAppSnake(appModule: string): string {

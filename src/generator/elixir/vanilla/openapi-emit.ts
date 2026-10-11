@@ -5,7 +5,13 @@ import {
   wireCreateDefault,
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
-import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
+import {
+  PAGED_MAX_PAGE,
+  PAGED_MAX_PAGE_SIZE,
+  pagedReturn,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
+} from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -863,6 +869,8 @@ ${pagingQueryParams()}
       // Paged finds append the shared page/pageSize/sort/dir controls after
       // the declared params.
       if (findPaged) queryParamLines.push(pagingQueryParams());
+      // A retrieval route appends its optional row window.
+      if (find.retrieval) queryParamLines.push(retrievalWindowParams());
       const queryParams = queryParamLines.join(",\n");
       const queryParamsBlock =
         queryParamLines.length > 0 ? `\n          parameters: [\n${queryParams}\n          ],` : "";
@@ -1448,6 +1456,16 @@ function pagingQueryParams(): string {
     `            %OpenApiSpex.Parameter{name: :pageSize, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${PAGED_MAX_PAGE_SIZE}}}`,
     "            %OpenApiSpex.Parameter{name: :sort, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
     "            %OpenApiSpex.Parameter{name: :dir, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :string}}",
+  ].join(",\n");
+}
+
+/** A retrieval route's optional `offset` / `limit` row window as OpenApiSpex
+ *  parameter literals — the same bounds the other four backends publish and
+ *  the controller's `window_param/4` enforces. */
+function retrievalWindowParams(): string {
+  return [
+    `            %OpenApiSpex.Parameter{name: :offset, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 0, maximum: ${RETRIEVAL_MAX_OFFSET}}}`,
+    `            %OpenApiSpex.Parameter{name: :limit, in: :query, required: false, schema: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: ${RETRIEVAL_MAX_LIMIT}}}`,
   ].join(",\n");
 }
 

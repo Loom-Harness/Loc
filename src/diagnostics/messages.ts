@@ -795,10 +795,29 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
   "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — pass a criterion to ` +
-    `'run' (Repo.run(<Criterion>(args))) or name a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository. (A unique-key reconstitution find returning a ` +
+    `repository find '${p.name}' is a wire-shaped list query — declare it as a ` +
+    `'criterion' + 'retrieval' pair instead of accreting a bespoke list finder on the ` +
+    `repository: a retrieval is served as its own GET route (same query params, ` +
+    `'requires' gate, client method and scaffold filter bar) and is callable in-process ` +
+    `as Repo.run(<Retrieval>(args)). (A unique-key reconstitution find returning a ` +
     `single 'T' / 'T?' stays fine.)`,
+
+  "loom.retrieval-route-collision": (p: {
+    name: unknown;
+    readName: unknown;
+    aggName: unknown;
+    clash: unknown;
+  }) =>
+    `retrieval '${p.name}' is served as the read '${p.aggName}.${p.readName}', but ` +
+    `'${p.readName}' is already ${p.clash} on '${p.aggName}' — one route or client ` +
+    `method would shadow the other. Rename the retrieval.`,
+  "loom.retrieval-route-collision#window-param": (p: { name: unknown; param: unknown }) =>
+    `retrieval '${p.name}' declares a parameter '${p.param}', but its GET route already ` +
+    `takes '?${p.param}=' as its row window. Rename the parameter.`,
+  "loom.retrieval-unrouted": (p: { name: unknown; aggName: unknown; shape: unknown }) =>
+    `retrieval '${p.name}' gets no HTTP route: '${p.aggName}' is ${p.shape} aggregate, and ` +
+    `retrieval routes are served for single-table relational aggregates only. No client ` +
+    `method or scaffold filter bar is generated for it.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -2891,6 +2910,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `denyByDefault: '${p.name}.${p.opName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Its body comes from \`with ${p.macroName}(...)\`, so there is no member here to add one to — name the gate as a \`policy\` and hand it to the macro (\`with ${p.macroName}(requires: <Policy>)\`), or drop \`with ${p.macroName}\` and hand-write the member with its own \`requires\`.`,
   "loom.default-deny-ungated#denybydefault-workflow": (p: { label: unknown }) =>
     `denyByDefault: workflow '${p.label}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
+  "loom.default-deny-ungated#denybydefault-retrieval-is-reachable": (p: {
+    name: unknown;
+    aggName: unknown;
+  }) =>
+    `denyByDefault: retrieval '${p.name}' is served over HTTP (a GET route on '${p.aggName}') on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its \`of ${p.aggName}\` (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-find-is-reachable": (p: {
     name: unknown;
     findName: unknown;

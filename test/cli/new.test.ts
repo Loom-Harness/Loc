@@ -69,12 +69,10 @@ describe("ddd new — scaffold matrix", () => {
           deployables: { name: string; platform: string; port: number }[];
         };
         expect(report.ok).toBe(true);
-        // ...and CLEANLY.  `ok` is true with warnings, so this assertion was
-        // the gap: the shipped `crud` starter carried a list-returning
-        // `find byProject(...)`, which `loom.repository-find-deprecated` warns
-        // on — so a fresh `ddd new` scolded the user on their very first
-        // `ddd parse`, before they had written a line.  A starter is the one
-        // model in the repo that must be exemplary.
+        // ...and CLEANLY.  `ok` is true with warnings, so this is the
+        // assertion that keeps a fresh `ddd new` from scolding the user on
+        // their very first `ddd parse` — a starter is the one model in the
+        // repo that must be exemplary.
         expect(
           report.diagnostics ?? [],
           `${platform}/${template} scaffolds without diagnostics`,
@@ -85,6 +83,30 @@ describe("ddd new — scaffold matrix", () => {
       });
     }
   }
+});
+
+describe("ddd new — the crud starter's list read is reachable", () => {
+  // The starter models its "tasks of a project" read as a criterion +
+  // retrieval pair.  That read must reach the user: a GET route on the
+  // generated api, a client method, and a filter box on the scaffolded list —
+  // not a repository method nothing calls.
+  it("node: GET /tasks/tasks_in_project, its client hook and the list filter bar", () => {
+    const tmp = tmpdir();
+    const out = path.join(tmp, "proj");
+    expect(runCli(["new", "myApp", "-o", out, "--template", "crud"]).status).toBe(0);
+    const gen = path.join(tmp, "gen");
+    expect(runCli(["generate", "system", path.join(out, "main.ddd"), "-o", gen]).status).toBe(0);
+    const read = (rel: string): string => fs.readFileSync(path.join(gen, rel), "utf8");
+    const routes = read("api/http/task.routes.ts");
+    expect(routes).toContain('path: "/tasks_in_project",');
+    expect(routes).toContain("await repo.runTasksInProject(Ids.ProjectId(params.p), {");
+    const client = read("web_app/src/api/task.ts");
+    expect(client).toContain("export function useTasksInProjectTask(");
+    expect(read("web_app/src/pages/tasks/list.tsx")).toContain(
+      "useTasksInProjectTask({ p: tasksInProjectP })",
+    );
+    fs.rmSync(tmp, { recursive: true });
+  });
 });
 
 describe("ddd new — platform/frontend wiring", () => {

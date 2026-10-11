@@ -282,19 +282,23 @@ export function absenceUnionAbsent(
 /** True when a find's route PARSES a request part, and can therefore answer the
  *  wire-validation 422 (`UNPROCESSABLE_ENTITY`).
  *
- *  Two independent sources, and BOTH matter: the find's own declared params
+ *  Three sources, and ALL matter: the find's own declared params
  *  (which ride the query string, each parsed against its declared type), and
  *  the pagination controls a PAGED return injects even when nothing was
  *  declared — `?page=0` on `GET /api/orders` is rejected by the emitted
  *  `min(1)` bound, which is how a param-less `find all` came to answer a 422
- *  its published `[200]` never mentioned (schemathesis F6).
+ *  its published `[200]` never mentioned (schemathesis F6); and a retrieval
+ *  route's optional `?offset=` / `?limit=` window.
  *
  *  Exported because the DECLARATION and the RUNTIME validator must be the same
  *  predicate: Hono's `emitFindRoute` gates its `request: { query: … }` on this,
  *  so a find cannot grow a validator without growing the declaration (or the
  *  reverse). */
 export function findValidatesRequest(find: FindIR): boolean {
-  return find.params.length > 0 || pagedReturn(find.returnType) !== null;
+  // A retrieval route always parses its optional `?offset=` / `?limit=`.
+  return (
+    find.params.length > 0 || pagedReturn(find.returnType) !== null || find.retrieval !== undefined
+  );
 }
 
 function findErrorStatuses(

@@ -12,7 +12,7 @@ import {
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
-  declaredFinds,
+  declaredMethodFinds,
   IN_MEMORY_READ_NAMES,
   inMemoryPagedSortLines,
   inMemoryParamExpr,
@@ -62,7 +62,7 @@ export function renderJavaEventSourcedRepositoryImpl(
           : "sid";
   // The event types this stream can contain — the events the appliers fold.
   const eventNames = [...new Set((agg.appliers ?? []).map((a) => a.event))];
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredMethodFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 
   // Expression imports the in-memory find / retrieval predicates need
   // (notably `java.util.Objects` for `==`, `java.util.Comparator` for a

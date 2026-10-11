@@ -151,6 +151,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
+  "loom.retrieval-route-collision": "10-repositories-and-queries.md#the-get-route",
+  "loom.retrieval-unrouted": "10-repositories-and-queries.md#the-get-route",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":

@@ -545,6 +545,7 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
       visit((node as FindDecl).gate);
     } else if (isRetrieval(node)) {
       visit((node as Retrieval).where);
+      visit((node as Retrieval).gate);
     } else if (isRetrievalLiteral(node)) {
       visit(node.where);
     } else if (isCriterion(node)) {

@@ -385,6 +385,19 @@ export function renderJavaService(
       // for decimal, UUID for a bare guid, …) to match the rendered signature,
       // not the wire→domain collector (which only covers money/datetime).
       for (const p of f.params) collectJavaTypeImports(p.type, imports);
+      if (f.retrieval) {
+        // A retrieval route answers through `run<Retrieval>` — the declared
+        // `sort:` plus the route's optional row window (null = unbounded).
+        const windowParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
+        const windowArgs = [args, "offset, limit"].filter(Boolean).join(", ");
+        return [
+          `    @Transactional(readOnly = true)`,
+          `    public List<${agg.name}Response> ${jid(f.name)}(${windowParams}) {`,
+          `        return repository.run${upperFirst(f.retrieval)}(${windowArgs}).stream().map(${agg.name}Response::${respFrom}).toList();`,
+          `    }`,
+          ``,
+        ];
+      }
       if (isPagedFind(f)) {
         const pagedParams = [params, "int page, int pageSize, String sort, String dir"]
           .filter(Boolean)

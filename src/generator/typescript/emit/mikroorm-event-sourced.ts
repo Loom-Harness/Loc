@@ -13,6 +13,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -75,7 +76,7 @@ export function renderMikroEventSourcedRepository(
     ];
   });
 
-  const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map(
+  const findMethods = [...repositoryMethodFinds(repo), ...synthProjectionFinds(agg.name, ctx)].map(
     (find) => {
       const usesUser = findUsesCurrentUser(find);
       const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
@@ -124,7 +125,8 @@ export function renderMikroEventSourcedRepository(
   // produced TS2304 "Cannot find name 'User'" (M-T9.29, finding F3).  The
   // relational drizzle builder has always spelled the rule this way —
   // `typescript/repository-builder.ts`.
-  const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
+  const repoUsesUser =
+    repositoryMethodFinds(repo).some(findUsesCurrentUser) || aggHasFieldMask(agg);
 
   const body = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,

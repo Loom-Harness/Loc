@@ -1059,9 +1059,13 @@ function contextReadFn(
     case "by-id":
       return `get_${aggSnake}`;
     case "find":
-      // The `defdelegate <find>_<agg>(...)` the context module emits beside the
+      // A retrieval route's find reads through the retrieval's own
+      // `run_<retrieval>_<agg>(args…, opts)` delegate; every other find through
+      // the `defdelegate <find>_<agg>(...)` the context module emits beside the
       // CRUD ones (`vanilla/context-emit.ts`, `customFindsOf`).
-      return `${snake(target.find.name)}_${aggSnake}`;
+      return target.find.retrieval
+        ? `run_${snake(target.find.retrieval)}_${aggSnake}`
+        : `${snake(target.find.name)}_${aggSnake}`;
     default:
       // `history` is detected one level up (`historyRead`) and never reaches
       // this arm; `unresolved` names no declaration — refuse.

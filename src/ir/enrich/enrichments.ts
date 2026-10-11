@@ -1,6 +1,7 @@
 import { descriptorFor } from "../../platform/metadata.js";
 import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
+import { retrievalReadName, retrievalRouteServed } from "../../util/retrieval-route.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
 import {
   forEachGenericInstance,
@@ -61,6 +62,7 @@ import type {
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { pagedRunStmt } from "../util/paged-run.js";
+import { retrievalRouteTargetOf } from "../util/retrieval-route.js";
 import {
   buildDeepScopeFilter,
   buildDenyFilter,
@@ -912,12 +914,18 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizePagedQueryHandlerFinds(
-    // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-    // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
-    ctx.queryHandlers,
-    ctx.criteria,
+  const repositories = synthesizeRetrievalRouteFinds(
+    synthesizePagedQueryHandlerFinds(
+      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+      ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+      ctx.queryHandlers,
+      ctx.criteria,
+    ),
+    // Author-declared retrievals only: the `findAllBy<Criterion>` retrievals
+    // materialised below back in-process reads and have no route.
+    ctx.retrievals ?? [],
+    aggregates,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1187,6 +1195,47 @@ function synthesizePagedQueryHandlerFinds(
         ),
       },
       synthesized: true,
+    });
+  }
+  return out;
+}
+
+/** Every author-declared `retrieval` is a GET route on its target aggregate:
+ *  `GET /<aggs>/<snake(name)>`, query params = the retrieval's params (plus the
+ *  route's optional `offset` / `limit`), `requires` = the retrieval's gate,
+ *  answering the aggregate list.  Derive that contract as a `FindIR` flagged
+ *  `retrieval: <name>` on the target's repository, so the shared api-surface
+ *  derivation, every backend's find-route renderer, the OpenAPI emitters and
+ *  the frontend clients serve it with no second route path.  The repository
+ *  emits no method for it — the route calls `run<Retrieval>`.  A retrieval
+ *  whose target has no repository has nothing to mount under; one whose target
+ *  shape no backend's `run<Retrieval>` serves (`retrievalRouteServed`) is
+ *  refused by `loom.retrieval-unrouted`; a read-name collision is refused by
+ *  `loom.retrieval-route-collision` and left un-synthesized here. */
+function synthesizeRetrievalRouteFinds(
+  repositories: RepositoryIR[],
+  retrievals: RetrievalIR[],
+  aggregates: EnrichedAggregateIR[],
+): RepositoryIR[] {
+  if (retrievals.length === 0) return repositories;
+  const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
+  for (const r of retrievals) {
+    if (r.targetType.kind !== "entity") continue;
+    const aggName = r.targetType.name;
+    const agg = aggregates.find((a) => a.name === aggName);
+    if (!agg || !retrievalRouteServed(retrievalRouteTargetOf(agg))) continue;
+    const repo = out.find((x) => x.aggregateName === aggName);
+    if (!repo) continue;
+    const name = retrievalReadName(r.name);
+    if (repo.finds.some((f) => f.name === name)) continue;
+    repo.finds.push({
+      name,
+      params: r.params,
+      returnType: { kind: "array", element: { kind: "entity", name: aggName } },
+      ...(r.requires ? { requires: r.requires } : {}),
+      filter: r.where,
+      ...(r.criterionRef ? { criterionRef: r.criterionRef } : {}),
+      retrieval: r.name,
     });
   }
   return out;
