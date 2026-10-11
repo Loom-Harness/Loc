@@ -135,4 +135,23 @@ describe("workflow emit inside a branch (D4)", () => {
     expect(fn).toContain("workflow_events.append(Reacted(");
     expect(fn).toContain("for ev in workflow_events:");
   });
+
+  it("java: a subscription handler with an `if let` injects its repo and re-publishes the event", async () => {
+    const files = await build("java");
+    const path = [...files.keys()].find((p) =>
+      p.endsWith("/application/workflows/ADispatcher.java"),
+    );
+    expect(path, "ADispatcher.java emitted").toBeDefined();
+    const dispatcher = files.get(path!)!;
+    // The `if let` retrieval reads through `Ps` — its repository must be
+    // injected (javac `cannot find symbol: psRepository` before the fix).
+    expect(dispatcher).toContain("private final PRepository psRepository;");
+    const fn = slice(dispatcher, "public void onReactStartKick(", "\n    }\n");
+    const decl = fn.indexOf("var __events = new ArrayList<DomainEvent>();");
+    const push = fn.indexOf("__events.add(new Reacted(");
+    const drain = fn.indexOf("for (var __e : __events) events.publishEvent(__e);");
+    expect(decl, "__events declared").toBeGreaterThanOrEqual(0);
+    expect(push, "branch emit appends (not just logs)").toBeGreaterThan(decl);
+    expect(drain, "re-published after the body").toBeGreaterThan(push);
+  });
 });
