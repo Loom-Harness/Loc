@@ -6,7 +6,8 @@
 // The HEEx renderer did not, so a `nil` `lastKnownLocation` rendered
 // `<.link navigate={~p"/locations/#{nil}"}>` — a link to `/locations/`.  This
 // pins the guard in both scaffolded positions (list cell, detail row) AND that
-// a REQUIRED reference to the same aggregate stays unguarded.
+// a REQUIRED reference to the same aggregate stays unguarded.  The link TEXT is
+// the target's batch-loaded `display` label (`@location_labels`, ref-label.ts).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -57,14 +58,14 @@ describe("HEEx IdLink — optional reference null guard", () => {
       const src = await live(file);
       const v = `${recv}.last_known_location`;
       expect(src, file).toContain(
-        `<%= if ${v} do %><.link navigate={~p"/locations/#{${v}}"}><%= ${v} %></.link><% else %><span>—</span><% end %>`,
+        `<%= if ${v} do %><.link navigate={~p"/locations/#{${v}}"}><%= Map.get(@location_labels, ${v}) || ${v} %></.link><% else %><span>—</span><% end %>`,
       );
     }
   });
 
   it("leaves a REQUIRED reference unguarded", async () => {
     const list = await live("live/cargo_list_live.ex");
-    expect(list).toContain(`<.link navigate={~p"/locations/#{o.origin}"}><%= o.origin %></.link>`);
+    expect(list).toContain(`<.link navigate={~p"/locations/#{o.origin}"}><%= Map.get(@location_labels, o.origin) || o.origin %></.link>`);
     expect(list).not.toContain("<%= if o.origin do %>");
   });
 });

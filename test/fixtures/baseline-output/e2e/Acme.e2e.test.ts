@@ -51,23 +51,25 @@ function __authHeaders(): Record<string, string> {
 // so it has no transaction to share — so each block instead asks the backend
 // to put its own state back.
 //
-// SAFETY.  A suite pointed at staging must never truncate anything, so the
-// reset is gated TWICE and the gate that matters needs no configuration:
+// SAFETY.  The reset truncates every table, so it never fires unless BOTH
+// ends opted in on purpose.  Three gates:
 //
-//   • here — the request is only SENT when the target is a loopback address.
-//     Pointing this suite at a deployed environment
+//   • here — the request is only SENT when this suite was handed the reset
+//     token (`LOOM_TEST_RESET_TOKEN`) AND the target is a loopback address.
+//     Without the token the suite warns once and runs against SHARED state;
+//     pointing it at a deployed environment
 //     (`E2E_<DEPLOYABLE>_BASE=https://staging.example.com`) disables it by
-//     construction.  There is deliberately NO override: a remote-enable flag
-//     is exactly the thing that gets copied into a CI config and then points
-//     at the wrong host one refactor later.
+//     construction, with deliberately NO remote override.
 //
-//   • on the backend — the reset answers 404 unless it is switched on, so in
-//     a real deployment it does nothing.  (Three of the five backends go
-//     further and do not register the route at all.)
+//   • on the backend — the route is served only with an explicit
+//     `LOOM_TEST_RESET=1` AND the same `LOOM_TEST_RESET_TOKEN`, and refuses
+//     (403) a request whose `x-loom-test-reset` header does not carry it.
+//     Neither the generated docker-compose.yml nor any dev profile turns it on.
 //
 // `E2E_RESET=off` turns it off entirely, for a suite whose blocks are written
 // to accumulate on purpose.
 const __RESET_PATH = "/__loom/test-reset";
+const __RESET_HEADER = "x-loom-test-reset";
 
 function __isLoopbackBase(base: string): boolean {
   let host: string;
@@ -90,6 +92,8 @@ function __isLoopbackBase(base: string): boolean {
 const __resetOnce = new Set<string>();
 // Bases that answered 404 — warned about once, then left alone.
 const __resetUnavailable = new Set<string>();
+// Whether the "no reset token, shared state" warning has printed.
+let __resetTokenWarned = false;
 
 /** Print a warning without ever being the reason a suite fails.
  *
@@ -124,6 +128,9 @@ function __warnOnce(message: string): void {
 
 /** Put the target back to its just-migrated-and-seeded state.
  *
+ *  Only when this suite holds `LOOM_TEST_RESET_TOKEN` (and the target is
+ *  loopback); otherwise it warns once and resets nothing.
+ *
  *  `E2E_RESET` picks WHEN:
  *
  *    per-file  (default)  once per target, before the first test that uses it
@@ -147,11 +154,37 @@ async function __resetState(base: string): Promise<void> {
   if (mode === "off") return;
   if (mode !== "per-test" && __resetOnce.has(base)) return;
   if (!__isLoopbackBase(base)) return;
+  // Opt-in: no token, no reset — never truncate a stack nobody pointed this
+  // suite at on purpose (finding H-30 erased a dev database exactly so).
+  const token = process.env.LOOM_TEST_RESET_TOKEN ?? "";
+  if (token === "") {
+    if (!__resetTokenWarned) {
+      __resetTokenWarned = true;
+      __warnOnce(
+        [
+          "",
+          "[e2e] No state reset: LOOM_TEST_RESET_TOKEN is not set — these tests SHARE a database.",
+          "      They are green on a fresh one and can fail on a re-run.",
+          "      The reset TRUNCATES EVERY TABLE of the target, so it is opt-in. To use it",
+          "      against a THROWAWAY stack, start each backend with",
+          "        LOOM_TEST_RESET=1 LOOM_TEST_RESET_TOKEN=<secret>",
+          "      and run this suite with LOOM_TEST_RESET_TOKEN=<secret>. Otherwise use a",
+          "      fresh database per run:",
+          "        docker compose down -v && docker compose up --build -d",
+          "",
+        ].join("\n"),
+      );
+    }
+    return;
+  }
   __resetOnce.add(base);
   const url = `${base}${__RESET_PATH}`;
   let r: Response;
   try {
-    r = await fetch(url, { method: "POST", headers: __authHeaders() });
+    r = await fetch(url, {
+      method: "POST",
+      headers: { ...__authHeaders(), [__RESET_HEADER]: token },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`E2E state reset could not reach ${url}: ${message}`);
@@ -159,16 +192,9 @@ async function __resetState(base: string): Promise<void> {
   if (r.ok) return;
   const detail = await r.text().catch(() => "");
   if (r.status === 404) {
-    // NOT fatal, and the reason matters.  404 is the NORMAL answer from a
-    // backend that has not been told the reset is allowed — and two of the
-    // five (python, java) ship no production-profile marker, so they require
-    // `LOOM_TEST_RESET=1` and answer 404 until someone sets it.  Failing here
-    // would turn "you did not opt in" into a suite that cannot run at all,
-    // against a backend started any way other than through the generated
-    // compose file.
-    //
-    // So this degrades to what the suite did before the reset existed —
-    // shared state — and SAYS SO once, rather than surfacing it later as a
+    // NOT fatal: the suite holds a token but this backend was not started with
+    // the reset switched on (it answers 404 having touched nothing).  Degrade
+    // to shared state and SAY SO once, rather than surfacing it later as a
     // bare `expected 6 to be 2` in whichever block happened to count rows.
     if (!__resetUnavailable.has(base)) {
       __resetUnavailable.add(base);
@@ -177,9 +203,8 @@ async function __resetState(base: string): Promise<void> {
           "",
           `[e2e] No state reset at ${base} (404) — these tests SHARE a database.`,
           "      They are green on a fresh one and can fail on a re-run.",
-          "      Enable it by starting the backend with LOOM_TEST_RESET=1; the",
-          "      generated docker-compose.yml already sets that on every backend",
-          "      service. Otherwise use a fresh database per run:",
+          "      Enable it by starting the backend with LOOM_TEST_RESET=1 and the same",
+          "      LOOM_TEST_RESET_TOKEN. Otherwise use a fresh database per run:",
           "        docker compose down -v && docker compose up --build -d",
           "",
         ].join("\n"),
@@ -193,6 +218,9 @@ async function __resetState(base: string): Promise<void> {
     [
       `E2E state reset failed: POST ${url} → ${r.status}${detail ? ": " + detail.slice(0, 200) : ""}`,
       "",
+      r.status === 403
+        ? "The backend refused the token: LOOM_TEST_RESET_TOKEN here must equal the one the backend was started with."
+        : "",
       "Without it this suite is NOT idempotent — it passes on a fresh database",
       "and fails on the second run of the same one, because every test shares",
       "state with the tests before it.",

@@ -26,7 +26,7 @@ import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/princ
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -354,6 +354,26 @@ function provFieldsOf(e: EntityShape): FieldIR[] {
   return e.fields.filter((f) => f.provenanced);
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `_assert_invariants` unless the entity already binds that attribute: every
+ *  field / part keeps its state in a `self._<snake>` backing attribute (so a
+ *  member `assertInvariants` stored its string OVER the method — the first
+ *  invariant check then raised `TypeError: 'str' object is not callable`),
+ *  and a private operation is the method `_<snake>`.  On a collision the
+ *  helper steps aside with trailing underscores (eval item 6, ruling D2);
+ *  every other entity keeps the unchanged name. */
+function invariantHelperName(e: EntityShape): string {
+  const taken = new Set<string>([
+    ...e.fields.map((f) => `_${snake(f.name)}`),
+    ...e.fields.filter((f) => f.provenanced).map((f) => `_${provColumn(f.name)}`),
+    ...e.contains.map((c) => `_${snake(c.name)}`),
+    ...e.operations.map((op) => `_${pythonIdent(op.name)}`),
+  ]);
+  let name = "_assert_invariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 function rootShape(a: AggregateIR): EntityShape {
   return {
     name: a.name,
@@ -436,10 +456,11 @@ function renderEntity(
   // Under --trace, `_assert_invariants` takes an `__op` label threaded by
   // each caller (the ctor passes "<init>", the extern wrapper "extern") so
   // the `invariant_evaluated` line carries the originating operation.
+  const assertName = invariantHelperName(e);
   const assertCall = (op: string): string =>
     emitTrace
-      ? `        self._assert_invariants(${JSON.stringify(op)})`
-      : "        self._assert_invariants()";
+      ? `        self.${assertName}(${JSON.stringify(op)})`
+      : `        self.${assertName}()`;
 
   // A NESTED part (contained by a sibling, not the root) has no parent id at
   // construction — its FK is stamped from tree position on save — so `parent_id`
@@ -456,14 +477,14 @@ function renderEntity(
   const stateParams = [
     `id: ${e.name}Id`,
     parentIdParam(isNested),
-    ...e.fields.map((f) => `${snake(f.name)}: ${renderPyType(f.type)}`),
-    ...e.contains.map((c) => `${snake(c.name)}: ${containsType(c)}`),
+    ...e.fields.map((f) => `${pythonIdent(f.name)}: ${renderPyType(f.type)}`),
+    ...e.contains.map((c) => `${pythonIdent(c.name)}: ${containsType(c)}`),
   ].filter((s): s is string => s != null);
   const stateArgs = [
     "id=id",
     !e.isRoot ? "parent_id=parent_id" : null,
-    ...e.fields.map((f) => `${snake(f.name)}=${snake(f.name)}`),
-    ...e.contains.map((c) => `${snake(c.name)}=${snake(c.name)}`),
+    ...e.fields.map((f) => `${pythonIdent(f.name)}=${pythonIdent(f.name)}`),
+    ...e.contains.map((c) => `${pythonIdent(c.name)}=${pythonIdent(c.name)}`),
   ].filter((s): s is string => s != null);
 
   // `_trust_store` opts repository rehydration out of the invariant run
@@ -480,8 +501,8 @@ function renderEntity(
       : isNested
         ? `        self._parent_id = parent_id if parent_id is not None else new_${snake(e.parentName ?? e.name)}_id()`
         : `        self._parent_id = parent_id`,
-    ...e.fields.map((f) => `        self._${snake(f.name)} = ${snake(f.name)}`),
-    ...e.contains.map((c) => `        self._${snake(c.name)} = ${snake(c.name)}`),
+    ...e.fields.map((f) => `        self._${snake(f.name)} = ${pythonIdent(f.name)}`),
+    ...e.contains.map((c) => `        self._${snake(c.name)} = ${pythonIdent(c.name)}`),
     e.isRoot ? `        self._events: list[DomainEvent] = []` : null,
     // Co-located provenance lineage, set on each provenanced write and
     // restored on hydrate; None until first written.
@@ -508,13 +529,13 @@ function renderEntity(
     getters.push(...prop("parent_id", `${e.parentName ?? e.rootName}Id`, "self._parent_id"));
   }
   for (const f of e.fields) {
-    getters.push(...prop(snake(f.name), renderPyType(f.type), `self._${snake(f.name)}`));
+    getters.push(...prop(pythonIdent(f.name), renderPyType(f.type), `self._${snake(f.name)}`));
   }
   for (const c of e.contains) {
-    getters.push(...prop(snake(c.name), containsType(c), `self._${snake(c.name)}`));
+    getters.push(...prop(pythonIdent(c.name), containsType(c), `self._${snake(c.name)}`));
   }
   for (const d of e.derived) {
-    getters.push(...prop(snake(d.name), renderPyType(d.type), renderPyExpr(d.expr)));
+    getters.push(...prop(pythonIdent(d.name), renderPyType(d.type), renderPyExpr(d.expr)));
   }
   for (const f of provFields) {
     getters.push(...prop(provColumn(f.name), "ProvLineage | None", `self._${provColumn(f.name)}`));
@@ -524,7 +545,10 @@ function renderEntity(
   }
 
   const fns = e.functions.flatMap((fn) => {
-    const params = ["self", ...fn.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`)];
+    const params = [
+      "self",
+      ...fn.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ];
     // PUBLIC (no `_` prefix), like the operations below.  Python's underscore
     // is a convention, not access control, so the route's hoisted `when` gate
     // (`found._is_open()`) happened to work — but a WORKFLOW calling the same
@@ -533,7 +557,7 @@ function renderEntity(
     // two halves disagreed on the NAME, so that path raised `AttributeError`
     // at request time on a model that validated `0 error(s)`.  One spelling
     // closes it, and matches what the other four backends now emit.
-    const head = `    def ${snake(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
+    const head = `    def ${pythonIdent(fn.name)}(${params.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
     // Expression form keeps the single `return expr` line (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     const body =
@@ -559,7 +583,10 @@ function renderEntity(
         ]
       : [];
   const ops = e.operations.flatMap((op) => {
-    const params = ["self", ...op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`)];
+    const params = [
+      "self",
+      ...op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ];
     // currentUser-gated ops pick up a trailing actor parameter — the
     // route threads `request.state.current_user` into it.
     if (operationBodyUsesCurrentUser(op)) params.push("current_user: User");
@@ -581,7 +608,7 @@ function renderEntity(
       const hook = `        ${op.returnType ? "return " : ""}${externHookCall(e.name, op)}`;
       return [
         "",
-        `    def ${snake(op.name)}(${params.join(", ")}) -> ${retType}:`,
+        `    def ${pythonIdent(op.name)}(${params.join(", ")}) -> ${retType}:`,
         ...whenGate(op),
         ...(preconditions.length > 0 ? [preconditions] : []),
         hook,
@@ -618,7 +645,7 @@ function renderEntity(
     }
     return [
       "",
-      `    def ${prefix}${snake(op.name)}(${params.join(", ")}) -> ${retType}:`,
+      `    def ${prefix}${pythonIdent(op.name)}(${params.join(", ")}) -> ${retType}:`,
       ...whenGate(op),
       ...(body.length > 0 ? [body] : []),
       // Void operations re-assert invariants on the way out; a returning
@@ -725,8 +752,8 @@ function renderEntity(
   const assertInvariants = [
     "",
     emitTrace
-      ? "    def _assert_invariants(self, __op: str) -> None:"
-      : "    def _assert_invariants(self) -> None:",
+      ? `    def ${assertName}(self, __op: str) -> None:`
+      : `    def ${assertName}(self) -> None:`,
     ...(invariantLines.length > 0 ? invariantLines : ["        pass"]),
   ];
 
@@ -756,12 +783,12 @@ function renderEntity(
         parentIdParam(isNested),
         ...e.fields.map(
           (f) =>
-            `${snake(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
+            `${pythonIdent(f.name)}: ${renderPyType(f.type)}${f.type.kind === "optional" ? " = None" : ""}`,
         ),
         ...e.contains.map((c) =>
           c.collection
-            ? `${snake(c.name)}: ${containsType(c)} | None = None`
-            : `${snake(c.name)}: ${containsType(c)} = None`,
+            ? `${pythonIdent(c.name)}: ${containsType(c)} | None = None`
+            : `${pythonIdent(c.name)}: ${containsType(c)} = None`,
         ),
       ].filter((s): s is string => s != null)
     : stateParams;
@@ -769,11 +796,11 @@ function renderEntity(
     ? [
         "id=id",
         !e.isRoot ? "parent_id=parent_id" : null,
-        ...e.fields.map((f) => `${snake(f.name)}=${snake(f.name)}`),
+        ...e.fields.map((f) => `${pythonIdent(f.name)}=${pythonIdent(f.name)}`),
         ...e.contains.map((c) =>
           c.collection
-            ? `${snake(c.name)}=${snake(c.name)} if ${snake(c.name)} is not None else []`
-            : `${snake(c.name)}=${snake(c.name)}`,
+            ? `${pythonIdent(c.name)}=${pythonIdent(c.name)} if ${pythonIdent(c.name)} is not None else []`
+            : `${pythonIdent(c.name)}=${pythonIdent(c.name)}`,
         ),
       ].filter((s): s is string => s != null)
     : stateArgs;
@@ -807,7 +834,7 @@ function renderEntity(
     for (const ap of e.appliers ?? []) {
       esBlocks.push(
         "",
-        `    def _apply_${snake(ap.event)}(self, ${snake(ap.param)}: ${ap.event}) -> None:`,
+        `    def _apply_${snake(ap.event)}(self, ${pythonIdent(ap.param)}: ${ap.event}) -> None:`,
         renderPyStatements(ap.statements) || "        pass",
       );
     }
@@ -830,7 +857,9 @@ function renderEntity(
       "        return inst",
     );
     if (e.esCreate) {
-      const params = e.esCreate.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+      const params = e.esCreate.params.map(
+        (p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`,
+      );
       esBlocks.push(
         "",
         "    @classmethod",
@@ -839,7 +868,7 @@ function renderEntity(
         `        inst._id = new_${snake(e.name)}_id()`,
         ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
         "        inst._events = []",
-        `        inst._init(${e.esCreate.params.map((p) => snake(p.name)).join(", ")})`,
+        `        inst._init(${e.esCreate.params.map((p) => pythonIdent(p.name)).join(", ")})`,
         "        return inst",
         "",
         `    def _init(self${params.length > 0 ? `, ${params.join(", ")}` : ""}) -> None:`,
@@ -879,11 +908,11 @@ function renderEntity(
       // (`[]`, `now()`) can never become a shared Python default argument.
       // mypy --strict narrows the `is not None` check back to `T`.
       if (factoryDefault(f) !== undefined) {
-        return `${snake(f.name)}: ${renderPyType(f.type)} | None = None`;
+        return `${pythonIdent(f.name)}: ${renderPyType(f.type)} | None = None`;
       }
       return f.optional
-        ? `${snake(f.name)}: ${renderPyType(f.type)} = None`
-        : `${snake(f.name)}: ${renderPyType(f.type)}`;
+        ? `${pythonIdent(f.name)}: ${renderPyType(f.type)} = None`
+        : `${pythonIdent(f.name)}: ${renderPyType(f.type)}`;
     });
     // Server-seeded literal defaults (RS-11): a field outside the create-input
     // set (`token`/`managed`/`internal`) whose default is a construction-time
@@ -902,9 +931,9 @@ function renderEntity(
         // `is not None`, not a truthiness test: an explicit 0 / "" / False the
         // caller passed must survive.
         if (dflt !== undefined) {
-          return `${snake(f.name)} if ${snake(f.name)} is not None else ${dflt}`;
+          return `${pythonIdent(f.name)} if ${pythonIdent(f.name)} is not None else ${dflt}`;
         }
-        return snake(f.name);
+        return pythonIdent(f.name);
       }
       const seeded = defaultSeeds.get(f.name);
       if (seeded !== undefined) return seeded;
@@ -917,8 +946,10 @@ function renderEntity(
       `    def create(cls${factoryParams.length > 0 ? `, *, ${factoryParams.join(", ")}` : ""}) -> ${self}:`,
       "        return cls(",
       `            id=new_${snake(e.name)}_id(),`,
-      ...e.fields.map((f) => `            ${snake(f.name)}=${fieldInit(f)},`),
-      ...e.contains.map((c) => `            ${snake(c.name)}=${c.collection ? "[]" : "None"},`),
+      ...e.fields.map((f) => `            ${pythonIdent(f.name)}=${fieldInit(f)},`),
+      ...e.contains.map(
+        (c) => `            ${pythonIdent(c.name)}=${c.collection ? "[]" : "None"},`,
+      ),
       "        )",
     ];
   }

@@ -615,7 +615,7 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 **Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
 
-**Status (#3108, 2026-10-04).** E1, E5, E6, E7, E8, E9 (M-T6.70: path keys embed `/api`, no `servers` base) and E10 (M-T6.71: the LiveView by-id load and history loader cast the id first → the page's not-found arm) are in #3108; E7/E9/E10 boot-verified on a generated app. E8 lands as an honest skip, not an assertion: a bare `toThrow()` over an op with no reachable `precondition`/`requires` degrades like `toThrow(invariant)`. **E3** is fixed on `main` by #3080. Still open: **E2** (fenced by #3101/#3103; #3082 has merged), **E4** — the schema half alone is unsafe (a `:utc_datetime_usec` field over the `timestamp(0)` column `timestamps()` migrates to would round on write, so the insert response and the read-back disagree), and the migration step lives in `elixir/migrations-emit.ts`, which #3101 edits (#3082 has merged); build it after #3101 lands. Two findings filed here from the E8 investigation:
+**Status (#3108, 2026-10-04).** E1, E5, E6, E7, E8, E9 (M-T6.70: path keys embed `/api`, no `servers` base) and E10 (M-T6.71: the LiveView by-id load and history loader cast the id first → the page's not-found arm) are in #3108; E7/E9/E10 boot-verified on a generated app. E8 lands as an honest skip, not an assertion: a bare `toThrow()` over an op with no reachable `precondition`/`requires` degrades like `toThrow(invariant)`. **E3** is fixed on `main` by #3080. Still open: **E2** (still fenced by open #3103; #3082 and #3101 have merged), **E4** — the schema half alone is unsafe (a `:utc_datetime_usec` field over the `timestamp(0)` column `timestamps()` migrates to would round on write, so the insert response and the read-back disagree), and the migration step lives in `elixir/migrations-emit.ts`; its fence #3101 merged 2026-10-06, so E4 is now unblocked (re-checked on the 2026-10-11 re-sync of #3108). Two findings filed here from the E8 investigation:
 - **E11** — an elixir named-operation persist re-runs only the RESIDUAL (cross-field) invariants (`context-emit.ts` `aggregateHasResidualInvariants`); a single-field invariant on the native chain (`invariant qty >= 0` → `validate_number` in `base_changeset`) is bypassed by `change(%{}) |> force_change`, so `setQty(-1)` commits. The root cause of E8. **M**.
 - **E12** — the context-nested (integration) test emitter maps only an object-literal op argument (`integration-tests-emit.ts` `attrsMap`); a positional `c.setQty(-1)` renders `set_qty_counter(c, %{})`, so `expect(…).toThrow()` passes on the missing param, and a success-path op call fails. Fix together with E11 (fixing E12 alone turns those generated tests red on E11). **S**.
 
@@ -623,8 +623,8 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 | id | Item | Evidence | Sz |
 |---|---|---|---|
-| E13 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
-| E14 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+| E13 | ~~A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2)~~ — **not a live defect** (#3101): `loom.projection-groupby-key-not-columnar` refuses it before codegen on every backend | found while building #3080 | — |
+| E14 | ~~A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b)~~ — **fixed by #3101** (delta steps collapse to one `:map` column; the workflow-instance read serializes the jsonb-string decimal as a number — the storage stance is kept, every reader accepts both forms). Residue: a `backfillColumn`/`addIndex` on a VO leaf still names the flattened column | found while building #3082 | — |
 
 ## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
 
@@ -698,6 +698,30 @@ Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-fl
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
 
+## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `open` · **M** · P2
+
+*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
+
+`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
+
+**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
+
+**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
+
+## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
+
+*Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
+
+A message-less single-field rule (`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) is a native wire constraint on every backend. Node's zod chain denies it with the synthesized per-field sentence (`singleFieldMessage` in `src/generator/zod-refine.ts`: "Amount must be at least 1", "Code is not in the expected format"); since #3153 python sends the same sentence (a per-model wrap `field_validator` table in `src/generator/python/emit/wire-constraints.ts`). The other three still diverge, measured on booted legs against `validation-messages` (golden seq 14/15):
+
+- **.NET (EF + Dapper)** — FluentValidation's default: `'Amount' must be greater than or equal to '1'.`, `'Code' is not in the correct format.`
+- **Java** — the derived refine default: `Invariant violated: amount >= 1`.
+- **Elixir** — a message-less PRECONDITION never reaches the wire validator at all: it answers the domain-floor 422 (`title: "Unprocessable Entity"`, `detail: "Precondition failed: amount >= 1"`, no `errors[]`).
+
+**The fix:** each backend's native carrier takes the node sentence as its message (`.WithMessage(…)`, the Bean Validation `message`, the Ecto `message:` option), derived from the same `singleFieldShape` classification; elixir additionally routes a wire-translatable message-less precondition through the shared `errors[]` 422 sender, as M-T6.20 did for the messaged one.
+
+**Verification.** Delete the four `M-T6.86` waivers in `test/_helpers/wire-waivers.ts`; the dotnet / dapper / java / elixir behavioral legs then gate `validation-messages` seq 14/15 against the node golden.
+
 ## M-FT.24 — An op returning an error union: the OpenAPI document and the wire disagree, and the union wire shape has no card — `open` · **M** · P2
 
 *Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) named this id the owner of the union wire shape and deferred the OpenAPI union document to it.*
@@ -720,6 +744,8 @@ Re-proved on `main` @ `cbda91658` with `operation reserve(): Order or NotFound {
 Observed by wave C3 (defect D5 of [`waves/handoffs/wave-c3-3a-e2eless.md`](waves/handoffs/wave-c3-3a-e2eless.md), re-measured by packet 3g in [`waves/handoffs/wave-c3-3g-fixes.md`](waves/handoffs/wave-c3-3g-fixes.md)). A bound with no `message` answers node `"Position must be at least 1"`, python `"Input should be greater than or equal to 1"`, .NET `"'Position' must be greater than or equal to '1'."`; a MISSING required payload field answers node `"Invalid input: expected string, received undefined"`, python `"Field required"`, .NET/dapper `"The Amount field is required."`, java `"Invalid decimal: null"`. `src/generator/zod-refine.ts` `singleFieldMessage` calls the node text "node-local" by design, but it is still one `errors[].message` wire field with five values, and it is why every wire golden that probes a 422 has to use a MESSAGED rule (the ruled M-T1.11 contract) — `workflow-command-payload`'s missing-`amount` probe was dropped in 3g for exactly this reason.
 
 Decide first (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): either the default sentence is canonical per rule shape (min / max / length / required / pattern — one table, rendered by every backend's validator adapter), or `message` is declared non-contractual for message-less rules and the wire differential masks it (keeping `pointer` and `code` binding). Then implement across the five and re-add the probe. Relates to M-T1.11 (the messaged contract), M-T6.88 (the java pointer half of the same probe), and [M-T6.83](#m-t683) (the default *invariant* message — a different rule shape, the same "one canonical default sentence" question).
+
+*Since #3153: the message-less **rule** half is ruled by [D-MESSAGELESS-RULE-WIRE-MESSAGE](../decisions.md#d-messageless-rule-wire-message) (node's synthesized sentence is canonical) and tracked as [M-T6.86](#m-t686); what stays open here is the missing-required-field half.*
 
 ## M-T6.88 — java points a nested payload field's 422 at the leaf, not the path (`/amount` for `c.amount`) — `open` · **S** · P2 ⚠ verify-first
 

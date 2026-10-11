@@ -62,7 +62,7 @@ describe("realtime SSE wire — Hono (delivery: broadcast)", () => {
     const idx = files.get("http/index.ts") ?? "";
     expect(idx).toContain('import { realtimeRoutes, realtimeTee } from "./realtime";');
     expect(idx).toContain(
-      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db)),",
+      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
     expect(idx).toContain('app.route("/api/realtime", realtimeRoutes());');
   });
@@ -70,7 +70,7 @@ describe("realtime SSE wire — Hono (delivery: broadcast)", () => {
   it("a durable broadcast channel composes outbox → tee → in-process (relay included)", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     expect(files.get("http/index.ts") ?? "").toContain(
-      "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db))),",
+      "events: DomainEventDispatcher = createOutboxDispatcher(db, realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true }))),",
     );
     // The relay's inner dispatcher rides through the tee too, so relayed
     // (durable) events also reach connected SSE subscribers.

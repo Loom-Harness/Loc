@@ -272,7 +272,7 @@ function renderEsRepository(
   // emit→PubSub).  Runs inside the append transaction, like the workflow
   // `emit` broadcast.  With channels wired the line becomes the broker tee
   // (which forwards non-broker events to the local dispatcher).
-  const dispatchCall = elixirDispatchCall("ev", contextModule, hasDispatcher, channels);
+  const dispatchCall = elixirDispatchCall("ev", contextModule, hasDispatcher, channels, true);
   const dispatchLine = dispatchCall ? `\n\n        ${dispatchCall}` : "";
 
   // Event types that may appear in this aggregate's stream — its appliers'

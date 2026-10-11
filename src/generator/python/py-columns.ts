@@ -1,5 +1,5 @@
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Column mapping shared by the SQLAlchemy schema emitter and the
@@ -23,6 +23,15 @@ export interface PyColumn {
   saType: string;
   optional: boolean;
   primaryKey?: boolean;
+}
+
+/** The python ATTRIBUTE a row-model column is mapped under: its snake
+ *  column name, escaped when that is a python keyword (`def` → `def_`, the
+ *  SQL name staying `def` via `mapped_column("def", …)`).  Every
+ *  `row.<attr>` / `<Row>.<attr>` / insert-values key goes through this
+ *  (eval item 6, ruling D2). */
+export function pyColumnAttr(c: Pick<PyColumn, "attr">): string {
+  return escapePythonIdent(c.attr);
 }
 
 /** SQLAlchemy row-model class name for an aggregate / part. */

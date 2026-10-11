@@ -29,6 +29,7 @@ describe("a declaration in the wrong scope says where it belongs", () => {
       template: "crud",
       platform: "node",
       design: "mantine",
+      invocation: "ddd",
     });
     // Insert the migration block as the system's first member.
     const src = starter.replace(/^(system \w+ \{\n)/m, `$1  migration "x" { Task.done = false }\n`);
