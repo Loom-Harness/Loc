@@ -84,7 +84,12 @@ export function missingEvidence(
 /** The clause that explains a missing-evidence gate failure — appended after
  *  "N declared test(s) had no matching result (…)".  Names a missing report
  *  first (cause 1), then a join mismatch (cause 2), and otherwise says plainly
- *  that every supplied result was accounted for (cause 3). */
+ *  that every supplied result was accounted for (cause 3).
+ *
+ *  A silent tier is only called a missing report OUTRIGHT when every result
+ *  was attributed: if some result matched no declared test, that tier's
+ *  report may well have been passed with drifted titles, so both readings
+ *  are named and the join mismatch is spelled out. */
 export function describeMissingCause(
   missing: MissingEvidence,
   attribution: ResultAttribution,
@@ -92,15 +97,19 @@ export function describeMissingCause(
   serviceSlugs: readonly string[],
 ): string {
   const clauses: string[] = [];
+  const unknown = attribution.unknown;
   for (const kind of missing.silentKinds) {
     const n = missing.refs.filter((r) => r.kind === kind).length;
+    const label = KIND_LABEL[kind];
     clauses.push(
-      `no result for ANY ${KIND_LABEL[kind]} test was supplied (${n} of the missing test(s) are ${KIND_LABEL[kind]}),` +
-        ` so ${KIND_REPORT[kind]} was most likely not passed — each runner project writes its own report,` +
-        ` and --from-vitest / --from-playwright / --results are repeatable: pass every one`,
+      unknown.length === 0
+        ? `no result for ANY ${label} test was supplied (${n} of the missing test(s) are ${label}),` +
+            ` so ${KIND_REPORT[kind]} was most likely not passed — each runner project writes its own report,` +
+            ` and --from-vitest / --from-playwright / --results are repeatable: pass every one`
+        : `no result was attributed to ANY ${label} test (${n} of the missing test(s) are ${label}):` +
+            ` either ${KIND_REPORT[kind]} was not passed, or it was and its titles do not match`,
     );
   }
-  const unknown = attribution.unknown;
   if (unknown.length > 0) {
     clauses.push(
       `${unknown.length} result(s) matched no declared test` +
@@ -134,7 +143,7 @@ export function reportWarnings(
     if (attributed === 0) {
       out.push(
         `none of the ${r.outcomes.length} result(s) in ${r.label} matched a declared test` +
-          ` — is it a report of this model's generated suites?`,
+          ` — check it is a report of this model's generated suites`,
       );
     }
   }

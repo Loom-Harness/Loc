@@ -179,6 +179,11 @@ describe("why a declared test has no result", () => {
     };
     const { missing, text } = explain([drifted, ...e2eReport()]);
     expect(missing.silentKinds).toEqual(["unit"]);
+    // A stray result means the unit report may have been passed with drifted
+    // titles, so "the report was not passed" is offered as one reading, not
+    // asserted.
+    expect(text).toMatch(/either the backend unit-test runner's report was not passed, or it was/);
+    expect(text).not.toMatch(/most likely not passed/);
     expect(text).toMatch(/1 result\(s\) matched no declared test — the SUITE does not match/);
     expect(text).toContain('"work-order.test.ts"');
     expect(text).toMatch(/declared with suite "WorkOrder"/);
@@ -235,7 +240,7 @@ describe("per-report warnings", () => {
     });
     expect(reportWarnings(reports, attribution)).toEqual([
       "--from-vitest empty.json contains no test results",
-      "none of the 1 result(s) in --results other.json matched a declared test — is it a report of this model's generated suites?",
+      "none of the 1 result(s) in --results other.json matched a declared test — check it is a report of this model's generated suites",
     ]);
   });
 
