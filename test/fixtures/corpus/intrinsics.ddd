@@ -21,15 +21,18 @@
 //     find, matched against the stored value;
 //   - the same column-side `trim()` through a reified criterion.
 //
-// Two claims the copies carry are NOT asserted here, because promoting them
-// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+// …and two string arms whose UNIT used to differ per backend: `substring`
+// counts code points like `length` (an astral character is one position), and
+// `toUpper` maps `ß` to "SS" (RS-31, the catalogue contract).
+//
+// A whitespace-only name trips the message-less `invariant
+// name.trim().length > 0`, and every backend answers it with node's refine
+// default at `/name` (D-MESSAGELESS-DEFAULT).
+//
+// One claim the copies carry is NOT asserted here, because promoting it found
+// a defect (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
 // a VALUE-side intrinsic in a find (`q.trim()`, `q.toLower()`) 500s on the
-// MikroORM adapter, and a
-// whitespace-only name tripping `invariant name.trim().length > 0` answers
-// three different 422 bodies (node `/name` + the rule text; python a pydantic
-// `Value error, …` prefix with an empty pointer; elixir Ecto's "can't be blank",
-// because Ecto treats a whitespace-only string as MISSING before the invariant
-// runs).  The invariant stays declared — every write below still passes it.
+// MikroORM adapter.
 system IntrinsicsSystem {
   subdomain Catalog {
     context Catalog {
@@ -41,6 +44,8 @@ system IntrinsicsSystem {
         derived slug: string = name.trim().toLower()
         derived wholePrice: money = price.round(0)
         derived absQty: int = qty.abs()
+        derived middle: string = name.substring(1, 2)
+        derived shout: string = name.toUpper()
         invariant name.trim().length > 0
       }
       criterion Bobbish of Product as p = p.name.trim() == "Bob"
@@ -70,6 +75,17 @@ system IntrinsicsSystem {
   test e2e "intrinsics agree in memory and in the database" against d {
     let ada = api.products.create({ name: "  Ada  ", price: money("18.50"), qty: -3 })
     let bob = api.products.create({ name: "Bob", price: money("7.25"), qty: 4 })
+
+    // A blank name is the invariant's — one body on every backend.
+    expect(api.products.create({ name: "   ", price: money("1.00"), qty: 1 })).toThrow(422)
+
+    // ── string units: code points, and the full upper-case mapping ─────────
+    let astral = api.products.create({ name: "a😀bc", price: money("1.00"), qty: 1 })
+    expect(api.products.getById(astral).middle).toBe("😀b")
+    let street = api.products.create({ name: "straße", price: money("1.00"), qty: 1 })
+    expect(api.products.getById(street).shout).toBe("STRASSE")
+    api.products.destroy(astral)
+    api.products.destroy(street)
 
     // ── in memory: the derived fields as they reach the wire ────────────────
     let read = api.products.getById(ada)

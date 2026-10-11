@@ -14,7 +14,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
-import { csCodePointLength } from "../_expr/code-point.js";
+import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -876,16 +876,20 @@ export const CS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // check below says no and the call silently becomes culture-sensitive.
   // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` unwraps
   // it, so both forms land here.
-  "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
+  //
+  // `ToUpperInvariant` is a SIMPLE (one char to one char) mapping, so it keeps
+  // `ß`, where node, java, python and elixir apply the full Unicode mapping and
+  // answer "SS" ("straße" → "STRASSE").  The ordinal replace completes it for
+  // the one full-mapping expansion that is not a ligature or polytonic Greek
+  // (see the catalogue contract in `src/util/intrinsics.ts`).
+  "string.toUpper": (recv) =>
+    `${recv}.ToUpperInvariant().Replace("\\u00DF", "SS", StringComparison.Ordinal)`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
-  // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
-  // .NET's Substring throws on out-of-range, so guard + Math.Min.  Receiver /
-  // arg duplication is safe — Loom expressions are pure.  StringComparison
-  // and Math live in `System`, covered by the SDK's <ImplicitUsings>.
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, Math.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
-      : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
+  // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`) — `Substring` counts UTF-16 units and
+  // throws out of range, so neither half of it fits.  The LINQ it rides is in
+  // the SDK's <ImplicitUsings>.
+  "string.substring": (recv, args) => csCodePointSubstring(recv, args[0]!, args[1]),
   "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]}, StringComparison.Ordinal)`,
   "string.endsWith": (recv, args) => `${recv}.EndsWith(${args[0]}, StringComparison.Ordinal)`,
   "string.contains": (recv, args) => `${recv}.Contains(${args[0]}, StringComparison.Ordinal)`,

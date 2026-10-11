@@ -66,11 +66,18 @@ export interface IntrinsicSignature {
 
 // Cross-backend semantics contract (each op behaves the same from `.ddd`
 // source on every backend; edge behaviour is pinned here, not per backend):
-//   - `toUpper` / `toLower` — full-string case mapping in the platform's
-//     default (invariant-leaning) mapping; queryable as SQL upper()/lower().
+//   - `toUpper` / `toLower` — culture-free (invariant) case mapping with the
+//     Unicode FULL mapping's `ß` → "SS" ("straße".toUpper() is "STRASSE" on
+//     every backend; .NET's simple-mapping `ToUpperInvariant` is completed for
+//     it).  The rarer full-mapping expansions — ligatures (`ﬁ`), polytonic
+//     Greek — follow each platform.  Queryable as SQL upper()/lower(), whose
+//     mapping is the database's.
 //   - `substring(start, len?)` — 0-BASED and CLAMPING (JS `slice`
 //     semantics): out-of-range start yields "", len past the end truncates,
-//     omitted len runs to the end.  Non-negative arguments expected.
+//     omitted len runs to the end.  Counted in CODE POINTS, the unit of
+//     `.length` (RS-31), so an astral character is one position wide on every
+//     backend (`src/generator/_expr/code-point.ts`).  Non-negative arguments
+//     expected.
 //   - `startsWith` / `endsWith` / `contains` — ordinal (culture-free)
 //     comparison.  A string-receiver `contains` is an intrinsic, NOT the
 //     collection op — lowering keys the `isCollectionOp` flag off the
