@@ -59,6 +59,73 @@ describe("Python: context integration test emission (Phase 3b)", () => {
     expect(f).toContain("assert found.qty == 2");
   });
 
+  // Each test declares only the fixture locals ITS body reads — ruff F841
+  // rejects an unused local, so a value-object-only body declares no `events`
+  // and no repo, and a sibling test's repo never leaks into it.
+  const MIXED = SRC.replace(
+    'repository Orders for Order { }',
+    `repository Orders for Order { }
+    aggregate Customer { name: string }
+    repository Customers for Customer { }
+    valueobject Address { street: string  city: string }
+    test "an address holds its city" {
+      let a = Address { street: "Main", city: "Oslo" }
+      expect(a.city).toBe("Oslo")
+    }
+    test "persists a customer" {
+      let c = Customer.create({ name: "Ada" })
+      expect(c.name).toBe("Ada")
+    }`,
+  );
+
+  /** The `async def <name>(...)` block for one emitted test function. */
+  const fnBlock = (f: string, name: string): string => {
+    const start = f.indexOf(`async def ${name}(`);
+    expect(start, `function ${name}`).toBeGreaterThanOrEqual(0);
+    const next = f.indexOf("\nasync def ", start + 1);
+    return f.slice(start, next === -1 ? undefined : next);
+  };
+
+  it("a body that reads no repository declares no events / repo / session", async () => {
+    const f = (await gen(MIXED)).get("api/tests/test_ordering_integration.py") ?? "";
+    const vo = fnBlock(f, "test_an_address_holds_its_city");
+    expect(vo).toContain("async def test_an_address_holds_its_city() -> None:");
+    expect(vo).not.toMatch(/\bevents\b/);
+    expect(vo).not.toMatch(/_repo\b/);
+    expect(vo).toContain('a = Address("Main", "Oslo")');
+  });
+
+  it("each test constructs only the repositories its own body reads", async () => {
+    const f = (await gen(MIXED)).get("api/tests/test_ordering_integration.py") ?? "";
+    const cust = fnBlock(f, "test_persists_a_customer");
+    expect(cust).toContain("(session: AsyncSession) -> None:");
+    expect(cust).toContain("events = NoopDomainEventDispatcher()");
+    expect(cust).toContain("customer_repo = CustomerRepository(session, events)");
+    expect(cust).not.toContain("order_repo");
+    const ord = fnBlock(f, "test_persists_and_reads_back_an_order");
+    expect(ord).toContain("order_repo = OrderRepository(session, events)");
+    expect(ord).not.toContain("customer_repo");
+  });
+
+  it("a module whose tests read no repository imports no dispatcher or repository", async () => {
+    const voOnly = SRC.replace(
+      /test "persists[\s\S]*?\}\n/,
+      `valueobject Address { street: string  city: string }
+    test "an address holds its city" {
+      let a = Address { street: "Main", city: "Oslo" }
+      expect(a.city).toBe("Oslo")
+    }
+`,
+    );
+    const f = (await gen(voOnly)).get("api/tests/test_ordering_integration.py") ?? "";
+    expect(f).toContain("async def test_an_address_holds_its_city() -> None:");
+    expect(f).not.toContain("NoopDomainEventDispatcher");
+    expect(f).not.toContain("InProcessDispatcher");
+    expect(f).not.toContain("OrderRepository");
+    expect(f).not.toMatch(/\bevents\b/);
+    expect(f).toContain("from app.domain.value_objects import Address");
+  });
+
   it("emits nothing for a context with no integration test", async () => {
     const files = await gen(SRC.replace(/test "persists[\s\S]*?\}\n/, ""));
     expect(find(files, "integration.py")).toBeUndefined();
