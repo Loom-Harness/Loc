@@ -470,6 +470,56 @@ function esEventStruct(
   return `%${eventsModule}.${upperFirst(s.eventName)}{${fields}}`;
 }
 
+type EsStmt<K extends StmtIR["kind"]> = Extract<StmtIR, { kind: K }>;
+
+// The statement vocabulary of an event-sourced command body, read the way the
+// event-log command runner (`eventsourced-emit.ts#renderCommandRunner`) reads
+// it: `let`s bind, guards gate, `emit`s become the event list.  The ES command
+// discipline refuses mutation (`assign`/`add`/`remove`) and impure `call`s, and
+// `loom.elixir-if-stmt-unsupported#event-sourced` refuses `if`; the remaining
+// kinds carry no event and render nothing, exactly as in the runner, so the
+// pure core folds the same events the persisted path appends.
+function forEachEsCoreStmt(
+  stmts: readonly StmtIR[],
+  on: {
+    let: (s: EsStmt<"let">) => void;
+    guard: (s: EsStmt<"precondition" | "requires">) => void;
+    emit: (s: EsStmt<"emit">) => void;
+  },
+): void {
+  for (const s of stmts) {
+    switch (s.kind) {
+      case "let":
+        on.let(s);
+        break;
+      case "precondition":
+      case "requires":
+        on.guard(s);
+        break;
+      case "emit":
+        on.emit(s);
+        break;
+      case "if":
+        throw new Error(
+          "platform: elixir — an 'if' statement reached the event-sourced pure core; " +
+            "it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).",
+        );
+      case "assign":
+      case "add":
+      case "remove":
+      case "call":
+      case "expression":
+      case "variant-match":
+      case "return":
+        break;
+      default: {
+        const never: never = s;
+        throw new Error(`elixir ES pure core: unhandled statement ${JSON.stringify(never)}`);
+      }
+    }
+  }
+}
+
 function renderEsPureCreate(
   facadeMod: string,
   foldMod: string,
@@ -488,17 +538,14 @@ function renderEsPureCreate(
   const lets: string[] = [];
   const guards: string[] = [];
   const events: string[] = [];
-  for (const s of create.statements) {
-    if (s.kind === "let") {
-      lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`);
-    } else if (s.kind === "precondition" || s.kind === "requires") {
+  forEachEsCoreStmt(create.statements, {
+    let: (s) => lets.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+    guard: (s) =>
       guards.push(
         `:ok <- if(${renderExpr(s.expr, rc)}, do: :ok, else: {:error, ${denialTerm(s)}})`,
-      );
-    } else if (s.kind === "emit") {
-      events.push(esEventStruct(s, eventsModule, rc));
-    }
-  }
+      ),
+    emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
+  });
   const attrsArg = reads.length > 0 ? "attrs" : "_attrs";
   const actorArg = opUsesCurrentUser(create) ? ", current_user \\\\ nil" : "";
   const fold = [`events = [${events.join(", ")}]`, `{:ok, ${foldMod}.from_events(id, events)}`];
@@ -531,15 +578,11 @@ function renderEsPureOp(
   );
   const body: string[] = [];
   const events: string[] = [];
-  for (const s of op.statements) {
-    if (s.kind === "let") {
-      body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`);
-    } else if (s.kind === "precondition" || s.kind === "requires") {
-      body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule));
-    } else if (s.kind === "emit") {
-      events.push(esEventStruct(s, eventsModule, rc));
-    }
-  }
+  forEachEsCoreStmt(op.statements, {
+    let: (s) => body.push(`    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`),
+    guard: (s) => body.push(guardRaiseLine(s, renderExpr(s.expr, rc), appModule)),
+    emit: (s) => events.push(esEventStruct(s, eventsModule, rc)),
+  });
   const paramsArg = used.length > 0 ? "params" : "_params";
   const guard = used.length > 0 ? " when is_map(params)" : "";
   const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
