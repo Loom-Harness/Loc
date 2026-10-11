@@ -44,7 +44,7 @@ describe("typescript generator — A2 string intrinsics end-to-end", () => {
     const model = await parseValid(SRC2);
     const domain = generateHono(model).get("domain/product.ts")!;
     expect(domain).toContain("this._name.trim().toLowerCase()");
-    expect(domain).toContain("this._name.slice(0, (0) + (1)).toUpperCase()");
+    expect(domain).toContain('[...this._name].slice(0, (0) + (1)).join("").toUpperCase()');
     expect(domain).toContain('this._name.split(",").length');
   });
 
