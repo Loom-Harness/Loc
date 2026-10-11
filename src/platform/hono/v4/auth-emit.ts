@@ -445,9 +445,10 @@ function orgContextForbidden(c: Context, requested: string, orgPath: string) {
   // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
   // same reason as the probes: it is infra, not domain surface, and an
   // auth-bearing system's e2e suite would otherwise have to mint a principal
-  // just to empty a table.  It costs nothing to bypass — the route is not
-  // REGISTERED outside a dev profile, so on a real deployment there is no
-  // handler behind the bypassed path.
+  // just to empty a table.  Bypassing the middleware is not bypassing
+  // authentication: the route is registered only with an explicit
+  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-loom-test-reset` header does not match that secret.
   // Ruling D6 (#23): the dev stub refuses a present-but-undecodable
   // `x-loom-dev-claims` header; this is the 400 it answers with.  Not emitted
   // under OIDC — there is no dev stub to throw it.
@@ -646,10 +647,27 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
  *  \`AUDIENCE\` above already reads it — or by declaring
  *  \`audience: env("OIDC_AUDIENCE")\` in the \`oidc { … }\` block. */`;
   // One `field: claim(payload, "<path>") as <T>` line per user field.
+  //
+  // `claim()` answers `undefined` for a claim the token does not carry, and a
+  // bare cast lets that `undefined` sit in a `T | null` slot.  Every gate reads
+  // the slot with `!== null` (`requires currentUser.agentId != null`), and
+  // `undefined !== null` — so a token WITHOUT the claim passed a gate that
+  // exists to refuse it (H-10: a customer token took an agent-only action, 204
+  // instead of 403).  An optional claim therefore folds absent onto `null`.  A
+  // REQUIRED scalar claim the token lacks is not a principal the model
+  // describes at all, so the verifier rejects it (→ 401) instead of inventing
+  // a value.  A required ARRAY claim stays out of that check: an IdP omits an
+  // empty list routinely, and the auth middleware already reads it as `[]`.
   const toUserLines = user.fields.map((f) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
-    return `    ${f.name}: claim(payload, ${JSON.stringify(claimPathFor(f.name, auth))}) as ${t},`;
+    const read = `claim(payload, ${JSON.stringify(claimPathFor(f.name, auth))})`;
+    return f.optional
+      ? `    ${f.name}: (${read} ?? null) as ${t},`
+      : `    ${f.name}: ${read} as ${t},`;
   });
+  const requiredClaimPaths = user.fields
+    .filter((f) => !f.optional && f.type.kind !== "array")
+    .map((f) => JSON.stringify(claimPathFor(f.name, auth)));
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
 ${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
@@ -725,9 +743,17 @@ function claim(payload: JWTPayload, path: string): unknown {
   }, payload);
 }
 
-/** Project verified claims onto the typed claim shape.  The auth middleware
- *  derives the request principal (incl. \`orgPath\` under tenancy) from this. */
-function toUser(payload: JWTPayload): UserClaims {
+/** The claim paths of every REQUIRED scalar field — a verified token missing
+ *  one of these does not describe a principal, so it is rejected (→ 401). */
+const REQUIRED_CLAIMS: readonly string[] = [${requiredClaimPaths.join(", ")}];
+
+/** Project verified claims onto the typed claim shape, or null when a required
+ *  claim is absent.  An absent OPTIONAL claim is \`null\`, never \`undefined\`:
+ *  gates compare with \`!== null\`, which \`undefined\` would pass.  The auth
+ *  middleware derives the request principal (incl. \`orgPath\` under tenancy)
+ *  from this. */
+function toUser(payload: JWTPayload): UserClaims | null {
+  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null;
   return {
 ${toUserLines.join("\n")}
   };

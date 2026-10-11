@@ -128,6 +128,21 @@ export const DIAGNOSTIC_MESSAGES = {
     actual: unknown;
   }) =>
     `'${p.name}.create' field '${p.name2}' expects a ${p.expFam} value ('${p.expected}') but got '${p.actual}'.`,
+  "loom.create-field-type#nullable": (p: {
+    name: unknown;
+    name2: unknown;
+    expected: unknown;
+    actual: unknown;
+    src: unknown;
+  }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got '${p.actual}' — a ` +
+    `nullable value is not usable where a non-null one is required, and a \`requires\` / ` +
+    `\`precondition\` null test does not narrow it. Narrow it at the use with a ternary on ` +
+    `the same path (\`${p.src} != null ? ${p.src} : <fallback>\`) or \`${p.src} ?? <fallback>\`, ` +
+    `take the value as a non-optional parameter, or declare '${p.name2}' optional.`,
+  "loom.create-field-type#null": (p: { name: unknown; name2: unknown; expected: unknown }) =>
+    `'${p.name}.create' field '${p.name2}' expects '${p.expected}' but got 'null' — the field ` +
+    `is not optional. Pass a value, or declare '${p.name2}' optional.`,
   "loom.create-field-id-target": (p: {
     name: unknown;
     name2: unknown;
@@ -745,6 +760,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `policy function '${p.name}' must return 'bool' — an authorization predicate is a boolean point gate.`,
   "loom.policy-fn-cycle": (p: { name: unknown }) =>
     `policy function '${p.name}' is part of a reference cycle. A policy function may not (transitively) reference itself.`,
+  // A policy-function call from a context other than its declaring one (eval
+  // item 39, ruling D9).  Policies are context-local; sharing one across
+  // contexts is a separate mission.
+  "loom.policy-out-of-scope": (p: { name: unknown; declaredIn: unknown; usedIn: unknown }) =>
+    `policy '${p.name}' is declared in context '${p.declaredIn}'; policies are context-local — ` +
+    `redeclare it in '${p.usedIn}' to call it there.`,
   "loom.policy-fn-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -1432,6 +1453,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unsupported template format '${p.format}'. Supported ICU formats are ` +
     `\`number\` (incl. \`::currency/USD\`, \`::percent\`), \`date\`/\`time\`, ` +
     `\`plural\`/\`selectordinal\`, and \`select\`.`,
+  "loom.interp-format-dropped-in-domain": (p: { format: unknown; host: unknown }) =>
+    `This '${p.format}' hole sits in a '${p.host}' body, which runs as backend domain code: ` +
+    `every backend renders the hole as its bare value and DROPS the branch text ` +
+    `(\`{n, plural, one {# item} other {# items}}\` yields "3", not "3 items"). ` +
+    `Only a ui page slot renders ICU '${p.format}' (through the i18n runtime). ` +
+    `Spell the branches with \`match\` or a ternary here, or move the template into the page.`,
   "loom.interp-hole-type#select-format": (p: { t: unknown }) =>
     `A 'select' format expects a string or enum value, but this hole is '${p.t}'.`,
   "loom.interp-hole-type#date-format": (p: { kind: unknown; t: unknown }) =>
@@ -2797,27 +2824,28 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
-  // The SYNTHESISED by-id read (F-009 / M-T3.19).  An ERROR since M-T3.19
-  // gave it a surface — `find byId(id: T id): T? requires <expr>` — so the
-  // instruction is satisfiable; its own code is kept for continuity.
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  Since M-T3.19 the route is
+  // REFUSED AT RUNTIME (403) under denyByDefault unless the author declares
+  // `find byId(id: T id): T? requires <expr>`.  A WARNING for one release
+  // (owner decision 2026-10-11) so existing models keep building; promoted to
+  // an error in a later release.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
     `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
-    `so it would serve any record to any authenticated caller. Declare the by-id read in ` +
+    `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, declare the by-id read in ` +
     `'${p.name}'s repository with a gate: \`find byId(id: ${p.name} id): ${p.name}? requires <expr>\` ` +
-    `(use \`requires true\` to make it intentionally public). A gate elsewhere (an admin-only ` +
-    `\`find all\`, gated operations) does not cover it.`,
-  // The enrichment-injected LIST read (Commons F-006).  An arm of
-  // `loom.default-deny-ungated`: the author CAN gate it, by declaring the
-  // `find all` themselves (theirs replaces the injected one).
-  "loom.default-deny-ungated#denybydefault-list-read": (p: {
-    name: unknown;
-    path: unknown;
-    returns: unknown;
-  }) =>
-    `denyByDefault: the list read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
-    `so it would serve every record to any authenticated caller. Declare the list read in ` +
-    `'${p.name}'s repository with a gate: \`find all(): ${p.returns} requires <expr>\` ` +
-    `(use \`requires true\` to make it intentionally public).`,
+    `(use \`requires true\` to make it intentionally public), or set \`enforcement: opt\`. A gate ` +
+    `elsewhere (an admin-only \`find all\`, gated operations) does not cover it. This warning ` +
+    `becomes an error in a later release.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5;
+  // runtime gate M-T3.19).  Same tier and same promotion plan as the by-id
+  // read above.
+  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
+    `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
+    `\`requires\` gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, ` +
+    `declare the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
+    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one (use ` +
+    `\`requires true\` to mark it intentionally public), or set \`enforcement: opt\`. This ` +
+    `warning becomes an error in a later release.`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
   // a surface): the author cannot gate this one — a body `requires` here is refused outright by

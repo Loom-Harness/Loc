@@ -77,6 +77,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -252,7 +253,10 @@ function enrichSystem(
     .map((m) => applyPolicyDenies(m))
     // The bundled dev Keycloak's demo tenant gets a first-boot registry row
     // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
-    .map((m) => applyDemoTenantSeed(m, sys));
+    .map((m) => applyDemoTenantSeed(m, sys))
+    // M-T3.19: under denyByDefault the undeclared list / by-id reads of a
+    // context served by an `auth: required` backend fail closed (403).
+    .map((m) => applyDefaultDenyReads(m, sys));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.

@@ -44,7 +44,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { byIdReadFind, listReadFind } from "../../../ir/util/read-gates.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -54,7 +54,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
-import { effectiveGate } from "./gate.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import { renderPathIdCastPlug } from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
@@ -275,7 +275,7 @@ function renderEsRepository(
   // emit→PubSub).  Runs inside the append transaction, like the workflow
   // `emit` broadcast.  With channels wired the line becomes the broker tee
   // (which forwards non-broker events to the local dispatcher).
-  const dispatchCall = elixirDispatchCall("ev", contextModule, hasDispatcher, channels);
+  const dispatchCall = elixirDispatchCall("ev", contextModule, hasDispatcher, channels, true);
   const dispatchLine = dispatchCall ? `\n\n        ${dispatchCall}` : "";
 
   // Event types that may appear in this aggregate's stream — its appliers'
@@ -605,7 +605,7 @@ export function renderEsController(
       ? "    current_user = Map.get(conn.assigns, :current_user)\n"
       : "";
     return `${head}
-${cuBind}    if not (${renderExpr(gate, { thisName: "record", contextModule: facadeMod })}) do
+${cuBind}    if not (${renderGateCondition(gate, (g) => renderExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
         JSON.stringify(`Forbidden: find ${find!.name}`),
@@ -793,7 +793,7 @@ ${gatedReadAction(
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
     end`,
-  byIdReadFind(repo),
+  byIdRouteFind(repo, agg.idValueType),
 )}
 ${findActions}
 ${create}${opActions}

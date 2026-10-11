@@ -4,16 +4,19 @@
 // "0 error(s), 0 warning(s)": the LIST of secrets was admin-only and an
 // INDIVIDUAL secret was readable by anyone holding (or guessing) an id.
 //
-// It was a WARNING while the by-id read had no author surface.  M-T3.19 gave
-// it one — `find byId(id: T id): T? requires <expr>` in the repository, the
-// same spelling the list read's `find all` gate uses — so it is now an ERROR
-// (fail closed: the build is refused rather than the route served open), and
-// a declared gate silences it.  See the call-site comment in
+// M-T3.19 gave the by-id read a surface — `find byId(id: T id): T? requires
+// <expr>` in the repository, the same spelling the list read's `find all` gate
+// uses — and made the UNDECLARED one fail closed at runtime (403 on every
+// backend, via the deny gate enrichment synthesises).  The diagnostic stays a
+// WARNING for one release (owner decision 2026-10-11) so existing models keep
+// building; promotion to error is the tracked T3 follow-up.  A declared gate
+// silences it.  See the call-site comment in
 // `src/ir/validate/checks/default-deny-checks.ts`.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { deriveContextOperations } from "../../src/ir/util/api-surface.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -47,16 +50,19 @@ system S {
 }`;
 }
 
-describe("loom.default-deny-by-id-ungated — the ungated by-id read refuses the build", () => {
+describe("loom.default-deny-by-id-ungated — the ungated by-id read warns (and 403s at runtime)", () => {
   it("fires under denyByDefault on an aggregate whose every other surface IS gated", async () => {
     const diags = await diagnose(vault({ enforcement: "denyByDefault" }));
-    const errors = diags.filter((d) => d.severity === "error");
-    expect(errors.map((d) => d.code)).toEqual([CODE]);
+    // Non-breaking for one release: NOTHING is an error.
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
     const byId = diags.filter((d) => d.code === CODE);
     expect(byId).toHaveLength(1);
-    expect(byId[0]!.severity).toBe("error");
-    // The remedy names a surface that exists.
+    expect(byId[0]!.severity).toBe("warning");
+    // Says plainly what happens now, what fixes it, and what happens later.
+    expect(byId[0]!.message).toContain("REFUSED AT RUNTIME (403)");
     expect(byId[0]!.message).toContain("find byId(id: Secret id): Secret? requires <expr>");
+    expect(byId[0]!.message).toContain("enforcement: opt");
+    expect(byId[0]!.message).toContain("becomes an error in a later release");
     // Names the aggregate AND the exact route, so the reader can check it.
     expect(byId[0]!.message).toContain("Secret");
     expect(byId[0]!.message).toContain("/api/secrets/{id}");
@@ -102,6 +108,25 @@ system S {
       }),
     );
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
+  });
+
+  it("the undeclared by-id read carries the synthesised DENY gate (runtime 403)", async () => {
+    const { model } = await parseString(vault({ enforcement: "denyByDefault" }), {
+      validate: false,
+    });
+    const loom = enrichLoomModel(lowerModel(model));
+    const ctx = loom.systems[0]!.subdomains[0]!.contexts[0]!;
+    const repo = ctx.repositories.find((r) => r.aggregateName === "Secret");
+    expect(repo?.readsDefaultDenied).toBe(true);
+    const op = deriveContextOperations(ctx).find((o) => o.kind === "getById");
+    expect(op?.find?.defaultDenied).toBe(true);
+    expect(op?.find?.requires).toEqual({ kind: "literal", lit: "bool", value: "false" });
+    // …and an `enforcement: opt` model serves it ungated, as before.
+    const { model: optModel } = await parseString(vault({ enforcement: "opt" }), {
+      validate: false,
+    });
+    const optCtx = enrichLoomModel(lowerModel(optModel)).systems[0]!.subdomains[0]!.contexts[0]!;
+    expect(deriveContextOperations(optCtx).find((o) => o.kind === "getById")?.find).toBeUndefined();
   });
 
   it("a declared but UNGATED `find byId` is still refused (once, as a find)", async () => {

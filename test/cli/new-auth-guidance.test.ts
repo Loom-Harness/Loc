@@ -6,8 +6,7 @@
 // the `enforcement: opt` escape.  Both README snippets are asserted to MEAN
 // what the README says when pasted into the real crud starter with
 // `auth: required`: the plain block is deny-by-default (the starter's ungated
-// `with crudish` members and its undeclared list + by-id reads are reported),
-// the `enforcement: opt` block is not.
+// `with crudish` members are reported), the `enforcement: opt` block is not.
 
 import { describe, expect, it } from "vitest";
 import { renderReadme, renderStarter } from "../../src/cli/new-templates.js";
@@ -16,7 +15,12 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const opts = { name: "myApp", platform: "node", design: "mantine" } as const;
+const opts = {
+  name: "myApp",
+  platform: "node",
+  design: "mantine",
+  invocation: "node /loom/bin/cli.js",
+} as const;
 const readme = renderReadme(opts);
 const starter = renderStarter({ ...opts, template: "crud" });
 
@@ -60,9 +64,7 @@ describe("ddd new — auth guidance under the denyByDefault language default", (
   it("the README's plain auth block is deny-by-default in the real starter", async () => {
     const codes = await denyCodes(withAuth(fences[0] ?? ""));
     expect(codes.length).toBeGreaterThan(0);
-    expect(new Set(codes)).toEqual(
-      new Set(["loom.default-deny-ungated", "loom.default-deny-by-id-ungated"]),
-    );
+    expect(new Set(codes)).toEqual(new Set(["loom.default-deny-ungated"]));
   });
 
   it("the README's `enforcement: opt` block validates clean in the real starter", async () => {

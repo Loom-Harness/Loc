@@ -75,7 +75,7 @@ import {
   opGetById,
   opOperation,
 } from "./openapi-ids.js";
-import { byIdReadFind } from "./read-gates.js";
+import { byIdRouteFind } from "./read-gates.js";
 import { aggregateIsVersioned } from "./versioned-capability.js";
 
 /** HTTP method, lowercase — the form every backend's route table uses. */
@@ -514,8 +514,10 @@ export function deriveAggregateOperations(
 
   // GET /api/<aggs>/{id} — gated by the author's `find byId(id: T id): T?
   // requires …` when declared (M-T3.19); the entry carries that find so a
-  // route builder renders ITS gate rather than re-locating it.
-  const byId = byIdReadFind(repo);
+  // route builder renders ITS gate rather than re-locating it.  Under
+  // denyByDefault an undeclared one carries the synthesised DENY gate instead
+  // (`byIdRouteFind`), so the route fails closed with 403.
+  const byId = byIdRouteFind(repo, agg.idValueType);
   push(
     "getById",
     opGetById(agg.name),

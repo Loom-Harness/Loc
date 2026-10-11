@@ -3,13 +3,14 @@ import type {
   AggregateIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  ExprIR,
   FindIR,
   RepositoryIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findGateUsesCurrentUser, findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
-import { byIdReadFind } from "../../../ir/util/read-gates.js";
+import { byIdRouteFind, isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 import { upperFirst } from "../../../util/naming.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
 import {
@@ -114,7 +115,10 @@ export function emitGetByIdQueryAndHandler(
   // by-id read.  Evaluated BEFORE the load (403 for an existing and a missing
   // id alike — no existence oracle), with the same carrier + `detail` label as
   // the find's own handler (`buildFindHandlerBody`).
-  const byIdFind = byIdReadFind(ctx.repositories.find((r) => r.aggregateName === agg.name));
+  const byIdFind = byIdRouteFind(
+    ctx.repositories.find((r) => r.aggregateName === agg.name),
+    agg.idValueType,
+  );
   const gate = byIdFind?.requires;
   const gateUsesUser = byIdFind ? findGateUsesCurrentUser(byIdFind) : false;
   const gateUsings = new Set<string>();
@@ -125,7 +129,7 @@ export function emitGetByIdQueryAndHandler(
   }
   const gateLines = gate
     ? (gateUsesUser ? `        var currentUser = _currentUser.User;\n` : "") +
-      `        if (!(${renderCsExpr(gate)})) throw new ForbiddenException(${JSON.stringify(
+      `        if (!(${renderCsGate(gate)})) throw new ForbiddenException(${JSON.stringify(
         `Forbidden: find ${byIdFind!.name}`,
       )});\n`
     : "";
@@ -344,7 +348,7 @@ function buildFindHandlerBody(
   let gate = "";
   if (find.requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(find.requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsGate(find.requires)})) throw new ForbiddenException(${JSON.stringify(
       `Forbidden: find ${find.name}`,
     )});\n`;
   }
@@ -425,4 +429,12 @@ function renderResponseReturnType(t: TypeIR, agg: AggregateIR): string {
     return `${agg.name}Response?`;
   }
   return `${agg.name}Response`;
+}
+
+/** A read gate's C# condition.  The always-deny gate (the literal `false`
+ *  enrichment stamps on an undeclared read under denyByDefault, M-T3.19) is
+ *  spelled as a non-constant expression: `if (!(false)) throw …` makes every
+ *  following statement unreachable, and CS0162 fails `/warnaserror`. */
+function renderCsGate(gate: ExprIR): string {
+  return isAlwaysDenyGate(gate) ? "System.Array.Empty<object>().Length != 0" : renderCsExpr(gate);
 }

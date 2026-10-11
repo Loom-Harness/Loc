@@ -50,8 +50,8 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   reactors are not client-reachable, so they are excluded);
 - **repository `find`s** — the same optional `requires` gate (see
   [Find gates](#find-requires-gates) below).
-- **the two compiler-derived aggregate reads** (M-T3.19, Commons F-006) — the
-  list read `GET /api/<plural>` and the single-record read
+- **the two compiler-derived aggregate reads** (M-T3.19, Commons F-006, ruling
+  D5) — the list read `GET /api/<plural>` and the single-record read
   `GET /api/<plural>/{id}`.  Each is served on all five backends whether or
   not the author declares anything, so each is gated by declaring it on the
   repository with a `requires`, named at the declaration (no inherited
@@ -59,23 +59,22 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
 
   ```ddd
   repository Secrets for Secret {
-    find all(): Secret paged requires currentUser.role == "admin"
+    find all(): Secret[] requires currentUser.role == "admin"
     find byId(id: Secret id): Secret? requires currentUser.role == "admin"
   }
   ```
 
   The by-id read is recognised by name AND shape — `byId`, one `<T> id`
   parameter, returning `<T>?`; a filterless one reads THE row (`where this.id
-  == id` is supplied).  Every backend evaluates the gate on `/{id}` **before**
-  the load, so a refused caller gets 403 for an existing and a missing id alike
-  (no existence oracle); the route's OpenAPI responses gain 403.  Under
-  `denyByDefault`, an aggregate whose list read is undeclared or ungated fails
-  the build with `loom.default-deny-ungated`, and one whose by-id read is
-  undeclared fails it with `loom.default-deny-by-id-ungated` (a declared but
-  ungated `find byId` is reported as an ordinary ungated find).  Both used to
-  be exempt — the list read silently, the by-id read with a warning, because
-  it had no surface.  `requires true` is the explicit public escape.  The
-  tenancy filter and `mask unless` still apply on top of the gate.
+  == id` is supplied).  A declared `find all` replaces the compiler-injected
+  one.  Every backend evaluates the gate **before** the load, so a refused
+  caller gets 403 (on `/{id}`, for an existing and a missing id alike — no
+  existence oracle); the routes' OpenAPI responses gain 403.  All five
+  backends resolve both reads through one shared derivation
+  (`src/ir/util/read-gates.ts`).  `requires true` is the explicit public
+  escape; the tenancy filter and `mask unless` still apply on top of the gate.
+  See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
+  for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
@@ -153,6 +152,35 @@ and demands 403 (so a no-op guard fails).  Both run per-PR on **all five**
 backend legs — which is the point, since the list-read drop was a
 java/python/elixir defect that a node-only probe could not have seen.  See
 `test/behavioral/README.md` § "Principals — and the authorization ladder".
+
+### Migration: the synthesised reads fail closed (M-T3.19)
+
+Before M-T3.19, under `denyByDefault` the two compiler-derived reads of every
+aggregate — the list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}`
+— served **any** authenticated caller unless the author had declared a gated
+`find all`; the by-id read could not be gated at all.  Now, on all five
+backends, a read whose repository does not declare a gate for it is **refused
+at runtime with 403** (evaluated before the load — no existence oracle).  To
+keep serving it, declare it with a gate (`requires true` for intentionally
+public):
+
+```ddd
+repository Orders for Order {
+  find all(): Order[] requires currentUser.role == "clerk"
+  find byId(id: Order id): Order? requires currentUser.role == "clerk"
+}
+```
+
+…or set `enforcement: opt` on the `auth` block to keep the pre-flip posture
+(nothing is denied by default, so the reads serve as before).
+
+**The build does not break for one release.**  Each undeclared read raises a
+**warning** that names the line to write — `loom.default-deny-list-ungated`
+for the list read and `loom.default-deny-by-id-ungated` for the by-id read.
+Both warnings become **errors** in a later release (tracked under M-T3.19 in
+`docs/new-plan/T3-security-governance.md`, target ~2026-11-01), so treat them
+as a to-do list now.  A *declared* `find byId` with no `requires` is an
+ordinary ungated find and is already an error (`loom.default-deny-ungated`).
 
 What's intentionally **not** here yet:
 
@@ -749,6 +777,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
+| `loom.policy-out-of-scope` | a `PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
@@ -1109,6 +1138,41 @@ registerUserVerifier(async (req) => {
 When an aggregate operation references `currentUser`, the route
 handler reads `c.get("currentUser") as User` at the top and passes
 it as the trailing argument to the aggregate method.
+
+### Absent claims (generated OIDC verifier)
+
+A claim the verified token does not carry becomes the field's **null**, never
+`undefined` or a stub default. Every backend lowers `currentUser.x != null` to a
+plain null test, so the value an absent claim maps to decides the gate.
+
+```ddd
+user { id: string  role: string  permissions: string[]  agentId: string? }
+// …
+operation take() { requires currentUser.agentId != null }
+```
+
+```ts
+// node — auth/oidc.ts
+const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];
+function toUser(payload: JWTPayload): UserClaims | null {
+  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null; // → 401
+  return {
+    id: claim(payload, "sub") as string,
+    // …
+    agentId: (claim(payload, "agentId") ?? null) as string | null, // absent → null → 403
+  };
+}
+```
+
+- **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
+  `!= null` gate denies (403). The token still verifies.
+- **Required scalar claim, absent** → node rejects the token (401). The other
+  backends map it to `""` (.NET, Java) or `None`/`nil` (Python, Elixir).
+- **Required array claim, absent** → the empty list. An IdP routinely omits an
+  empty `permissions`, so this is not a reason to reject.
+- **Unread claims.** .NET and Java read optional claims only when the type is
+  `string`. Any other optional type (for example `Customer id?`) is always
+  null there.
 
 ## Dev-stub verifier (`x-loom-dev-claims`)
 

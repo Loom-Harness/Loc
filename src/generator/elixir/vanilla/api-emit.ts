@@ -35,7 +35,7 @@ import {
 import { lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { byIdReadFind, listReadFind } from "../../../ir/util/read-gates.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -63,7 +63,7 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { findRoutes, renderFindActions } from "./find-controller.js";
-import { effectiveGate } from "./gate.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -394,7 +394,7 @@ ${pagingElseArm(`${appModule}Web.ProblemDetails`, "    ")}
   const indexParamArg = indexPaged ? "params" : "_params";
   const indexAction = indexGate
     ? `  def index(conn, ${indexParamArg}) do
-${cuBind}${indexCuBind}    if not (${renderElixirExpr(indexGate, { thisName: "record", contextModule: facadeMod })}) do
+${cuBind}${indexCuBind}    if not (${renderGateCondition(indexGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
         JSON.stringify(`Forbidden: find ${listAllFind!.name}`),
@@ -413,7 +413,10 @@ ${cuBind}${indexBody}
   // refused caller cannot tell an existing id from a missing one; same
   // denial carrier + `detail` label as the list gate above and the find's own
   // `by_id` action (`renderFindActions`).
-  const byIdFind = byIdReadFind((ctx.repositories ?? []).find((r) => r.aggregateName === agg.name));
+  const byIdFind = byIdRouteFind(
+    (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
+    agg.idValueType,
+  );
   const showGate = effectiveGate(byIdFind?.requires);
   const showCuBind =
     showGate && exprUsesCurrentUser(showGate) && !principal
@@ -428,7 +431,7 @@ ${cuBind}${indexBody}
     end`;
   const showAction = showGate
     ? `  def show(conn, %{"id" => id}) do
-${cuBind}${showCuBind}    if not (${renderElixirExpr(showGate, { thisName: "record", contextModule: facadeMod })}) do
+${cuBind}${showCuBind}    if not (${renderGateCondition(showGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
         JSON.stringify(`Forbidden: find ${byIdFind!.name}`),

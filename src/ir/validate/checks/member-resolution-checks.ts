@@ -126,9 +126,17 @@ function shapeNameOf(t: TypeIR): string | undefined {
 export function validateMemberResolution(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
   const index = buildShapeIndex(loom);
   const seen = new Set<string>();
+  // A `test e2e` body reads RESPONSE fields through the generated client;
+  // `loom.e2e-unknown-response-field` owns those, naming the call behind the
+  // binding — one diagnostic per mistake.  (Keyed the way `forEachModelExpr`
+  // names an e2e test's expressions.)
+  const e2eSources = new Set(
+    loom.systems.flatMap((sys) => sys.e2eTests.map((t) => `${sys.name}/${t.name}`)),
+  );
   forEachModelExpr(loom, ({ expr, source }) => {
     const e: ExprIR = expr;
     if (e.kind !== "member") return;
+    if (e2eSources.has(source)) return;
     const shape = shapeNameOf(e.receiverType);
     if (!shape || shape === USER_SHAPE_NAME) return;
     const members = index.get(shape);

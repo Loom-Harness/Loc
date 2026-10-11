@@ -69,6 +69,7 @@ export function validateColumnlessProjectionSources(sys: SystemIR, diags: LoomDi
             reason,
           }),
           source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }
@@ -128,6 +129,7 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
             caps: caps.join(", "),
           }),
           source: `${ctx.name}/${p.name}`,
+          origin: p.origin,
         });
       }
     }

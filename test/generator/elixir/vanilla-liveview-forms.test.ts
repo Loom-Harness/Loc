@@ -94,7 +94,7 @@ describe("vanilla LiveView forms — operation form (2-B)", () => {
   it("seeds the op-form from the loaded record via change_<agg> in handle_params (no for_update)", async () => {
     const live = get(await files(), "/live/customer_detail_live.ex");
     expect(live).toContain(
-      "|> assign(:adjust_credit_form, PhoenixApp.Sales.change_customer(record) |> to_form())",
+      '|> assign(:adjust_credit_form, PhoenixApp.Sales.change_customer(record) |> to_form(as: "adjust_credit"))',
     );
     expect(live).not.toContain("AshPhoenix.Form.for_update");
   });

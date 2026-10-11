@@ -188,3 +188,53 @@ describe("elixir event-sourced controller honours the list AND by-id gates", () 
     expect(sliceFrom(out, "def show(conn", "\n  end\n")).not.toContain("Forbidden");
   });
 });
+
+// Under `denyByDefault` (M-T3.19, owner decision 2026-10-11) an UNDECLARED
+// by-id read fails CLOSED at runtime: enrichment synthesises a deny gate and
+// every backend refuses `/{id}` with 403 before the load.  The build only
+// warns (`loom.default-deny-by-id-ungated`) for one release.  Two compilers
+// fold a literal-false condition into a build failure (C# CS0162 under
+// `/warnaserror`, Elixir 1.18's typing violation), so those two spell the
+// deny opaquely — pinned here so a "simplification" back to `false` fails.
+const AUTH_LINE = (enforcement: string) =>
+  `auth { enforcement: ${enforcement}  oidc { issuer: "https://idp.example.com"  clientId: "app" } }`;
+const withAuth = (src: string, enforcement: string): string =>
+  src.replace(
+    "  user { id: string role: string }\n",
+    `  user { id: string role: string }\n  ${AUTH_LINE(enforcement)}\n`,
+  );
+
+const DENY_GUARD: Record<(typeof BACKENDS)[number]["name"], string> = {
+  node: 'if (!(false)) throw new ForbiddenError("Forbidden: find byId");',
+  dotnet:
+    'if (!(System.Array.Empty<object>().Length != 0)) throw new ForbiddenException("Forbidden: find byId");',
+  java: 'if (!(false)) throw new ForbiddenException("Forbidden: find byId");',
+  python: 'raise ForbiddenError("Forbidden: find byId")',
+  elixir: "if not (Enum.member?([], :default_deny)) do",
+};
+
+describe("denyByDefault: an UNDECLARED by-id read is refused at runtime (403)", () => {
+  for (const b of BACKENDS) {
+    it(`${b.name}: deny gate BEFORE the by-id load`, async () => {
+      const out = await fileEndingWith(withAuth(system(b.name, ""), "denyByDefault"), b.file);
+      const handler = b.region(out);
+      const gateAt = handler.indexOf(DENY_GUARD[b.name]);
+      expect(gateAt, `deny gate not on the /{id} route on ${b.name}`).toBeGreaterThan(-1);
+      expect(handler.indexOf(b.read)).toBeGreaterThan(gateAt);
+    });
+
+    it(`${b.name}: \`enforcement: opt\` keeps the route open`, async () => {
+      const out = await fileEndingWith(withAuth(system(b.name, ""), "opt"), b.file);
+      expect(b.region(out)).not.toContain("Forbidden");
+    });
+  }
+
+  it("node: the undeclared LIST read is denied too, and both routes declare 403", async () => {
+    const out = await fileEndingWith(
+      withAuth(system("node", ""), "denyByDefault"),
+      "http/order.routes.ts",
+    );
+    expect(out).toContain('if (!(false)) throw new ForbiddenError("Forbidden: find all");');
+    expect(sliceFrom(out, 'operationId: "getOrderById"', "}),")).toContain("403:");
+  });
+});

@@ -116,6 +116,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                   path: `/api/${plural(snake(a.name))}`,
                 }),
                 source: `${a.name}/${op.name}`,
+                origin: op.origin,
               });
               continue;
             }
@@ -155,6 +156,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                   { name: a.name, opName: op.name, label: lifecycleLabel },
                 ),
                 source: `${a.name}/${op.name}`,
+                origin: op.origin,
               });
               continue;
             }
@@ -172,6 +174,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                     opName: op.name,
                   }),
               source: `${a.name}/${op.name}`,
+              origin: op.origin,
             });
           }
         }
@@ -188,64 +191,76 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 label: entry.label,
               }),
               source: `${wf.name}/${entry.key}`,
+              origin: wf.origin,
             });
           }
         }
       }
       // The two COMPILER-DERIVED aggregate reads — `GET /api/<aggs>/{id}`
       // (F-009 / mission M-T3.19) and the list `GET /api/<aggs>` backed by the
-      // enrichment-injected `find all` (Commons F-006).  Both serve on all five
-      // backends; before M-T3.19 the by-id read had no surface to gate it at
-      // all (a model could gate `find all` admin-only and still hand the same
-      // rows out one id at a time) and the injected list read was exempted.
+      // repository find named `all` (usually the enrichment-injected one —
+      // eval item 22, ruling D5).  One loop, one implementation, two codes.
       //
-      // Both now have a surface named AT THE DECLARATION (the #2877 ruling — no
+      // Both have a surface named AT THE DECLARATION (the #2877 ruling — no
       // inherited aggregate-level default gate): the author declares the read
       // in the repository with its gate —
       //     find byId(id: T id): T? requires <expr>
-      //     find all(): T paged    requires <expr>
-      // — and every backend's route renders that gate before the load (403).
-      // So the instruction is satisfiable, and under denyByDefault an ungated
-      // one is an ERROR (fail closed: the build is refused rather than the
-      // route served open).  `requires true` is the explicit public escape.
+      //     find all(): T[]        requires <expr>
+      // — and every backend's route renders that gate before the load.  Under
+      // denyByDefault an UNDECLARED / ungated one is REFUSED AT RUNTIME (403)
+      // on all five backends: the route fails closed.
+      //
+      // The diagnostics are WARNINGS for one release (owner decision
+      // 2026-10-11): the runtime 403 ships now, the build stays non-breaking,
+      // and the message tells the author exactly which line restores access.
+      // Promotion to error is the tracked M-T3.19 follow-up (~2026-11-01).
       //
       // Read off `deriveContextOperations` — the same derivation every backend
       // route builder renders — so the check covers exactly the routes that
       // exist (abstract bases serve neither).
       for (const op of deriveContextOperations(c)) {
-        if (op.kind === "getById") {
-          // A DECLARED by-id find is reported (if ungated) by the named-find
-          // loop below — it also serves its own `/by_id` route — so only the
-          // undeclared case is reported here, once.
-          if (op.find) continue;
+        if (isAllFind(op)) {
+          // A declared ungated `find all` reports here too — the declared-find
+          // loop below skips `all`, so it is this warning or nothing.
+          // `defaultDenied` = the deny gate enrichment stamped, not the
+          // author's: the read is refused at runtime, still worth the warning.
+          if (op.find?.requires && !op.find.defaultDenied) continue;
+          const repo = c.repositories.find((r) => r.aggregateName === op.aggregate);
           diags.push({
-            severity: "error",
-            code: "loom.default-deny-by-id-ungated",
-            message: diagMessage("loom.default-deny-by-id-ungated", {
+            severity: "warning",
+            code: "loom.default-deny-list-ungated",
+            message: diagMessage("loom.default-deny-list-ungated", {
               name: op.aggregate,
               path: op.path,
+              repo: repo?.name ?? `${op.aggregate}s`,
             }),
-            source: `${c.name}/${op.aggregate}`,
+            source: `${c.name}/${op.aggregate}/all`,
+            origin: c.origin,
           });
-        } else if (isAllFind(op) && !op.find?.requires) {
-          const returns =
-            op.find?.returnType.kind === "array" ? `${op.aggregate}[]` : `${op.aggregate} paged`;
-          diags.push({
-            severity: "error",
-            code: "loom.default-deny-ungated",
-            message: diagMessage("loom.default-deny-ungated#denybydefault-list-read", {
-              name: op.aggregate,
-              path: op.path,
-              returns,
-            }),
-            source: `find/${c.name}.${op.aggregate}.all`,
-          });
+          continue;
         }
+        if (op.kind !== "getById") continue;
+        // A DECLARED by-id find is reported (if ungated) by the named-find
+        // loop below — it also serves its own `/by_id` route — so only the
+        // undeclared case (whose entry carries the synthesised deny find,
+        // `byIdRouteFind`) is reported here, once.
+        if (op.find && !op.find.defaultDenied) continue;
+        diags.push({
+          severity: "warning",
+          code: "loom.default-deny-by-id-ungated",
+          message: diagMessage("loom.default-deny-by-id-ungated", {
+            name: op.aggregate,
+            path: op.path,
+          }),
+          source: `${c.name}/${op.aggregate}`,
+          origin: c.origin,
+        });
       }
       // Repository finds: each author-declared named find is its own GET route
-      // and carries the same optional `requires <expr>` gate.  `all` is
-      // reported by the list-read arm above (declared or injected, once).
-      // Internal synthesized finds (paged-run helpers) are never their own route.
+      // and carries the same optional `requires <expr>` gate.  The list read
+      // (`find all`, injected or declared) is reported by the
+      // `loom.default-deny-list-ungated` warning above, not here.  Internal
+      // synthesized finds (paged-run helpers) are never their own route.
       for (const repo of c.repositories) {
         for (const find of repo.finds) {
           if (find.synthesized || find.name === "all") continue;
@@ -258,6 +273,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 findName: find.name,
               }),
               source: `find/${repo.name}.${find.name}`,
+              origin: repo.origin,
             });
           }
         }
@@ -279,6 +295,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               name: repo.name,
             }),
             source: `find/${repo.name}.history`,
+            origin: repo.origin,
           });
         }
       }
@@ -309,6 +326,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             name: proj.name,
           }),
           source: `projection/${proj.name}`,
+          origin: proj.origin,
         });
       }
       // Workflow INSTANCE reads (`/workflows/<wf>/instances[/{id}]`).  An
@@ -334,6 +352,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             name: wf.name,
           }),
           source: `workflow/${wf.name}`,
+          origin: wf.origin,
         });
       }
     }
