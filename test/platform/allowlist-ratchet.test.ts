@@ -740,7 +740,14 @@ const REGISTERED: Ratchet[] = [
     // defect is a missing id-brand DECLARATION, which the corpus compile
     // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
     // missing symbol), and nothing in the fixture reads the claim at runtime.
-    max: 21,
+    //
+    // 21 -> 22 (claims eval D18, PR #3250): a reviewed RAISE of one.
+    // `foreign-id-field` is the same shape for a hosted `X id` FIELD whose
+    // target aggregate lives in a non-hosted sibling context — a missing
+    // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
+    // javac cannot find symbol) the corpus compile tier reads directly; its
+    // CRUD routes are the ones `core-domain` already boots.
+    max: 22,
   },
 ];
 
