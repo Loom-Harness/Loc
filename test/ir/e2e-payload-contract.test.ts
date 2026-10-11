@@ -393,7 +393,7 @@ describe("e2e payload — a CREATE result is the { id } envelope", () => {
   it("NON-VACUITY: the id reads clean, bound or inline, and the read-back carries the fields", async () => {
     expect(
       await codesFor(
-        `let w = api.widgets.create({ ${FULL} })  let g = api.widgets.getById(w)  expect(g.id).toBe(w.id)  expect(g.note).toBeAbsent()  let h = api.widgets.getById(api.widgets.create({ ${FULL} }).id)  expect(h.code).toBe("c")`,
+        `let w = api.widgets.create({ ${FULL} })  let g = api.widgets.getById(w)  expect(g.id).toBe(w.id)  expect(g.note).toBeNull()  let h = api.widgets.getById(api.widgets.create({ ${FULL} }).id)  expect(h.code).toBe("c")`,
       ),
     ).toEqual([]);
   });

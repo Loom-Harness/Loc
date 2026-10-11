@@ -241,6 +241,24 @@ describe("SalesSystem e2e", () => {
 
 > The api-e2e suite is emitted as a single vitest+fetch file regardless of backend platform (it talks HTTP, so it is target-language-neutral) — there is no per-backend xUnit/ExUnit api-e2e variant. Only the in-process `test` blocks diverge per backend.
 
+**Response reads are checked against what the route answers** (`loom.e2e-unknown-response-field`), whether the read goes through a `let` binding or straight off the call. A `getById` read is judged against the aggregate's api-read wire shape. A `create` answers `201 { id }` on all five backends, never the row, so `id` is the only field a create result carries:
+
+```ddd
+let w = api.widgets.create({ code: "A" })
+expect(w.code).toBe("A")           // refused: 'w.code' is undefined at run time
+expect(w.note).toBeAbsent()        // refused: green only because '{ id }' has no 'note' key
+let r = api.widgets.getById(w)     // read the row back instead
+expect(r.code).toBe("A")
+expect(r.note).toBeNull()          // an absent optional is an explicit null on the wire
+```
+
+```ts
+const w = await __post(`${base}/api/widgets`, ({ code: "A" }));      // → { id: "…" }
+const r = await __get(`${base}/api/widgets/${w.id}`);               // → { id, code, note: null, version }
+expect(r.code).toBe("A");
+expect(r.note).toBeNull();
+```
+
 ### Driving a workflow — `run` / `instances` / `instance`
 
 A `test e2e` body reaches the **orchestration tier** through the workflow's own name in the slug position. Three verbs, onto the three routes every backend already mounts (`POST /api/workflows/<snake>`, `GET …/instances`, `GET …/instances/{key}`):
