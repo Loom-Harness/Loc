@@ -31,6 +31,10 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // also mass-assigns — `immutable` is the remedy
   // (`src/ir/validate/checks/update-gate-suggestion-checks.ts`).
   "loom.update-gate-suggestion",
+  // A `softDeletable` aggregate whose `crudish` destroy is a hard DELETE —
+  // documented, but rarely what the author meant
+  // (`src/ir/validate/checks/crudish-hard-delete-checks.ts`).
+  "loom.crudish-hard-delete",
   // An aggregate no code path can construct — legal, sometimes deliberate
   // (a read-only table fed out of band, or a fixture that only pins emission)
   // and worth saying out loud either way

@@ -1967,6 +1967,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.name}.${p.fName}' is assigned by the guarded operation '${p.opName}', but it is also writable through the generic 'update' that 'crudish' emits — a caller can set it on 'update' and skip that gate (and any 'precondition' the operation carries). Consider marking the field 'immutable': that removes it from the update input only — it stays readable, stays settable on 'create', and '${p.opName}' can still assign it.`,
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/crudish-hard-delete-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.crudish-hard-delete": (p: { name: unknown }) =>
+    `'${p.name}' is 'softDeletable', but the 'destroy' that 'crudish' emits is a HARD delete: 'DELETE /{id}' removes the row, it does not set 'isDeleted'. To make soft delete the only way out, write 'with crudish(updateOnly: true), softDeletable, softDelete' (and declare the 'create' you still want) — the soft delete is then 'POST /{id}/soft_delete'. Keep 'crudish' as it is if a physical delete (an admin purge, an erasure request) is what you mean.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
   // ----------------------------------------------------------------------
   "loom.backfill-target-invalid#backfill-a-aggregate-stores": (p: {
@@ -2026,6 +2032,22 @@ export const DIAGNOSTIC_MESSAGES = {
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** One line of `loom.migration-destructive` for a NOT NULL column a built-in
+   *  CAPABILITY adds to an existing table, when Loom cannot know what the rows
+   *  already there should hold (`tenantOwned`'s tenant, `auditable`'s
+   *  creation stamps).  The author never spelled the column, so the line names
+   *  the capability and the field and says why there is no automatic backfill
+   *  (`softDeletable`'s flag has one and never reaches this). */
+  "loom.migration-destructive#capability-column": (p: {
+    column: unknown;
+    capability: unknown;
+    why: unknown;
+  }) =>
+    `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  "loom.migration-destructive#capability-tenant-owned":
+    "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
+  "loom.migration-destructive#capability-auditable":
+    "The real creation time and author of a row written before auditing are unknown, so there is no automatic backfill.",
   /** B-20b — a `unique (…)` index added to a table the baseline already has.
    *  Rows may already violate it, which fails the migration at boot and
    *  queues every later generation behind it.  Silenced by declaring a

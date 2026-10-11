@@ -9,6 +9,7 @@ import {
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateCrudishHardDelete } from "./checks/crudish-hard-delete-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -264,6 +265,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // removes the field from the update input while leaving the operation free
     // to assign it.  Same advisory channel as the index lint above.
     validateUpdateGateSuggestions(sys, diags);
+    // Advisory `loom.crudish-hard-delete`: a `softDeletable` aggregate whose
+    // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
+    // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
+    validateCrudishHardDelete(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking

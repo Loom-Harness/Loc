@@ -1131,10 +1131,24 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
 //       limit).  TPH: Machine's `unique (serial)` is ONE index on the shared
 //       table — a duplicate through either CONCRETE's route is a 409 (it was a
 //       500: the concrete's write surface did not know the key existed).
+//       TPH, the CONCRETE's own key: Lathe's `unique (model)` lands on the
+//       shared table as `machines_lathe_model_uq … WHERE kind = 'Lathe'` (it
+//       reached no index at all).  A duplicate Lathe model is a 409; a Press
+//       — which shares the `model` column but declared no key — may reuse a
+//       Lathe's model (201): the key constrains exactly the rows it was
+//       declared on.
 //   v2  Account gains `softDeletable` → the migration REBUILDS the index as the
 //       partial `WHERE is_deleted = false` (it used to keep the full one, the
 //       diff pairing indexes by name only).  A soft-deleted row's key can be
 //       reused (201); a live duplicate is still a 409.
+//       The generation carries NO backfill block and NO flag: the capability's
+//       `is_deleted NOT NULL` is added WITH `DEFAULT false` (then the default
+//       is dropped), so the populated table migrates and the v1 row still
+//       reads 200, flagged `false`.  (It used to refuse without
+//       `--allow-destructive`.)
+//       DELETE semantics: `crudish`'s `DELETE /{id}` on the softDeletable
+//       aggregate stays a HARD delete — documented (`loom.crudish-hard-delete`
+//       advises), so the row is physically gone, not flagged.
 //   v3  Account drops `softDeletable` again → the index is rebuilt FULL.  That
 //       tightens over rows that now collide, so the generation carries the
 //       `sql before` dedupe `loom.migration-unique-on-existing-table` asks for;
@@ -1152,9 +1166,9 @@ export async function runUniqueIndexEvolutionGate(driver: BackendDriver): Promis
   }
   const v1Src = readFixture("unique-evo-base");
   expect(v1Src, "fixture carries the v1 Account header").toContain(ACCOUNT_V1);
-  const v2Src = `${v1Src.replace(ACCOUNT_V1, ACCOUNT_SOFT)}
-migration "soft-delete" { Account.isDeleted = false }
-`;
+  // No `migration { Account.isDeleted = false }` block: the capability's own
+  // column backfills itself.
+  const v2Src = v1Src.replace(ACCOUNT_V1, ACCOUNT_SOFT);
   const v3Src = `${v1Src}
 migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = true" }
 `;
@@ -1171,15 +1185,27 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
     await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
     return h;
   };
-  const post = async (base: string, resource: string, body: object): Promise<number> => {
+  const postFor = async (
+    base: string,
+    resource: string,
+    body: object,
+  ): Promise<{ status: number; id?: string }> => {
     const r = await fetch(`${base}/api/${resource}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    await r.text();
-    return r.status;
+    const text = await r.text();
+    let id: string | undefined;
+    try {
+      id = (JSON.parse(text) as { id?: string }).id;
+    } catch {
+      /* a problem body or an empty one */
+    }
+    return { status: r.status, id };
   };
+  const post = async (base: string, resource: string, body: object): Promise<number> =>
+    (await postFor(base, resource, body)).status;
   const DB = "uniqevo";
   const indexDef = (s: PgServer, name: string): string =>
     psql(s, DB, `SELECT indexdef FROM pg_indexes WHERE indexname = '${name}'`);
@@ -1194,7 +1220,9 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
     driver.install(appDir);
     const v1 = await boot(pg);
     expect(indexDef(server, "accounts_number_uq"), "v1: full unique").toMatch(/\(number\)$/);
-    expect(await post(v1.base, "accounts", { number: "ACC-1", owner: "alice" })).toBe(201);
+    const alice = await postFor(v1.base, "accounts", { number: "ACC-1", owner: "alice" });
+    expect(alice.status).toBe(201);
+    expect(alice.id, "v1: the create answers the new row's id").toBeTruthy();
     expect(await post(v1.base, "accounts", { number: "ACC-1", owner: "bob" }), "v1 dup").toBe(409);
 
     // TPC: a per-concrete index on each table, none for the abstract base.
@@ -1218,15 +1246,30 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
 
     // TPH: one index on the shared table, mapped to 409 on every concrete route.
     expect(indexDef(server, "machines_serial_uq"), "TPH: shared-table index").toMatch(/\(serial\)/);
-    expect(await post(v1.base, "lathes", { serial: "S-1", spindles: 2 })).toBe(201);
+    expect(await post(v1.base, "lathes", { serial: "S-1", spindles: 2, model: "L-1" })).toBe(201);
     expect(
-      await post(v1.base, "lathes", { serial: "S-1", spindles: 3 }),
+      await post(v1.base, "lathes", { serial: "S-1", spindles: 3, model: "L-2" }),
       "TPH: duplicate through the same concrete",
     ).toBe(409);
     expect(
-      await post(v1.base, "presses", { serial: "S-1", tonnage: 50 }),
+      await post(v1.base, "presses", { serial: "S-1", tonnage: 50, model: "P-1" }),
       "TPH: duplicate through a sibling concrete (one table, hierarchy-wide)",
     ).toBe(409);
+
+    // TPH, the CONCRETE's own key: Lathe `unique (model)`.  Written first, so a
+    // missing index shows up as the 201 it used to answer.
+    expect(
+      await post(v1.base, "lathes", { serial: "S-2", spindles: 1, model: "L-1" }),
+      "TPH concrete key: a duplicate Lathe model",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "presses", { serial: "S-3", tonnage: 10, model: "L-1" }),
+      "TPH concrete key: a Press shares the model column, not Lathe's key",
+    ).toBe(201);
+    expect(
+      indexDef(server, "machines_lathe_model_uq"),
+      "TPH concrete key: partial on kind",
+    ).toMatch(/\(model\) WHERE \(kind = 'Lathe'::text\)$/);
     v1.stop();
     await settle();
 
@@ -1237,6 +1280,39 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
     expect(indexDef(server, "accounts_number_uq"), "v2: rebuilt partial").toMatch(
       /WHERE \(?is_deleted = false\)?$/,
     );
+    // The capability column backfilled itself: the v1 row is still readable
+    // (the `!isDeleted` read filter admits it) and holds `false`, and the
+    // transient DEFAULT is gone again (the column matches a fresh CREATE).
+    const aliceRead = await fetch(`${v2.base}/api/accounts/${alice.id}`);
+    expect(aliceRead.status, `v2: the v1 row survives: ${await aliceRead.clone().text()}`).toBe(
+      200,
+    );
+    expect(((await aliceRead.json()) as { owner: string }).owner).toBe("alice");
+    expect(
+      psql(server, DB, `SELECT is_deleted FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v2: the existing row is backfilled not-deleted",
+    ).toBe("f");
+    expect(
+      psql(
+        server,
+        DB,
+        `SELECT coalesce(column_default, '<none>') || ' ' || is_nullable FROM information_schema.columns
+          WHERE table_name = 'accounts' AND column_name = 'is_deleted'`,
+      ),
+      "v2: is_deleted ends NOT NULL with no lingering default",
+    ).toBe("<none> NO");
+
+    // crudish's DELETE on a softDeletable aggregate: a HARD delete (documented).
+    const doomed = await postFor(v2.base, "accounts", { number: "ACC-DEL", owner: "zed" });
+    expect(doomed.status).toBe(201);
+    const del = await fetch(`${v2.base}/api/accounts/${doomed.id}`, { method: "DELETE" });
+    await del.text();
+    expect(del.status, "v2: crudish DELETE answers 204").toBe(204);
+    expect(
+      psql(server, DB, `SELECT count(*) FROM ledger.accounts WHERE number = 'ACC-DEL'`),
+      "v2: crudish DELETE removed the row (hard delete), it did not flag it",
+    ).toBe("0");
+
     // Soft-delete alice's row the way the capability does (flag, not DELETE).
     psql(server, DB, `UPDATE ledger.accounts SET is_deleted = true WHERE number = 'ACC-1'`);
     expect(

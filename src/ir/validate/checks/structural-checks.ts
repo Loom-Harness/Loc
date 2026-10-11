@@ -29,9 +29,8 @@ import type {
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import {
-  baseOf,
+  ancestorUniqueKeySet,
   isTpcBase,
-  isTpcConcrete,
   isTphBase,
   isTphConcrete,
   tpcConcretesOf,
@@ -231,7 +230,7 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
       const byName = new Map(agg.fields.map((f) => [f.name, f]));
       // A TPC concrete carries copies of its ancestors' keys (enrichment);
       // the declaring base reports those, so one declaration reports once.
-      const inherited = ancestorKeySet(agg, ctx.aggregates);
+      const inherited = ancestorUniqueKeySet(agg, ctx.aggregates);
       for (const uk of agg.uniqueKeys) {
         if (inherited.has(uk.columns.join(","))) continue;
         for (const col of uk.columns) {
@@ -251,20 +250,6 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
       }
     }
   }
-}
-
-/** The column lists of every `unique (…)` key `agg`'s abstract ancestors
- *  declare, when `agg` is a TPC or TPH concrete (the aggregates enrichment
- *  copies those keys onto); empty otherwise. */
-function ancestorKeySet(agg: AggregateIR, pool: readonly AggregateIR[]): Set<string> {
-  const out = new Set<string>();
-  if (!isTpcConcrete(agg, pool) && !isTphConcrete(agg, pool)) return out;
-  const seen = new Set<string>();
-  for (let b = baseOf(agg, pool); b && !seen.has(b.name); b = baseOf(b, pool)) {
-    seen.add(b.name);
-    for (const uk of b.uniqueKeys ?? []) out.add(uk.columns.join(","));
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
