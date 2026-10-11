@@ -153,6 +153,37 @@ sharedTable`. A concrete's own `unique (…)` keys stay as they are, and a
 concrete that redeclares the same column list does not get a second copy. Before
 this, a TPC base's keys reached no table, so no backend enforced them.
 
+### A key declared on a TPH concrete
+
+A `unique (…)` that a `sharedTable` **concrete** declares itself is an index on
+the shared table, partial on the concrete's `kind` discriminator, and named
+with it (`<table>_<kind>_<cols>_uq`):
+
+```ddd
+abstract aggregate Machine inheritanceUsing: sharedTable { serial: string  unique (serial) }
+aggregate Lathe extends Machine with crudish { model: string  unique (model) }
+aggregate Press extends Machine with crudish { model: string }
+```
+```sql
+CREATE UNIQUE INDEX "machines_serial_uq" ON "floor"."machines" ("serial");
+CREATE UNIQUE INDEX "machines_lathe_model_uq" ON "floor"."machines" ("model") WHERE kind = 'Lathe';
+```
+
+A second Lathe with the same `model` answers 409 on every backend (the Ecto
+changeset names the scoped index). A `Press` may reuse a Lathe's `model`.
+
+The index is partial because the table, and any column two concretes both
+declare, is shared. `Lathe.model` and `Press.model` are the same `model`
+column, so a full index would also refuse a Press whose model matches a
+Lathe's, and nobody declared that constraint. `WHERE kind = 'Lathe'` limits the
+index to the rows the declaration covers. A key declared on the **base** stays a
+full index, because the base declared it for the whole hierarchy. (On a
+`softDeletable` hierarchy the predicate gains `AND is_deleted = false`.)
+
+Before this, only the base's keys were read, so a concrete's own key reached no
+index and a duplicate answered 201. The migration-evolution tier checks both
+the 409 and the cross-concrete 201 on all five SQL backends.
+
 ## Validation rules
 
 | Code | Fires when |
