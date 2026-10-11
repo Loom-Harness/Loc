@@ -24,3 +24,15 @@ export const VALUE_OBJECT_EQUALS = "equals";
 export function valueObjectEqualsSignature(voName: string): string {
   return `(other: ${voName}): bool`;
 }
+
+/** True iff `name` reaches the `equals` intrinsic on a value object whose
+ *  declared members are `members` — the name is `equals` and no declared
+ *  member carries it (a declared member always wins).  Structural over the
+ *  member list so the typing pass, the validators and the lowerer share it
+ *  without importing each other. */
+export function isValueObjectEqualsIntrinsic(members: readonly object[], name: string): boolean {
+  return (
+    name === VALUE_OBJECT_EQUALS &&
+    !members.some((m) => (m as { name?: unknown }).name === VALUE_OBJECT_EQUALS)
+  );
+}
