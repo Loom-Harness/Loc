@@ -38,7 +38,7 @@ system ImplicitFindFilter {
   }
 
   test e2e "a clause-less find filters by the fields its parameters name" against d {
-    api.workOrders.create({ reference: "ONLY-ONE", region: "north" })
+    let first = api.workOrders.create({ reference: "ONLY-ONE", region: "north" })
 
     // A miss on a ONE-row table: an unfiltered read answers that row with a 200.
     expect(api.workOrders.byReference({ reference: "DOES-NOT-EXIST" })).toThrow(404)
@@ -61,5 +61,20 @@ system ImplicitFindFilter {
     let southPage = api.workOrders.inRegion({ region: "south" })
     expect(southPage.items.length).toBe(1)
     expect(southPage.total).toBe(1)
+
+    // A write moves a row across the predicate: the finds read the column the
+    // update wrote, not a cached or unfiltered set.
+    api.workOrders.update(first, { reference: "ONLY-ONE", region: "south" })
+    expect(api.workOrders.getById(first).region).toBe("south")
+    let moved = api.workOrders.inRegion({ region: "south" })
+    expect(moved.total).toBe(2)
+    let everything = api.workOrders.all()
+    expect(everything.total).toBe(2)
+
+    // Once the row is gone its key misses — while another row still exists.
+    api.workOrders.destroy(first)
+    expect(api.workOrders.byReference({ reference: "ONLY-ONE" })).toThrow(404)
+    let remaining = api.workOrders.byReference({ reference: "WO-200" })
+    expect(remaining.region).toBe("south")
   }
 }

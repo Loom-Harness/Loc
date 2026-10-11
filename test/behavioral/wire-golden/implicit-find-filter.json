@@ -100,6 +100,109 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/work_orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/work_orders/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "ONLY-ONE",
+        "region": "south",
+        "version": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/work_orders/in_region?region=south",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "ONLY-ONE",
+            "region": "south",
+            "version": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "reference": "WO-200",
+            "region": "south",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/work_orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "ONLY-ONE",
+            "region": "south",
+            "version": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "reference": "WO-200",
+            "region": "south",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/work_orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/work_orders/by_reference?reference=ONLY-ONE",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/work_orders/by_reference",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/work_orders/by_reference?reference=WO-200",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "WO-200",
+        "region": "south",
+        "version": 1
+      }
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/work_orders",
       "status": 405,
@@ -112,7 +215,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -125,7 +228,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "POST",
       "path": "/api/work_orders",
       "status": 400,
