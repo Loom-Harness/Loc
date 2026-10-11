@@ -11,7 +11,10 @@
 // is gated on `usesMoney`) builds into the bundle instead.
 //
 // SIZE.  The import is `highlight.js/lib/common` — the 36-language common
-// bundle, NOT the ~190-language full build.  Covered: xml/html, bash, c, cpp,
+// bundle, NOT the ~190-language full build — and it is a DYNAMIC import, made
+// the first time an unhighlighted `pre code` appears.  A static one folded the
+// highlighter into the app's entry chunk, so every visitor paid for it before
+// first paint whether or not they ever reached a code block.  Covered: xml/html, bash, c, cpp,
 // csharp, css, markdown, diff, ruby, go, graphql, ini/toml, java, javascript,
 // json, kotlin, less, lua, makefile, perl, objectivec, php, php-template,
 // plaintext, python, python-repl, r, rust, scss, shell, sql, swift, yaml,
@@ -31,13 +34,26 @@
 /** The theme stylesheet, as `angular.json`'s `styles` array spells it. */
 export const HIGHLIGHT_THEME_ANGULAR_STYLE = "node_modules/highlight.js/styles/github-dark.css";
 
-const BODY = `const MARKER = "data-hljs";
+const BODY = `type Hljs = (typeof import("highlight.js/lib/common"))["default"];
+
+const MARKER = "data-hljs";
 const PREFIX = "language-";
 
-function highlightOne(el: Element): void {
-  // Marked FIRST: a block deliberately left as plain text (unknown language)
-  // must not be re-examined on every later mutation.
-  el.setAttribute(MARKER, "1");
+// LOADED ON FIRST USE, not at module evaluation.  A static import would fold
+// the highlighter into the app's entry chunk, so every visitor would download
+// and parse it before first paint whether or not they ever reach a page with a
+// code block.  The dynamic import lets the bundler split it into its own chunk
+// — same origin, so the app stays self-contained — fetched only once a block
+// actually appears.  Memoised: one fetch, however many blocks arrive.  A failed
+// load is not retried (that would refetch on every DOM mutation); the blocks
+// simply stay plain text.
+let loading: Promise<Hljs> | undefined;
+function loadHljs(): Promise<Hljs> {
+  if (!loading) loading = import("highlight.js/lib/common").then((m) => m.default);
+  return loading;
+}
+
+function highlightOne(hljs: Hljs, el: Element): void {
   const cls = Array.from(el.classList).find((c) => c.startsWith(PREFIX));
   const language = cls ? cls.slice(PREFIX.length) : "";
   // Unknown / absent language -> plain text, never a throw.
@@ -47,9 +63,23 @@ function highlightOne(el: Element): void {
 }
 
 function highlightAll(): void {
-  for (const el of Array.from(document.querySelectorAll(\`pre code:not([\${MARKER}])\`))) {
-    highlightOne(el);
-  }
+  const pending = Array.from(document.querySelectorAll(\`pre code:not([\${MARKER}])\`));
+  // Nothing to do -> nothing fetched.  This is what keeps a page with no code
+  // block from paying for the highlighter at all.
+  if (pending.length === 0) return;
+  // Marked FIRST and synchronously.  The load is async, and the observer fires
+  // on every DOM change in between; without the mark each of those would
+  // collect the same blocks again.  It also means a block deliberately left as
+  // plain text (unknown language) is never re-examined.
+  for (const el of pending) el.setAttribute(MARKER, "1");
+  loadHljs().then(
+    (hljs) => {
+      for (const el of pending) highlightOne(hljs, el);
+    },
+    () => {
+      // The chunk failed to load: leave the blocks readable as plain text.
+    },
+  );
 }
 
 // The app mounts AFTER DOMContentLoaded, so one pass would miss the whole app
@@ -78,8 +108,7 @@ const HEADER = `// Auto-generated.  Do not edit by hand.
 
 /** The Vite flavour (react / vue / svelte): the theme stylesheet is imported
  *  by the module itself, so the bundler emits it alongside the entry chunk. */
-export const HIGHLIGHT_MODULE_VITE_TS = `${HEADER}import hljs from "highlight.js/lib/common";
-import "highlight.js/styles/github-dark.css";
+export const HIGHLIGHT_MODULE_VITE_TS = `${HEADER}import "highlight.js/styles/github-dark.css";
 
 ${BODY}`;
 
@@ -91,6 +120,5 @@ export const HIGHLIGHT_MODULE_ANGULAR_TS = `${HEADER}//
 // side-effect CSS import from TypeScript.  \`angular.json\` lists
 // \`${HIGHLIGHT_THEME_ANGULAR_STYLE}\` in its \`styles\`
 // array instead.
-import hljs from "highlight.js/lib/common";
 
 ${BODY}`;

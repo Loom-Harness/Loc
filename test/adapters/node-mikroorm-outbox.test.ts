@@ -141,13 +141,15 @@ describe("MikroORM transactional outbox", () => {
     expect(app).toContain(
       'import { createInProcessDispatcher, createOutboxDispatcher, workflowsRoutes } from "./workflows";',
     );
-    expect(app).toContain("createOutboxDispatcher(db, createInProcessDispatcher(db))");
+    expect(app).toContain(
+      "createOutboxDispatcher(db, createInProcessDispatcher(db, { isolateReactorFailures: true }))",
+    );
     const index = files.get("api/index.ts")!;
     expect(index).toContain(
       'import { createInProcessDispatcher, createOutboxDispatcher, startOutboxRelay } from "./http/workflows";',
     );
     expect(index).toContain(
-      "const app = createApp(db, createOutboxDispatcher(db, inProcessEvents));",
+      "const app = createApp(db, createOutboxDispatcher(db, requestEvents));",
     );
     expect(index).toContain("const stopOutboxRelay = startOutboxRelay(db, inProcessEvents);");
     expect(index).toContain("stopOutboxRelay();");

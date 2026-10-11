@@ -98,6 +98,7 @@ function checkEntry(
         wfName: wf.name,
       }),
       source: `${ctxName}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }
