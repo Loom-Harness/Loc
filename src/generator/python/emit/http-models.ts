@@ -1,4 +1,5 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
@@ -10,6 +11,7 @@ import {
 } from "../../money-scale.js";
 import {
   createFieldConstraints,
+  createFieldMessageValidator,
   createModelValidator,
   withFieldConstraint,
 } from "./wire-constraints.js";
@@ -469,7 +471,8 @@ function contextHasRequestMoney(ctx: BoundedContextIR): boolean {
 
 export function renderPyWireModels(ctx: BoundedContextIR): string {
   const needsMoney = contextHasRequestMoney(ctx);
-  const models = ctx.valueObjects.map((vo) => {
+  // Dependency order — see the value-object emitter (`emit/value-objects.ts`).
+  const models = orderValueObjectsByDependency(ctx.valueObjects).map((vo) => {
     // A VO's own `invariant`s ride the SAME wire carriers the aggregate
     // command DTOs use (`Field(...)` + `@model_validator`).  Pydantic
     // validates a nested VO model on request parse, so a malformed VO field
@@ -478,6 +481,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // through to the domain constructor's `DomainError` → 400.
     const available = new Set(vo.fields.map((f) => f.name));
     const constraints = createFieldConstraints(vo.invariants, available);
+    const messages = createFieldMessageValidator(vo.invariants, available);
     const validator = createModelValidator(vo.invariants, available, vo.name);
     return lines(
       "",
@@ -502,6 +506,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
             : `${base} | None = None`;
         return withFieldConstraint(f.name, decl, constraints.get(f.name));
       }),
+      messages,
       validator,
     );
   });
@@ -536,7 +541,12 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     // A messaged single-field rule raises through `ValidationError.
     // from_exception_data` so the error carries the field's `loc`.
     uses("ValidationError") ? "ValidationError" : null,
+    // A message-less single-field rule re-words its `Field(...)` violation
+    // through a wrap `field_validator` (ruling D10, #15d).
+    uses("ValidationInfo") ? "ValidationInfo" : null,
+    uses("ValidatorFunctionWrapHandler") ? "ValidatorFunctionWrapHandler" : null,
     "WithJsonSchema",
+    uses("field_validator") ? "field_validator" : null,
     uses("model_validator") ? "model_validator" : null,
   ].filter((n): n is string => n != null);
   return lines(

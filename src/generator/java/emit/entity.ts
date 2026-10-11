@@ -256,9 +256,18 @@ export function renderJavaEntity(
     if (isRequiredCreateInput(f)) return undefined;
     const omission = createOmissionValue(f);
     if (omission.kind === "default") {
-      return isServerSourcedDefault(omission.expr)
-        ? undefined
-        : renderJavaExpr(omission.expr, renderCtx);
+      if (isServerSourcedDefault(omission.expr)) return undefined;
+      const rendered = renderJavaExpr(omission.expr, renderCtx);
+      // A LIST-LITERAL default (`tags: string[] = []`) renders `List.of(…)`,
+      // which is IMMUTABLE — the very pitfall the `empty-collection` arm below
+      // avoids.  A later `tags += t` in the same unit of work (an op right
+      // after create, a domain `test` body) is `.add(t)` on it →
+      // UnsupportedOperationException.  Copy into a mutable list.
+      if (omission.expr.kind === "list") {
+        javaImports.add("java.util.ArrayList");
+        return `new ArrayList<>(${rendered})`;
+      }
+      return rendered;
     }
     if (omission.kind === "false") return "false";
     // A non-nullable collection materializes as an empty MUTABLE list.
