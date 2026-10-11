@@ -56,7 +56,10 @@ describe("flutter error boundary + failure sink (M-T1.8)", () => {
     const main = await mainDart(SYS());
     expect(main).toContain("ErrorWidget.builder = (FlutterErrorDetails details) {");
     expect(main).toContain("debugPrint('Uncaught render error: ${details.exception}');");
-    expect(main).toContain("'Something went wrong.',");
+    // The title reads the shared `chrome.rootErrorTitle` key (the fixture's ui
+    // is i18n-enabled), so `main.dart` imports the catalog.
+    expect(main).toContain("t('chrome.rootErrorTitle', 'Something went wrong.'),");
+    expect(main).toContain("import 'i18n.dart';");
   });
 
   it("sets FlutterError.onError as the framework's own uncaught-error terminus", async () => {

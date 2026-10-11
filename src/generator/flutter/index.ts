@@ -432,6 +432,7 @@ export function generateFlutterForContexts(
     scaffoldMessengerKey:
       rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
+    i18n: i18nEnabled,
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -1319,6 +1320,9 @@ interface AppBoot {
    *  component action — `toast(…)`, `lib/toast.dart`), so `MaterialApp` has to
    *  carry the `scaffoldMessengerKey` that bridge shows through. */
   scaffoldMessengerKey: boolean;
+  /** The app ships `lib/i18n.dart`, so the root error view reads its title
+   *  through `t()` like every other piece of chrome. */
+  i18n: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1328,6 +1332,7 @@ const NO_BOOT: AppBoot = {
   realtime: false,
   navigatorKey: false,
   scaffoldMessengerKey: false,
+  i18n: false,
 };
 
 /** Global error boundary + failure sink, the flutter arm.  Built on
@@ -1351,31 +1356,44 @@ const NO_BOOT: AppBoot = {
  *  All three log through `debugPrint` — the same sink the framework's own
  *  default error reporting uses, so output still reaches `flutter run`'s
  *  console and CI's captured stdout with no new dependency. */
-const FLUTTER_ERROR_BOUNDARY_SETUP: readonly string[] = [
-  "  ErrorWidget.builder = (FlutterErrorDetails details) {",
-  "    debugPrint('Uncaught render error: ${details.exception}');",
-  "    return Material(",
-  "      child: Padding(",
-  "        padding: const EdgeInsets.all(16),",
-  "        child: Column(",
-  "          mainAxisSize: MainAxisSize.min,",
-  "          crossAxisAlignment: CrossAxisAlignment.start,",
-  "          children: [",
-  "            const Text(",
-  "              'Something went wrong.',",
-  "              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
-  "            ),",
-  "            Text('${details.exception}', style: const TextStyle(color: Colors.red)),",
-  "          ],",
-  "        ),",
-  "      ),",
-  "    );",
-  "  };",
-  "  FlutterError.onError = (FlutterErrorDetails details) {",
-  "    FlutterError.presentError(details);",
-  "    debugPrint('Uncaught framework error: ${details.exceptionAsString()}');",
-  "  };",
-];
+function errorBoundarySetup(i18n: boolean): string[] {
+  // The title is the shared `chrome.rootErrorTitle` message — through `t()`
+  // when the app ships a catalog, else the English (a `const` widget).
+  const title = i18n
+    ? [
+        "            Text(",
+        "              t('chrome.rootErrorTitle', 'Something went wrong.'),",
+        "              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ]
+    : [
+        "            const Text(",
+        "              'Something went wrong.',",
+        "              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ];
+  return [
+    "  ErrorWidget.builder = (FlutterErrorDetails details) {",
+    "    debugPrint('Uncaught render error: ${details.exception}');",
+    "    return Material(",
+    "      child: Padding(",
+    "        padding: const EdgeInsets.all(16),",
+    "        child: Column(",
+    "          mainAxisSize: MainAxisSize.min,",
+    "          crossAxisAlignment: CrossAxisAlignment.start,",
+    "          children: [",
+    ...title,
+    "            ),",
+    "            Text('${details.exception}', style: const TextStyle(color: Colors.red)),",
+    "          ],",
+    "        ),",
+    "      ),",
+    "    );",
+    "  };",
+    "  FlutterError.onError = (FlutterErrorDetails details) {",
+    "    FlutterError.presentError(details);",
+    "    debugPrint('Uncaught framework error: ${details.exceptionAsString()}');",
+    "  };",
+  ];
+}
 
 /** `main()` for a `persist:`-bearing app — the web-storage tier has to finish
  *  loading before the first widget builds. */
@@ -1383,7 +1401,7 @@ function mainFn(boot: AppBoot): string[] {
   if (!boot.initPrefs) {
     return [
       "void main() {",
-      ...FLUTTER_ERROR_BOUNDARY_SETUP,
+      ...errorBoundarySetup(boot.i18n),
       "  runZonedGuarded(() {",
       "    runApp(const App());",
       "  }, (Object error, StackTrace stack) {",
@@ -1394,7 +1412,7 @@ function mainFn(boot: AppBoot): string[] {
   }
   return [
     "void main() {",
-    ...FLUTTER_ERROR_BOUNDARY_SETUP,
+    ...errorBoundarySetup(boot.i18n),
     "  runZonedGuarded(() async {",
     "    // The stored blobs must be in memory before the first Notifier `build()`,",
     "    // which seeds its cells synchronously (`store_persist.dart`).",
@@ -1470,6 +1488,7 @@ function renderMainWithRoutes(
     pages.map((p) => `import 'pages/${p.fileBase}.dart';`),
     boot.navigatorKey ? ["import 'nav.dart';"] : [],
     boot.scaffoldMessengerKey ? ["import 'toast.dart';"] : [],
+    boot.i18n ? ["import 'i18n.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),
@@ -1903,6 +1922,7 @@ function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     "",
     "import 'pages/home_page.dart';",
+    boot.i18n ? ["import 'i18n.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),

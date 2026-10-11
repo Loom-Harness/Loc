@@ -1789,7 +1789,7 @@ function renderAppFs(
     "  with ex ->",
     '    Fable.Core.JS.console.error ("Uncaught render error:", ex)',
     '    Html.div [ prop.role "alert"; prop.className "p-4"; prop.children [',
-    '      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text "Something went wrong." ]',
+    `      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text ${shellChrome("rootErrorTitle", i18nEnabled)} ]`,
     '      Html.pre [ prop.className "text-red-700 whitespace-pre-wrap"; prop.text ex.Message ]',
     "    ] ]",
     "",

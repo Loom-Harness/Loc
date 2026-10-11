@@ -89,3 +89,21 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - **D9:** python stamps `updatedBy` on a fresh row.
   - **3c #2:** every backend's audit-history 403 says `Forbidden: find history`, and its waiver is deleted.
   - The witnesses are `corpus/field-mask`, `audit-history` and `stamps-principal`, with goldens minted from node. They match on node, python, .NET EF, java and elixir. Dapper and MikroORM are left to CI. Hand-off: `handoffs/wave-c3f-f5.md`.
+- **F6 folded** (2026-10-11; `claude/c3f-f6` @ `f0b9a706f`). **Frontend i18n and the primitive census.** Twelve of thirteen items are fixed; D-I18N-9 is F7's.
+  - **Sidebars:** they take the scaffold pages' `menu` keys on every static-bundle frontend and on HEEx (D-I18N-1, read through `src/ir/util/page-menu.ts`).
+  - **Raw strings now catalogued:**
+    - DestroyForm (D-I18N-2); Feliz now confirms before deleting;
+    - the vue/angular 404 page (D-I18N-3);
+    - the feliz/flutter error view (D-I18N-4);
+    - Angular's Yes/No, by rendering `lib/format.ts` after the chrome catalog is set (D-I18N-5);
+    - the HEEx pager, through a `sharedChrome` pack helper; it now reads "Prev" (D-I18N-6);
+    - the feliz Modal title (D-I18N-8);
+    - the HEEx menu heading (D-I18N-10).
+  - **Catalog:** feliz and flutter no longer carry mantine keys (D-I18N-7).
+  - **Census:**
+    - a row-scoped `Action` binds its own row's id on all 15 cells (D-CENSUS-1);
+    - an Avatar with no `src:` keeps its `alt` as `role="img"` + `aria-label` (D-CENSUS-2);
+    - HEEx component children render into the `Slot` (D-CENSUS-3).
+  - The census `GAPS` map is empty, and seven `DEAD_KEY_WAIVERS` rows are deleted. The remaining rows are Feliz/Flutter's derived menu and Flutter's delete label, both in F7's fence.
+  - Building the Feliz output found two defects, both fixed: a `For` over an unpaged `.all` lost its `then:`, and an Action's API function collided with an OperationForm on the same op.
+  - **M-T1.42** is minted: the auto-paged Table makes an Action column sortable. Hand-off: `handoffs/wave-c3f-f6.md`.

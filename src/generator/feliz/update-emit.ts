@@ -1013,11 +1013,27 @@ export function renderUpdate(
     return arms;
   });
   // A one-click action: the trigger fires the id-qualified POST `Cmd`; on
-  // success it refetches the detail read (`pageCmd` when byId reads exist, so the
-  // UI reflects the mutation — the MVU twin of React's query invalidation), on
-  // error it stays put.
+  // success it refetches the detail read (`pageCmd` when byId reads exist) and
+  // the page's list reads of the same aggregate (a row-scoped action mutates a
+  // row of one), so the UI reflects the mutation — the MVU twin of React's
+  // query invalidation.  On error it stays put.
   const opActionArms = opActions.map((a) => {
-    const refetch = hasPageCmd ? "pageCmd model.CurrentPage" : "Cmd.none";
+    const refetches = [
+      ...(hasPageCmd ? ["pageCmd model.CurrentPage"] : []),
+      ...reads
+        .filter((r) => !r.single && !r.find && r.aggregate === a.aggregate)
+        .map((r) =>
+          r.paging?.controls
+            ? pagedReadCmd(r, "model")
+            : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`,
+        ),
+    ];
+    const refetch =
+      refetches.length === 0
+        ? "Cmd.none"
+        : refetches.length === 1
+          ? refetches[0]!
+          : `Cmd.batch [ ${refetches.join("; ")} ]`;
     const plain =
       `  | ${a.triggerMsg} id -> model, Cmd.OfAsync.perform Api.${a.apiFn} id ${a.doneMsg}\n` +
       `  | ${a.doneMsg} (Ok ()) -> model, ${refetch}\n` +
