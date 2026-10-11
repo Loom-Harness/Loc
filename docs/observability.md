@@ -119,7 +119,19 @@ there" from "the client called something that refused".
 
 **Database lifecycle** (info / warn / error):
 `db_connecting`, `db_connected`, `db_disconnected` (warn),
-`db_pool_exhausted` (warn), `db_error` (error).
+`db_pool_exhausted` (warn), `db_error` (error),
+`db_connect_retry` (warn — `attempt`, `max_attempts`, `delay_ms`, `error`).
+
+Every backend retries its boot-time migration run while the database is not
+reachable *yet* (connection refused, DNS not resolvable, "the database system
+is starting up") with one shared policy — 10 attempts, 500 ms doubling to a
+10 s cap (`src/generator/_obs/boot-db-retry.ts`) — logging `db_connect_retry`
+per wait; a SQL failure is never retried, and the last attempt still aborts
+boot. Hono, Python, .NET and Phoenix run the loop in-process; Java hands the
+same wall-clock budget to Hikari's `initialization-fail-timeout` (which
+retries silently, 1 s apart). The system `docker-compose.yml` marks every app
+service `restart: unless-stopped`, so a backend that exhausts the budget, or
+crashes later, is brought back by compose.
 
 **Migrations** (info / error):
 `migrations_starting`, `migration_applied`, `migrations_complete`,

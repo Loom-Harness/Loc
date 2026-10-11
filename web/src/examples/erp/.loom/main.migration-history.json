@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "_note": "Migration history recorded by `ddd generate system`, kept beside the .ddd source and meant to be committed with it. It records WHICH migration versions each module has emitted — not the schema (that is .loom/snapshots/<module>.snapshot.json in the output tree). Its only job is to stop a generate into an output tree with no migration history from silently re-issuing an already-applied version. See docs/migrations.md.",
+  "modules": {
+    "Crm": {
+      "versions": [
+        "20260104000000"
+      ],
+      "schemaHash": "0b15aac85f8342"
+    },
+    "Finance": {
+      "versions": [
+        "20260105000000"
+      ],
+      "schemaHash": "0ba84239c6fa6b"
+    },
+    "Inventory": {
+      "versions": [
+        "20260102000000"
+      ],
+      "schemaHash": "1033d92a55b649"
+    },
+    "People": {
+      "versions": [
+        "20260106000000"
+      ],
+      "schemaHash": "136f857959da42"
+    },
+    "Procurement": {
+      "versions": [
+        "20260103000000"
+      ],
+      "schemaHash": "0d20aa166b9b6e"
+    },
+    "Sales": {
+      "versions": [
+        "20260101000000"
+      ],
+      "schemaHash": "0cd27b4969f999"
+    }
+  }
+}

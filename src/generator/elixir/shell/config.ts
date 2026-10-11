@@ -1,3 +1,4 @@
+import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
 // ---------------------------------------------------------------------------
@@ -69,12 +70,40 @@ export function renderRelease(appName: string, appModule: string): string {
 
   require Logger
 
+  # Boot-time DB-connect retry (the cross-backend BOOT_DB_RETRY policy): a
+  # database that is not reachable YET surfaces as DBConnection.ConnectionError
+  # on the first checkout; retry the whole with_repo run with capped
+  # exponential backoff so a late db no longer kills the release on first boot.
+  # A migration whose SQL fails raises something else and is never retried.
+  @db_connect_max_attempts ${BOOT_DB_RETRY.maxAttempts}
+
   def migrate do
     load_app()
 
     for repo <- repos() do
-      {:ok, _, _} = Ecto.Migrator.with_repo(repo, &migrate_repo/1)
+      migrate_with_retry(repo, 1)
     end
+  end
+
+  defp migrate_with_retry(repo, attempt) do
+    {:ok, _, _} = Ecto.Migrator.with_repo(repo, &migrate_repo/1)
+  rescue
+    error in DBConnection.ConnectionError ->
+      if attempt >= @db_connect_max_attempts do
+        reraise error, __STACKTRACE__
+      else
+        delay_ms = min(${BOOT_DB_RETRY.baseDelayMs} * Integer.pow(2, attempt - 1), ${BOOT_DB_RETRY.maxDelayMs})
+
+        ${renderPhoenixLogCall("dbConnectRetry", [
+          { name: "attempt", valueExpr: "attempt" },
+          { name: "max_attempts", valueExpr: "@db_connect_max_attempts" },
+          { name: "delay_ms", valueExpr: "delay_ms" },
+          { name: "error", valueExpr: "Exception.message(error)" },
+        ])}
+
+        Process.sleep(delay_ms)
+        migrate_with_retry(repo, attempt + 1)
+      end
   end
 
   # Runs every pending migration for one repo, emitting the cross-backend

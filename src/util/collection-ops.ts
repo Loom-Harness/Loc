@@ -58,3 +58,8 @@ const COLLECTION_OPS = new Set(COLLECTION_OP_SIGNATURES.map((o) => o.name));
 export function isCollectionOp(name: string): boolean {
   return COLLECTION_OPS.has(name);
 }
+
+/** The catalogue signature of a collection op (`""` for a non-op). */
+export function collectionOpSignature(name: string): string {
+  return COLLECTION_OP_SIGNATURES.find((o) => o.name === name)?.signature ?? "";
+}

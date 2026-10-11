@@ -31,6 +31,9 @@ import type {
   FormRecord,
 } from "./wire.js";
 import {
+  actionThenDoneMsg,
+  actionThenMsg,
+  byIdFieldName,
   fileSelectMsg,
   fileUploadedMsg,
   findReadCmd,
@@ -39,6 +42,7 @@ import {
   formHasFieldErrors,
   formTouchedField,
   formTouchMsg,
+  ifMatchVersionExpr,
   opHasForm,
   pagedReadCmd,
   readLoadedType,
@@ -509,6 +513,14 @@ export function renderMsg(
     ...opActions.flatMap((a) => [
       `  | ${a.triggerMsg} of string`,
       `  | ${a.doneMsg} of Result<unit, string>`,
+      // M-FT.5 — an `Action { …, then: <effect> }` carries its effect as a
+      // closure the `Done (Ok ())` arm runs once the POST has succeeded.
+      ...(a.hasThen
+        ? [
+            `  | ${actionThenMsg(a)} of string * (unit -> unit)`,
+            `  | ${actionThenDoneMsg(a)} of Result<unit, string> * (unit -> unit)`,
+          ]
+        : []),
     ]),
   ];
   if (cases.length === 0) return "type Msg = | NoOp";
@@ -902,6 +914,15 @@ export function renderUpdate(
   // An operation form: per-field setters, a submit that fires the id-qualified
   // POST `Cmd` (the api fn is curried `(id) (form)`), and a `Done` result that
   // resets the form + navigates.
+  // #27 — a `versioned` update passes the loaded record's version to the api
+  // fn (its `If-Match`), read off the Model's byId read of the aggregate.
+  const ifMatchArg = (f: FelizOperationForm): string =>
+    f.ifMatch
+      ? ` ${ifMatchVersionExpr(
+          f.aggregate,
+          reads.some((r) => r.field === byIdFieldName(f.aggregate) && r.single),
+        )}`
+      : "";
   const operationArms = operationForms.map((f) => {
     const setters = formFieldSetterArms(f);
     const nav = `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
@@ -909,7 +930,7 @@ export function renderUpdate(
     // (empty body) and the done arm doesn't reset a form field.
     if (!opHasForm(f)) {
       return [
-        `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id) () ${f.doneMsg}`,
+        `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) () ${f.doneMsg}`,
         `  | ${f.doneMsg} (Ok ()) -> model, ${nav}`,
         `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
       ].join("\n");
@@ -918,7 +939,7 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id) model.${f.formField} ${f.doneMsg}`,
+      `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) model.${f.formField} ${f.doneMsg}`,
       `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
       `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
     ].join("\n");
@@ -997,10 +1018,20 @@ export function renderUpdate(
   // error it stays put.
   const opActionArms = opActions.map((a) => {
     const refetch = hasPageCmd ? "pageCmd model.CurrentPage" : "Cmd.none";
-    return (
+    const plain =
       `  | ${a.triggerMsg} id -> model, Cmd.OfAsync.perform Api.${a.apiFn} id ${a.doneMsg}\n` +
       `  | ${a.doneMsg} (Ok ()) -> model, ${refetch}\n` +
-      `  | ${a.doneMsg} (Error _) -> model, Cmd.none`
+      `  | ${a.doneMsg} (Error _) -> model, Cmd.none`;
+    if (!a.hasThen) return plain;
+    // M-FT.5 — the `then:` effect runs only on SUCCESS, after the refetch is
+    // queued (the JSX `mutateAsync({}).then(() => …)` ordering).
+    const then = actionThenMsg(a);
+    const thenDone = actionThenDoneMsg(a);
+    return (
+      `${plain}\n` +
+      `  | ${then} (id, andThen) -> model, Cmd.OfAsync.perform Api.${a.apiFn} id (fun r -> ${thenDone} (r, andThen))\n` +
+      `  | ${thenDone} (Ok (), andThen) -> model, Cmd.batch [ ${refetch}; Cmd.ofEffect (fun _ -> andThen ()) ]\n` +
+      `  | ${thenDone} (Error _, _) -> model, Cmd.none`
     );
   });
   const arms = [
