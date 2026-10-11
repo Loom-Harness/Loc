@@ -48,6 +48,7 @@ import { renderTelemetry } from "../telemetry-emit.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderObanConfig } from "./scheduler-emit.js";
+import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
 export function emitVanillaShellFiles(
   appName: string,
@@ -186,6 +187,9 @@ export function emitVanillaShellFiles(
   // The declared-`datetime` column type — a UTC instant at MILLISECOND
   // precision (RS-38).  Every datetime field of every schema is typed as it.
   out.set(`lib/${appName}/loom_datetime.ex`, renderLoomDatetimeModule());
+  // The single value-object column type + value-object equality — every VO
+  // column is typed as it and every VO `==` calls it.
+  out.set(`lib/${appName}/loom_value_object.ex`, renderLoomValueObjectModule());
   out.set(
     `lib/${appName}_web.ex`,
     // The TEMPLATE-side gate is the ui, not the merged catalog: `pgettext/2` in
