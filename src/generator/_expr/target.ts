@@ -48,6 +48,7 @@ export type CallExpr = Extract<ExprIR, { kind: "call" }>;
 export type NewExpr = Extract<ExprIR, { kind: "new" }>;
 export type UnaryExpr = Extract<ExprIR, { kind: "unary" }>;
 export type BinaryExpr = Extract<ExprIR, { kind: "binary" }>;
+export type TernaryExpr = Extract<ExprIR, { kind: "ternary" }>;
 export type ConvertExpr = Extract<ExprIR, { kind: "convert" }>;
 export type DurationExpr = Extract<ExprIR, { kind: "duration" }>;
 
@@ -163,7 +164,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
   object(fields: RenderedField[]): string;
   unary(op: UnaryExpr["op"], operand: string, e: UnaryExpr): string;
   binary(left: string, right: string, e: BinaryExpr): string;
-  ternary(cond: string, then: string, otherwise: string): string;
+  /** `e` is passed for a leaf that must reflect the source-level null
+   *  narrowing of a branch (.NET unwraps a narrowed `Nullable<T>`); absent for
+   *  the synthesized presence ternaries, which have no source node. */
+  ternary(cond: string, then: string, otherwise: string, e?: TernaryExpr, ctx?: Ctx): string;
   convert(value: string, e: ConvertExpr): string;
   /** Duration constructor `days(n)`/`hours(n)`/`minutes(n)` (A5 temporal) —
    *  render the backend's ABSOLUTE-duration value from the already-rendered
@@ -258,7 +262,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "binary":
       return t.binary(r(e.left), r(e.right), e);
     case "ternary":
-      return t.ternary(r(e.cond), r(e.then), r(e.otherwise));
+      return t.ternary(r(e.cond), r(e.then), r(e.otherwise), e, ctx);
     case "convert":
       return t.convert(r(e.value), e);
     case "duration":
@@ -750,7 +754,11 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       const cond = rm(e.cond);
       const then = rm(e.then);
       const otherwise = rm(e.otherwise);
-      return compose(t.ternary(cond.text, then.text, otherwise.text), [cond, then, otherwise]);
+      return compose(t.ternary(cond.text, then.text, otherwise.text, e, ctx), [
+        cond,
+        then,
+        otherwise,
+      ]);
     }
     case "convert": {
       const value = rm(e.value);

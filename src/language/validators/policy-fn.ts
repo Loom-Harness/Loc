@@ -15,6 +15,8 @@
 //     wrong number of arguments.
 //   - loom.policy-fn-cycle       — `policy A(): bool = B()` / `policy B(): bool
 //     = A()` (transitive self-reference).
+//   - loom.policy-out-of-scope   — a `PolicyName(args)` call from a context
+//     other than the one declaring it (policies are context-local; ruling D9).
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -31,6 +33,7 @@ import {
   type NameRef,
   type PolicyDecl,
 } from "../generated/ast.js";
+import { envForNode, outOfScopePolicyCall } from "../type-system.js";
 
 /** A function-form policy declaration is the one with a `returnType`; a
  *  block-form `policy {}` (read ladder) has none. */
@@ -123,6 +126,7 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
       const first = node.suffixes[0];
       if (isNameRef(head) && first && isCallSuffix(first) && node.suffixes.length === 1) {
         checkPolicyFnReference(head, first.args.length, accept);
+        checkPolicyFnScope(head, accept);
       }
       continue;
     }
@@ -138,6 +142,28 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
       checkPolicyFnReference(node, undefined, accept);
     }
   }
+}
+
+/** A policy-function CALL whose policy lives in another bounded context (eval
+ *  item 39, ruling D9).  Policies are context-local (docs/language.md), so the
+ *  call resolves to nothing — which used to surface only as the gate's
+ *  `'requires' must be of type 'bool', got 'unknown'`.  Name the real cause
+ *  and the fix instead.  The type system types such a call `bool`
+ *  (`outOfScopePolicyCall`), so this is the ONE diagnostic it raises.  Call
+ *  form only: a bare name has too many other readings to claim. */
+function checkPolicyFnScope(ref: NameRef, accept: ValidationAcceptor): void {
+  if (!AstUtils.getContainerOfType(ref, isBoundedContext)) return;
+  const hit = outOfScopePolicyCall(ref.name, envForNode(ref));
+  if (!hit) return;
+  accept(
+    "error",
+    diagMessage("loom.policy-out-of-scope", {
+      name: ref.name,
+      declaredIn: hit.declaredIn.name,
+      usedIn: hit.usedIn.name,
+    }),
+    { node: ref, property: "name", code: "loom.policy-out-of-scope" },
+  );
 }
 
 /** Whether a bare `name` at `node` is shadowed by an enclosing aggregate's

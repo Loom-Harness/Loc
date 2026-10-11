@@ -152,7 +152,10 @@ export function wireProjectionValue(
   optional: boolean,
 ): string {
   if (t.kind === "optional") {
-    return `(${expr} == null ? null : ${wireProjectionValue(expr, t.inner, ctx, true)})`;
+    // The guard lives HERE, so the inner value renders as non-optional —
+    // passing `optional: true` down made the datetime / money / value-object
+    // arms re-emit the same `== null ? null :` guard inside this one.
+    return `(${expr} == null ? null : ${wireProjectionValue(expr, t.inner, ctx, false)})`;
   }
   if (t.kind === "primitive") {
     if (t.name === "datetime")
