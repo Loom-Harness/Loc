@@ -34,7 +34,8 @@ const SEVERITY: Record<JsonSeverity, DiagnosticSeverity> = {
 };
 
 /** A single diagnostic as LSP `Diagnostic`, or `undefined` for a rangeless
- *  (IR-phase) diagnostic that has no editor location to anchor to. */
+ *  diagnostic (an IR-phase one with no `origin`) that has no editor location
+ *  to anchor to. */
 export function toLspDiagnostic(d: JsonDiagnostic): Diagnostic | undefined {
   if (!d.range) return undefined;
   return {
@@ -46,9 +47,10 @@ export function toLspDiagnostic(d: JsonDiagnostic): Diagnostic | undefined {
   };
 }
 
-/** Every CST-backed diagnostic in a report as LSP `Diagnostic`s (rangeless IR
- *  diagnostics are dropped — they surface in the report's `diagnostics`, but
- *  there's nowhere in the editor to underline them). */
+/** Every ranged diagnostic in a report as LSP `Diagnostic`s — CST-backed ones
+ *  and IR ones that carry an `origin`.  Rangeless IR diagnostics are dropped:
+ *  they surface in the report's `diagnostics`, but there's nowhere in the
+ *  editor to underline them. */
 export function toLspDiagnostics(report: ValidateReport): Diagnostic[] {
   return report.diagnostics.map(toLspDiagnostic).filter((d): d is Diagnostic => d !== undefined);
 }

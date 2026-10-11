@@ -89,6 +89,7 @@ import {
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
 import { refCollFieldNames } from "./ref-collection-emit.js";
+import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { usesRelationalContainments } from "./schema-emit.js";
@@ -794,7 +795,7 @@ ${body}
       : ""
   }
 ${createDelegate}
-  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}
+  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 

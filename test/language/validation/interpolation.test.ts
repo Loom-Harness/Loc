@@ -137,6 +137,69 @@ describe("validation — A6 interpolation format suffix", () => {
     expect(diagnostics.some((d) => d.code === "loom.interp-hole-type")).toBe(true);
   });
 
+  // Item 38 / ruling D8: every backend renders an `i18nFormat` hole as its
+  // bare value, so a plural/select branch in domain code silently loses its
+  // text (`{qty, plural, …}` → "3").  Warn where it happens; stay silent where
+  // the frontend i18n runtime does render it (a page slot) and on formats that
+  // carry no branch text (`number`).
+  describe("loom.interp-format-dropped-in-domain (D8)", () => {
+    const CODE = "loom.interp-format-dropped-in-domain";
+    const dropped = async (body: string) =>
+      (await parseString(wrap(body))).diagnostics.filter((d) => d.code === CODE);
+
+    it("warns on plural / selectordinal / select holes in a derived, operation and function", async () => {
+      const ds = await dropped(`
+        derived a: string = \`p {quantity, plural, one {# item} other {# items}}\`
+        derived b: string = \`o {quantity, selectordinal, one {#st} other {#th}}\`
+        derived c: string = \`s {customerName, select, vip {VIP} other {someone}}\`
+        operation greet(): string {
+          return \`{quantity, plural, one {# order} other {# orders}}\`
+        }
+        function label(): string = \`{customerName, select, vip {VIP} other {std}}\`
+      `);
+      expect(ds.map((d) => d.severity)).toEqual([2, 2, 2, 2, 2]); // all warnings
+      expect(
+        ds.map((d) =>
+          String(d.message)
+            .match(/^This '(\w+)' hole sits in a '(\w+)'/)
+            ?.slice(1),
+        ),
+      ).toEqual([
+        ["plural", "derived"],
+        ["selectordinal", "derived"],
+        ["select", "derived"],
+        ["plural", "operation"],
+        ["select", "function"],
+      ]);
+    });
+
+    it("is silent on a number / date format and on a format-less hole in domain code", async () => {
+      const ds = await dropped(`
+        derived a: string = \`t {total, number, ::currency/USD}\`
+        derived b: string = \`d {dueAt, date}\`
+        derived c: string = \`n {quantity}\`
+      `);
+      expect(ds).toEqual([]);
+    });
+
+    it("is silent on a plural hole in a ui page slot (the i18n runtime renders it)", async () => {
+      const { diagnostics, errors } = await parseString(`
+system S {
+  subdomain Core { context C {
+    aggregate Order with crudish { quantity: int }
+    repository Orders for Order { }
+  } }
+  ui Web {
+    page Home(count: int) { route: "/:count"
+      body: Text { \`You have {count, plural, one {# order} other {# orders}}\` }
+    }
+  }
+}`);
+      expect(errors).toEqual([]); // the page really parsed — not a vacuous silence
+      expect(diagnostics.filter((d) => d.code === CODE)).toEqual([]);
+    });
+  });
+
   it("rejects a genuinely unknown ICU format — loom.interp-format-unknown", async () => {
     const { diagnostics } = await parseString(
       wrap(`derived x: string = \`x {quantity, spellout}\``),
