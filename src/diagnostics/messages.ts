@@ -2981,6 +2981,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
     `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
     `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
+  // The OPTIONAL-field half: the narrowed list leaves out a nullable field —
+  // usually one only an operation should set — and `POST /<plural>` still
+  // accepts it, so a client can create the row with it already set.
+  "loom.create-params-not-wire#optional": (p: { agg: unknown; missing: unknown; verb: unknown }) =>
+    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
+    `request contract.  Its optional ${p.missing} ${p.verb} not declared, yet ` +
+    `\`POST /<plural>\` takes the FIELD-DERIVED create input and ACCEPTS ${p.missing} ` +
+    `at creation — a client can create the row with it already set, bypassing every ` +
+    `operation that is meant to set it.  If only operations should set it, mark it ` +
+    `\`managed\`; if creation may set it, list it in the \`create(…)\` parameters ` +
+    `— a narrowed list shapes nothing.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
