@@ -37,59 +37,43 @@
 //
 // ── THE SAFETY CONTRACT ────────────────────────────────────────────────────
 //
-// A suite pointed at staging must NEVER truncate.  Two INDEPENDENT gates, and
-// the one that matters needs no configuration:
+// The endpoint truncates every table of every tenant, so it is treated as what
+// it is — a remote "erase the database" button — and is closed unless an
+// operator opens it ON PURPOSE, with a secret.  Three INDEPENDENT gates:
 //
-//   1. CLIENT — the emitted suite only SENDS a reset when the resolved base
-//      URL is a loopback address.  `E2E_API_BASE=https://staging.example.com`
-//      disables it by construction: there is no flag to forget, and
-//      deliberately no remote override to copy into CI.  See
-//      `__isLoopbackBase` in the emitted preamble.
+//   1. OPT-IN, NEVER INFERRED — the backend serves the reset only when
+//      `LOOM_TEST_RESET=1` is set explicitly.  No profile marker (`NODE_ENV`,
+//      `ASPNETCORE_ENVIRONMENT`, `MIX_ENV`) turns it on, and the generated
+//      `docker-compose.yml` does not set it.  Finding H-30 (helpdesk eval) is
+//      why: it used to be on by default in `npm run dev` and forced on by the
+//      compose file (published on 0.0.0.0), and running the generated e2e
+//      suite against a dev stack holding real data silently erased it.
 //
-//   2. SERVER — the backend answers 404 unless it is told the reset is
-//      allowed, having touched nothing.  Node, python and .NET go further and
-//      do not REGISTER the route at all, so there the surface does not even
-//      exist; Phoenix and Spring build their routes at compile time and at
-//      context refresh respectively, so an environment variable read at boot
-//      cannot add or drop one — there the route is always defined and the
-//      HANDLER refuses.  Same answer, same nothing touched.
+//   2. A SHARED SECRET — enabling it also requires `LOOM_TEST_RESET_TOKEN`,
+//      and every request must carry that value in the `x-loom-test-reset`
+//      header, compared in constant time.  Enabled WITHOUT a token, the
+//      backend refuses to serve the route at all (and says so at boot where
+//      it registers routes at boot).  A wrong or missing header is a 403,
+//      having touched nothing.  The route sits outside the auth middleware
+//      (an auth-bearing suite need not mint a principal to empty a table),
+//      so the token IS its authentication — it is never an open bypass.
 //
-// Gate 1 alone would miss a loopback port-forward into a remote database;
-// gate 2 alone would miss a dev-profile backend on a shared host.  Together
-// both readings are covered, which is why neither is dropped.
+//   3. CLIENT — the emitted suite only SENDS a reset when it was handed the
+//      token (`LOOM_TEST_RESET_TOKEN` in the suite's environment) AND the
+//      resolved base URL is a loopback address.  Without the token it warns
+//      once and runs against shared state; `E2E_API_BASE=https://staging…`
+//      disables it by construction, with deliberately no remote override.
+//      See `__isLoopbackBase` in the emitted preamble.
 //
-// The switch is one rule with a profile-derived default:
+// Node, python and .NET do not REGISTER the route unless gates 1 and 2 hold,
+// so there the surface does not exist; Phoenix and Spring build their routes
+// at compile time and at context refresh respectively, so an environment
+// variable read at boot cannot add or drop one — there the route is always
+// defined and the HANDLER answers 404 having touched nothing.
 //
-//     LOOM_TEST_RESET=1   → allowed
-//     LOOM_TEST_RESET=0   → refused
-//     unset               → allowed IFF the host platform has a production
-//                           profile marker of its own AND it says this is not
-//                           production
-//
-// The default lets the audit's recipe — run the backend straight out of the
-// tree — keep working with nothing new to set, while a real deployment is
-// closed BY DEFAULT rather than by remembering to close it.  The explicit `1`
-// exists because each generated container image pins a production profile —
-// correctly, it is a production image — so the generated `docker-compose.yml`,
-// which is the LOCAL dev stack built from that same image, opts in by name.
-// That is a line a reader can see in the compose file and delete, which is
-// worth more here than an invisible inference from the profile alone.
-//
-// The "iff the platform HAS a marker" half is load-bearing, not a hedge.
-// THREE of the five ship one the generated app actually sets: node reads
-// `NODE_ENV`, .NET reads `ASPNETCORE_ENVIRONMENT` through
-// `app.Environment.IsProduction()`, and the elixir project bakes the answer in
-// at BUILD time (`config/prod.exs` sets `loom_test_reset_default: false`, so a
-// `MIX_ENV=prod` release is closed without anyone setting anything).
-//
-// The generated PYTHON and JAVA projects ship none — no `APP_ENV`, no
-// `spring.profiles.active` — so there is nothing to read, and a default of
-// "on" would leave a truncate endpoint in every deployment of those two.  They
-// therefore require the explicit `1`, which makes their gate strictly TIGHTER
-// than the other three's, never looser.  Inventing a profile variable for the
-// two backends that lack one would have made the rule uniform by adding a
-// config surface nothing else in those projects uses — the worse trade, and a
-// new thing to get wrong.
+// A harness that wants the reset (a CI tier, a developer's own loop) sets the
+// same token on both sides: `LOOM_TEST_RESET=1 LOOM_TEST_RESET_TOKEN=<t>` on
+// the backend, `LOOM_TEST_RESET_TOKEN=<t>` on the suite.
 // ---------------------------------------------------------------------------
 
 /** Where the reset endpoint mounts.  Under `/__loom/`, NOT under
@@ -98,10 +82,20 @@
  *  OpenAPI document or behind the auth middleware. */
 export const TEST_RESET_PATH = "/__loom/test-reset";
 
-/** The switch every backend honours: `1` allows the reset, `0` refuses it, and
- *  unset falls back to the platform's own production profile where it has one
- *  (node, .NET, elixir) or to "refused" where it does not (python, java). */
+/** The switch every backend honours: exactly `1` allows the reset (together
+ *  with {@link TEST_RESET_TOKEN_ENV}); anything else, unset included, refuses
+ *  it.  Never derived from a production-profile marker. */
 export const TEST_RESET_ENV = "LOOM_TEST_RESET";
+
+/** The shared secret the reset requires.  Read by the backend (the expected
+ *  value — empty means the route is not served even with the switch on) and
+ *  by the emitted suite (the value it sends; absent means it never resets). */
+export const TEST_RESET_TOKEN_ENV = "LOOM_TEST_RESET_TOKEN";
+
+/** The request header that carries {@link TEST_RESET_TOKEN_ENV}.  Lower-case
+ *  so every backend's header lookup (several are case-sensitive on the key
+ *  they are handed) spells it the same way. */
+export const TEST_RESET_HEADER = "x-loom-test-reset";
 
 /**
  * Postgres schemas whose tables a reset must NOT touch, on any backend.

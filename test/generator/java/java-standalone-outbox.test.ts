@@ -121,7 +121,8 @@ describe("java standalone (no-broker) outbox (M-T4.3)", () => {
     expect(find(files, "LoomEventOutbox.java")).toBe("");
     expect(find(files, "LocalOutboxRelay.java")).toBe("");
     expect(find(files, "OutboxDelivery.java")).toBe("");
-    // The reactor keeps its inline @EventListener (durable-free path).
-    expect(find(files, "OrdersDispatcher.java")).toContain("@EventListener");
+    // The reactor keeps its in-process listener (durable-free path) — since
+    // H-28 the AFTER_COMMIT ReactorListener, not an inline @EventListener.
+    expect(find(files, "OrdersDispatcher.java")).toContain("TransactionPhase.AFTER_COMMIT");
   });
 });

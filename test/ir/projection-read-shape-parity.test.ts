@@ -1,4 +1,5 @@
-// The AST-side `astProjectionReadShape` (`src/ir/lower/lower-expr.ts`) mirrors
+// The AST-side `astProjectionReadShape` (`src/language/typing/projection-shape.ts`,
+// the single typing pass's) mirrors
 // `isFrontendReadableProjection` + `projectionReadShape`
 // (`src/ir/util/projection-read.ts`).  Two copies of one rule is exactly what
 // that module's header warns against — "they are deliberately not allowed to
@@ -6,10 +7,9 @@
 // the same device `adapter-metadata-consistency.test.ts` uses for its
 // pure-data mirror of the adapter menus.
 //
-// The AST copy exists because lowering needs the answer BEFORE any
+// The AST copy exists because the typing pass needs the answer BEFORE any
 // `ProjectionIR` exists: a page body's `QueryView { of: <handle>.<Proj>,
-// data: s => … }` binds its lambda param during lowering, and reaching the IR
-// predicates from there would mean lowering the projection twice.
+// data: s => … }` binds its lambda param from it, and lowering copies that.
 //
 // This runs both over every projection the shipped corpus declares, so a new
 // clause added to one side and not the other fails here rather than in a
@@ -20,11 +20,11 @@ import { join } from "node:path";
 import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { astProjectionReadShape } from "../../src/ir/lower/lower-expr.js";
 import {
   isFrontendReadableProjection,
   projectionReadShape,
 } from "../../src/ir/util/projection-read.js";
+import { astProjectionReadShape } from "../../src/language/typing/projection-shape.js";
 import { parseString } from "../_helpers/index.js";
 
 const CORPUS = "test/fixtures/corpus";

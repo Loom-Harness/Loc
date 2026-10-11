@@ -43,7 +43,6 @@ export default function ProductList() {
                 <Table.Tr>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "sku") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("sku"); setSortDir("asc"); } }}>{t("page.List.columnHeader.gkg0ca", "Sku")}{sortKey === "sku" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "version") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("version"); setSortDir("asc"); } }}>{t("page.List.columnHeader.q0zd4n", "Version")}{sortKey === "version" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -51,7 +50,6 @@ export default function ProductList() {
                   <Table.Tr key={ row.id } data-testid={ ("products-row-" + row.id) }>
                     <Table.Td><RouterLink to={`/products/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
                     <Table.Td><Text>{row.sku}</Text></Table.Td>
-                    <Table.Td><Text>{row.version}</Text></Table.Td>
                   </Table.Tr>
                 )) }
               </Table.Tbody>

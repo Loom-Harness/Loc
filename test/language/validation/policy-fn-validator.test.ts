@@ -87,3 +87,46 @@ describe("validator — named policy functions", () => {
     expect(errors.join("\n")).toMatch(/reference cycle/);
   });
 });
+
+// Eval item 39, ruling D9: policies are context-local.  A call from another
+// context names that instead of the old `'requires' must be of type 'bool',
+// got 'unknown'`.
+describe("validator — a policy function called from another context", () => {
+  const twoContexts = (call: string, localDecl = "") => `
+    system Shop {
+      user { id: string  role: string }
+      subdomain Sales {
+        context Orders {
+          policy IsAdmin(): bool = currentUser.role == "admin"
+          aggregate Order { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+        }
+        context Billing {
+          ${localDecl}
+          aggregate Invoice { n: int  operation bump() requires ${call} { n := n + 1 } }
+        }
+      }
+      storage s { type: postgres }
+      resource st { for: Orders, kind: state, use: s }
+      resource st2 { for: Billing, kind: state, use: s }
+      deployable api { platform: node  contexts: [Orders, Billing]  dataSources: [st, st2]  port: 8080  auth: required }
+    }
+  `;
+
+  it("reports loom.policy-out-of-scope naming both contexts — and nothing else", async () => {
+    const { diagnostics, errors } = await parseString(twoContexts("IsAdmin()"));
+    expect(lspCodes(diagnostics)).toContain("loom.policy-out-of-scope");
+    expect(errors).toEqual([
+      expect.stringContaining(
+        "policy 'IsAdmin' is declared in context 'Orders'; policies are context-local — redeclare it in 'Billing'",
+      ),
+    ]);
+    expect(errors.join("\n")).not.toMatch(/got 'unknown'/);
+  });
+
+  it("is silent when the calling context declares its own policy of that name", async () => {
+    const { errors } = await parseString(
+      twoContexts("IsAdmin()", `policy IsAdmin(): bool = currentUser.role == "root"`),
+    );
+    expect(errors).toEqual([]);
+  });
+});

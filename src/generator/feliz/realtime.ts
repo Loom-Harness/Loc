@@ -53,6 +53,19 @@ const TOAST_EMIT_JS =
   "e.setAttribute('role','status');e.setAttribute('data-testid','channel-toast');" +
   "e.textContent=m;h.appendChild(e);setTimeout(function(){e.remove();},4000);})($0)";
 
+/** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) — the
+ *  realtime toast's DOM host with an `action-toast` testid, declared before
+ *  the page views (F# is order-sensitive).  Fully-qualified `Fable.Core` names,
+ *  so it needs no `open` of its own. */
+export function renderFelizActionToast(name: string): string {
+  const js = TOAST_EMIT_JS.replaceAll("channel-toast", "action-toast");
+  return lines(
+    "// `Action { …, then: toast(…) }` — a transient built-in toast (M-FT.5).",
+    `[<Fable.Core.Emit("${js}")>]`,
+    `let ${name} (message: string) : unit = Fable.Core.Util.jsNative`,
+  );
+}
+
 /** The distinct aggregates a ui's `on` handlers `refetch(<Agg>)` — folded
  *  into the ui's read set by the caller so the `Api.<all>`/`<All>Loaded`/
  *  Model wiring the subscription re-issues is emitted. */
