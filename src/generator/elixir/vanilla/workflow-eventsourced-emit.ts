@@ -461,8 +461,8 @@ export function renderEsWorkflowHandler(
   // channels are wired, so broker-carried saga events publish for remote
   // (and co-located) consumers instead of fanning out locally.
   const republish = channels
-    ? `Enum.each(events, fn ev -> ${elixirDispatchCall("ev", contextModule, true, channels)} end)`
-    : `Enum.each(events, &${contextModule}.Dispatcher.dispatch/1)`;
+    ? `Enum.each(events, fn ev -> ${elixirDispatchCall("ev", contextModule, true, channels, true)} end)`
+    : `Enum.each(events, &${contextModule}.Dispatcher.AfterCommit.dispatch/1)`;
   const withBlock = [
     `      with ${withClauses.join(",\n           ")} do`,
     `        ${republish}`,
