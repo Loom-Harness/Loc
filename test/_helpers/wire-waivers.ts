@@ -48,4 +48,30 @@
 
 import type { WireWaiver } from "./wire-record.js";
 
-export const WIRE_WAIVERS: readonly WireWaiver[] = [];
+// 2026-10-04 — #15d (ruling D10) added the message-LESS rows to
+// `validation-messages` (seq 14 `ship`, seq 15 `retag`) and fixed python; the
+// other three backends still send their framework's default text, measured on
+// booted legs.  Mission M-T6.86 closes them and deletes these four entries.
+export const WIRE_WAIVERS: readonly WireWaiver[] = [
+  ...(["ship", "retag"] as const).map(
+    (op): WireWaiver => ({
+      backends: ["dotnet", "dapper", "java"],
+      cases: ["validation-messages"],
+      request: `POST /api/products/*/${op}`,
+      path: "$.errors[*].message",
+      kinds: ["value"],
+      reason:
+        "M-T6.86 — a message-less single-field rule answers FluentValidation's / the derived refine default, not node's synthesized per-field sentence",
+    }),
+  ),
+  ...(["ship", "retag"] as const).map(
+    (op): WireWaiver => ({
+      backends: ["elixir"],
+      cases: ["validation-messages"],
+      request: `POST /api/products/*/${op}`,
+      path: "**",
+      reason:
+        "M-T6.86 — a message-less precondition answers the domain-floor 422 (no errors[]) instead of the wire-validation shape",
+    }),
+  ),
+];

@@ -79,6 +79,7 @@ export function validateEntityPartParams(ctx: BoundedContextIR, diags: LoomDiagn
             collection: hit.collection,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
       }
     }

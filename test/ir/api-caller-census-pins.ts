@@ -666,6 +666,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // this fixture.  Their route-contract gate is `e2e-route-checks.ts`'s
   // `checkWorkflowVerb`, not this census.  Lifting workflow routes into the
   // derivation would make these attributable — and this entry stale.
+  // A workflow-instance read is the `notLifted` class (same as
+  // `workflow-create-state`): it pins the failed reaction's saga row absent.
+  "corpus/reactor-failure": ["api.askForRating.instance (no such aggregate)"],
   "corpus/workflow-create-state": [
     "api.escalation.instance (no such aggregate)",
     "api.escalation.instances (no such aggregate)",

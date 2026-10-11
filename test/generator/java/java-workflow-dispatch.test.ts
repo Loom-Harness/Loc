@@ -49,7 +49,9 @@ describe("java saga dispatcher", () => {
     expect(d).toContain(
       "private final OrderFulfillmentStateRepository orderFulfillmentStateRepository;",
     );
-    expect(d).toContain("@EventListener");
+    // H-28: the application event reaches the reactor after commit, through
+    // the nested ReactorListener (its own REQUIRES_NEW transaction).
+    expect(d).toContain("TransactionPhase.AFTER_COMMIT, fallbackExecution = true");
     // Each reactor is a per-dispatch boundary: its body runs in a child
     // execution frame (parent_id <- the dispatching request's scope).
     expect(d).toContain("import ");
