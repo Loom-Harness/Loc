@@ -567,6 +567,40 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
       const name = typeof entry.name === "string" ? entry.name : String(entry.name);
       const expected = createInput.get(name);
       if (!expected) continue; // unknown / server-owned key — `checkFactoryCreateFields`' concern
+      // Nullability, checked before the wire-family comparison (which strips the
+      // optional): a `T?` value — a `currentUser.<T? claim>`, an optional param
+      // or let, the `null` literal — into a non-optional create-input field is the
+      // same error `:=` / construction / call args report.  A `requires x != null`
+      // does not narrow it, and the backends' typed create inputs reject it
+      // (.NET CS1503 `CustomerId?` → `CustomerId`).
+      if (expected.kind !== "optional" && expected.kind !== "unknown" && expected.kind !== "any") {
+        const value = typeOf(entry.value, env);
+        if (value.kind === "optional" || value.kind === "never") {
+          const isNull = value.kind === "never" || value.inner.kind === "never";
+          // Quote the author's own spelling in the suggested fixes when it is a
+          // simple path (the shape narrowing matches); anything else reads as `x`.
+          const text = entry.value.$cstNode?.text ?? "";
+          const src = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(text) ? text : "x";
+          accept(
+            "error",
+            isNull
+              ? diagMessage("loom.create-field-type#null", {
+                  name: agg.name,
+                  name2: name,
+                  expected: typeToString(expected),
+                })
+              : diagMessage("loom.create-field-type#nullable", {
+                  name: agg.name,
+                  name2: name,
+                  expected: typeToString(expected),
+                  actual: typeToString(value),
+                  src,
+                }),
+            { node: entry, property: "value", code: "loom.create-field-type" },
+          );
+          continue;
+        }
+      }
       const expFam = wireFamily(expected);
       // Only compare when the field is a concrete scalar wire family; skip
       // `obj`/`skip` targets (a VO / nested / json field — an inline object
