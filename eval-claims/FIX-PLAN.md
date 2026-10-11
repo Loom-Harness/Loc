@@ -1,5 +1,36 @@
 # Claims eval: fix plan (bug fixes and silent gaps only)
 
+## Refresh 2026-10-11: re-verified on fresh `main` @ `4233416e6`
+
+All 14 defects **still reproduce**, using the same repros, and **none is claimed** by an open PR, a draft or a `docs/new-plan/` mission. M-T6.80 is still `open` and still lists only 6 sites.
+
+| Id | Still on main? | Claimed? | New overlap (coordinate, don't duplicate) |
+|---|---|---|---|
+| D1 cross-context enum | yes: node tsc, python mypy, react `kind: ""` | no | **#3205** (context-level test imports) adds *another* `ctx.enums` site in `typescript/emit/tests.ts`. The census (P0) must list it; P1 rebases on #3205 if it merges first |
+| D2 bare `toThrow()` | yes: node `.toThrow()`, python `pytest.raises(Exception)` | no | #3139 and #3205 both edit `typescript/emit/tests.ts`. P9 stacks after them |
+| D3 workflow `Projection.byKey` | yes: node + python (all 5 by grep) | no | — |
+| D4 `emit` in `if let` | yes: node `workflowEvents`, python `workflow_events` + `Hit` | no | **#3142** (now ready) rewrites `hono/v4/workflow-builder.ts` event dispatch but does **not** fix this. P5b stacks on #3142. #3183 touches only the event-sourced builders, so no conflict |
+| D5 workflow → non-constructible `create` | yes (TS2551) | no | — |
+| D6 user-claim id on a non-hosting deployable | yes: node TS2694, python attr-defined + `User` name-defined | no | #3144 (python imports from use, still open) may close the `User` half only |
+| D7 python `OIDC_AUDIENCE=""` | yes | no | CR1-b fixed node's env fallback, not python's `""` handling |
+| D8 Keycloak realm | yes (no `permissions`, non-UUID claim, no unmanaged policy, no audience mapper) | no | — |
+| D9 named policy in a copied page gate | yes (2× `page-gate-not-client-evaluable`) | no | — |
+| D10 create-params warning, optional fields | yes (0 warnings) | no | — |
+| D11 `= X managed` parse message | yes | no | — |
+| D12 Run card for an event-only saga | yes | no | — |
+| D13 `replicate_policieses` + redundant `_idx` | yes | no | — |
+| D14 `tests/*.ddd` docs | yes | no | — |
+
+**Changes in section 0 since the 10-06 plan:**
+
+- **#3143 merged.** A cross-context `policy` reference is now the honest `policy '…' is declared in context …` error.
+- **Still open:** #3109, #3139, #3140, #3142, #3144 and #3103.
+- **Still broken on main:**
+  - a reactor calling a gated op emits an unbound `currentUser` (still #3103's);
+  - workflow `precondition message` is still dropped (still #3139's).
+
+**Wave plan unchanged.** Wave-2 stacking targets are now #3142 (P5b), #3139 + #3205 (P9) and #3144 (P2).
+
 Every item was re-verified on fresh `main` @ `d3f226765` (2026-10-06, 307 commits after the eval), using the minimal repros in [`repro/`](repro/).
 
 **Scope rule.** No new language surface and no new runtime mechanism. A silent gap is closed in one of two ways:
