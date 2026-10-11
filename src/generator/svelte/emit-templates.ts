@@ -1,6 +1,8 @@
 // Static (non-templated) sources the Svelte generator emits verbatim.
 // Sibling of src/generator/react/emit-templates.ts.
 
+import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
+
 /** `src/lib/forms.svelte.ts` — the hand-rolled runes + zod form
  *  helper (svelte-frontend-plan.md decision: no third-party form
  *  dependency).  Mirrors the surface the react packs get from
@@ -286,45 +288,9 @@ export const toast = {
 };
 `;
 
-/** `src/lib/schemas.ts` — shared money wire schema.  Byte-compatible
- *  with the react projects' src/lib/schemas.ts (same zod transform). */
-export const SVELTE_LIB_SCHEMAS_MONEY = `// Auto-generated.  Do not edit by hand.
-import Decimal from "decimal.js";
-import { z } from "zod";
-
-/**
- * Schema for the \`money\` primitive, on both of its inbound shapes:
- *
- *   - Wire JSON: a decimal-formatted string (\`"123.4500"\`) — parsed
- *     to a \`decimal.js\` Decimal instance.
- *   - Form state: an already-constructed Decimal — the money input
- *     control converts on change, so the zod resolver sees the
- *     instance, not a string.  Passed through unchanged.
- *
- * Format violations and parse failures both surface as typed Zod
- * issues — invalid input becomes a form-level error attached to the
- * field, not an uncaught throw.
- */
-export const moneySchema = z.union([z.instanceof(Decimal), z.string()]).transform((s, ctx) => {
-  if (s instanceof Decimal) return s;
-  if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
-    });
-    return z.NEVER;
-  }
-  try {
-    return new Decimal(s);
-  } catch {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
-    });
-    return z.NEVER;
-  }
-});
-`;
+/** `src/lib/schemas.ts` — shared money wire schema, the same source the
+ *  React and Vue projects emit (`_frontend/money-schema.ts`). */
+export const SVELTE_LIB_SCHEMAS_MONEY = MONEY_SCHEMA_TS;
 
 /** `src/app.d.ts` — SvelteKit ambient types.  `PageState` carries the
  *  shallow-routing state `navigate(path, { state })` writes. */
