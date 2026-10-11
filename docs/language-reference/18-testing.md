@@ -469,7 +469,7 @@ expect(read.status).toHaveText("Draft")
 
 A bare `toThrow()` asserts only that *something* threw, and the domain floor has more than one rung. The 2026-09-13 testability audit found out the hard way: it deleted a `precondition` from a generated aggregate as a mutation probe and **the test stayed green**, because a guarded collection `invariant` threw in its place. A test named *"a fresh work order cannot be completed"* went on claiming something it no longer proved (F11).
 
-The single-argument **kind** form pins the rung. It is legal only in a unit `test`.
+The single-argument **kind** form pins the rung. It is legal only in a unit `test`. The rung is **structural** on every backend — the domain error carries it as a field (`DomainError.kind` on node / python, `DomainException.getKind()` on java, `DomainException.Kind` on .NET, `GuardError.kind` on elixir), never inferred from the message text — so a rule with an authored `message "…"` is asserted exactly like one without, and the HTTP answer is unchanged (the 422 problem's `detail` is the authored message).
 
 ```ddd
 test "a fresh work order cannot be completed" {
@@ -480,38 +480,37 @@ test "a fresh work order cannot be completed" {
 
 `precondition` and `invariant` are **keywords, not values** — they parse through a dedicated grammar slot and are legal only in this one argument position. Anywhere else (`expect(x).toBe(invariant)`, `wo.complete(precondition)`) the word would be silently dropped in lowering, so `loom.throw-kind-outside-tothrow` rejects it at the source span. `requires` is deliberately **not** a rung here: it is an authorization gate (403) needing a principal the unit tier has no vocabulary for.
 
-**Three refusals bound the form**, each for a different reason:
+**Two refusals bound the form**, each for a different reason:
 
 | Code | When | Why |
 |---|---|---|
 | `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which an authored `message "…"` on the rule overwrites. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
 | `loom.throw-kind-integration-unsupported` | in a context-integration `test` | That rung renders through each backend's separate `integration-tests.ts`, which carries no rung — the argument would be dropped and the test would quietly assert only that something threw. |
-| `loom.throw-kind-custom-message` | the rule under test carries `message "…"` | The node / python / java / .NET domain layers discriminate on the derived `"Precondition failed: "` / `"Invariant violated: "` prefix, and an authored message **replaces** that string. Elixir alone is structural — but one unit `test` is emitted for all five backends. Drop the `message`, or assert the bare `toThrow()` and pin the wording in a `test e2e` block, where the message is the RFC 7807 `detail`. |
 
 ::: tabs backend
 == node
 ```ts
-expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+// the file-local helper: a DomainError whose `kind` is the rung, else expect.fail naming both
+expectDomainRejection(() => { wo.complete(); }, "precondition");
 ```
 == python
 ```python
-with pytest.raises(Exception, match=r"^Precondition failed: "):
+with pytest.raises(DomainError) as rejected:
     wo.complete()
+assert rejected.value.kind == "precondition", str(rejected.value)
 ```
 == java
 ```java
 DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
-assertTrue(__thrown1.getMessage().startsWith("Precondition failed: "),
-    "expected a precondition to reject this call, but it threw: " + __thrown1.getMessage());
+assertEquals(DomainException.Kind.PRECONDITION, __thrown1.getKind(), __thrown1.getMessage());
 ```
 == dotnet
 ```csharp
 var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
-Assert.StartsWith("Precondition failed: ", __thrown1.Message);
+Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 == elixir
 ```elixir
-# structural, not textual: GuardError is `defexception [:message, :kind]`
 __thrown1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
 assert __thrown1.kind == :precondition
 ```

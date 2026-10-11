@@ -1213,7 +1213,7 @@ function lowerE2E(block: TestE2E, env: Env, kind: "api" | "ui"): TestE2EIR {
   const statements: TestStmtIR[] = [];
   for (const s of inner) {
     if (isExpectStmt(s)) {
-      statements.push(expectStmtIR(lowerExpr(s.expr, curEnv), cstText(s.expr)));
+      statements.push(expectStmtIR(lowerExpr(s.expr, curEnv), cstText(s.expr), originFor(s)));
     } else {
       // `expect` is filtered above; the remaining shapes are exactly
       // `Statement`.

@@ -775,8 +775,8 @@ export function renderEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const thrown = code
-      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
-      : `throw new DomainException(${text})`;
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`

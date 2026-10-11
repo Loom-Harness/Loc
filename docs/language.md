@@ -1466,25 +1466,61 @@ is deleted and a different rule throws in its place — measured, not
 hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
+operation complete() {
+    precondition status == InProgress message "finish the work first"
+    status := Completed
+}
+
 test "a fresh work order cannot be completed" {
     let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
     expect(wo.complete()).toThrow(precondition)
 }
 ```
 
+The rung is **structural** on every backend: the domain error carries it as a
+field, separate from the message, so an authored `message "…"` on the rule costs
+the assertion nothing.
+
 ```ts
-// generated (node)
-expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+// generated (node) — domain/workOrder.ts
+if (!(this._status === WorkStatus.InProgress)) throw new DomainError("finish the work first", "precondition", "msg.…", "");
+// generated (node) — domain/workOrder.test.ts
+expectDomainRejection(() => { wo.complete(); }, "precondition");   // reads err.kind
+```
+
+```python
+# generated (python)
+with pytest.raises(DomainError) as rejected:
+    wo.complete()
+assert rejected.value.kind == "precondition", str(rejected.value)
+```
+
+```java
+// generated (java)
+DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
+assertEquals(DomainException.Kind.PRECONDITION, __thrown1.getKind(), __thrown1.getMessage());
+```
+
+```csharp
+// generated (.NET)
+var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
+Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 
 ```elixir
-# generated (elixir) — structural, because GuardError is `defexception [:message, :kind]`
+# generated (elixir)
 __thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
 assert __thrown1.kind == :precondition
 ```
 
+The field is `DomainError.kind` (node, python), `DomainException.getKind()`
+(java), `DomainException.Kind` (.NET; a value object's invariant throws the
+separate `ValueObjectInvariantException`, so there the type is the rung) and
+`GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
+same 422 problem whose `detail` is the authored message.
+
 `precondition` and `invariant` are keywords, not values — they are legal only in
-this one argument position (`loom.throw-kind-outside-tothrow`).  Three rules
+this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules
 bound the form, each for its own reason:
 
 - **Unit tier only.** In a `test e2e` body it is refused
@@ -1494,13 +1530,6 @@ bound the form, each for its own reason:
   refused in a context-integration `test`
   (`loom.throw-kind-integration-unsupported`), which renders through a separate
   emitter carrying no rung.
-- **Not against a rule with a custom `message`**
-  (`loom.throw-kind-custom-message`).  The node / python / java / .NET domain
-  layers discriminate on the derived `"Precondition failed: "` /
-  `"Invariant violated: "` prefix, and an authored `message "…"` *replaces* that
-  string rather than extending it.  Elixir alone is structural, but a unit test
-  is emitted for all five backends from one `.ddd`.  Drop the `message`, or
-  assert the bare `toThrow()` here and pin the wording in a `test e2e` block.
 - **`requires` is not a rung here.**  It is an authorization gate (403) needing a
   principal the unit tier has no vocabulary for.
 

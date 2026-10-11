@@ -17,7 +17,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
+import { csThrowKind } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
@@ -307,18 +307,31 @@ function renderTestStmt(
     // binding a void call to `var` is a CS0815 error, so never do it for calls.
     const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    const thrown = `Assert.Throws<DomainException>(() => { ${body} })`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected.  `Assert.Throws` returns the
-    // caught exception, so the rung is one local plus `Assert.StartsWith` over
-    // the derived message prefix.  The local carries the statement index so
-    // two throw assertions in one `[Fact]` don't collide.
-    if (s.throwKind) {
+    // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
+    // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
+    // of `DomainException` rather than a subclass.  Asserting `DomainException`
+    // for `expect(Money { amount: -1 … }).toThrow()` compiles, and then fails at
+    // run time even though the invariant fired.
+    // A `toThrow(precondition)` over one keeps `DomainException`, so it FAILS
+    // at run time as it does on every other backend: a value object declares
+    // invariants only, so no precondition can be what refused it.
+    const voCtor =
+      s.expr.kind === "call" &&
+      s.expr.callKind === "value-object-ctor" &&
+      s.throwKind !== "precondition";
+    const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
+    const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
+    // `Kind`, never its message, which an authored `message "..."` replaces.
+    // `Assert.Throws` returns the caught exception, so the rung is one local
+    // plus `Assert.Equal`; the local carries the statement index so two throw
+    // assertions in one `[Fact]` don't collide.  A value object's invariant is
+    // its own exception TYPE, so there the type already is the rung.
+    if (s.throwKind && !voCtor) {
       const local = `__thrown${index}`;
       return [
         `    var ${local} = ${thrown};`,
-        `    Assert.StartsWith(${JSON.stringify(
-          THROW_KIND_PREFIX[s.throwKind],
-        )}, ${local}.Message);`,
+        `    Assert.Equal(${csThrowKind(s.throwKind)}, ${local}.Kind);`,
       ].join("\n");
     }
     return `    ${thrown};`;

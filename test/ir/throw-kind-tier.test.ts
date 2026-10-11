@@ -3,36 +3,31 @@ import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { irDiagnosticSourceRef } from "../../src/ir/validate/checks/diagnostic.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 
 // ---------------------------------------------------------------------------
-// The two `toThrow(<kind>)` refusals that need the fully-resolved IR, because
-// each has to read the RULES of the aggregate under test — which operation is
-// being called, and whether the rule that would reject it still carries the
-// derived message prefix the four prefix-reading backends discriminate on.
+// `toThrow(<kind>)` at the IR tier.
 //
-//   * `loom.throw-kind-custom-message` — an authored `message "..."` REPLACES
-//     that prefix (`message ?? \`Precondition failed: …\`` on all four), so the
-//     very clause that makes a rule legible to a human makes it illegible to
-//     this matcher.  Elixir alone escapes, being structural (`GuardError` is
-//     `defexception [:message, :kind]`) — but a unit `test` is emitted for ALL
-//     FIVE backends from one `.ddd`, so a shape four cannot express is not
-//     writable portably.  The structural fix for those four is filed as its own
-//     mission (design M-T5.36 § 2a, decision 7).
+//   * A rung reads the domain error's STRUCTURAL `kind` on every backend, so a
+//     rule's authored `message "..."` costs the assertion nothing — every
+//     combination of messaged / message-less rule and rung validates clean.
 //   * `loom.throw-kind-integration-unsupported` — the context-integration rung
 //     renders through each backend's `integration-tests.ts`, which carries no
-//     rung.  MEASURED, not assumed: before this gate the node leg emitted
-//     `await expect(async () => { wo.complete(); }).rejects.toThrow()` — the
-//     author's `precondition` silently gone and the claim silently weaker,
-//     which is the exact defect class this matcher was built to remove.
+//     rung, so the word would be dropped.  It points at the `expect(...)`
+//     statement that wrote the rung, not at the enclosing context.
 // ---------------------------------------------------------------------------
 
-async function codesFor(src: string): Promise<string[]> {
+async function diagsFor(src: string) {
   const services = createDddServices(NodeFileSystem);
   const doc = await parseHelper<Model>(services.Ddd)(src, { validation: true });
-  const diags = validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value)));
+  return validateLoomModel(enrichLoomModel(lowerModel(doc.parseResult.value)));
+}
+
+async function codesFor(src: string): Promise<string[]> {
+  const diags = await diagsFor(src);
   // `LoomDiagnostic.code` is optional, so narrow rather than declaring
   // `string[]` over a `(string | undefined)[]` — the `test/` typecheck ratchet
   // counts that as a new type error, and it only ever shrinks.
@@ -92,67 +87,31 @@ ${opts.contextTest}
   }
 `;
 
-describe("IR: toThrow(<kind>) is unit-tier only, and needs a readable rule", () => {
-  it("accepts both rungs against rules that keep their derived message", async () => {
-    expect(
-      await codesFor(
-        system({ unitBody: `            expect(wo.complete()).toThrow(precondition)` }),
-      ),
-    ).not.toContain("loom.throw-kind-custom-message");
-    expect(
-      await codesFor(system({ unitBody: `            expect(wo.complete()).toThrow(invariant)` })),
-    ).not.toContain("loom.throw-kind-custom-message");
-  });
+const PRECOND_MESSAGE = ` message "finish the work first"`;
+const INVARIANT_MESSAGE = ` message "a completed work order needs at least one task"`;
 
-  it("refuses toThrow(precondition) when THAT operation's precondition is messaged", async () => {
-    expect(
-      await codesFor(
-        system({
-          unitBody: `            expect(wo.complete()).toThrow(precondition)`,
-          precondMessage: ` message "finish the work first"`,
-        }),
-      ),
-    ).toContain("loom.throw-kind-custom-message");
-  });
-
-  it("refuses toThrow(invariant) when the aggregate's invariant is messaged", async () => {
-    expect(
-      await codesFor(
-        system({
-          unitBody: `            expect(wo.complete()).toThrow(invariant)`,
-          invariantMessage: ` message "a completed work order needs at least one task"`,
-        }),
-      ),
-    ).toContain("loom.throw-kind-custom-message");
-  });
-
-  it("does not cross the rungs — a messaged INVARIANT leaves toThrow(precondition) alone", async () => {
-    // The gate resolves the rule the AUTHOR'S rung names, not "any messaged
-    // rule anywhere".  Without this the gate would refuse perfectly readable
-    // assertions on any aggregate that happens to carry one messaged rule.
-    expect(
-      await codesFor(
-        system({
-          unitBody: `            expect(wo.complete()).toThrow(precondition)`,
-          invariantMessage: ` message "a completed work order needs at least one task"`,
-        }),
-      ),
-    ).not.toContain("loom.throw-kind-custom-message");
-  });
-
-  it("leaves the bare toThrow() alone when a rule carries a custom message", async () => {
-    // The refusal is about READING a rung off a prefix.  A bare `toThrow()`
-    // reads no prefix, so a messaged rule is none of its business — a gate that
-    // fired here would break existing models for no benefit.
-    expect(
-      await codesFor(
-        system({
-          unitBody: `            expect(wo.complete()).toThrow()`,
-          precondMessage: ` message "finish the work first"`,
-        }),
-      ),
-    ).not.toContain("loom.throw-kind-custom-message");
-  });
+describe("IR: toThrow(<kind>) is unit-tier only, and reads the rung structurally", () => {
+  const messageShapes: ReadonlyArray<
+    [string, { precondMessage?: string; invariantMessage?: string }]
+  > = [
+    ["message-less rules", {}],
+    ["a messaged precondition", { precondMessage: PRECOND_MESSAGE }],
+    ["a messaged invariant", { invariantMessage: INVARIANT_MESSAGE }],
+    [
+      "both rules messaged",
+      { precondMessage: PRECOND_MESSAGE, invariantMessage: INVARIANT_MESSAGE },
+    ],
+  ];
+  for (const rung of ["precondition", "invariant"] as const) {
+    for (const [label, opts] of messageShapes) {
+      it(`accepts toThrow(${rung}) against ${label}`, async () => {
+        const diags = await diagsFor(
+          system({ unitBody: `            expect(wo.complete()).toThrow(${rung})`, ...opts }),
+        );
+        expect(diags.filter((d) => d.severity === "error").map((d) => d.code)).toEqual([]);
+      });
+    }
+  }
 
   it("refuses the kind form in a context-integration test, where it would be DROPPED", async () => {
     expect(
@@ -160,6 +119,17 @@ describe("IR: toThrow(<kind>) is unit-tier only, and needs a readable rule", () 
         system({ contextTest: `          expect(wo.complete()).toThrow(precondition)` }),
       ),
     ).toContain("loom.throw-kind-integration-unsupported");
+  });
+
+  it("anchors the context-integration refusal on the offending expect statement", async () => {
+    const line = `          expect(wo.complete()).toThrow(precondition)`;
+    const src = system({ contextTest: line });
+    const diag = (await diagsFor(src)).find(
+      (d) => d.code === "loom.throw-kind-integration-unsupported",
+    );
+    const ref = diag ? irDiagnosticSourceRef(diag) : undefined;
+    expect(ref?.kind).toBe("source");
+    expect(src.slice(ref?.span.start, ref?.span.end)).toBe(line.trim());
   });
 
   it("keeps the bare toThrow() legal in a context-integration test", async () => {

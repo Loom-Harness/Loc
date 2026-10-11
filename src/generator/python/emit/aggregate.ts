@@ -720,8 +720,8 @@ function renderEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const msg = code
-      ? `${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
-      : text;
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      : `${text}, "invariant"`;
     // Under --trace, evaluate into a temp, emit `invariant_evaluated`
     // (op label = the threaded `__op`), then check — matching Hono/.NET.
     if (emitTrace) {
