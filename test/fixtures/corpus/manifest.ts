@@ -246,7 +246,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
     doc: "payloads",
     backends: ALL,
-    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
+    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.  A malformed money INSIDE the payload is refused at `/c/amount` on every leg (RS-33; java pointed at the leaf, elixir let it reach the aggregate's changeset).",
   },
   {
     id: "workflow-create-state",
@@ -684,7 +684,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
     doc: "language",
     backends: ALL,
-    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  RS-39: the decimal-comma and int32-range arms are in (D22, D23).  The create/update and nested-value-object arms are still out: promoting them found elixir answering Ecto's \"is invalid\" on create/update and an unguarded elixir VO member (wave-c3-3d-promote D24, D25).",
   },
 ] as const;
 
