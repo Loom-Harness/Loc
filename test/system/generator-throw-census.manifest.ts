@@ -491,10 +491,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/dotnet/render-expr.ts
   "src/generator/dotnet/render-expr.ts#renderCall": {
-    deferred:
-      "A resource-op inside a workflow `function` body (`function peek(k: string): string = salesFiles.get(k)`) is admitted (it is inside a workflow) but the <Wf>Functions class is rendered without resourceClasses, so renderCall throws.",
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.resource-op-outside-workflow",
+      "loom.projection-fold-impure",
+      "loom.resource-verb-invalid",
+    ],
+    note: "A resource-op reaches codegen only from a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal — every other expression site, a workflow `function` included, is refused (fail-closed on an undeclared site), a projection fold by loom.projection-fold-impure — and every legal site renders with resourceClasses on all five backends (test/system/resource-op-positions.test.ts). A raw verb on an in-system-bound api resource (which has no storage, so no class mapping) is refused at every site by loom.resource-verb-invalid#api-bound.",
   },
   "src/generator/dotnet/render-expr.ts#renderCsAuthzFilter": {
     invariant:
@@ -546,7 +548,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/elixir/dispatch-emit.ts#renderStmt": {
     deferred:
-      "A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/resource-call/domain-service-call in reactor bodies).",
+      "A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/domain-service-call in reactor bodies; resource-call now renders).",
     mission: "M-T9.79",
     reviewUntil: "2027-01-31",
   },
@@ -627,10 +629,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/render-expr.ts
   "src/generator/elixir/render-expr.ts#renderCall": {
-    deferred:
-      'A raw verb (`orders.get("/orders")`) on a `kind: api` resource bound to an in-system api (no storage) lowers to a resource-op, but buildPhoenixResourceModules only maps storage-backed resources, and nothing rejects it.',
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.resource-verb-invalid",
+      "loom.resource-op-outside-workflow",
+      "loom.projection-fold-impure",
+    ],
+    note: "buildPhoenixResourceModules maps only storage-backed resources; a resource-op on an in-system-bound api resource (no storage) is refused at every site by loom.resource-verb-invalid#api-bound. Every other resource-op sits on a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal, each proven to render on all five backends by test/system/resource-op-positions.test.ts; the rest are refused (a projection fold by loom.projection-fold-impure).",
   },
   "src/generator/elixir/render-expr.ts#renderDecimalBinary": {
     guardedBy: ["loom.operator-non-bool-operands"],
@@ -1074,10 +1078,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
-    deferred:
-      'A resource op in a projection fold assign value (`blob := salesFiles.get("x")`) passes loom.projection-fold-impure (assign is allowed) and the resource-op gate, then hits the Java renderer with no resourceClasses.',
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.projection-fold-impure",
+      "loom.resource-op-outside-workflow",
+      "loom.resource-verb-invalid",
+    ],
+    note: "loom.projection-fold-impure now looks inside the VALUES of the pure fold kinds, so a resource op in a fold assignment is refused. Every other resource-op sits on a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal — each proven to render with resourceClasses on all five backends (the dispatcher's event-starter / reactor bodies included) by test/system/resource-op-positions.test.ts — or is refused there (fail-closed); a raw verb on an in-system-bound api resource is loom.resource-verb-invalid#api-bound.",
   },
   "src/generator/java/render-expr.ts#renderMoneyBinary": {
     guardedBy: ["loom.operator-non-bool-operands"],
