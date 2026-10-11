@@ -105,6 +105,15 @@ describe("a value-object field default renders in the WIRE shape", () => {
     expect(ctl).toContain("request.Tags is null ? [] : request.Tags.Select(__e => __e).ToList()");
   });
 
+  it(".NET: a declared-optional field is an omittable `= null` factory param", async () => {
+    // `Invoice.create({ reference: "R" })` in a domain test renders
+    // `Invoice.Create(reference: "R")`; a required positional `Money? discount`
+    // made that CS7036, so the whole unit tier failed to build.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "dotnet"), "Invoice.cs");
+    expect(src).toMatch(/public static Invoice Create\(string reference, [^)]*Money\? discount = null\)/);
+    expect(src).toContain("e.Discount = discount;");
+  });
+
   it(".NET: a declared-optional VO field's FluentValidation rule narrows and guards", async () => {
     // `discount: Money?` is a nullable `MoneyRequest?` with no default at all;
     // `SetValidator(new MoneyRequestValidator())` on it is CS8620 under
