@@ -982,14 +982,13 @@ const OPENAPI_ID_VALUE: Record<string, string> = {
 };
 
 /** Map a TypeIR to an OpenApiSpex %Schema{} literal snippet.
- *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity refs
- *  are emitted as the bare schema MODULE atom (not a raw
+ *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity /
+ *  value-object refs are emitted as the bare schema MODULE atom (not a raw
  *  `%OpenApiSpex.Reference{}`) so OpenApiSpex's `resolve_schema_modules`
- *  pulls them into `components.schemas` — a raw `$ref` string is left
- *  dangling and never registered (the bug that dropped `Visibility` /
- *  `BuildState` / `PipelineResponse` from the Phoenix spec).  Value
- *  objects stay raw refs: Hono/.NET don't publish them as named
- *  components, so registering them would add a Phoenix-only schema. */
+ *  pulls them into `components.schemas`.  A raw `$ref` string is never
+ *  registered by anything: it is left dangling, and a client that resolves
+ *  the document (Schemathesis, any code generator) refuses every operation
+ *  whose body or response reaches it. */
 function openApiType(t: TypeIR, schemasModule: string): string {
   const info = wireTypeInfo(t, "response");
   // Nullable rides on the parent property (`required[]`), not the
@@ -1008,9 +1007,9 @@ function openApiType(t: TypeIR, schemasModule: string): string {
       // resolver registers it in components and rewrites to a `$ref`.
       return `${schemasModule}.${info.base}`;
     case "valueObject":
-      // Raw ref — VOs are not published as named components (parity with
-      // Hono/.NET, which inline them).
-      return `%OpenApiSpex.Reference{"$ref": "#/components/schemas/${info.base}"}`;
+      // Module atom → `renderValueObjectSchema`'s module is registered in
+      // components under the VO's name, so the `$ref` resolves.
+      return `${schemasModule}.${info.base}`;
     case "entity":
       // Containment part → its `<Part>Response`, as a module atom so the
       // part schema is registered in components.
