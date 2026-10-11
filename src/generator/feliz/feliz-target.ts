@@ -9,10 +9,14 @@
 
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
-import { localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import {
+  localizedNamedValue,
+  localizedPageChromeValue,
+  localizedPositionalTranslation,
+} from "../_walker/i18n-emit.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -507,7 +511,18 @@ export const felizTarget: WalkerTarget = {
     const agg = ctx.aggregatesByName.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
-    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg.name)} id)); prop.text "Delete ${upperFirst(agg.name)}" ]`;
+    // The label and the confirm prompt are emitter-built chrome:
+    // `chrome.deleteEntity` / `chrome.deleteConfirm` with the entity name as an
+    // ICU hole, as on every frontend — and, as there, the delete runs only once
+    // the user confirms it.
+    const human = humanize(agg.name);
+    const label = localizedPageChromeValue(ctx, "deleteEntity", [
+      { name: "entity", expr: JSON.stringify(human) },
+    ]);
+    const confirm = localizedPageChromeValue(ctx, "deleteConfirm", [
+      { name: "entity", expr: JSON.stringify(human.toLowerCase()) },
+    ]);
+    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> if Browser.Dom.window.confirm (${confirm}) then dispatch (Delete${upperFirst(agg.name)} id)); prop.text ${label} ]`;
   },
 
   // `FileLink(<file-ref>)` → a plain daisyUI download anchor.  Feliz forks the
@@ -842,11 +857,19 @@ export const felizTarget: WalkerTarget = {
       (triggerArg?.kind === "call" ? stringNamed(triggerArg, "testid") : undefined) ??
       stringNamed(call, "testid");
     const summaryTid = triggerTid ? `prop.custom("data-testid", "${triggerTid}"); ` : "";
+    // The dialog's `title:` heads the revealed content, as it heads the
+    // open/close Modal's box.
+    const titleValue = namedArgValue(call, "title")
+      ? localizedNamedValue(call, ctx, "modalTitle", "title")
+      : undefined;
+    const title = titleValue
+      ? `Html.h3 [ prop.className "text-lg font-bold"; prop.children [ Html.text (${titleValue}) ] ]; `
+      : "";
     // ONE line (the op form is one line) so it stays offside-safe spliced into
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${form} ] ] ] ])`;
+    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
   },
 
   defaultInitFor: (type) => fsZeroValue(type),
