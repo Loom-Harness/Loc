@@ -457,7 +457,7 @@ const REVIEWED_SAFE: readonly Waiver[] = [
  *  class again and why they are counted as bypasses rather than trusted by
  *  name. */
 const BYPASS_BASELINE: Readonly<Record<string, number>> = {
-  "src/generator/feliz/feliz-target.ts": 5,
+  "src/generator/feliz/feliz-target.ts": 4,
   "src/generator/feliz/pack.ts": 1,
   "src/generator/feliz/wire.ts": 1,
   "src/generator/flutter/auth-gate.ts": 1,
