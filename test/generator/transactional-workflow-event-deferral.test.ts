@@ -70,29 +70,13 @@ const payRoute = (src: string): string => {
 };
 
 describe("node: transactional workflow defers aggregate events past commit", () => {
-  it("hands the tx repositories a deferring dispatcher and flushes after the transaction", async () => {
-    const files = await generateSystemFiles(source("node", true));
-    const route = payRoute(fileEnding(files, "http/workflows.ts"));
-
-    const begin = route.indexOf("await db.transaction(async (tx) => {");
-    expect(begin, "the transactional workflow opens no transaction").toBeGreaterThan(-1);
-    expect(route).toContain("const __deferred = deferredDispatcher(events);");
-    expect(route).toContain("new AcctRepository(tx, __deferred)");
-    expect(route).toContain("new TransferRepository(tx, __deferred)");
-    expect(route, "a repository on tx must never get the root dispatcher").not.toMatch(
-      /Repository\(tx, events\)/,
-    );
-    // The flush must sit AFTER the transaction callback closes — inside it, it
-    // would be the per-save dispatch this replaces, just later.
-    const saves = route.indexOf("await transfers.save(t);");
-    const close = route.indexOf("});", saves);
-    const flush = route.indexOf("await __deferred.flush();");
-    expect(saves).toBeGreaterThan(begin);
-    expect(flush, "the buffer is never flushed after the transaction").toBeGreaterThan(close);
-    expect(fileEnding(files, "http/workflows.ts")).toContain(
-      'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";',
-    );
-  });
+  // The transactional half is NOT string-tested here: it is gated by the
+  // behavioural corpus case `test/fixtures/corpus/transactional-workflow-event-rollback.ddd`
+  // (node leg), which drives a committed and a rolled-back transactional
+  // workflow and counts the reactor's rows.  Mutation-proved there: with the
+  // tx repositories handed the root `events` dispatcher the run hangs on the
+  // reactor's PGlite deadlock and never passes.  A string copy would only add
+  // to the string tier (string-tier-ratchet.test.ts) under a stronger gate.
 
   it("keeps per-save dispatch on a non-transactional workflow", async () => {
     const files = await generateSystemFiles(source("node", false));
