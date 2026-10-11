@@ -98,4 +98,5 @@ Still for #3204's owner:
 - `npx biome ci .`: clean (3563 files).
 - `npx vitest run test/generator/dotnet test/adapters/dotnet-dapper.test.ts`: 124 files /
   791 tests passed.
-- `npx vitest run test/system test/ir`: see the commit note below.
+- `npx vitest run test/system test/ir --maxWorkers=2`: 468 files passed, 1 skipped; 7312 tests
+  passed, 31 skipped.
