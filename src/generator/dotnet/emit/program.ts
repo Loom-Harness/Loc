@@ -39,6 +39,16 @@ function asMigrationStmt(rendered: string): string {
   return rendered.replace("_log.", "migrationLog.");
 }
 
+/** The `error` field of the boot `migration_failed` line.  A failing
+ *  migration statement surfaces as an Npgsql `PostgresException` (directly or
+ *  one level wrapped); its SQLSTATE, server message and constraint name say
+ *  WHICH statement broke and why, so they are spelled out rather than left to
+ *  the stack trace.  `Detail` is included as-is: Npgsql redacts it unless the
+ *  connection string opts into `Include Error Detail`, and the redaction notice
+ *  names that switch. */
+const DOTNET_MIGRATION_ERROR_EXPR =
+  '(migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message';
+
 /** The boot-time DB-connect wait (`BOOT_DB_RETRY`, eval item #24) — a
  *  top-level local function in Program.cs.  It retries the caller's connect
  *  probe with capped exponential backoff while Npgsql reports the failure as
@@ -1175,7 +1185,7 @@ using (var migrationScope = app.Services.CreateScope())
     {
         ${asMigrationStmt(
           renderDotnetLogCallWithException("migrationFailed", "migrationError", [
-            { name: "error", valueExpr: "migrationError.Message" },
+            { name: "error", valueExpr: DOTNET_MIGRATION_ERROR_EXPR },
           ]),
         )}
         throw;

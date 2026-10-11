@@ -1,5 +1,6 @@
 import type { ExprIR, TypeIR } from "../ir/types/loom-ir.js";
-import { sqlRenderableExpr } from "../ir/util/sql-renderable-expr.js";
+import { sqlRenderableExpr, sqlTemporalArith } from "../ir/util/sql-renderable-expr.js";
+import type { DurationUnit } from "../util/temporal.js";
 import {
   type BinaryExpr,
   isIntDivWidenedToDecimal,
@@ -14,6 +15,15 @@ const MODE = "sql-postgres-migration";
 
 export { sqlRenderableExpr };
 
+/** Postgres `make_interval` named-argument spelling per duration unit.  Every
+ *  unit is absolute (fixed width), so the interval adds the same span every
+ *  backend's runtime `datetime + duration` adds. */
+const MAKE_INTERVAL_ARG: Record<DurationUnit, string> = {
+  days: "days",
+  hours: "hours",
+  minutes: "mins",
+};
+
 // ---------------------------------------------------------------------------
 // ExprIR → Postgres scalar-SQL renderer (M-T2.3 data-migration surface).
 //
@@ -26,8 +36,9 @@ export { sqlRenderableExpr };
 //
 // Supported: literals (string/int/long/decimal/money/bool/null/now), enum
 // values (their stored text), sibling-field refs (`this-prop` → the quoted
-// snake-cased column), parens, unary -/!, the closed BinOp set, and the
-// ternary (→ CASE WHEN).  Sibling refs are restricted to scalar fields —
+// snake-cased column), parens, unary -/!, the closed BinOp set, the
+// ternary (→ CASE WHEN), and `datetime ± days/hours/minutes(n)` (→ interval
+// arithmetic over `make_interval`).  Sibling refs are restricted to scalar fields —
 // value-object leaves are excluded (Phoenix stores a VO as one `:map`
 // column, so a leaf-column UPDATE would not be portable across backends).
 //
@@ -86,6 +97,12 @@ export function renderSqlScalarExpr(e: ExprIR, ctx: SqlExprContext): string {
         ? `(NOT ${renderSqlScalarExpr(e.operand, ctx)})`
         : `(-${renderSqlScalarExpr(e.operand, ctx)})`;
     case "binary": {
+      const temporal = sqlTemporalArith(e);
+      if (temporal) {
+        const side = renderSqlScalarExpr(temporal.datetime, ctx);
+        const amount = renderSqlScalarExpr(temporal.duration.amount, ctx);
+        return `(${side} ${e.op} make_interval(${MAKE_INTERVAL_ARG[temporal.duration.unit]} => ${amount}))`;
+      }
       const nullTest = renderNullTest(e, ctx);
       if (nullTest) return nullTest;
       const l = renderSqlScalarExpr(e.left, ctx);

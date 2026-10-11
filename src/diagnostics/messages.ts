@@ -1971,6 +1971,11 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': the field is not a single scalar column (value-object, collection and entity fields cannot be backfilled — Phoenix stores a value object as one map column, so a leaf UPDATE would not be portable).`,
+  "loom.backfill-target-invalid#backfill-collection-needs-none": (p: {
+    aggregate: unknown;
+    field: unknown;
+  }) =>
+    `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2011,6 +2016,8 @@ export const DIAGNOSTIC_MESSAGES = {
    *  ANNOUNCES itself: a warning (never an error — an error would break every
    *  model relying on the collapse) so the one case it gets wrong is a line on
    *  stderr instead of a silently misattributed column. */
+  "loom.migration-block-applied": (p: { block: unknown }) =>
+    `migration "${p.block}" is fully applied: every step is already recorded in the schema snapshot (its renames and backfills are reflected in the schema, its sql steps are in the applied ledger), so it has no further effect. You may remove it from the source; the migration files already emitted keep its SQL.`,
   "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +

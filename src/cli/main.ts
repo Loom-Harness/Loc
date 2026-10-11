@@ -820,15 +820,22 @@ async function runGenerate(
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
-    for (const w of migrationWarnings) {
+    // Suggestions (a spent `migration` block) are advisories, not defects:
+    // printed with their own label and left out of the warning count.
+    const migrationSuggestions = migrationWarnings.filter((w) => w.severity === "suggestion");
+    const migrationRealWarnings = migrationWarnings.filter((w) => w.severity !== "suggestion");
+    for (const w of migrationRealWarnings) {
       console.error(`${w.code} warning: ${w.message}`);
     }
-    if (migrationWarnings.length > 0) {
+    for (const w of migrationSuggestions) {
+      console.error(`${w.code} suggestion: ${w.message}`);
+    }
+    if (migrationRealWarnings.length > 0) {
       // Its own footer, for the same reason the give-ups have one: the
       // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
       // already printed before generation ran, so without this the run reports
       // `0 warning(s)` and then prints a warning.
-      console.error(`${migrationWarnings.length} warning(s) in derived migrations.`);
+      console.error(`${migrationRealWarnings.length} warning(s) in derived migrations.`);
     }
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both

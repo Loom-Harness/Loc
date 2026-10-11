@@ -3618,6 +3618,12 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨ again: "this block is spent" is a judgement against a BASELINE
+  // SNAPSHOT (the schema and the applied-data ledger), which `validate()` does
+  // not have. The pointed-at file drives two generations and asserts it fires
+  // on the second, and stays silent on the first run, on the generation that
+  // runs the block, and while one sql step is still unledgered.
+  "loom.migration-block-applied": "test/ir/migrations-builder.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
