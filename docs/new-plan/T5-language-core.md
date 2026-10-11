@@ -168,7 +168,7 @@ The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` 
 
 **Verification when it lands.** Per-backend route-emission cases (the five-case shape of `test/system/projection-param-threading.test.ts`), a gated-retrieval 403 case, and the generated node project booted against Postgres so the route is proved to answer a filtered read, not merely to exist. Mutation-proof each gate by file-copy revert.
 
-Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
+Claimed 2026-10-11 by the `claude/retrieval-routes` draft PR (the #2861 author's claim went stale when it merged); #2874 and #2877 both defer to this mission by name.
 
 **Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
 
