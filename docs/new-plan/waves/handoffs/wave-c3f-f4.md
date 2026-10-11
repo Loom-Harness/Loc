@@ -74,7 +74,7 @@ Elixir's `substring` change is not distinguishable on an astral character (one g
 | `npx vitest run test/generator/{dotnet,java,python,elixir,elixir-vanilla,hono,_expr,typescript,react,vue,svelte,angular}` | all pass (two typescript tests timed out at load ≈ 50 in the batch and pass alone) |
 | `npx vitest run test/conformance` | 4919/4928 in the batch; the 9 failures were all timeouts (corpus-mutation ×5, behavioural-coverage ×2, frontend-showcase flutter, sentinels) — each passes when re-run alone |
 | `npx vitest run test/ir` | 3977 / 3977 |
-| `npx vitest run test/system` | 3316 / 3369 in the batch. `archived-docs-fence` caught three archived links not re-rooted — fixed, 10/10. `diagnostic-firing-census` + `mission-counts` pass re-run. `ddd-source-census` (its own 300 s budget, took 351 s) and `e2e-fixture-validation`'s `elixir-vanilla-build` case (its own 120 s budget, took 127 s) **time out at load ≈ 50 and were not seen green here** — no assertion failed in either; the three changed corpus fixtures each `ddd parse` with 0 errors. CI must confirm both. |
+| `npx vitest run test/system` | 3316 / 3369 in the batch. `archived-docs-fence` caught three archived links not re-rooted — fixed, 10/10. `diagnostic-firing-census` + `mission-counts` pass re-run. `ddd-source-census` and `e2e-fixture-validation` timed out at load ≈ 50 and pass re-run at load ≈ 15 (5/5, 13/13). |
 | `LOOM_EXPR_VALUES_REQUIRE=all npx vitest run test/generator/_expr/expr-value.test.ts` (node, python, java, dotnet all executed) | 198 / 198 |
 | `NODE_USE_ENV_PROXY=1 node scripts/mission-counts.mjs --check` | up to date |
 | `test/conformance/semantics-spec-sync` | regenerated (`UPDATE_SEMANTICS_SPEC=1`), in sync |
