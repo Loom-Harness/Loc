@@ -568,6 +568,16 @@ Item **G8-10f**. `test/system/frontend-field-shape-coverage.test.ts` carries a `
 
 **Verification.** The framework's `generated-*-build` leg builds the widened aggregate; the waiver map shrinks; mutation-proved by breaking one shape's form-field emission and watching the build leg go red.
 
+## M-T1.42 — An auto-paged `Table` makes a row-`Action` column a sort control — `open` · **S** · P2
+
+*Minted 2026-10-11 by wave C3F packet F6 ([hand-off](waves/handoffs/wave-c3f-f6.md)), which made a row-scoped `Action { o.<op> }` render on every frontend and found this beside it. Re-verify on fresh `main` before building.*
+
+`markSortableColumns` (`src/macros/stdlib/auto-paged-table.ts`) gives a `Column` `sortable: true` + `field: "<member>"` when its accessor is `o => X { o.<member> }`, and `simpleMemberRead` accepts ANY member — so `Column { "Act", o => Action { o.activate } }` over an auto-paged `QueryView` gets a header that asks the server to sort by `activate`, an operation, not a field. Repro: the census's `Action` probe (`test/generator/_walker/primitive-census.test.ts`) — every target's page carries a sort header for `"activate"` (React `sortKey === "activate"`, HEEx `sort_field="activate"`). The backend's sort whitelist is per FIELD, so the click is at best a no-op.
+
+**The fix:** accept the member only when it names a field of the queried aggregate (or decline the `Action` / `OperationForm` / `DestroyForm` wrappers, which reference operations), in the macro; then pin it with a `scaffold-sortable-allowlist`-style test.
+
+**Verification.** The census page for `Action` carries no sort header; a mutation re-admitting op members fails the new test.
+
 ## M-FT.5 — `Action` `then:` effects and the parameterless-op affordance on Feliz and Flutter — `in-flight` ([#3090](https://github.com/Loom-Harness/Loc/pull/3090)) · **S–M** · P2
 
 *Defined 2026-09-29 from the evaluation-closure review's re-verification (the field-test card itself was never recovered; see [`missions/field-test-2026-09-register.md`](missions/field-test-2026-09-register.md)). Scoped by the owner to the two self-hosted frontends.*

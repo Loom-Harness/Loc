@@ -5,8 +5,8 @@
 // from a create input or an operation param, and a mapper's BODY calls the
 // mapper of any VO-typed subfield:
 //
-//     private static Addr toAddr(AddrRequest request) {
-//         return new Addr(request.line1(), toGeo(request.geo()));
+//     private static Addr toAddr(AddrRequest request, String at) {
+//         return new Addr(request.line1(), toGeo(request.geo(), at + "/geo"));
 //     }
 //
 // `collectVoNames` walked `array` and `optional` but NOT a value object's own
@@ -16,8 +16,8 @@
 // DOMAIN side, and it is a hard `javac` failure:
 //
 //     PersonService.java:67: error: cannot find symbol
-//         return new Addr(request.line1(), toGeo(request.geo()));
-//     symbol: method toGeo(GeoRequest)
+//         return new Addr(request.line1(), toGeo(request.geo(), at + "/geo"));
+//     symbol: method toGeo(GeoRequest, String)
 //
 // Verified end to end: `gradle --no-daemon testClasses bootJar` on
 // `gradle:9-jdk25` fails with exactly that before the fix and BUILD SUCCESSFUL
@@ -60,11 +60,11 @@ async function service(): Promise<string> {
 describe("java — a value object inside a value object", () => {
   it("emits a mapper for the NESTED value object, not only the outer one", async () => {
     const src = await service();
-    expect(src).toContain("private static Addr toAddr(AddrRequest request) {");
+    expect(src).toContain("private static Addr toAddr(AddrRequest request, String at) {");
     // The call the outer mapper makes…
-    expect(src).toContain("return new Addr(request.line1(), toGeo(request.geo()));");
+    expect(src).toContain('return new Addr(request.line1(), toGeo(request.geo(), at + "/geo"));');
     // …must have a definition, or javac fails with "cannot find symbol".
-    expect(src).toContain("private static Geo toGeo(GeoRequest request) {");
+    expect(src).toContain("private static Geo toGeo(GeoRequest request, String at) {");
     expect(src).toContain("return new Geo(request.lat(), request.lng());");
   });
 

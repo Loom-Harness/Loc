@@ -18,6 +18,7 @@ import {
 import { messageCode } from "../../util/message-code.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
+import { singleFieldMessage } from "../zod-refine.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
 
@@ -152,7 +153,7 @@ function buildFluentRules(
   }
   for (const [field, patterns] of chainsByField) {
     let line = `        RuleFor(x => x.${upperFirst(field)})`;
-    for (const p of patterns) line += chainSingleFieldFluent(p);
+    for (const p of patterns) line += chainSingleFieldFluent(p, field);
     ruleLines.push(`${line};`);
   }
   // Tracks namespaces this validator's `.Must(x => …)` predicates
@@ -428,14 +429,24 @@ ${classes.join("\n\n")}
 // Single-field pattern → idiomatic FluentValidation chain.
 // ---------------------------------------------------------------------------
 
-/** One code-point length rule: the `.Must` predicate plus a message in
- *  FluentValidation's own voice (a bare `.Must` would otherwise degrade every
- *  message-less length rule to "The specified condition was not met"). */
-function lengthMust(check: string, phrase: string): string {
-  return `.Must(v => v == null || ${check})\n            .WithMessage("'{PropertyName}' must be ${phrase}.")`;
+/** One code-point length rule: the `.Must` predicate.  The message is attached
+ *  by `chainSingleFieldFluent` like every other arm's (a bare `.Must` would
+ *  otherwise degrade to "The specified condition was not met"). */
+function lengthMust(check: string): string {
+  return `.Must(v => v == null || ${check})`;
 }
 
-function chainSingleFieldFluent(p: SingleFieldPattern): string {
+/** One FluentValidation rule for a message-less single-field pattern, carrying
+ *  node's synthesized sentence (`singleFieldMessage` — "Amount must be at least
+ *  1", "Code is not in the expected format") rather than FluentValidation's own
+ *  `'Amount' must be greater than or equal to '1'.`: one `errors[].message` per
+ *  rule on every backend (D-MESSAGELESS-RULE-WIRE-MESSAGE).  The sentence holds
+ *  no `{…}`, so FluentValidation's placeholder formatter leaves it verbatim. */
+function chainSingleFieldFluent(p: SingleFieldPattern, field: string): string {
+  return `${chainSingleFieldCheck(p)}\n            .WithMessage(${csStringLiteral(singleFieldMessage(field, p))})`;
+}
+
+function chainSingleFieldCheck(p: SingleFieldPattern): string {
   switch (p.kind) {
     case "min":
       // Exclusive bounds only arise on decimal/money fields (a strict `>` on a
@@ -456,15 +467,14 @@ function chainSingleFieldFluent(p: SingleFieldPattern): string {
     // validators all return true for a null value) and keeps the lambda
     // null-safe on an optional (`string?`) property.
     case "len-min":
-      return lengthMust(`${csCodePointLength("v")} >= ${p.n}`, `at least ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} >= ${p.n}`);
     case "len-max":
-      return lengthMust(`${csCodePointLength("v")} <= ${p.n}`, `at most ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} <= ${p.n}`);
     case "len-eq":
-      return lengthMust(`${csCodePointLength("v")} == ${p.n}`, `exactly ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} == ${p.n}`);
     case "len-range":
       return lengthMust(
         `${csCodePointLength("v")} >= ${p.lo} && ${csCodePointLength("v")} <= ${p.hi}`,
-        `between ${p.lo} and ${p.hi} characters`,
       );
     case "regex":
       // FluentValidation's `.Matches` accepts a string regex; we

@@ -976,6 +976,10 @@ builder.Services.AddControllers(opts =>
         new ${ns}.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new ${ns}.Serialization.CanonicalInstantOffsetJsonConverter());
+    // An int literal past Int32 names itself (RS-39), so ValidationProblem
+    // answers it as a 422 at the field instead of a 400 for the body.
+    opts.JsonSerializerOptions.Converters.Add(
+        new ${ns}.Serialization.Int32RangeJsonConverter());
 });
 
 // Model binding + DataAnnotations run BEFORE any controller action, so a
@@ -1537,8 +1541,13 @@ export function renderCsproj(
          rule polices a decision Loom does not own, and it fires on a model that
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
-         hand-written libraries, not a mapped domain model. -->
-    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         hand-written libraries, not a mapped domain model.
+         CA1716: a type or member named after a keyword of ANOTHER .NET
+         language (\`Event\`, \`Module\`, \`Property\` are Visual Basic
+         keywords).  The same bargain as CA1711: \`aggregate Event\` is a
+         domain noun the generator neither chooses nor may rename, and C#
+         consumers — the only ones this project has — are unaffected. -->
+    <NoWarn>CA1707;CA1711;CA1716;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->

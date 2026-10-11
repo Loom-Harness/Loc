@@ -27,7 +27,10 @@ import {
   buildTpcBaseReaderFile,
 } from "../../../generator/typescript/base-reader-builder.js";
 import { addTsExtensionsForNodeDebug } from "../../../generator/typescript/debug-imports.js";
-import { renderAuditHistoryModule } from "../../../generator/typescript/emit/audit-history.js";
+import {
+  renderAuditActorModule,
+  renderAuditHistoryModule,
+} from "../../../generator/typescript/emit/audit-history.js";
 import {
   aggregateIsAudited,
   renderAuditStampHelper,
@@ -1330,6 +1333,11 @@ export function generateTypeScriptForContexts(
   // builder gates its import on.
   if (emitAudit && contexts.some((c) => c.repositories.some((r) => r.historyFind !== undefined))) {
     out.set("audit/history.ts", renderAuditHistoryModule());
+  }
+  // The audit row's `actor` projection — one copy for every audit write site
+  // (routes and workflow bodies alike).
+  if (emitAudit) {
+    out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system?.sys.user : undefined));
   }
   // Per-module Postgres migrations + Drizzle journal — emitted whenever
   // the system orchestrator hands us a migrations slice.  Empty slice

@@ -141,3 +141,39 @@ system P {
     expect(codes).not.toContain(CODE);
   });
 });
+
+// The READ-side sibling: a `mask unless` predicate is a caller check over
+// `currentUser` exactly like a `requires` gate.  With no principal it can never
+// hold, and every backend but node emitted a redaction that did not build
+// (.NET CS1061, java's missing auth package, python's boot-time import error).
+describe("validator — a `mask unless` predicate on a deployable with no auth", () => {
+  const MASK_CODE = "loom.field-mask-principal-without-auth";
+  const MASKED = `
+      aggregate Doc {
+        title: string
+        secret: string mask unless currentUser.role == "editor"
+        create(title: string, secret: string) { title := title  secret := secret }
+      }`;
+
+  it("rejects it when the system declares no auth at all", async () => {
+    expect(await codesFor(sys({ agg: MASKED }))).toContain(MASK_CODE);
+  });
+
+  it("rejects it when the system HAS auth but this deployable opts out", async () => {
+    expect(await codesFor(sys({ agg: MASKED, authBlock: true }))).toContain(MASK_CODE);
+  });
+
+  it("names the masked field and the remedy", async () => {
+    const diag = validateLoomModel(await buildLoomModel(sys({ agg: MASKED }))).find(
+      (d) => d.code === MASK_CODE,
+    );
+    expect(diag?.message).toContain("Doc.secret");
+    expect(diag?.message).toContain("auth: required");
+  });
+
+  it("accepts the same mask on an authenticated deployable", async () => {
+    expect(await codesFor(sys({ agg: MASKED, authBlock: true, depAuth: true }))).not.toContain(
+      MASK_CODE,
+    );
+  });
+});

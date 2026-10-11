@@ -423,7 +423,16 @@ export function generateVueForContexts(
       pageConstructId(ui.name, page),
     );
   }
-  out.set("src/pages/NotFound.vue", renderShell(pack, "not-found-page", {}));
+  // The 404 view's chrome reads the shared `chrome.notFound` / `backToHome`
+  // keys under i18n; off it, the tokens are the English (byte-identical).
+  out.set(
+    "src/pages/NotFound.vue",
+    renderShell(pack, "not-found-page", {
+      scriptBody: i18nEnabled ? '\nimport { t } from "../i18n";\n' : "",
+      notFoundText: shellChromeText("notFound", i18nEnabled),
+      backToHomeText: shellChromeText("backToHome", i18nEnabled),
+    }),
+  );
 
   // Store modules (named-actions-and-stores.md §3, Stage 5) — one `reactive()`
   // singleton per `store Cart { … }` at `src/stores/<snake>.ts`.  Page/component

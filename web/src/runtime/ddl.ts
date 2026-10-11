@@ -56,6 +56,10 @@ interface DrizzleIndex {
   config: {
     name: string;
     columns: Array<{ name?: string; fieldName?: string }>;
+    /** Set by `uniqueIndex(...)` — a `unique (...)` key's enforcement. */
+    unique?: boolean;
+    /** A partial index's predicate (`.where(sql\`…\`)`), a Drizzle `SQL`. */
+    where?: unknown;
   };
 }
 
@@ -168,23 +172,28 @@ function columnDefaultSql(c: DrizzleColumn): string | null {
   if (!c.hasDefault || SERIAL_TYPES.has(c.columnType)) return null;
   const d = c.default;
   if (d == null) return null;
-  if (typeof d === "object") {
-    const chunks = (d as { queryChunks?: unknown }).queryChunks;
-    if (!Array.isArray(chunks)) return null;
-    let out = "";
-    for (const ch of chunks) {
-      const val = (ch as { value?: unknown }).value;
-      if (Array.isArray(val) && val.every((x) => typeof x === "string")) {
-        out += val.join("");
-      } else {
-        return null; // param / non-string chunk — don't guess
-      }
-    }
-    return out.length > 0 ? out : null;
-  }
+  if (typeof d === "object") return flattenSql(d);
   if (typeof d === "string") return quoteSqlString(d);
   if (typeof d === "number" || typeof d === "boolean") return String(d);
   return null;
+}
+
+/** A Drizzle `SQL` object (`sql\`now()\``) flattened from its string chunks,
+ *  or `null` when it carries a bound param or any non-string chunk — those are
+ *  skipped rather than guessed at. */
+function flattenSql(d: object): string | null {
+  const chunks = (d as { queryChunks?: unknown }).queryChunks;
+  if (!Array.isArray(chunks)) return null;
+  let out = "";
+  for (const ch of chunks) {
+    const val = (ch as { value?: unknown }).value;
+    if (Array.isArray(val) && val.every((x) => typeof x === "string")) {
+      out += val.join("");
+    } else {
+      return null;
+    }
+  }
+  return out.length > 0 ? out : null;
 }
 
 function quoteIdent(name: string): string {
@@ -273,13 +282,26 @@ export function synthDDL(
     lines.push(
       `CREATE TABLE IF NOT EXISTS ${tableRef} (\n${colDefs.join(",\n")}\n);`,
     );
+    // A `uniqueIndex(...)` is a `unique (...)` key's ONLY enforcement — the
+    // 23505 every backend maps to 409 — so it must stay UNIQUE here, and keep
+    // its partial predicate (`softDeletable` frees a soft-deleted row's key).
+    // A predicate that cannot be flattened is a hard error, not a dropped
+    // clause: a full index in its place would refuse a legal re-create.
     for (const ix of cfg.indexes) {
       const cols = ix.config.columns
         .map((c) => quoteIdent(c.name ?? c.fieldName ?? "?"))
         .join(", ");
+      let where = "";
+      if (ix.config.where != null) {
+        const pred = typeof ix.config.where === "object" ? flattenSql(ix.config.where) : null;
+        if (pred === null) {
+          throw new Error(`DDL synth: index "${ix.config.name}" has a predicate it cannot render`);
+        }
+        where = ` WHERE ${pred}`;
+      }
       lines.push(
-        `CREATE INDEX IF NOT EXISTS ${quoteIdent(ix.config.name)} ` +
-          `ON ${tableRef} (${cols});`,
+        `CREATE ${ix.config.unique ? "UNIQUE " : ""}INDEX IF NOT EXISTS ${quoteIdent(ix.config.name)} ` +
+          `ON ${tableRef} (${cols})${where};`,
       );
     }
   }

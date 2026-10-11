@@ -109,11 +109,10 @@ describe("scalar intrinsics render in Phoenix HEEx page bodies", () => {
     const replaced = await homeLive('s.replace("-", " ")');
     expect(replaced).toContain('String.replace(@s, "-", " ")');
 
-    // Loom's `substring` is start+LENGTH; `String.slice/3` is start+LENGTH too,
-    // so this is a coincidence-holds case — pinned so a future table change
-    // can't silently regress it to `String.slice/2` (start+END-ish) behavior.
+    // Loom's `substring` is start+LENGTH over CODE POINTS (RS-41): a window
+    // over the charlist, never `String.slice`, which counts graphemes.
     const sliced = await homeLive("s.substring(2, 5)");
-    expect(sliced).toContain("String.slice(@s, 2, 5)");
+    expect(sliced).toContain("List.to_string(Enum.slice(String.to_charlist(@s), 2, 5))");
   });
 
   it("`round` on money/decimal carries the bank-rounding mode explicitly", async () => {

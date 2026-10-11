@@ -93,9 +93,7 @@ describe("hono routes — audited lifecycle actions", () => {
 
   it("stamps actor + correlation/scope/parent like the per-op path", async () => {
     const r = await routes();
-    expect(r).toContain(
-      'const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;',
-    );
+    expect(r).toContain("const actor = auditActor();");
     expect(r).toContain("const reqCtx = requestContext();");
     expect(r).toContain("correlationId: reqCtx?.correlationId ?? null,");
     expect(r).toContain("scopeId: reqCtx?.scopeId ?? null,");

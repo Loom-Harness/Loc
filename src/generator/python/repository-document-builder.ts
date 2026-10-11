@@ -316,7 +316,7 @@ export function buildPyDocumentRepositoryFile(
       aggHasFieldMask(agg),
     ),
     `from app.db.schema import ${row}`,
-    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow" : null,
+    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow, audit_actor" : null,
     wireHelperImport(refersTo),
     versioned
       ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"

@@ -184,7 +184,11 @@ export function renderSchema(
     }
     const indexed = indexedColumnsFor(agg, ctx);
     tables.push(
-      emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, { schema, prefix }),
+      emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, {
+        schema,
+        prefix,
+        uniqueOf: agg,
+      }),
     );
     for (const part of agg.parts) {
       tables.push(
@@ -327,6 +331,7 @@ export function renderSchema(
     "timestamp",
     "uuid",
     "index",
+    "uniqueIndex",
     "primaryKey",
     "jsonb",
   ];
@@ -336,6 +341,7 @@ export function renderSchema(
   return (
     joinLines(
       "// Auto-generated.",
+      ...(/\bsql`/.test(body) ? ['import { sql } from "drizzle-orm";'] : []),
       `import { ${imports} } from "drizzle-orm/pg-core";`,
       "",
       ...(schemaDecls.length > 0 ? [...schemaDecls, ""] : []),
@@ -722,7 +728,14 @@ function emitTphTable(
       lines.push(...drizzleColumnLines({ ...f, optional: true }, ctx).map((s) => `  ${s}`));
     }
   }
-  lines.push(`});`);
+  const uniqueEntries = uniqueIndexEntries(base, tableName);
+  if (uniqueEntries.length === 0) {
+    lines.push(`});`);
+  } else {
+    lines.push(`}, (table) => ({`);
+    lines.push(...uniqueEntries);
+    lines.push(`}));`);
+  }
   return lines.join("\n");
 }
 
@@ -779,7 +792,7 @@ function emitTable(
   ctx: BoundedContextIR,
   indexedColumns: Set<string>,
   idType: IdValueType,
-  options: { schema?: string; prefix?: string } = {},
+  options: { schema?: string; prefix?: string; uniqueOf?: AggregateIR } = {},
 ): string {
   const baseTable = snake(plural(name));
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
@@ -831,6 +844,7 @@ function emitTable(
       `    ${lowerFirst(name)}${pascalize(col)}Idx: index("${tableName}_${snake(col)}_idx").on(table.${col}),`,
     );
   }
+  if (options.uniqueOf) indexEntries.push(...uniqueIndexEntries(options.uniqueOf, tableName));
   if (indexEntries.length === 0) {
     lines.push(`});`);
   } else {
@@ -843,6 +857,25 @@ function emitTable(
 
 function pascalize(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
+}
+
+/** The Drizzle `uniqueIndex(...)` entries for each `unique (...)` key the
+ *  aggregate declares — the same index the migration creates
+ *  (`<table>_<cols>_uq`, partial `WHERE is_deleted = false` under
+ *  `softDeletable`).  The schema object is the DDL wherever a database is
+ *  synthesised from it (the playground's `synthDDL`), and the shape
+ *  `drizzle-kit` diffs against the database everywhere else: without the
+ *  entry, a synthesised database accepts a duplicate with 201, and a diff
+ *  against a migrated one proposes dropping the index. */
+function uniqueIndexEntries(agg: AggregateIR, tableName: string): string[] {
+  const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
+  return (agg.uniqueKeys ?? []).map((uk) => {
+    const cols = uk.columns.map((c) => snake(c));
+    const key = `${lowerFirst(agg.name)}${uk.columns.map(pascalize).join("")}Uq`;
+    const on = uk.columns.map((c) => `table.${c}`).join(", ");
+    const where = softDeletable ? ".where(sql`is_deleted = false`)" : "";
+    return `    ${key}: uniqueIndex("${tableName}_${cols.join("_")}_uq").on(${on})${where},`;
+  });
 }
 
 /** The Drizzle column factory call for an id-shaped column (aggregate PK,

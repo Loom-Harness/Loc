@@ -137,7 +137,8 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     const ctx = get(await generateSystemFiles(GUARDED_NAMED), "lib/api/accounts.ex");
     const body = ctx.slice(ctx.indexOf("def withdraw_account(%"));
     const fn = body.slice(0, body.indexOf("\n  end"));
-    // `requires` → 403 (`:forbidden`); `precondition` → 422 (`:precondition_failed`).
+    // `requires` → 403 (`:forbidden`); a param-only `precondition` → the
+    // wire-validation 422 (`:validation_failed`, node's sentence — RS-40).
     // The chain now OPENS with the wire-format guard for the `int` param
     // (M-T6.48) and the domain guards follow. That order is deliberate and
     // matches the other four backends, where zod / the DTO binder / pydantic
@@ -149,7 +150,9 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
       'with {:ok, amount} <- __loom_int32_param(record, :amount, Map.get(params, "amount"))',
     );
     expect(fn).toContain(":ok <- ensure(record.balance >= amount, {:forbidden, ");
-    expect(fn).toContain(":ok <- ensure(amount > 0, {:precondition_failed, ");
+    expect(fn).toContain(
+      ':ok <- ensure(amount > 0, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
+    );
     // Guards precede the mutation + persist.
     // Anchored on the chain's OPENING token rather than on `with :ok <- ensure`:
     // the wire-format guard now leads it (M-T6.48), so the `ensure` clauses no

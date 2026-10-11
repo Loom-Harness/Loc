@@ -305,10 +305,16 @@ describe("menu emitter", () => {
           ],
         },
       ])!;
+      // The scaffold's List page carries `menu { section: "Aggregates", label:
+      // "Orders" }`, so its default entry moves under that heading and takes
+      // the metadata's catalog keys — the "S" section it leaves is empty and
+      // dropped.
       expect(sidebar.map((s) => [s.label, s.entries.map((e) => e.to)])).toEqual([
-        ["S", ["/orders"]],
+        ["Aggregates", ["/orders"]],
         ["Work", ["/board"]],
       ]);
+      expect(sidebar[0]!.labelKey).toMatch(/^page\.List\.menu\.section\./);
+      expect(sidebar[0]!.entries[0]!.labelKey).toMatch(/^page\.List\.menu\.label\./);
     });
 
     it("an explicit ui-level menu block still REPLACES the defaults", async () => {

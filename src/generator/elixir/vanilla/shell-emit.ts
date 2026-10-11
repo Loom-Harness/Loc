@@ -1011,7 +1011,15 @@ defmodule ${appModule}Web.BodyParser do
           instance: conn.request_path
         })
 
+      # \`conn\` here is the one from BEFORE the parser ran: the adapter state
+      # the parser advanced while reading the body was lost with the raise.
+      # Left on a keep-alive connection, the server would then "drain" a body
+      # it already read — consuming the head of the client's NEXT request off
+      # the socket, which then arrives as \`OST /api/…\` and is refused.
+      # Closing the connection after this answer is the only state that is
+      # true whatever the parser had read.
       conn
+      |> Plug.Conn.put_resp_header("connection", "close")
       |> Plug.Conn.put_resp_content_type("application/problem+json")
       |> Plug.Conn.send_resp(status, body)
       |> Plug.Conn.halt()

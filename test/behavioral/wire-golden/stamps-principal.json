@@ -90,6 +90,95 @@
     },
     {
       "seq": 7,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "first",
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin",
+        "version": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "second",
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin",
+        "version": 2
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "second",
+            "createdAt": "<timestamp>",
+            "createdBy": "admin",
+            "id": "<volatile:key>",
+            "updatedAt": "<timestamp>",
+            "updatedBy": "admin",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -102,7 +191,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 15,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -115,7 +204,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 16,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -128,7 +217,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 17,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,

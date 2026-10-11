@@ -1034,6 +1034,11 @@ system S {
         code: string
         create(code: string) { requires currentUser.role == "admin"  code := code }
       }`),
+  "loom.field-mask-principal-without-auth": deployed(`      aggregate Order {
+        code: string
+        total: decimal mask unless currentUser.role == "admin"
+        create(code: string, total: decimal) { code := code  total := total }
+      }`),
   "loom.named-lifecycle-dropped": deployed(`      aggregate Order {
         code: string
         create(code: string) { code := code }

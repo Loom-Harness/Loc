@@ -38,7 +38,7 @@ describe("typescript generator — stdlib prelude", () => {
       "get blank(): boolean { return ([...this._name.trim()].length === 0); }",
     );
     expect(domain).toContain("[...this._name.trim()].length > 0");
-    expect(domain).toContain("this._name.slice(0, (0) + (8))");
+    expect(domain).toContain('[...this._name].slice(0, (0) + (8)).join("")');
     // math (clamp) + temporal (isOverdue) inline too.
     expect(domain).toContain("get cl(): number { return (Math.min(Math.max(this._qty, 0), 10)); }");
     expect(domain).toContain("get od(): boolean { return (new Date() > this._due); }");

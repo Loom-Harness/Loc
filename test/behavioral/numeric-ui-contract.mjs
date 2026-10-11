@@ -42,19 +42,17 @@ const BARCODE = 1234567890123456;
  *   Feliz detail cell renders `string (decimal)` and keeps it ("98.7600").  Same
  *   value, same wire, two displays — recorded here rather than smoothed over, so
  *   whichever way it is later unified, this table is what has to change.
- * - `vue` is MEASURED too (2026-09-28, both the detail cell and the list cell),
- *   and it sides with Flutter: "98.76".  The backend sends "98.7600" (the list
- *   probe checks the wire before the page), the generated `formatMoney` prints
- *   its argument verbatim, and the scale is lost in between — the read schema's
- *   `moneySchema` transforms the wire string into a decimal.js instance, and
- *   decimal.js stringifies without trailing zeros.  So M-T1.25's "what the
- *   database stores is what the screen shows" holds for a money STRING and not
- *   for the money a page actually reads.  Handed off from wave C3 packet 3b
- *   (display-only; the value is intact); when it is fixed this cell becomes
- *   "98.7600" and the Vue leg is what proves it.
+ * - `vue` is MEASURED too (both the detail cell and the list cell), and it
+ *   sides with Feliz: "98.7600".  The backend sends "98.7600" (the list probe
+ *   checks the wire before the page) and the generated `formatMoney` prints its
+ *   argument verbatim.  What the verbatim display receives is the read schema's
+ *   decimal.js value, and decimal.js alone stringifies WITHOUT trailing zeros
+ *   ("98.76") — so the shared `moneySchema` (`_frontend/money-schema.ts`) pins
+ *   the parsed value's rendering to the wire string's scale.  A read path that
+ *   loses it turns this cell red.
  */
 export const NUMERIC_FIELDS = [
-  { field: "listPrice", host: "money", wire: "string", seed: "98.7600", flutter: "98.76", feliz: "98.7600", vue: "98.76" },
+  { field: "listPrice", host: "money", wire: "string", seed: "98.7600", flutter: "98.76", feliz: "98.7600", vue: "98.7600" },
   { field: "weight", host: "decimal", wire: "number", seed: 1.25, flutter: "1.25", feliz: "1.25", vue: "1.25" },
   { field: "stock", host: "int", wire: "number", seed: 4242, flutter: "4242", feliz: "4242", vue: "4242" },
   { field: "barcode", host: "long", wire: "number", seed: BARCODE, flutter: String(BARCODE), feliz: String(BARCODE), vue: String(BARCODE) },

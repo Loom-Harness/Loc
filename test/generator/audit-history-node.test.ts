@@ -105,7 +105,7 @@ describe("entity history — negative authz", () => {
     const routes = routesOf(await emitFiles(MASKED), "employee");
     const handler = routes.slice(routes.indexOf('path: "/{id}/history"'));
     expect(handler).toContain('403: { description: "Forbidden"');
-    expect(handler).toContain('throw new ForbiddenError("Forbidden")');
+    expect(handler).toContain('throw new ForbiddenError("Forbidden: find history")');
     // The gate runs BEFORE the audit table is touched.
     expect(handler.indexOf("ForbiddenError")).toBeLessThan(handler.indexOf("schema.auditRecords"));
   });

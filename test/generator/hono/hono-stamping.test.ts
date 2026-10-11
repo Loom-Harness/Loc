@@ -2,8 +2,9 @@
 // Hono (node) backend — lifecycle stamps (`stamp onCreate`/`onUpdate`, the
 // audit / softDelete capability stamps).  node-persist-time-auditing relocated
 // stamping out of the domain method + handler into the drizzle persistence
-// layer: a per-project `db/audit-stamp.ts` helper exposes `stampInsert` /
-// `stampUpdate`, and the aggregate's `save()` wraps the write
+// layer: a per-project `db/audit-stamp.ts` helper exposes a
+// `stamp<Agg>Insert` / `stamp<Agg>Update` pair per aggregate (imported as
+// `stampInsert` / `stampUpdate`), and the aggregate's `save()` wraps the write
 // (`.values(stampInsert(...))` on the insert branch, `.set(stampUpdate(...))`
 // on the update branch).  M-T3.4 — versioning is default-on, so the save is a
 // guarded insert/update (not `.onConflictDoUpdate`); the stamps wrap each
@@ -105,6 +106,41 @@ const CLAIM_SRC = `system TenantStamp {
 }
 `;
 
+// Two aggregates with DIFFERENT stamp sets in one deployable: a context-wide
+// claim stamp reaches `Ticket` only, and `Note` is the prelude `auditable`.
+const MIXED_SRC = `system MixedStamp {
+  user { id: string  role: string }
+  subdomain D {
+    context Desk {
+      stamp onCreate { ownerRole := currentUser.role }
+      aggregate Ticket with crudish {
+        title: string
+        ownerRole: string managed
+      }
+      repository Tickets for Ticket { }
+    }
+    context Journal {
+      aggregate Note with crudish, auditable {
+        body: string
+      }
+      repository Notes for Note { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  resource journalState { for: Journal, kind: state, use: primary }
+  deployable api1 {
+    platform: node
+    contexts: [Desk, Journal]
+    dataSources: [deskState, journalState]
+    serves: A
+    port: 8081
+    auth: required
+  }
+}
+`;
+
 async function build(src: string): Promise<Map<string, string>> {
   const { model, errors } = await parseString(src);
   if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
@@ -133,9 +169,9 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     // unstamped.
     expect(helper).toContain("if (!ctx) return row;");
     // now()-only stamps → `new Date()` on both branches; no actor (no auth).
-    expect(helper).toContain("export function stampInsert");
+    expect(helper).toContain("export function stampOrderInsert");
     expect(helper).toContain("createdAt: new Date()");
-    expect(helper).toContain("export function stampUpdate");
+    expect(helper).toContain("export function stampOrderUpdate");
     // createdAt is stripped from the update result so the upsert `set` leaves
     // it immutable.
     expect(helper).toContain("const { createdAt: _createdAt, ...rest } = row;");
@@ -143,7 +179,9 @@ describe("Hono (node) generator — lifecycle stamps", () => {
 
   it("the save() guarded write stamps via stampInsert (values) + stampUpdate (set) — default-on (M-T3.4)", async () => {
     const repo = find(await build(SRC), /repositories\/order-repository\.ts$/);
-    expect(repo).toContain('import { stampInsert, stampUpdate } from "../audit-stamp";');
+    expect(repo).toContain(
+      'import { stampOrderInsert as stampInsert, stampOrderUpdate as stampUpdate } from "../audit-stamp";',
+    );
     // Insert branch: the seeded row (version: 1) is wrapped by stampInsert.
     expect(repo).toMatch(
       /\.values\(stampInsert\(\{ id: aggregate\.id as string,[\s\S]*?version: 1 \}\)\)/,
@@ -176,6 +214,31 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     // The stamp is the CLAIM, not the actor id.
     expect(helper).toContain("tenantId: currentUser.tenantId");
     expect(helper).not.toContain("tenantId: ctx.actorId");
+  });
+
+  it("each aggregate stamps only its OWN columns and guards only its OWN claims", async () => {
+    const files = await build(MIXED_SRC);
+    const helper = find(files, /db\/audit-stamp\.ts$/);
+    const fn = (name: string): string => {
+      const m = helper.match(new RegExp(`export function ${name}<[\\s\\S]*?\\n}\\n`));
+      expect(m, `${name} is emitted`).not.toBeNull();
+      return m![0];
+    };
+    // A MikroORM insert names every key it is handed, so a foreign column is a
+    // 500; a foreign claim guard refuses a principal the aggregate never reads.
+    const ticketInsert = fn("stampTicketInsert");
+    expect(ticketInsert).toContain("ownerRole: currentUser.role");
+    expect(ticketInsert).not.toContain("updatedAt");
+    expect(ticketInsert).not.toContain("updatedBy");
+    const noteInsert = fn("stampNoteInsert");
+    expect(noteInsert).toContain("updatedBy: ctx.actorId");
+    expect(noteInsert).not.toContain("ownerRole");
+    expect(noteInsert).not.toContain('"role"');
+    expect(fn("stampTicketUpdate")).not.toContain("updatedAt");
+    // Each repository binds its own pair.
+    expect(find(files, /repositories\/note-repository\.ts$/)).toContain(
+      'import { stampNoteInsert as stampInsert, stampNoteUpdate as stampUpdate } from "../audit-stamp";',
+    );
   });
 
   it("a BARE currentUser stamp keeps the actor-id shape (no principal binding)", async () => {

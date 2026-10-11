@@ -9,10 +9,14 @@
 
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
-import { localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import {
+  localizedNamedValue,
+  localizedPageChromeValue,
+  localizedPositionalTranslation,
+} from "../_walker/i18n-emit.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -47,16 +51,20 @@ import {
   felizWorkflowForm,
   fieldErrorFn,
   findFieldName,
+  formFieldServerKey,
   formFileSelectMsg,
+  formServerField,
   formTouchedField,
   formTouchMsg,
   historyFieldName,
   idLabelsFrom,
   isValidatedField,
+  opHasForm,
   pageMetaFieldName,
   pageMetaMember,
   projectionFieldName,
   readFieldName,
+  wfHasForm,
 } from "./wire.js";
 
 /** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) —
@@ -224,6 +232,32 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
   return wrap(
     `Html.input [ ${tidP}prop.className "input input-bordered w-full"; ${typeProp}prop.placeholder "${placeholder}"; prop.value ${value}; prop.onChange (fun (v: string) -> dispatch (${fld.setMsg} v))${onBlur}${aria} ]`,
   );
+}
+
+/** A form's inputs, each followed by the slot its rejected submit's message for
+ *  that field renders in (`View.serverError` over the form's `ServerErrors`,
+ *  keyed by the field's JSON-pointer dot-path), plus the form-level slot that
+ *  precedes the submit.  `inputs` is `[]` for a form with no record (a
+ *  param-less op / workflow), which has no field to point at and no Model
+ *  cell to read. */
+function withServerErrors(
+  formField: string,
+  fields: readonly FelizFormField[],
+  base: string,
+  hasRecord: boolean,
+): { inputs: string[]; formError: string[] } {
+  const inputs = fields.map((fld) => renderFormInput(formField, fld, base));
+  if (!hasRecord) return { inputs, formError: [] };
+  const errs = `model.${formServerField(formField)}`;
+  return {
+    inputs: fields.map((fld, i) => {
+      const key = formFieldServerKey(fld);
+      return `${inputs[i]}; (View.serverError ${errs} "${key}" "${base}-server-error-${key.replaceAll(".", "-")}")`;
+    }),
+    formError: [
+      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-server-error")`,
+    ],
+  };
 }
 
 /** One dynamic-row sub-field input — the row-scoped sibling of `renderFormInput`.
@@ -507,7 +541,18 @@ export const felizTarget: WalkerTarget = {
     const agg = ctx.aggregatesByName.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
-    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (Delete${upperFirst(agg.name)} id)); prop.text "Delete ${upperFirst(agg.name)}" ]`;
+    // The label and the confirm prompt are emitter-built chrome:
+    // `chrome.deleteEntity` / `chrome.deleteConfirm` with the entity name as an
+    // ICU hole, as on every frontend — and, as there, the delete runs only once
+    // the user confirms it.
+    const human = humanize(agg.name);
+    const label = localizedPageChromeValue(ctx, "deleteEntity", [
+      { name: "entity", expr: JSON.stringify(human) },
+    ]);
+    const confirm = localizedPageChromeValue(ctx, "deleteConfirm", [
+      { name: "entity", expr: JSON.stringify(human.toLowerCase()) },
+    ]);
+    return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> if Browser.Dom.window.confirm (${confirm}) then dispatch (Delete${upperFirst(agg.name)} id)); prop.text ${label} ]`;
   },
 
   // `FileLink(<file-ref>)` → a plain daisyUI download anchor.  Feliz forks the
@@ -613,7 +658,11 @@ export const felizTarget: WalkerTarget = {
         "Action: first argument must be <instance>.<operation>",
       );
     }
-    const aggName = ctx.paramTypes?.get(opRef.receiver.name);
+    // A detail record (`paramTypes`) dispatches with the route `id`; a ROW of
+    // a list (a `Table` column / `For` lambda — `listRowAggregates`) with its
+    // own `id`.
+    const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
+    const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
@@ -626,16 +675,21 @@ export const felizTarget: WalkerTarget = {
       );
     }
     const action = felizAction(agg.name, op);
-    ctx.usesRouteId = true; // the action dispatches with the route `id`
+    const id = recordAgg ? "id" : `(${emitExpr(opRef.receiver, ctx)}.id)`;
+    if (recordAgg) ctx.usesRouteId = true;
     // M-FT.5 — a `then:` effect rides the trigger as a closure (the collector
     // marks the action `hasThen`, which declares the `…Then` Msg pair); `update`
     // runs it once the POST succeeds.  Built HERE, where the QueryView binding
     // the effect may read (`toast(n.title)`) is still in scope.
     const thenArg = namedArgValue(call, "then");
     const dispatched = thenArg
-      ? `${actionThenMsg(action)} (id, (fun () -> ${felizActionThen(thenArg, ctx)}))`
-      : `${action.triggerMsg} id`;
-    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
+      ? `${actionThenMsg(action)} (${id}, (fun () -> ${felizActionThen(thenArg, ctx)}))`
+      : `${action.triggerMsg} ${id}`;
+    // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
+    // not pre-disable on it; the server still answers the op's own refusal.
+    const gate = recordAgg
+      ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name))
+      : undefined;
     const gateProps = gate
       ? `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : "";
@@ -675,14 +729,14 @@ export const felizTarget: WalkerTarget = {
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
     // default the page-object builder computes from the aggregate.
     const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-new`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true);
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Create ${upperFirst(form.aggregate)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a
@@ -733,7 +787,12 @@ export const felizTarget: WalkerTarget = {
     // container is `<base>-form`, the submit `<base>-submit` — the exact ids the
     // op page-object method waits for / clicks.
     const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-op-${op.name}`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(
+      form.formField,
+      form.fields,
+      base,
+      opHasForm(form),
+    );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     // The submit guard reads `Validation.<validFn>`, only emitted when the form
     // has flat fields; an array-only form has no required-field guard.
@@ -750,7 +809,7 @@ export const felizTarget: WalkerTarget = {
         : `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text "${upperFirst(form.op)} ${upperFirst(form.aggregate)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `WorkflowForm(runs: <wf>)` → one `Html.input` per workflow param + a
@@ -779,14 +838,19 @@ export const felizTarget: WalkerTarget = {
     // Testid namespace: the scaffold's `testid:` arg (`workflow-place_order`) or
     // the `workflow-<snake(wf)>` default the workflow page-object builder computes.
     const base = stringNamed(call, "testid") ?? `workflow-${snake(wf.name)}`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(
+      form.formField,
+      form.fields,
+      base,
+      wfHasForm(form),
+    );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Run ${upperFirst(form.workflow)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `Modal(trigger: Button(…), OperationForm(<agg>.<op>))` — the scaffold detail's
@@ -842,11 +906,19 @@ export const felizTarget: WalkerTarget = {
       (triggerArg?.kind === "call" ? stringNamed(triggerArg, "testid") : undefined) ??
       stringNamed(call, "testid");
     const summaryTid = triggerTid ? `prop.custom("data-testid", "${triggerTid}"); ` : "";
+    // The dialog's `title:` heads the revealed content, as it heads the
+    // open/close Modal's box.
+    const titleValue = namedArgValue(call, "title")
+      ? localizedNamedValue(call, ctx, "modalTitle", "title")
+      : undefined;
+    const title = titleValue
+      ? `Html.h3 [ prop.className "text-lg font-bold"; prop.children [ Html.text (${titleValue}) ] ]; `
+      : "";
     // ONE line (the op form is one line) so it stays offside-safe spliced into
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${form} ] ] ] ])`;
+    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
   },
 
   defaultInitFor: (type) => fsZeroValue(type),

@@ -1,5 +1,6 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { isStringField } from "./changeset-ingress.js";
 import {
   messageCodeTagging,
   voConstraintLines,
@@ -61,17 +62,31 @@ function renderValueObjectModule(
   const tagging = messageCodeTagging(vo);
   const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";
+  // A string leaf keeps a blank value so the value object's own rule answers
+  // it with its authored message (`changeset-ingress.ts`) — Ecto's default
+  // `empty_values` would turn `""` into `nil`, which every length/format
+  // validator skips, so a blank code was ACCEPTED.  A value object with no
+  // string leaf keeps the single `cast` (byte-identical).
+  const stringLeaves = vo.fields.filter(isStringField);
+  const stringDecl =
+    stringLeaves.length > 0
+      ? `\n  @string_fields [${stringLeaves.map((f) => `:${snake(f.name)}`).join(", ")}]`
+      : "";
+  const castLine =
+    stringLeaves.length > 0
+      ? `    |> cast(attrs, Map.keys(@types) -- @string_fields)\n    |> cast(attrs, @string_fields, empty_values: [])`
+      : `    |> cast(attrs, Map.keys(@types))`;
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc false
   import Ecto.Changeset
 
-  @types %{${typeEntries}}
+  @types %{${typeEntries}}${stringDecl}
 
   @doc "Validate a value-object map against its declared invariants (schemaless — VOs persist as plain maps)."
   def changeset(attrs) when is_map(attrs) do
     {%{}, @types}
-    |> cast(attrs, Map.keys(@types))
+${castLine}
 ${validators}
   end
 

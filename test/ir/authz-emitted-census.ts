@@ -1020,15 +1020,9 @@ export interface GateFact {
   readonly owner?: string;
 }
 
-/** The audit-history gate's detail is not uniform (java `find history`, elixir
- *  `history <Agg>`, the rest `find history`/…) — a detail divergence, not an
- *  application one, so the census accepts any of the spellings the backends
- *  ship and leaves the wording to the 403-detail census. */
-const HISTORY_DETAILS = (agg: string): string[] => [
-  "Forbidden: find history",
-  `Forbidden: history ${agg}`,
-  "Forbidden",
-];
+/** The audit-history gate's detail — the declared-find spelling for the
+ *  derived `history` find, five-way (pinned by the 403-detail census). */
+const HISTORY_DETAILS = (_agg: string): string[] => ["Forbidden: find history"];
 
 function requiresIn(stmts: readonly StmtIR[]): string[] {
   const out: string[] = [];

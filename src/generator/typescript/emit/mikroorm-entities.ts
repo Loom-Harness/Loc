@@ -715,6 +715,31 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
   );
 }
 
+/** The `uniques:` block for each `unique (...)` key the aggregate declares —
+ *  the index the migration creates (`<table>_<cols>_uq`).  This adapter's
+ *  schema comes from `orm.schema.updateSchema()` over the entity metadata, not
+ *  from the migration files, so a key absent here has NO index at run time and
+ *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
+ *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
+ *  only expresses as the index's full DDL. */
+function mikroUniquesLines(agg: EnrichedAggregateIR): string[] {
+  const keys = agg.uniqueKeys ?? [];
+  if (keys.length === 0) return [];
+  const table = tableOf(agg.name);
+  const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
+  const entries = keys.map((uk) => {
+    const cols = uk.columns.map((c) => snake(c));
+    const name = `${table}_${cols.join("_")}_uq`;
+    if (softDeletable) {
+      const ddl = `create unique index "${name}" on "${table}" (${cols.map((c) => `"${c}"`).join(", ")}) where is_deleted = false`;
+      return `    { name: "${name}", expression: ${JSON.stringify(ddl)} },`;
+    }
+    const props = uk.columns.map((c) => JSON.stringify(c)).join(", ");
+    return `    { name: "${name}", properties: [${props}] },`;
+  });
+  return [`  uniques: [`, ...entries, `  ],`];
+}
+
 export function renderMikroEntities(
   aggs: readonly EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
@@ -790,6 +815,7 @@ export function renderMikroEntities(
         `  properties: {`,
         ...propLines,
         `  },`,
+        ...mikroUniquesLines(agg),
         `});`,
         "",
       ),

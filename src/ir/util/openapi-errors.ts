@@ -280,6 +280,14 @@ export function errorStatuses(
  *  the server's `lc_messages`. */
 export const DANGLING_REFERENCE_DETAIL = "The request references a record that does not exist.";
 
+/** The one detail string every backend serves when a write breaches a
+ *  `unique (...)` key — Postgres refused it with a `unique_violation` (SQLSTATE
+ *  23505) and the backend answers 409.  Shared for the same reason as
+ *  {@link DANGLING_REFERENCE_DETAIL}: the wire golden compares the 409 body
+ *  across every leg.  Names neither the aggregate nor the key — the backends
+ *  that map the breach in one app-wide handler cannot know either. */
+export const UNIQUE_CONFLICT_DETAIL = "A resource with these values already exists.";
+
 export function problemTitle(status: number): string {
   switch (status) {
     case 400:

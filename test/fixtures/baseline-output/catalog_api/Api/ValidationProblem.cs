@@ -107,6 +107,43 @@ public static class ValidationProblem
                 ContentTypes = { "application/problem+json" },
             };
         }
+        // An int literal past Int32 is a FIELD refusal, not a malformed body
+        // (RS-39): Serialization.Int32RangeJsonConverter throws it with the
+        // range sentence as its message, and the input formatter files that
+        // message under the field's JSON path ("$.n", "$.best.qty").  Answered
+        // like a missing member: only the range errors, never the companion
+        // "The request field is required." the same rejection records against
+        // the action parameter.
+        static bool IsIntegerRange(ModelError error) =>
+            error.ErrorMessage == global::CatalogApi.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::CatalogApi.Serialization.Int32RangeJsonConverter.Message;
+        var outOfRange = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
+            .Select(entry => entry.Key)
+            .ToArray();
+        if (outOfRange.Length > 0)
+        {
+            var rangeProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            rangeProblem.Extensions["errors"] = outOfRange
+                .Select(key => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
+                    ["message"] = global::CatalogApi.Serialization.Int32RangeJsonConverter.Message,
+                })
+                .ToArray();
+            return new ObjectResult(rangeProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
         var malformed = context.ModelState.Any(entry =>
             entry.Key.StartsWith('$')
             || entry.Value?.Errors.Any(error => error.Exception is JsonException) == true);

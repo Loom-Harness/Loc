@@ -136,7 +136,7 @@ describe("entity history — elixir negative authz", () => {
     const handler = controller.slice(controller.indexOf('def history(conn, %{"id" => id})'));
     expect(handler).toContain('if not (current_user.role == "hr") do');
     expect(handler).toContain(
-      'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: history Employee")',
+      'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find history")',
     );
     // The gate runs BEFORE the entity read and before the audit table is
     // touched, so a denied caller cannot even probe for the row's existence.

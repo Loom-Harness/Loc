@@ -30,7 +30,10 @@
 // own bulk-load, so the joined value is wire `null` on every backend, never a
 // type's zero value.  `venueCapacity` is the value-typed member .NET's
 // `default!` read as `0` (a `datetime` is a string on the .NET wire, so its
-// `default!` was already `null`; an `int` is not).
+// `default!` was already `null`; an `int` is not).  `venueFee` is a joined
+// plain `decimal`: PRESENT it is the JSON number every backend's own read
+// answers (RS-24 — elixir's projection once sent the string "2.5"), absent it
+// is `null`.
 system DatetimeWire {
   subdomain Scheduling {
     context Booking {
@@ -38,6 +41,7 @@ system DatetimeWire {
         name: string
         openedAt: datetime
         capacity: int
+        fee: decimal
       }
 
       aggregate Slot with crudish {
@@ -60,6 +64,7 @@ system DatetimeWire {
         venueOpenedAt: datetime
         venueCapacity: int
         venueName: string
+        venueFee: decimal
         from Slot as s
         join Venue as v on s.venueId
         select slotId = s.id,
@@ -67,7 +72,8 @@ system DatetimeWire {
                startsAt = s.startsAt,
                venueOpenedAt = v.openedAt,
                venueCapacity = v.capacity,
-               venueName = v.name
+               venueName = v.name,
+               venueFee = v.fee
       }
     }
   }
@@ -85,8 +91,8 @@ system DatetimeWire {
   }
 
   test e2e "a datetime crosses the wire in milliseconds, and an absent join is null" against d {
-    let hall = api.venues.create({ name: "Hall", openedAt: "2024-03-01T10:20:30Z", capacity: 40 })
-    let annex = api.venues.create({ name: "Annex", openedAt: "2024-03-01T08:00:00.500Z", capacity: 12 })
+    let hall = api.venues.create({ name: "Hall", openedAt: "2024-03-01T10:20:30Z", capacity: 40, fee: 2.5 })
+    let annex = api.venues.create({ name: "Annex", openedAt: "2024-03-01T08:00:00.500Z", capacity: 12, fee: 1.25 })
 
     // A whole second keeps RS-4's form — no `.000`.
     expect(api.venues.getById(hall).openedAt).toBe("2024-03-01T10:20:30Z")
@@ -117,6 +123,7 @@ system DatetimeWire {
     expect(rowA.venueOpenedAt).toBe("2024-03-01T10:20:30Z")
     expect(rowA.venueCapacity).toBe(40)
     expect(rowA.venueName).toBe("Hall")
+    expect(rowA.venueFee).toBe(2.5)
     let rowB = board.where(r => r.label == "B").first()
     expect(rowB.startsAt).toBe("2024-03-01T10:20:30.999Z")
     expect(rowB.venueOpenedAt).toBe(null)
@@ -126,9 +133,9 @@ system DatetimeWire {
     // `query-projection-join-missing` string copies, M-T9.42 — each pinned its
     // own guard spelling: .NET's `TryGetValue`, java's null-guarded ternary,
     // python's `.get(...)`, node's bound lookup; the absent row must read
-    // `null` for every member kind).  A joined DECIMAL was tried too and is
-    // handed off: elixir serializes a PRESENT one as the string "2.5".
+    // `null` for every member kind).
     expect(rowB.venueName).toBe(null)
+    expect(rowB.venueFee).toBe(null)
 
     // The venue list no longer carries the soft-deleted row.
     let venues = api.venues.all()
@@ -139,7 +146,7 @@ system DatetimeWire {
     // `restore()` cannot reach the soft-deleted row it is for — the SAME RS-27
     // shape `projection-agg-filters` records — so it answers 404 here.
     expect(api.venues.restore(annex)).toThrow(404)
-    api.venues.update(hall, { name: "Hall", openedAt: "2024-03-01T08:00:00.2509Z", capacity: 40 })
+    api.venues.update(hall, { name: "Hall", openedAt: "2024-03-01T08:00:00.2509Z", capacity: 40, fee: 2.5 })
     expect(api.venues.getById(hall).openedAt).toBe("2024-03-01T08:00:00.250Z")
     api.slots.update(b, { label: "B", startsAt: "2024-03-01T10:20:31Z", venueId: hall.id })
     expect(api.slots.getById(b).startsAt).toBe("2024-03-01T10:20:31Z")

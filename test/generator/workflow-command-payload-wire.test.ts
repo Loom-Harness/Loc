@@ -148,9 +148,12 @@ describe("a command-typed workflow create param carries a wire type (#2864 D7/T2
     // TYPE — pinning the exact annotation prefix would re-break on the next
     // validation change without testing anything more.
     expect(out).toMatch(/public record ClaimHandlingRequest\((?:@\w+ )*FileClaimResponse c\) \{/);
-    // The `to<Payload>` mapper, the twin of the VO path's `to<Vo>`.
-    expect(out).toContain(`private static FileClaim toFileClaim(FileClaimResponse request) {`);
-    expect(out).toContain(`var c = toFileClaim(request.c());`);
+    // The `to<Payload>` mapper, the twin of the VO path's `to<Vo>`.  It takes
+    // the pointer it sits at, so a malformed leaf answers at `/c/amount`.
+    expect(out).toContain(
+      `private static FileClaim toFileClaim(FileClaimResponse request, String at) {`,
+    );
+    expect(out).toContain(`var c = toFileClaim(request.c(), "/c");`);
   });
 
   it("java: the new component carries a required set in the OpenAPI customizer", async () => {
@@ -268,8 +271,8 @@ describe("a value object reached only through a payload param still resolves", (
   it("java: the payload wire record imports Money2Request and the mapper exists", async () => {
     const out = await voFieldFiles("java");
     expect(out).toContain(`import com.loom.d.features.claims.Money2Request;`);
-    expect(out).toContain(`private static Money2 toMoney2(Money2Request request) {`);
-    expect(out).toContain(`return new FileClaim(toMoney2(request.total()));`);
+    expect(out).toContain(`private static Money2 toMoney2(Money2Request request, String at) {`);
+    expect(out).toContain(`return new FileClaim(toMoney2(request.total(), at + "/total"));`);
   });
 
   it("python: the VO wire model is imported and the domain VO constructed", async () => {
