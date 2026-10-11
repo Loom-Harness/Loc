@@ -74,6 +74,7 @@ import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
+import { contextsHaveCheckedFindParams } from "./find-controller.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
@@ -173,11 +174,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // …OR a paged read: an out-of-range `page`/`pageSize` now answers the same
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
-  // responder.  An app with neither stays byte-identical.
+  // responder.  So does a find whose declared query params fail their
+  // published type (find-controller.ts).  An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
-    ) || contextsHavePagedReads(contexts);
+    ) ||
+    contextsHavePagedReads(contexts) ||
+    contextsHaveCheckedFindParams(contexts);
   out.set(
     `lib/${appName}_web/problem_details.ex`,
     renderVanillaProblemDetailsModule(

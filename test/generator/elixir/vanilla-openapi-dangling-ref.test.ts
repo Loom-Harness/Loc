@@ -83,7 +83,8 @@ describe("vanilla Phoenix OpenAPI — no dangling component $ref", () => {
       }
       scanned++;
       const files = await generateSystemFiles(src.replace(/__PLATFORM__/g, "elixir"));
-      for (const [, b] of files) refs += (b.match(/"\$ref": "#\/components\/schemas\//g) ?? []).length;
+      for (const [, b] of files)
+        refs += (b.match(/"\$ref": "#\/components\/schemas\//g) ?? []).length;
       for (const d of danglingRefs(files)) offenders.push(`${feature.id}: ${d.ref} in ${d.path}`);
     }
     expect(scanned, "scanned no corpus fixtures — the manifest filter has drifted").toBeGreaterThan(

@@ -80,7 +80,10 @@ describe("schemathesis core — an untested operation is a finding", () => {
             checks: { c1: [{ name: "not_a_server_error", status: "failure", message: "500" }] },
             cases: {},
             interactions: {
-              c1: { request: { method: "GET", uri: "http://h/api/customers/0" }, response: { status_code: 500 } },
+              c1: {
+                request: { method: "GET", uri: "http://h/api/customers/0" },
+                response: { status_code: 500 },
+              },
             },
           },
         },
@@ -102,7 +105,9 @@ describe("schemathesis core — the fuzz base keeps the spec's server path", () 
   });
   it("keeps only the path of an absolute server URL", () => {
     expect(specServerBase({ servers: [{ url: "http://localhost:3000" }] }, base)).toBe(base);
-    expect(specServerBase({ servers: [{ url: "https://example.test/v1" }] }, base)).toBe(`${base}/v1`);
+    expect(specServerBase({ servers: [{ url: "https://example.test/v1" }] }, base)).toBe(
+      `${base}/v1`,
+    );
   });
   it("leaves the origin alone when the spec names no server", () => {
     expect(specServerBase({}, base)).toBe(base);

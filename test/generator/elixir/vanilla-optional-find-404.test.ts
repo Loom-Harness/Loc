@@ -56,8 +56,8 @@ describe("vanilla Phoenix — optional find absence → 404", () => {
     // the arms that never reached it.  Found by the caller-census drain, whose
     // first callers for `by_email`/`by_reference`/`by_code`/`by_sku` surfaced it
     // as 9 of the elixir leg's 11 wire divergences.
-    expect(ctrl).toContain(
-      '        ProblemDetails.problem_response(conn, 404, "Not Found", "not_found")',
+    expect(ctrl).toMatch(
+      /^ +ProblemDetails\.problem_response\(conn, 404, "Not Found", "not_found"\)$/m,
     );
     // Neither old spelling may come back.
     expect(ctrl).not.toContain('"Item not found"');
@@ -69,7 +69,10 @@ describe("vanilla Phoenix — optional find absence → 404", () => {
         ?.length,
     ).toBe(2);
     // …and the by_sku action no longer emits the schema-invalid 200 null body.
-    const bySku = ctrl!.slice(ctrl!.indexOf("def by_sku"), ctrl!.indexOf("def by_sku") + 260);
+    // The WHOLE action, up to the next `def` — not a fixed-width slice, which
+    // silently stops covering the arms once anything is added above them.
+    const fromBySku = ctrl!.slice(ctrl!.indexOf("def by_sku"));
+    const bySku = fromBySku.slice(0, fromBySku.indexOf("\n  def ", 1));
     expect(bySku).not.toContain("{:ok, nil} -> json(conn, nil)");
     // The success arm still serializes the found record (now multi-line).
     expect(bySku).toContain("{:ok, record} ->");
