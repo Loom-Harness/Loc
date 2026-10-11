@@ -357,14 +357,6 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "defect",
-    id: "D-I18N-9",
-    targets: ["feliz", "flutter"],
-    menus: ["explicit"],
-    key: /^menu\.(section|link)\./,
-    reason: "an explicit `menu {}` is extracted but the Feliz / Flutter shells never render it",
-  },
-  {
-    kind: "defect",
     id: "D-I18N-10",
     targets: HEEX,
     menus: ["explicit"],
