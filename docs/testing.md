@@ -144,7 +144,7 @@ fails the fast suite.
 | `python-build.yml` | `npm run test:python` (uv on host) | — |
 | `elixir-vanilla-build.yml` | `LOOM_HEX_MIRROR=1 npm run test:phoenix` | docker, mirror |
 | `corpus-build.yml` | `npm run test:tsc-corpus` / `test:dotnet-corpus` / `test:java-corpus` / `test:python-corpus` (shard: `LOOM_CORPUS_<BACKEND>_CASE=<feature>`; the java leg runs javac at `-Xlint:all -Werror` — reproduce as in the `java-build.yml` row) | docker (java/dotnet) |
-| `corpus-elixir-build.yml` | `LOOM_HEX_MIRROR=1 npm run test:elixir-corpus` | docker, mirror |
+| `corpus-elixir-build.yml` | `LOOM_HEX_MIRROR=1 npm run test:elixir-corpus` (shard: `LOOM_CORPUS_ELIXIR_CASE=<feature>`; per project: prod `mix compile --warnings-as-errors` + `ecto.migrate`, then `MIX_ENV=test mix test --warnings-as-errors` on the emitted ExUnit suite — waivers in `ELIXIR_TEST_WAIVERS`, stale entries fail) | docker, mirror |
 | `generated-react-build.yml` | `npm run test:tsc-react` (shard: `LOOM_REACT_BUILD_CASE=<ddd>:<pack>`) | — |
 | `generated-vue-build.yml` | `npm run test:vue-build` | — |
 | `generated-svelte-build.yml` | `npm run test:svelte-build` | — |
