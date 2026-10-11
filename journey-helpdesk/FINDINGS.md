@@ -105,6 +105,7 @@ open PR covers it. **PLANNED M-x** = a `docs/new-plan` mission tracks it.
 | E3 | **A `timerSource` needs a phantom aggregate.** The tick event must carry an id (`sweep: SlaSweep id`), so `SlaSweep` exists only for correlation. It then earns a "no code path can create" suggestion, two denyByDefault warnings, a `sla_sweeps` table, and a scaffolded UI page. | NEW |
 | E4 | A `create` with no body (`create(...)`) is a parse error, even though the body is inert anyway. | NEW (minor) |
 | E5 | `toThrow(precondition)` is incompatible with an authored `message` (`loom.throw-kind-custom-message`): a backend implementation detail leaks into authoring. | partly IN FLIGHT #3243 (bare `toThrow()`) |
+| E7 | **Value-collection membership is not queryable.** `tags: string[]` is a Postgres `TEXT[]` column on every backend, but a `where`/criterion `tags.contains("outage")` is refused (only `X id[]` reference collections get `.contains`, through their join table). Postgres renders it as `'outage' = ANY(tags)` (GIN-indexable). | NEW → H8 mission |
 | E6 | Projection `count(t.breached)` in a `group by` gives two contradictory errors: "per-row but not grouped", plus "'count' resolves to nothing — write `count(<alias>.<field>)`", which is exactly what I wrote. | NEW |
 
 ### Generated UI (React/Mantine scaffold)
@@ -173,7 +174,7 @@ Filters applied to every finding:
 | A7 | **As designed.** D-WHEN-GATE-DOMAIN runs the `when` gate inside the domain method on every caller, so a workflow calling a gated op on a row that fails it is refused. The model was wrong (the criterion did not imply the gate). → docs note (H7), plus a suggestion-level lint candidate in H8 |
 | G3 | The C#-member-hides-type collision is a target-escaping matter, in flight in #3155/#3185. → verify only (H1) |
 | S1, G1, A2, M1-warning, M2, E5 | In flight (#3109, #3183/#3187, #3140, #3141, #3248, #3243). → excluded |
-| S3, S5, S6, A5, A6, E2, E3 | New surface or open design questions (element-level visibility, create-time params/stamps, system-only ops, server-side list filters, sequences, queryable derived fields, timers without a correlation aggregate). → `docs/new-plan` missions with the helpdesk evidence (H8) |
+| S3, S5, S6, A5, A6, E2, E3, E7 | New surface or open design questions (element-level visibility, create-time params/stamps, system-only ops, server-side list filters, sequences, queryable derived fields, timers without a correlation aggregate). → `docs/new-plan` missions with the helpdesk evidence (H8) |
 
 ### Fleet slices (each tree-fenced, one agent each)
 
