@@ -830,6 +830,19 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (isIntDivWidenedToDecimal(e)) {
     return `java.math.BigDecimal.valueOf(${l}).divide(java.math.BigDecimal.valueOf(${r}), java.math.MathContext.DECIMAL128)`;
   }
+  // A `money?`/`decimal?` equality must not reach `compareTo`, which throws an
+  // NPE on a null receiver AND on a null argument: `x == null` is a plain null
+  // check, and a nullable side compares through a nulls-first comparator —
+  // both absent → equal, one absent → unequal, both present → compareTo.
+  if (
+    (e.op === "==" || e.op === "!=") &&
+    (isMoneyLike(lt) || isMoneyLike(unwrapOptional(e.rightType)))
+  ) {
+    if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
+    if (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") {
+      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxIntegralForBigDecimal(l, e.leftType)}, ${boxIntegralForBigDecimal(r, e.rightType)}) ${e.op} 0`;
+    }
+  }
   // BigDecimal has no operators — arithmetic + comparisons dispatch
   // through methods.  `equals` is scale-sensitive (1.0 ≠ 1.00), so
   // equality routes through compareTo as well.
