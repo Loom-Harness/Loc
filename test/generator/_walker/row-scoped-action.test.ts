@@ -40,7 +40,7 @@ const PAGES = `
     page Items {
       route: "/items"
       body: QueryView { of: Shop.Customer.all, data: rows =>
-        For { each: rows, o => Action { o.activate } } }
+        For { each: rows, o => Action { o.activate, then: toast("activated") } } }
     }`;
 
 interface Cell {
@@ -80,7 +80,8 @@ const react = (pack: string): Cell => ({
   pack,
   page: JSX,
   tableRow: ["<ActivateCustomerRowAction id={row.id} />"],
-  forItem: ["<ActivateCustomerRowAction id={o.id} />"],
+  // The `then:` effect is page code, so it rides in as a callback.
+  forItem: ['<ActivateCustomerRowAction id={o.id} onDone={() => { toast("activated"); }} />'],
   wiring: [
     /function ActivateCustomerRowAction\(\{ id, testid, onDone \}/,
     "useActivateCustomer(id)",
@@ -92,7 +93,7 @@ const holder = (platform: string, pack: string, page: Cell["page"]): Cell => ({
   pack,
   page,
   tableRow: ["activateCustomerRowId.current = row.id; void activateCustomerRow.mutateAsync({})"],
-  forItem: ["activateCustomerRowId.current = o.id; void activateCustomerRow.mutateAsync({})"],
+  forItem: ["activateCustomerRowId.current = o.id; void activateCustomerRow.mutateAsync({}).then("],
   wiring: [/useActivateCustomer\(\(\) => activateCustomerRowId\.current\)/],
 });
 const angular = (pack: string): Cell => ({
@@ -126,8 +127,15 @@ const CELLS: readonly Cell[] = [
     framework: "feliz",
     page: FELIZ,
     tableRow: ["dispatch (ActivateCustomer (row.id))"],
-    forItem: ["dispatch (ActivateCustomer (o.id))"],
-    wiring: ["| ActivateCustomer id -> model, Cmd.OfAsync.perform Api.activateCustomer id"],
+    forItem: ["dispatch (ActivateCustomerThen ((o.id), (fun () ->"],
+    wiring: [
+      "| ActivateCustomer id -> model, Cmd.OfAsync.perform Api.activateCustomerAction id",
+      // The `then:` arm is declared because the collector reached the `For`
+      // row's Action through its unpaged `<handle>.<Agg>.all` QueryView.
+      "| ActivateCustomerThen (id, andThen) ->",
+      // A list page's rows refetch once the op lands.
+      /\| ActivateCustomerDone \(Ok \(\)\) -> model, Cmd\.(batch|OfAsync)/,
+    ],
   },
   {
     id: "flutter",

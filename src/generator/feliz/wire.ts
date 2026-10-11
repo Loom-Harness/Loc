@@ -1093,7 +1093,9 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
   return {
     aggregate,
     op: op.name,
-    apiFn: `${op.name}${upperFirst(aggregate)}`,
+    // `…Action`: an `OperationForm` over the same op declares
+    // `Api.<op><Agg>` with its own (form-taking) signature.
+    apiFn: `${op.name}${upperFirst(aggregate)}Action`,
     triggerMsg: opCap,
     doneMsg: `${opCap}Done`,
     route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
@@ -2183,6 +2185,18 @@ function singleQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): str
   return name && aggNames.has(name) ? name : undefined;
 }
 
+/** The aggregate a LIST QueryView reads, from a bare `<handle>.<Agg>.all` /
+ *  `<Agg>.all` chain (the verb is the last member, the aggregate the one before
+ *  it) — the shape `singleQueryAggregate` reads one hop too shallow. */
+function listQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): string | undefined {
+  const recv = ofArg.kind === "method-call" ? ofArg.receiver : ofArg;
+  if (recv.kind !== "member") return undefined;
+  const owner = recv.receiver;
+  const name =
+    owner.kind === "member" ? owner.member : owner.kind === "ref" ? owner.name : undefined;
+  return name && aggNames.has(name) ? name : undefined;
+}
+
 /** Collect the one-click actions a page hosts (`Action { <instance>.<op> }`),
  *  deduped by trigger `Msg`.  Resolution is bounded to the shape the walker can
  *  type: an `Action` inside the `data:` lambda of a single-record (byId)
@@ -2218,7 +2232,9 @@ export function collectPageActions(
       const ofArg = names.indexOf("of") >= 0 ? e.args[names.indexOf("of")] : undefined;
       const single = isSingleQueryView(e, shapeCtx);
       const dataArg = names.indexOf("data") >= 0 ? e.args[names.indexOf("data")] : undefined;
-      const queried = ofArg ? singleQueryAggregate(ofArg, aggNames) : undefined;
+      const queried = ofArg
+        ? (singleQueryAggregate(ofArg, aggNames) ?? listQueryAggregate(ofArg, aggNames))
+        : undefined;
       // The data lambda's param binds to the queried aggregate (a record), or
       // names its rows (a list); other args walk under the ambient binding.
       for (let i = 0; i < e.args.length; i++) {
