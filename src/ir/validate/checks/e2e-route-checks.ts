@@ -1111,7 +1111,22 @@ const CREATE_RESPONSE_FIELDS: readonly string[] = ["id"];
  *  this layer does not follow. */
 const WORKFLOW_ROW_RESPONSE_VERB = "instance";
 
-/** One `<binding>.<field>` read off a workflow instance row.
+/** One `<field>` read off a shaped response, in either spelling the body can
+ *  write it: through a binding (`let w = api.widgets.create(…)` then `w.code`)
+ *  or straight off the call (`api.widgets.create(…).code`).  Both lower to the
+ *  same `member` node over the same response, so both are judged — a gate that
+ *  read only the bound form would leave the inline twin of every refused read
+ *  passing for the wrong reason. */
+interface ResponseRead {
+  readonly call: MagicCall;
+  readonly field: string;
+  /** What the body wrote, for the message: `w.code` / `api.widgets.create(…).code`. */
+  readonly read: string;
+  /** What names the response: the binding, or the call itself when inline. */
+  readonly handle: string;
+}
+
+/** One read off a workflow instance row.
  *
  *  Split out rather than inlined because the aggregate arm's two escape hatches
  *  do not apply and saying so is the point: a workflow has no `extends`, so
@@ -1119,9 +1134,7 @@ const WORKFLOW_ROW_RESPONSE_VERB = "instance";
  *  `instanceWireShape` is the WHOLE row (correlation token + state fields) with
  *  no read-masking projection over it — `forApiRead` has nothing to drop. */
 function checkWorkflowInstanceRead(
-  binding: string,
-  field: string,
-  call: MagicCall,
+  r: ResponseRead,
   wf: WorkflowIR,
   seen: Set<string>,
   source: string,
@@ -1134,19 +1147,17 @@ function checkWorkflowInstanceRead(
   const shape = wf.instanceWireShape;
   if (!shape) return;
   const readable = shape.map((w) => w.name);
-  if (readable.includes(field)) return;
+  if (readable.includes(r.field)) return;
   // One read, one diagnostic, however many times the body repeats it.
-  const key = `${binding}.${field}`;
-  if (seen.has(key)) return;
-  seen.add(key);
+  if (seen.has(r.read)) return;
+  seen.add(r.read);
   diags.push({
     severity: "error",
     code: "loom.e2e-unknown-response-field",
     source,
     message: diagMessage("loom.e2e-unknown-response-field#workflow-instance", {
-      binding,
-      field,
-      slug: call.slug,
+      read: r.read,
+      slug: r.call.slug,
       workflow: wf.name,
       known: readable.join(", ") || "(none)",
     }),
@@ -1160,24 +1171,35 @@ function checkResponseFields(
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  // `let <name> = api.<slug>.<verb>(…)` — the only binding form whose response
-  // shape is known.  A rebinding (two `let`s of the same name) is not legal in
-  // a test body, so a flat map is enough.
+  const shaped = (c: MagicCall | null): c is MagicCall =>
+    c !== null && SHAPED_RESPONSE_VERBS.has(c.verb) && routed.has(`${c.slug}.${c.verb}`);
+  // `let <name> = api.<slug>.<verb>(…)` — the binding form.  A rebinding (two
+  // `let`s of the same name) is not legal in a test body, so a flat map is
+  // enough.
   const bound = new Map<string, MagicCall>();
   for (const s of test.statements) {
     if (s.kind !== "let") continue;
     const c = matchMagicCall(s.expr, "api");
-    if (c && SHAPED_RESPONSE_VERBS.has(c.verb) && routed.has(`${c.slug}.${c.verb}`)) {
-      bound.set(s.name, c);
-    }
+    if (shaped(c)) bound.set(s.name, c);
   }
-  if (bound.size === 0) return;
+  const readOf = (e: ExprIR): ResponseRead | undefined => {
+    if (e.kind !== "member") return undefined;
+    if (e.receiver.kind === "ref") {
+      const call = bound.get(e.receiver.name);
+      if (!call) return undefined;
+      const handle = e.receiver.name;
+      return { call, field: e.member, read: `${handle}.${e.member}`, handle };
+    }
+    const call = matchMagicCall(e.receiver, "api");
+    if (!shaped(call)) return undefined;
+    const handle = `api.${call.slug}.${call.verb}(…)`;
+    return { call, field: e.member, read: `${handle}.${e.member}`, handle };
+  };
   const seen = new Set<string>();
   const visit = (e: ExprIR): void => {
-    if (e.kind !== "member") return;
-    if (e.receiver.kind !== "ref") return;
-    const call = bound.get(e.receiver.name);
-    if (!call) return;
+    const r = readOf(e);
+    if (!r) return;
+    const { call } = r;
     const resolved = resolveAggregate(call.slug, contexts);
     if (!resolved) {
       // The WORKFLOW accessor's read half — `let one = api.<wf>.instance(k)`.
@@ -1187,22 +1209,22 @@ function checkResponseFields(
       // against the emitted DTO rather than against a second opinion of it.
       const wf = findWorkflowBySlug(call.slug, contexts);
       if (wf && call.verb === WORKFLOW_ROW_RESPONSE_VERB) {
-        checkWorkflowInstanceRead(e.receiver.name, e.member, call, wf, seen, source, diags);
+        checkWorkflowInstanceRead(r, wf, seen, source, diags);
       }
       return;
     }
     if (call.verb === "create") {
-      if (CREATE_RESPONSE_FIELDS.includes(e.member)) return;
-      const key = `${e.receiver.name}.${e.member}`;
-      if (seen.has(key)) return;
-      seen.add(key);
+      if (CREATE_RESPONSE_FIELDS.includes(r.field)) return;
+      if (seen.has(r.read)) return;
+      seen.add(r.read);
       diags.push({
         severity: "error",
         code: "loom.e2e-unknown-response-field",
         source,
         message: diagMessage("loom.e2e-unknown-response-field#create", {
-          binding: e.receiver.name,
-          field: e.member,
+          read: r.read,
+          handle: r.handle,
+          field: r.field,
           slug: call.slug,
           aggregate: resolved.agg.name,
         }),
@@ -1210,23 +1232,21 @@ function checkResponseFields(
       return;
     }
     const readable = forApiRead(wireFieldsForAggregate(resolved.agg)).map((w) => w.name);
-    if (readable.includes(e.member)) return;
+    if (readable.includes(r.field)) return;
     // An `extends` subtype does not carry its abstract base's fields in its own
     // `fields` (the I1 note on `AggregateIR.extendsAggregate`), so a read of an
     // inherited field is not decidable here and the whole aggregate is skipped
     // rather than half-judged.
     if (resolved.agg.extendsAggregate) return;
     // One read, one diagnostic, however many times the body repeats it.
-    const key = `${e.receiver.name}.${e.member}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    if (seen.has(r.read)) return;
+    seen.add(r.read);
     diags.push({
       severity: "error",
       code: "loom.e2e-unknown-response-field",
       source,
       message: diagMessage("loom.e2e-unknown-response-field", {
-        binding: e.receiver.name,
-        field: e.member,
+        read: r.read,
         slug: call.slug,
         verb: call.verb,
         aggregate: resolved.agg.name,

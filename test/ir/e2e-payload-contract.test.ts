@@ -333,6 +333,80 @@ describe("e2e payload — a response field the body cannot carry", () => {
   });
 });
 
+// A `create` answers `201 { id }` on all five backends — never the row.  A read
+// of any other field off it is `undefined` at run time, so
+// `expect(w.note).toBeAbsent()` passed against an envelope with no `note` key,
+// while the RS-35 explicit-null claim it names is only observable on a read.
+describe("e2e payload — a CREATE result is the { id } envelope", () => {
+  it("refuses a declared field read off a bound create result", async () => {
+    expect(
+      await codesFor(`let w = api.widgets.create({ ${FULL} })  expect(w.code).toBe("c")`),
+    ).toEqual(["loom.e2e-unknown-response-field"]);
+  });
+
+  it("refuses the absent-optional probe that passed for the wrong reason", async () => {
+    expect(
+      await codesFor(`let w = api.widgets.create({ ${FULL} })  expect(w.note).toBeAbsent()`),
+    ).toEqual(["loom.e2e-unknown-response-field"]);
+  });
+
+  it("refuses the same read written inline on the call", async () => {
+    expect(await codesFor(`expect(api.widgets.create({ ${FULL} }).code).toBe("c")`)).toEqual([
+      "loom.e2e-unknown-response-field",
+    ]);
+  });
+
+  it("refuses it on an `extends` subtype too — the envelope does not depend on the fields", async () => {
+    const src = `
+      system S {
+        subdomain D { context C {
+          abstract aggregate Party inheritanceUsing: sharedTable { name: string }
+          aggregate Customer extends Party with crudish { creditLimit: int }
+        } }
+        storage pg { type: postgres }
+        resource st { for: C, kind: state, use: pg }
+        deployable d { platform: node, contexts: [C], dataSources: [st], port: 4000 }
+        test e2e "t" against d {
+          let c = api.customers.create({ name: "Acme", creditLimit: 1 })
+          expect(c.name).toBe("Acme")
+        }
+      }`;
+    const { model, errors } = await parseString(src);
+    expect(errors).toEqual([]);
+    const codes = validateLoomModel(toLoomModel(model))
+      .filter((d) => d.severity === "error")
+      .map((d) => d.code);
+    expect(codes).toEqual(["loom.e2e-unknown-response-field"]);
+  });
+
+  it("says the body is { id } and points at getById", async () => {
+    const [msg] = await messagesFor(
+      `let w = api.widgets.create({ ${FULL} })  expect(w.note).toBeAbsent()`,
+    );
+    expect(msg).toContain("'w.note'");
+    expect(msg).toContain("api.widgets.create(…)");
+    expect(msg).toContain("'{ id }'");
+    expect(msg).toContain("'api.widgets.getById(w)', then '.note'");
+    expect(msg).toContain("'w.id'");
+  });
+
+  it("NON-VACUITY: the id reads clean, bound or inline, and the read-back carries the fields", async () => {
+    expect(
+      await codesFor(
+        `let w = api.widgets.create({ ${FULL} })  let g = api.widgets.getById(w)  expect(g.id).toBe(w.id)  expect(g.note).toBeAbsent()  let h = api.widgets.getById(api.widgets.create({ ${FULL} }).id)  expect(h.code).toBe("c")`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("an inline getById read is judged like a bound one", async () => {
+    expect(
+      await codesFor(
+        `let w = api.widgets.create({ ${FULL} })  expect(api.widgets.getById(w).nonesuch).toBe("x")  expect(api.widgets.getById(w).code).toBe("c")`,
+      ),
+    ).toEqual(["loom.e2e-unknown-response-field"]);
+  });
+});
+
 describe("e2e payload — the gate defers where it has no ground truth", () => {
   it("says nothing about a body whose verb does not ROUTE", async () => {
     // One mistake, one diagnostic: a body aimed at a route that does not exist

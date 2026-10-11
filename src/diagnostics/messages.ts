@@ -4350,17 +4350,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `'= default', or is a bare 'bool'; anything else the client must supply, and the backend ` +
     `answers 422 without it. Required keys: ${p.known}.`,
   "loom.e2e-unknown-response-field#workflow-instance": (p: {
-    binding: unknown;
-    field: unknown;
+    read: unknown;
     slug: unknown;
     workflow: unknown;
     known: unknown;
   }) =>
-    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
-    `'${p.binding}' is 'api.${p.slug}.instance(…)', whose body is the persisted instance shape ` +
-    `of workflow '${p.workflow}': its correlation field, then its state fields. The read is ` +
-    `'undefined' at run time, so an assertion over it passes or fails for the wrong reason. ` +
-    `Readable: ${p.known}.`,
+    `e2e: '${p.read}' reads a field the response does not carry — the body of ` +
+    `'api.${p.slug}.instance(…)' is the persisted instance shape of workflow '${p.workflow}': ` +
+    `its correlation field, then its state fields. The read is 'undefined' at run time, so an ` +
+    `assertion over it passes or fails for the wrong reason. Readable: ${p.known}.`,
   "loom.e2e-body-type-mismatch": (p: {
     slug: unknown;
     verb: unknown;
@@ -4383,29 +4381,29 @@ export const DIAGNOSTIC_MESSAGES = {
     `An enum crosses the wire as the member name spelled EXACTLY, as a string. ` +
     `Members of '${p.declared}': ${p.members}.`,
   "loom.e2e-unknown-response-field": (p: {
-    binding: unknown;
-    field: unknown;
+    read: unknown;
     slug: unknown;
     verb: unknown;
     aggregate: unknown;
     known: unknown;
   }) =>
-    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
-    `'${p.binding}' is 'api.${p.slug}.${p.verb}(…)', whose body is the api-read wire shape of ` +
-    `'${p.aggregate}'. The read is 'undefined' at run time, so an assertion over it passes or ` +
-    `fails for the wrong reason. Readable: ${p.known}.`,
+    `e2e: '${p.read}' reads a field the response does not carry — the body of ` +
+    `'api.${p.slug}.${p.verb}(…)' is the api-read wire shape of '${p.aggregate}'. The read is ` +
+    `'undefined' at run time, so an assertion over it passes or fails for the wrong reason. ` +
+    `Readable: ${p.known}.`,
   "loom.e2e-unknown-response-field#create": (p: {
-    binding: unknown;
+    read: unknown;
+    handle: unknown;
     field: unknown;
     slug: unknown;
     aggregate: unknown;
   }) =>
-    `e2e: '${p.binding}.${p.field}' reads a field the response does not carry — ` +
-    `'${p.binding}' is 'api.${p.slug}.create(…)', whose 201 body is the id envelope '{ id }' on ` +
-    `every backend, not the '${p.aggregate}' row. The read is 'undefined' at run time, so an ` +
-    `assertion over it passes or fails for the wrong reason. Read the row back instead — ` +
-    `'let r = api.${p.slug}.getById(${p.binding})', then 'r.${p.field}' — or read only ` +
-    `'${p.binding}.id'.`,
+    `e2e: '${p.read}' reads a field the response does not carry — the body of ` +
+    `'api.${p.slug}.create(…)' is the id envelope '{ id }' on every backend, not the ` +
+    `'${p.aggregate}' row. The read is 'undefined' at run time, so an assertion over it passes ` +
+    `or fails for the wrong reason. Read the row back instead — ` +
+    `'api.${p.slug}.getById(${p.handle})', then '.${p.field}' on that — or read only ` +
+    `'${p.handle}.id'.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
