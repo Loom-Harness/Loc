@@ -40,6 +40,7 @@ import {
   resolverModelsTransformForStack,
   routerPackageForStack,
 } from "../../_packs/stack-runtime.js";
+import { chromeMessage, opDialogDismissChrome } from "../../_walker/i18n-chrome.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -841,11 +842,12 @@ function renderFormOpWiring(
     // which is what every pack hardcoded before the slot was honoured.  Two
     // spellings because packs render the title in both positions: markup text
     // (`<DialogTitle>`) and a JS prop (Mantine's `modals.open({ title })`).
-    // Pack chrome the TEMPLATE bakes in: routed through the stable
-    // `chrome.cancel` key so the catalog entry the extraction pass records for
-    // a Modal is actually USED (an unused entry is the same dead-catalog bug as
-    // an unrendered slot, seen from the other side).
-    cancelLabel: state.cancelLabel ?? "Cancel",
+    // Pack chrome the TEMPLATE bakes in: the dialog's dismiss label, routed
+    // through the stable `chrome.cancel` / `chrome.goBack` key so the catalog
+    // entry the extraction pass records for a Modal is actually USED (an unused
+    // entry is the same dead-catalog bug as an unrendered slot, seen from the
+    // other side).  Never equal to `humanOp` — see `opDialogDismissChrome`.
+    cancelLabel: state.cancelLabel ?? chromeMessage(opDialogDismissChrome(humanize(op.name))),
     modalTitle: state.modalTitle || humanize(op.name),
     modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
     slug: snake(plural(agg.name)),

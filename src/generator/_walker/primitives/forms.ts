@@ -27,6 +27,7 @@ import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
+import { opDialogDismissChrome } from "../i18n-chrome.js";
 import {
   localizedNamedAttr,
   localizedNamedText,
@@ -362,7 +363,7 @@ function emitFormOfOperationByName(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    cancelLabel: localizedPageChromeText(ctx, opDialogDismissChrome(humanize(op.name))),
     agg,
     op,
     bc,
@@ -887,7 +888,7 @@ function emitFormOfOperation(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    cancelLabel: localizedPageChromeText(ctx, opDialogDismissChrome(humanize(op.name))),
     agg,
     op,
     bc,
