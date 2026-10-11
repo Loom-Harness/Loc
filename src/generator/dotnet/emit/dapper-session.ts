@@ -28,19 +28,24 @@
 
 import { lines } from "../../../util/code-builder.js";
 
-/** The lease class's simple name — the repositories share its namespace. */
-export const DAPPER_LEASE_CLASS = "DapperConnectionLease";
+/** The lease / ambient-transaction namespace (beside `DapperUnitOfWork`). */
+function persistenceNs(ns: string): string {
+  return `global::${ns}.Infrastructure.Persistence`;
+}
 
-/** The fully-qualified lease class, for emitters outside `Infrastructure.Repositories`. */
-export function dapperLeaseClassFq(ns: string): string {
-  return `global::${ns}.Infrastructure.Repositories.${DAPPER_LEASE_CLASS}`;
+/** The fully-qualified ambient transaction class `DapperUnitOfWork` delegates to. */
+export function dapperAmbientTxClassFq(ns: string): string {
+  return `${persistenceNs(ns)}.DapperAmbientTransaction`;
 }
 
 /** Opens `conn` — the ambient unit-of-work connection when one is open, else a
  *  fresh pooled one.  One line (two statements) so it drops into every site
- *  that used to read `await using var conn = await _db.OpenConnectionAsync(…);`. */
-export function dapperOpenConn(leaseClass: string = DAPPER_LEASE_CLASS): string {
-  return `await using var __lease = await ${leaseClass}.OpenAsync(_db, cancellationToken); var conn = __lease.Connection;`;
+ *  that used to read `await using var conn = await _db.OpenConnectionAsync(…);`.
+ *  Fully qualified: the repositories live in `Infrastructure.Repositories`, and
+ *  a `using` of the persistence namespace would also import its `Events` /
+ *  `Workflows` / `Projections` sub-namespaces as bare names. */
+export function dapperOpenConn(ns: string): string {
+  return `await using var __lease = await ${persistenceNs(ns)}.DapperConnectionLease.OpenAsync(_db, cancellationToken); var conn = __lease.Connection;`;
 }
 
 /** Begins the repository's own write transaction — or, enlisted, hands back the
@@ -51,7 +56,7 @@ export const DAPPER_BEGIN_TX = "var __tx = await __lease.BeginTransactionAsync(c
  *  work commits, or rolls the whole workflow back). */
 export const DAPPER_COMMIT_TX = "await __lease.CommitAsync(cancellationToken);";
 
-/** `Infrastructure/Repositories/DapperConnectionLease.cs`. */
+/** `Infrastructure/Persistence/DapperConnectionLease.cs`. */
 export function renderDapperConnectionLease(ns: string): string {
   return (
     lines(
@@ -67,7 +72,7 @@ export function renderDapperConnectionLease(ns: string): string {
       "using Npgsql;",
       `using ${ns}.Domain.Common;`,
       "",
-      `namespace ${ns}.Infrastructure.Repositories;`,
+      `namespace ${ns}.Infrastructure.Persistence;`,
       "",
       "/// <summary>",
       "/// The transaction a <c>transactional</c> workflow's unit of work opens.  While it",

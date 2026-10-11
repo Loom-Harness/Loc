@@ -813,10 +813,7 @@ function emitProjectFromContexts(
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
     // saves share ONE connection + transaction (dapper-session.ts).
-    out.set(
-      "Infrastructure/Repositories/DapperConnectionLease.cs",
-      renderDapperConnectionLease(ns),
-    );
+    out.set("Infrastructure/Persistence/DapperConnectionLease.cs", renderDapperConnectionLease(ns));
     // Workflow / saga / event-store / projection port adapters + the reused
     // persistence-neutral row POCOs (M-T6.9) — the raw-Npgsql siblings of the
     // EF PersistencePorts.cs; the EF configs / AppDbContext are NOT emitted.

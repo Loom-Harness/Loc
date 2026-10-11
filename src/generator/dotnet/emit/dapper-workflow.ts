@@ -44,7 +44,7 @@ import {
   workflowStateTable,
 } from "../workflow-state-emit.js";
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
-import { dapperLeaseClassFq, dapperOpenConn } from "./dapper-session.js";
+import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 
 /** A projection that persists a KEYED read-model row (the IReadModelStore /
@@ -215,7 +215,7 @@ function renderRowStore(
   table: string,
   pkCol: string,
   cols: DapperColumn[],
-  leaseClass: string,
+  ns: string,
 ): string[] {
   const nonPk = cols.filter((c) => c.col !== pkCol);
   const insertCols = cols.map((c) => sqlIdent(c.col)).join(", ");
@@ -235,7 +235,7 @@ function renderRowStore(
     "",
     `    public async Task<${pocoClass}?> FindAsync(Expression<Func<${pocoClass}, bool>> predicate, CancellationToken cancellationToken = default)`,
     "    {",
-    `        ${dapperOpenConn(leaseClass)}`,
+    `        ${dapperOpenConn(ns)}`,
     `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT ${selectList(cols)} FROM ${table}", cancellationToken: cancellationToken));`,
     "        var match = rows.Select(Map).AsQueryable().FirstOrDefault(predicate);",
     "        if (match is not null) _pending.Add(match);",
@@ -247,7 +247,7 @@ function renderRowStore(
     "    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)",
     "    {",
     "        if (_pending.Count == 0) return;",
-    `        ${dapperOpenConn(leaseClass)}`,
+    `        ${dapperOpenConn(ns)}`,
     "        foreach (var s in _pending)",
     `            await conn.ExecuteAsync(new CommandDefinition("${upsert}", new { ${bind} }, cancellationToken: cancellationToken));`,
     "        _pending.Clear();",
@@ -273,7 +273,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "",
     `    public async Task<List<${rec}>> LoadStreamAsync(string streamType, string streamId, CancellationToken cancellationToken = default)`,
     "    {",
-    `        ${dapperOpenConn(dapperLeaseClassFq(ns))}`,
+    `        ${dapperOpenConn(ns)}`,
     `        var rows = await conn.QueryAsync<${rec}>(new CommandDefinition(`,
     `            "SELECT seq AS Seq, stream_type AS StreamType, stream_id AS StreamId, version AS Version, type AS Type, data AS Data, occurred_at AS OccurredAt FROM ${table} WHERE stream_type = @streamType AND stream_id = @streamId ORDER BY version",`,
     "            new { streamType, streamId }, cancellationToken: cancellationToken));",
@@ -282,7 +282,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "",
     "    public async Task<int> MaxVersionAsync(string streamType, string streamId, CancellationToken cancellationToken = default)",
     "    {",
-    `        ${dapperOpenConn(dapperLeaseClassFq(ns))}`,
+    `        ${dapperOpenConn(ns)}`,
     "        return await conn.ExecuteScalarAsync<int?>(new CommandDefinition(",
     `            "SELECT MAX(version) FROM ${table} WHERE stream_type = @streamType AND stream_id = @streamId",`,
     "            new { streamType, streamId }, cancellationToken: cancellationToken)) ?? 0;",
@@ -293,7 +293,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)",
     "    {",
     "        if (_pending.Count == 0) return;",
-    `        ${dapperOpenConn(dapperLeaseClassFq(ns))}`,
+    `        ${dapperOpenConn(ns)}`,
     "        foreach (var r in _pending)",
     "            await conn.ExecuteAsync(new CommandDefinition(",
     `                "INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@StreamType, @StreamId, @Version, @Type, @Data::jsonb, @OccurredAt)",`,
@@ -318,7 +318,7 @@ function renderDapperPersistencePorts(
   // port adapter enlists in while it is open (dapper-session.ts), so a
   // `transactional` workflow commits or rolls back as ONE unit.  Delegating,
   // not `async`: the ambient registration must happen in the caller's flow.
-  const ambientTx = `global::${ns}.Infrastructure.Repositories.DapperAmbientTransaction`;
+  const ambientTx = dapperAmbientTxClassFq(ns);
   blocks.push(
     [
       "public sealed class DapperUnitOfWork : IUnitOfWork",
@@ -345,7 +345,7 @@ function renderDapperPersistencePorts(
         workflowStateTable(wf),
         snake(wf.correlationField as string),
         stateColumns(wf, durable),
-        dapperLeaseClassFq(ns),
+        ns,
       ).join("\n"),
     );
   }
@@ -361,7 +361,7 @@ function renderDapperPersistencePorts(
         projectionRowTable(proj),
         snake(proj.correlationField as string),
         projectionColumns(proj),
-        dapperLeaseClassFq(ns),
+        ns,
       ).join("\n"),
     );
   }
