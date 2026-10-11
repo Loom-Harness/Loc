@@ -56,6 +56,10 @@ The block lowers to one runnable spec per subject, emitted next to the domain cl
 import { describe, it, expect } from "vitest";
 import { Order } from "./order";
 import { OrderStatus } from "./value-objects";
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+
+// A bare toThrow(): passes only on a domain rejection; any other error is rethrown.
+function expectDomainRejection(call: () => unknown): void { /* … */ }
 
 describe("Order", () => {
   it("adding a line then confirming yields a confirmed order", () => {
@@ -64,7 +68,7 @@ describe("Order", () => {
     order.confirm();
     expect(order.status).toBe(OrderStatus.Confirmed);
     expect(order.lines.length).toBe(1);
-    expect(() => { order.addLine("00000000-0000-0000-0000-000000000002", 0); }).toThrow();
+    expectDomainRejection(() => { order.addLine("00000000-0000-0000-0000-000000000002", 0); });
   });
 });
 ```
@@ -440,7 +444,7 @@ refusal each backend would invent its own answer.
 
 ### `toThrow()` — the throw assertion
 
-`expect(<call>).toThrow()` asserts the call rejects. The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and **api** e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
+`expect(<call>).toThrow()` asserts the call rejects. In a unit `test` it must be a **domain** rejection: a precondition, an invariant (aggregate, part or value object) or a `when` state gate. A `ReferenceError` / `NameError` out of broken code fails the test rather than passing it. node lowers to a file-local `expectDomainRejection(…)`, python to `pytest.raises((DisallowedError, DomainError, ForbiddenError))`, and Java / .NET / elixir assert their domain exception ([language.md § What a bare `toThrow()` accepts](../language.md#what-a-bare-tothrow-accepts)). The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and **api** e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
 
 ```ddd
 // unit test — wrap the mutating call

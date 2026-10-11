@@ -173,7 +173,7 @@ function domainRejectionHelper(): string[] {
     `    if (${isDomain}) return;`,
     "    throw err;",
     "  }",
-    '  expect.unreachable("expected the call to be rejected by the domain, but it returned");',
+    '  expect.fail("expected the call to be rejected by the domain, but it returned");',
     "}",
   ];
 }

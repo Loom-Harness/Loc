@@ -47,7 +47,11 @@ import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
  *  claims evaluation's D2: a test passed only because codegen emitted an
  *  undefined enum name.  Both backends emit all three classes unconditionally
  *  in `domain/errors`, and spell them identically, hence one list. */
-export const DOMAIN_REJECTION_ERRORS = ["DisallowedError", "DomainError", "ForbiddenError"] as const;
+export const DOMAIN_REJECTION_ERRORS = [
+  "DisallowedError",
+  "DomainError",
+  "ForbiddenError",
+] as const;
 
 /** The derived message prefix each rung emits on node / python / java / .NET
  *  when the rule carries no authored `message`.  Kept as the exact emitted
