@@ -628,7 +628,11 @@ export const felizTarget: WalkerTarget = {
         "Action: first argument must be <instance>.<operation>",
       );
     }
-    const aggName = ctx.paramTypes?.get(opRef.receiver.name);
+    // A detail record (`paramTypes`) dispatches with the route `id`; a ROW of
+    // a list (a `Table` column / `For` lambda — `listRowAggregates`) with its
+    // own `id`.
+    const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
+    const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
@@ -641,16 +645,21 @@ export const felizTarget: WalkerTarget = {
       );
     }
     const action = felizAction(agg.name, op);
-    ctx.usesRouteId = true; // the action dispatches with the route `id`
+    const id = recordAgg ? "id" : `(${emitExpr(opRef.receiver, ctx)}.id)`;
+    if (recordAgg) ctx.usesRouteId = true;
     // M-FT.5 — a `then:` effect rides the trigger as a closure (the collector
     // marks the action `hasThen`, which declares the `…Then` Msg pair); `update`
     // runs it once the POST succeeds.  Built HERE, where the QueryView binding
     // the effect may read (`toast(n.title)`) is still in scope.
     const thenArg = namedArgValue(call, "then");
     const dispatched = thenArg
-      ? `${actionThenMsg(action)} (id, (fun () -> ${felizActionThen(thenArg, ctx)}))`
-      : `${action.triggerMsg} id`;
-    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
+      ? `${actionThenMsg(action)} (${id}, (fun () -> ${felizActionThen(thenArg, ctx)}))`
+      : `${action.triggerMsg} ${id}`;
+    // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
+    // not pre-disable on it; the server still answers the op's own refusal.
+    const gate = recordAgg
+      ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name))
+      : undefined;
     const gateProps = gate
       ? `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : "";

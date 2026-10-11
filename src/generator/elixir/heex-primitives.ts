@@ -651,7 +651,7 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
   }
   const itemVar = snake(itemLam.param);
   const collHeex = renderExpr(coll, { ...ctx, position: "template" });
-  const body = renderChild(itemLam.body, ctx);
+  const body = renderChild(itemLam.body, withRowType(ctx, coll, itemLam.param));
   const loop = [`<%= for ${itemVar} <- ${collHeex} do %>`, indent(body, 2), `<% end %>`].join("\n");
   if (!emptyExpr) return loop;
   const emptyBody = renderChild(emptyExpr, ctx);
@@ -662,6 +662,36 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
     indent(loop, 2),
     `<% end %>`,
   ].join("\n");
+}
+
+/** The aggregate a `Table` `rows:` / `For` `each:` collection's rows are: a
+ *  list QueryView's data param (`rows`), or its server-paged envelope's
+ *  `rows.items`. */
+function collectionRowType(coll: ExprIR | undefined, ctx: WalkContext): string | undefined {
+  if (coll?.kind === "ref") return ctx.listTypes?.get(coll.name);
+  if (coll?.kind === "member" && coll.member === "items" && coll.receiver.kind === "ref") {
+    return ctx.listTypes?.get(coll.receiver.name);
+  }
+  return undefined;
+}
+
+/** `ctx` with a row lambda's param typed as the collection's row aggregate. */
+function withRowType(ctx: WalkContext, coll: ExprIR | undefined, param: string): WalkContext {
+  const agg = collectionRowType(coll, ctx);
+  return agg ? { ...ctx, rowTypes: new Map([...(ctx.rowTypes ?? []), [param, agg]]) } : ctx;
+}
+
+/** `ctx` for one `Column`: its accessor lambda's param is the table's row. */
+function withColumnRowType(
+  ctx: WalkContext,
+  rows: ExprIR | undefined,
+  column: Extract<ExprIR, { kind: "call" }>,
+): WalkContext {
+  const lam = column.args.find(
+    (a, i): a is Extract<ExprIR, { kind: "lambda" }> =>
+      !column.argNames?.[i] && a.kind === "lambda",
+  );
+  return lam ? withRowType(ctx, rows, lam.param) : ctx;
 }
 
 /** `Table(Column(...), ..., rows: ref("rows"), ...)` →
@@ -774,10 +804,11 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   // The active sort feeds the header indicator + `aria-sort`.
   const sortAttrs = sortActive ? ` sort_key={@${sortKey}} sort_dir={@${sortDir}}` : "";
 
+  const rowsArg = namedArg(expr, "rows");
   const colSlots = cols
     .map((c, i) =>
       c.kind === "call"
-        ? renderTableColumn(c, ctx, sortActive, i)
+        ? renderTableColumn(c, withColumnRowType(ctx, rowsArg, c), sortActive, i)
         : `<:col :let={_row} label="Column ${i + 1}">${renderChild(c, ctx)}</:col>`,
     )
     .join("\n");
@@ -1185,15 +1216,21 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
           [dataVar, autoPaged ? `${assignName}.items` : assignName],
         ]);
         // Type the data binding so a nested instance-qualified op-form
-        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on.
-        const recordAgg = isSingle && ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
+        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on
+        // — or, for a list, so its `Table` / `For` rows type theirs.
+        const queried = ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
+        const known = queried !== undefined && ctx.aggregatesByName.has(queried);
         const innerCtx: WalkContext = {
           ...ctx,
           varRemapping: remapping,
           instanceTypes:
-            recordAgg && ctx.aggregatesByName.has(recordAgg)
-              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, recordAgg]])
+            known && isSingle
+              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, queried]])
               : ctx.instanceTypes,
+          listTypes:
+            known && !isSingle
+              ? new Map([...(ctx.listTypes ?? []), [arg.param, queried]])
+              : ctx.listTypes,
         };
         if (arg.body) dataHeex = renderChild(arg.body, innerCtx);
       } else {
@@ -1798,7 +1835,9 @@ export function renderAvatar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
     const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : ` alt=""`;
     return `<img class="${cls} object-cover" src=${attrValue(srcArg, ctx)}${altAttr}${testidAttr} />`;
   }
-  return `<span class="${cls} bg-gray-200"${testidAttr}></span>`;
+  // No image to carry the alt, so the placeholder itself is the named image.
+  const named = altArg ? ` role="img" aria-label=${attrValue(altArg, ctx)}` : "";
+  return `<span class="${cls} bg-gray-200"${named}${testidAttr}></span>`;
 }
 
 /** `Loader(size?)` → an animated spinner.  The optional `size:` is dropped

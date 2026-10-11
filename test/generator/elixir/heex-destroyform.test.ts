@@ -50,7 +50,11 @@ describe("HEEx DestroyForm (parity finding #5)", () => {
     const live = await detailLive();
     expect(live).toMatch(/phx-click="destroy_order"/);
     expect(live).toContain("phx-value-id={@id}");
-    expect(live).toMatch(/data-confirm="/);
+    // The prompt is the shared `chrome.deleteConfirm` message (the fixture's ui
+    // is i18n-enabled), the entity name substituted for its `{entity}` hole.
+    expect(live).toContain(
+      'data-confirm={String.replace(pgettext("chrome.deleteConfirm", "Delete this \\x7Bentity\\x7D?"), "\\x7Bentity\\x7D", "order")}',
+    );
   });
 
   it("hoists a destroy handle_event that calls the Ash destroy interface by id", async () => {

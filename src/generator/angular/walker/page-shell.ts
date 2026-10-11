@@ -960,19 +960,30 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     for (const [from, names] of [...byPath.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       imports.push(`import { ${[...names].sort().join(", ")} } from ${JSON.stringify(from)};`);
     }
+    // A row-scoped and a record-scoped Action on the same op share one
+    // mutation (its id travels with each call) but not one method.
+    const declared = new Set<string>();
     for (const a of angularActions) {
-      members.push(`  readonly ${a.localVar} = ${a.hookName}();`);
+      if (!declared.has(a.localVar)) {
+        declared.add(a.localVar);
+        members.push(`  readonly ${a.localVar} = ${a.hookName}();`);
+      }
       if (a.gate) {
         members.push(
           `  readonly ${a.gate.local} = ${a.gate.hook}(() => ${a.method.idAccess} ?? "");`,
         );
       }
-      const body = [
-        `  async ${a.method.name}(): Promise<void> {`,
-        `    const id = ${a.method.idAccess};`,
-        "    if (!id) return;",
-        `    await this.${a.localVar}.mutateAsync({ id, input: {} });`,
-      ];
+      const body = a.method.rowId
+        ? [
+            `  async ${a.method.name}(id: string): Promise<void> {`,
+            `    await this.${a.localVar}.mutateAsync({ id, input: {} });`,
+          ]
+        : [
+            `  async ${a.method.name}(): Promise<void> {`,
+            `    const id = ${a.method.idAccess};`,
+            "    if (!id) return;",
+            `    await this.${a.localVar}.mutateAsync({ id, input: {} });`,
+          ];
       if (a.method.thenJs) body.push(`    ${a.method.thenJs};`);
       body.push("  }");
       members.push(body.join("\n"));

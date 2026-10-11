@@ -2198,26 +2198,59 @@ export function collectPageActions(
   if (!page.body) return [];
   const aggNames = new Set(aggregatesByName.keys());
   const out: FelizAction[] = [];
-  // Walk carrying `binding`: single-QueryView data-lambda param → aggregate name
-  // (the render-time `ctx.paramTypes` twin).
-  const walk = (e: ExprIR, binding: ReadonlyMap<string, string>): void => {
+  // Walk carrying `binding`: an in-scope record → its aggregate name — a
+  // single-QueryView data-lambda param (the render-time `ctx.paramTypes` twin)
+  // or the ROW param of a `Table` column / `For` lambda over a list QueryView's
+  // rows (the render-time `ctx.listRowAggregates` twin).  `lists` maps a list
+  // QueryView's data param to the aggregate its rows are.
+  const walk = (
+    e: ExprIR,
+    binding: ReadonlyMap<string, string>,
+    lists: ReadonlyMap<string, string> = new Map(),
+    rowAgg?: string,
+  ): void => {
+    if (e.kind === "lambda" && rowAgg) {
+      if (e.body) walk(e.body, new Map([...binding, [e.param, rowAgg]]), lists);
+      return;
+    }
     if (e.kind === "call" && e.name === "QueryView") {
       const names = e.argNames ?? [];
       const ofArg = names.indexOf("of") >= 0 ? e.args[names.indexOf("of")] : undefined;
       const single = isSingleQueryView(e, shapeCtx);
       const dataArg = names.indexOf("data") >= 0 ? e.args[names.indexOf("data")] : undefined;
-      const agg = single && ofArg ? singleQueryAggregate(ofArg, aggNames) : undefined;
-      // The data lambda's param binds to the queried aggregate; other args walk
-      // under the ambient binding.
+      const queried = ofArg ? singleQueryAggregate(ofArg, aggNames) : undefined;
+      // The data lambda's param binds to the queried aggregate (a record), or
+      // names its rows (a list); other args walk under the ambient binding.
       for (let i = 0; i < e.args.length; i++) {
         const arg = e.args[i]!;
-        if (arg === dataArg && arg.kind === "lambda" && arg.body && agg) {
-          walk(arg.body, new Map([...binding, [arg.param, agg]]));
+        if (arg === dataArg && arg.kind === "lambda" && arg.body && queried && single) {
+          walk(arg.body, new Map([...binding, [arg.param, queried]]), lists);
+        } else if (arg === dataArg && arg.kind === "lambda" && arg.body && queried) {
+          walk(arg.body, binding, new Map([...lists, [arg.param, queried]]));
         } else {
-          walk(arg, binding);
+          walk(arg, binding, lists);
         }
       }
       return;
+    }
+    if (e.kind === "call" && (e.name === "Table" || e.name === "For")) {
+      // The row lambdas (a `Column`'s accessor, the `For` item) bind their
+      // param to the aggregate the collection's rows are — `rows` or the
+      // server-paged envelope's `rows.items`.
+      const names = e.argNames ?? [];
+      const collIdx = names.indexOf(e.name === "Table" ? "rows" : "each");
+      const coll = collIdx >= 0 ? e.args[collIdx] : undefined;
+      const collRef =
+        coll?.kind === "ref"
+          ? coll.name
+          : coll?.kind === "member" && coll.member === "items" && coll.receiver.kind === "ref"
+            ? coll.receiver.name
+            : undefined;
+      const rows = collRef ? lists.get(collRef) : undefined;
+      if (rows) {
+        for (const arg of e.args) walk(arg, binding, lists, rows);
+        return;
+      }
     }
     if (e.kind === "call" && e.name === "Action") {
       const opRef = (e.args ?? []).find((a) => !(e.argNames ?? [])[e.args.indexOf(a)]);
@@ -2235,7 +2268,7 @@ export function collectPageActions(
       }
       return;
     }
-    for (const c of exprChildren(e)) walk(c, binding);
+    for (const c of exprChildren(e)) walk(c, binding, lists, rowAgg);
   };
   walk(page.body, new Map());
   return out;
