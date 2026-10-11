@@ -182,7 +182,9 @@ describe("<vo>.equals call shape is validated like a scalar intrinsic", () => {
       "function isAt(pier: string, position: int): int =",
     );
     const { diagnostics } = await parseString(src);
-    const errors = diagnostics.filter((d) => d.severity === 1).map((d) => d.message);
+    const errors = diagnostics
+      .filter((d) => d.severity === 1)
+      .map((d) => (typeof d.message === "string" ? d.message : d.message.value));
     expect(errors.some((m) => /\bbool\b/.test(m) && /\bint\b/.test(m))).toBe(true);
   });
 
