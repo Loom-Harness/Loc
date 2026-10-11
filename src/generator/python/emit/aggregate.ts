@@ -682,10 +682,8 @@ function renderEntity(
   // the principal id (`current_user.<idAttr>`, threaded from
   // `request.state.current_user`).  Root-only; event-sourced aggregates and
   // principal stamps without auth are gated upstream.
-  const stampRules = (event: "create" | "update"): ContextStampAssignmentIR[] =>
-    e.isRoot
-      ? (e.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments)
-      : [];
+  const stampRules = (event: "create" | "update"): readonly ContextStampAssignmentIR[] =>
+    e.isRoot ? pyStampAssignments(e, event) : [];
   const renderStampValue = (value: ExprIR): string =>
     value.kind === "ref" && value.refKind === "current-user"
       ? `current_user.${principalIdAttr ?? "id"}`
@@ -1005,4 +1003,24 @@ function shellSeed(f: FieldIR): string {
 function renderPyOperationReturnType(t: TypeIR): string {
   if (t.kind === "union") return "dict[str, object]";
   return renderPyType(t);
+}
+
+/** The stamp assignments a lifecycle event applies.  A fresh row is stamped
+ *  with the create AND the update set (a create assignment wins on a shared
+ *  field): `updatedAt` / `updatedBy` describe the last write, and an insert is
+ *  one — the same set node's `stampInsert` and JPA's persist-time auditing
+ *  fill.  Stamping the create set alone left `updatedBy` at its empty default.
+ *  Shared with the routes builder, which threads `current_user` by it. */
+export function pyStampAssignments(
+  agg: {
+    contextStamps?: readonly { event: string; assignments: readonly ContextStampAssignmentIR[] }[];
+  },
+  event: "create" | "update",
+): ContextStampAssignmentIR[] {
+  const of = (ev: string): ContextStampAssignmentIR[] =>
+    (agg.contextStamps ?? []).filter((r) => r.event === ev).flatMap((r) => [...r.assignments]);
+  if (event === "update") return of("update");
+  const create = of("create");
+  const created = new Set(create.map((a) => a.field));
+  return [...create, ...of("update").filter((a) => !created.has(a.field))];
 }

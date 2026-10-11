@@ -587,6 +587,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
   ],
+  // The same entity-history read class: `field-mask` reads its audited
+  // aggregate's trail as the unprivileged principal (the masked-field DROP and
+  // the RS-42 `actor`).
+  "corpus/field-mask": ["api.employees.history (no derived operation)"],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
   // a singleton whole-table aggregation and the grouped read models.  The

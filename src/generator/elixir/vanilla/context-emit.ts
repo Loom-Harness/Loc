@@ -475,6 +475,38 @@ function renderContextModule(
     // the If-Match header at the controller) as a trailing `expected_version \\ nil`
     // arg through the update defdelegate to the repository's optimistic-lock write.
     const versionedArg = aggregateIsVersioned(agg) ? ", expected_version \\\\ nil" : "";
+    // An AUDITED `update` (aggregate-wide `audited`, or `operation update(…)
+    // audited`) records its row in the context seam both the REST action and
+    // the LiveView edit form call: the field update goes through the
+    // repository, not the op body that stages audit for every other
+    // operation, so a plain delegate left the most common audited write with
+    // no trail.  The row commits in the save's transaction.
+    const updateOp = agg.operations.find((o) => o.name === "update");
+    const updateSeam = updateOp?.audited
+      ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
+    ${appModule}.Repo.transaction(fn ->
+      case ${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""}) do
+        {:ok, updated} ->
+${auditRecordCall({
+  appModule,
+  operationId: `update${aggPascal}`,
+  action: "update",
+  targetType: aggPascal,
+  targetId: "updated.id",
+  before: wireSnapshot("record", false, appModule),
+  after: wireSnapshot("updated", false, appModule),
+  indent: "          ",
+})}
+
+          updated
+
+        {:error, reason} ->
+          ${appModule}.Repo.rollback(reason)
+      end
+    end)
+  end
+`
+      : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
     // Skip ops whose names collide with the CRUD defdelegates above —
     // notably `update`/`destroy` from `with crudish` would redefine
     // `update_<agg>/2`/`delete_<agg>/1` otherwise.  The CRUD seam
@@ -788,7 +820,7 @@ ${body}
       : ""
   }
 ${createDelegate}
-  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
+${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 

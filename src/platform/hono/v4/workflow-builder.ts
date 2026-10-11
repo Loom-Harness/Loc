@@ -639,6 +639,9 @@ export function buildWorkflowsFile(
     /(?<!\.)\brunInChildContext\(/.test(bodyStr) ? "runInChildContext" : null,
   ].filter((x): x is string => x !== null);
   if (alsImports.length > 0) imports.push(`import { ${alsImports.join(", ")} } from "../obs/als";`);
+  // An audited op-call's row carries the principal's declared shape.
+  if (/(?<!\.)\bauditActor\(/.test(bodyStr))
+    imports.push(`import { auditActor } from "../audit/actor";`);
   // The provenance flush stamps a fresh per-row trace id.
   if (/(?<!\.)\brandomUUID\(/.test(bodyStr))
     imports.push(`import { randomUUID } from "node:crypto";`);
@@ -2351,7 +2354,7 @@ export function honoWorkflowStmtTarget(
           `${indent}  action: "${st.op}",`,
           `${indent}  targetType: "${st.aggName}",`,
           `${indent}  targetId: (${after} as { id: string }).id,`,
-          `${indent}  actor: ${c}?.currentUser ?? null,`,
+          `${indent}  actor: auditActor(),`,
           `${indent}  before: ${before},`,
           `${indent}  after: ${after},`,
           `${indent}  at: new Date(),`,

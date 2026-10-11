@@ -81,3 +81,11 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - `WIRE_WAIVERS` is empty again.
   - The fold kept F3's and F1's additions to `corpus/intrinsics` and `corpus/wire-ingress` alongside F4's. Both goldens were re-minted from node.
   - F4's four new missions collided with F8's M-T6.89, so they are renumbered **M-T6.93–96**: the missing-required sentence, Feliz/Flutter UTF-16 units, the NUL contract, and elixir's changeset Ecto text. Hand-off: `handoffs/wave-c3f-f4.md`.
+- **F5 folded** (2026-10-11; `claude/c3f-f5` @ `3a7e2c707`). **Audit and principal cluster.** All six items are fixed:
+  - **D1:** every backend records the audit `actor` as the principal's declared `user {…}` shape, by declared name (the `/auth/me` body), or null without auth. This is minted as RS-39 and renumbered **RS-42** at the fold.
+  - **D2:** elixir's audited crudish update writes its row in one transaction.
+  - **D3:** java's create audit snapshots the saved entity, so a `stamp` datetime no longer 500s.
+  - **D4:** `mask unless` without auth is refused at validation (`loom.field-mask-principal-without-auth`).
+  - **D9:** python stamps `updatedBy` on a fresh row.
+  - **3c #2:** every backend's audit-history 403 says `Forbidden: find history`, and its waiver is deleted.
+  - The witnesses are `corpus/field-mask`, `audit-history` and `stamps-principal`, with goldens minted from node. They match on node, python, .NET EF, java and elixir. Dapper and MikroORM are left to CI. Hand-off: `handoffs/wave-c3f-f5.md`.

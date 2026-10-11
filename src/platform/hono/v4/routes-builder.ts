@@ -288,11 +288,12 @@ function emitHistoryRoute(
     );
   }
   if (find.requires) {
-    // Audit-history's 403 `detail` stays bare `Forbidden` for now: unlike the
-    // plain read gates below, the descriptive backends disagree on its LABEL
-    // (java/python `find history` vs elixir `history <Agg>`), so unifying it is
-    // #2540's audit-history mission, not this read-gate fix.
-    out.push(`    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError("Forbidden");`);
+    // The history read is the derived find `history`, so its 403 `detail` is
+    // the declared-find spelling `Forbidden: find <name>` — the same sentence
+    // every backend answers for this refusal.
+    out.push(
+      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+    );
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
@@ -596,6 +597,7 @@ export function buildRoutesFile(
     // Needs the schema tables (runtime value), a UUID, and the db/events
     // types for the transactional repo (mirrors the workflow routes' imports).
     lines.push(`import { randomUUID } from "node:crypto";`);
+    if (fileHasAudit) lines.push(`import { auditActor } from "../audit/actor";`);
     if (usingMikro) {
       // MikroORM edition: `db` is the EntityManager and the history rows are
       // its Row entities (`em.insert(<Row>, …)`), so pull the entity classes +
@@ -1054,9 +1056,8 @@ export function buildRoutesFile(
       // transaction (mirrors the operation audit path).  Asymmetry: create
       // has no `before` (JSON null on the not-NULL column), `after` is the
       // freshly-created wire snapshot, keyed by the generated id.  Actor =
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      lines.push(`      const actor = ${actorExpr};`);
+      // the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`      const actor = auditActor();`);
       lines.push(`      const reqCtx = requestContext();`);
       lines.push(`      const __deferred = deferredDispatcher(events);`);
       lines.push(`      await ${txWrapperCall(usingMikro)}`);
@@ -1313,10 +1314,8 @@ export function buildRoutesFile(
       // the row + deletion commit or roll back together (a failed delete
       // must not leave a spurious destroy record).  Asymmetry: `before` is
       // the last wire snapshot, `after` is JSON null (hard delete).  Actor
-      // = the inbound claim via the untyped-key bridge (null when no auth).
-      lines.push(
-        `        const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;`,
-      );
+      // = the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`        const actor = auditActor();`);
       lines.push(`        const reqCtx = requestContext();`);
       lines.push(`        const __deferred = deferredDispatcher(events);`);
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
@@ -1842,20 +1841,16 @@ function auditProvTxLines(args: {
   audit: boolean;
   prov: boolean;
   usingMikro: boolean;
-  usesUser: boolean;
   isVersionedUpdate: boolean;
   mutation: (pad: string) => string[];
   capture?: boolean;
 }): string[] {
-  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const { agg, op, ctx, audit, prov, usingMikro, isVersionedUpdate, mutation } = args;
   const out: string[] = [];
   if (audit) {
-    // Actor = the typed currentUser if the body already reads it, else
-    // the inbound claim via the untyped-key bridge (null when no auth).
-    const actorExpr = usesUser
-      ? "currentUser"
-      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-    out.push(`    const actor = ${actorExpr};`);
+    // Actor = the principal's declared shape (`auditActor`, null when no
+    // auth) — never the principal object itself, which can carry more.
+    out.push(`    const actor = auditActor();`);
   }
   // The request correlation id + frame scope id stamped onto every audit /
   // provenance row, tying each to the request (and its causality position)
@@ -2087,7 +2082,6 @@ function emitOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         isVersionedUpdate,
         mutation,
       }),
@@ -2208,7 +2202,6 @@ function emitReturningOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         // A returning `update` does not take the `If-Match` precondition path —
         // the void handler owns the canonical crudish update; a hand-declared
         // returning op of the same name keeps the write-time CAS fallback.
