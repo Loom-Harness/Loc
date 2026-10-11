@@ -137,9 +137,9 @@ export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantC
     const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
     const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
     const term = inv.message
-      ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${JSON.stringify(
+      ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
           messageCode(inv.message.text),
-        )}, pointer: ${JSON.stringify(domainFloorPointer(inv))}}}`
+        )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
       : `{:precondition_failed, ${elixirString(message)}}`;
     return { predicate, term, message };
   });
