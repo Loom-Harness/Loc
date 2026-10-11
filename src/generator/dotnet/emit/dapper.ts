@@ -33,7 +33,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import type { TableShape } from "../../../ir/types/migrations-ir.js";
+import type { IndexShape, TableShape } from "../../../ir/types/migrations-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import {
   isTphBase,
@@ -62,7 +62,7 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { renderCreateTableIfNotExists } from "../../sql-pg.js";
+import { renderCreateIndexIfNotExists, renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
@@ -2706,6 +2706,27 @@ export function renderDapperEventSourcedRepository(
 // aggregate, embedded in a C# helper run once at startup.
 // ---------------------------------------------------------------------------
 
+/** Collect the `unique` indexes the MigrationsIR derived (from `unique (…)`)
+ *  for the tables this deployable's migrations carry, keyed by table name — the
+ *  data `renderDapperSchema` appends after each CREATE TABLE.  Reads only the
+ *  `_uq`-suffixed unique indexes (`uniqueIndexName`'s convention); the event-log
+ *  `seq` cursor index is unique too, but the bootstrap already emits it. */
+export function dapperUniqueIndexesByTable(
+  tables: readonly TableShape[],
+): Map<string, readonly IndexShape[]> {
+  const out = new Map<string, IndexShape[]>();
+  for (const t of tables) {
+    for (const ix of t.indexes) {
+      if (!ix.unique || !ix.name.endsWith("_uq")) continue;
+      const list = out.get(t.name) ?? [];
+      if (list.some((x) => x.name === ix.name)) continue;
+      list.push(ix);
+      out.set(t.name, list);
+    }
+  }
+  return out;
+}
+
 export function renderDapperSchema(
   aggs: readonly EnrichedAggregateIR[],
   ns: string,
@@ -2734,7 +2755,17 @@ export function renderDapperSchema(
    *  deployable owns this module's migrations (that owner's migration creates
    *  the table). */
   provenanceHistoryTable?: TableShape,
+  /** The MigrationsIR's derived `unique (…)` indexes, keyed by table name
+   *  (`dapperUniqueIndexesByTable`).  The Dapper path writes its own CREATE
+   *  TABLE but must not re-derive uniqueness: the shared derivation owns the
+   *  index name (`<table>_<cols>_uq`, the 23505 → 409 join key), the column
+   *  spelling and the softDeletable partial predicate.  Each table's indexes
+   *  are appended right after its CREATE TABLE. */
+  uniqueIndexesByTable: ReadonlyMap<string, readonly IndexShape[]> = new Map(),
 ): string {
+  // Unqualified: DbSchema creates every table in `public`.
+  const uniqueIndexesOn = (table: string): string[] =>
+    (uniqueIndexesByTable.get(table) ?? []).map((ix) => renderCreateIndexIfNotExists(ix));
   // Event-sourced aggregates own no per-aggregate table — their stream lives in
   // the shared per-context `<ctx>_events` log emitted after this map.  Document
   // aggregates own one `(id, data, version)` blob table.  A TPC (`ownTable`)
@@ -2821,7 +2852,12 @@ export function renderDapperSchema(
       const shared = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${ddlCols.join(",\n")}\n);`;
       // A TPH base may itself declare `contains` / `X id[]` — its own child /
       // join tables FK the shared table (owner = the base).
-      return [shared, ...childTablesFor(agg, agg.name), ...joinTablesFor(agg)];
+      return [
+        shared,
+        ...uniqueIndexesOn(tableOf(agg.name)),
+        ...childTablesFor(agg, agg.name),
+        ...joinTablesFor(agg),
+      ];
     }
     // Document shape: the whole aggregate is one JSONB `data` column.  No
     // per-field columns, no child/join tables — the graph folds into the blob.
@@ -2845,7 +2881,12 @@ export function renderDapperSchema(
       return `    ${sqlIdent(c.col)} ${c.sql}${pk}${nn}`;
     });
     const root = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${cols.join(",\n")}\n);`;
-    return [root, ...joinTablesFor(agg), ...(embedded ? [] : childTablesFor(agg, agg.name))];
+    return [
+      root,
+      ...uniqueIndexesOn(tableOf(agg.name)),
+      ...joinTablesFor(agg),
+      ...(embedded ? [] : childTablesFor(agg, agg.name)),
+    ];
   });
   // The single per-context event log `<ctx>_events` (event-log-architecture.md):
   // seq cursor + stream_type discriminator + PK (stream_type, stream_id,

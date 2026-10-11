@@ -106,6 +106,7 @@ import {
 } from "./emit/audit-history.js";
 import { renderDotnetChannels } from "./emit/channels.js";
 import {
+  dapperUniqueIndexesByTable,
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
   renderDapperRepository,
@@ -807,6 +808,12 @@ function emitProjectFromContexts(
         (system?.migrations ?? [])
           .flatMap((m) => m.next.tables)
           .find((t) => t.name === "provenance_records"),
+        // `unique (…)` → DB unique index, read off the same snapshot (the
+        // shared `uniqueIndexesFor` derivation) so the Dapper bootstrap enforces
+        // exactly the index EF's migration creates and the 23505 → 409 mapping
+        // in DomainExceptionFilter fires.  Empty when another deployable owns
+        // this module's migrations — that owner's migration creates the index.
+        dapperUniqueIndexesByTable((system?.migrations ?? []).flatMap((m) => m.next.tables)),
       ),
     );
     // Workflow / saga / event-store / projection port adapters + the reused
