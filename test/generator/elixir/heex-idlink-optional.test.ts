@@ -65,7 +65,9 @@ describe("HEEx IdLink — optional reference null guard", () => {
 
   it("leaves a REQUIRED reference unguarded", async () => {
     const list = await live("live/cargo_list_live.ex");
-    expect(list).toContain(`<.link navigate={~p"/locations/#{o.origin}"}><%= Map.get(@location_labels, o.origin) || o.origin %></.link>`);
+    expect(list).toContain(
+      `<.link navigate={~p"/locations/#{o.origin}"}><%= Map.get(@location_labels, o.origin) || o.origin %></.link>`,
+    );
     expect(list).not.toContain("<%= if o.origin do %>");
   });
 });
