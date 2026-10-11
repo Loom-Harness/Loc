@@ -203,6 +203,16 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(read("app/http/wire_models.py")).toContain('    yield_: Int32 = Field(alias="yield")');
   });
 
+  it("the constraint-message validator names the escaped ATTRIBUTE, not the wire key", () => {
+    // Pydantic resolves `@field_validator` names and `info.field_name` against
+    // attributes; naming the aliased wire key (`"lambda"`) fails at import
+    // with `Decorators defined with incorrect fields`, so the app never boots.
+    const routes = read("app/http/thing_routes.py");
+    expect(routes).toContain('    @field_validator("lambda_", mode="wrap")');
+    expect(routes).toContain('("lambda_", "greater_than_equal"): "Lambda must be at least 0"');
+    expect(routes).not.toContain('@field_validator("lambda"');
+  });
+
   it("the repository reads escaped attributes and writes declared keys", () => {
     const repo = read("app/db/repositories/thing_repository.py");
     expect(repo).toContain('"def": aggregate.def_,');

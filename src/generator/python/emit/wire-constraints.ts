@@ -87,12 +87,15 @@ export function createFieldMessageValidator(
     for (const { kw, message } of kwargs) {
       for (const type of KWARG_ERROR_TYPES[kw.slice(0, kw.indexOf("="))] ?? []) {
         entries.push(
-          `                (${JSON.stringify(field)}, ${JSON.stringify(type)}): ${JSON.stringify(message)},`,
+          `                (${JSON.stringify(pythonWireIdent(field))}, ${JSON.stringify(type)}): ${JSON.stringify(message)},`,
         );
       }
     }
   }
-  const fields = [...table.keys()].map((f) => JSON.stringify(f)).join(", ");
+  // Pydantic names a field by its ATTRIBUTE — in the decorator and in
+  // `info.field_name` alike — so a keyword-named field (`lambda`, aliased on
+  // the wire) is keyed by its escaped attribute (`lambda_`), never its wire key.
+  const fields = [...table.keys()].map((f) => JSON.stringify(pythonWireIdent(f))).join(", ");
   return lines(
     "",
     `    @field_validator(${fields}, mode="wrap")`,
