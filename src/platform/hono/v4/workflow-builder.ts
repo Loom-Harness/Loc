@@ -847,7 +847,7 @@ function emitWorkflowRoute(
   out.push(`    tags: ["workflows"],`);
   out.push(`    operationId: "${camelId(opWorkflow(wf.name))}",`);
   out.push(`    request: {`);
-  // RS-43 — a workflow started with no input has an optional body.
+  // RS-39 — a workflow started with no input has an optional body.
   out.push(
     `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(wf.params) ? ", required: false" : ""} },`,
   );

@@ -584,7 +584,7 @@ function emitProjectFromContexts(
   place("CatalogLog.java", "config", renderCatalogLogger(basePkg));
   place("LifecycleCatalog.java", "config", renderLifecycleCatalog(basePkg));
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
-  // RS-43 — an empty request body reads as `{}`.
+  // RS-39 — an empty request body reads as `{}`.
   place("EmptyJsonBodyFilter.java", "config", renderEmptyJsonBodyFilter(basePkg));
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.

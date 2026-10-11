@@ -1388,7 +1388,7 @@ function renderMain(
     ")",
     "install_error_handlers(app)",
     "install_openapi(app)",
-    "# Innermost: the request-body media-type contract (RS-43) runs closest to",
+    "# Innermost: the request-body media-type contract (RS-39) runs closest to",
     "# the routes, so every outer middleware still brackets a 415 it answers.",
     "app.add_middleware(JsonBodyMiddleware)",
     "",
@@ -2098,7 +2098,7 @@ UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}
 
 
 class JsonBodyMiddleware:
-    """The request-body media-type contract every backend shares (RS-43).
+    """The request-body media-type contract every backend shares (RS-39).
 
     - An EMPTY body with no \`Content-Type\` (or a JSON one) is read as \`{}\` —
       so a parameterless command (\`operation confirm()\`) answers a body-less

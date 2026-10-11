@@ -571,7 +571,7 @@ export function renderHttpIndex(
       "      credentials: true,",
       "    }),",
       "  );",
-      "  // An empty request body reads as `{}` on every route (RS-43) — so a",
+      "  // An empty request body reads as `{}` on every route (RS-39) — so a",
       "  // parameterless command answers a body-less POST the way it answers `{}`.",
       '  app.use("*", emptyBodyAsEmptyObject);',
       authMount,

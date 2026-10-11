@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// `EmptyJsonBodyFilter.java` — the Spring half of RS-43: an EMPTY request body
+// `EmptyJsonBodyFilter.java` — the Spring half of RS-39: an EMPTY request body
 // is the empty JSON object on every body-carrying route.
 //
 // Without it Spring reads a zero-byte body as "required request body is
@@ -9,7 +9,7 @@
 // Content-Type is left alone so Spring still answers it 415.
 // ---------------------------------------------------------------------------
 
-/** The body parameter of a command that takes NO parameters (RS-43).  The
+/** The body parameter of a command that takes NO parameters (RS-39).  The
  *  route still READS its body — so malformed JSON answers 400 and a foreign
  *  Content-Type answers 415, exactly as on a command with parameters — and
  *  accepts an absent one (\`EmptyJsonBodyFilter\` hands an empty body over as
@@ -42,7 +42,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
-/** An EMPTY request body is the empty JSON object (RS-43).  A parameterless
+/** An EMPTY request body is the empty JSON object (RS-39).  A parameterless
  *  command ({@code operation confirm()}) answers a body-less POST exactly as it
  *  answers {@code {}}, and a command with required fields earns the same 422 a
  *  {@code {}} earns.  Only an absent or JSON Content-Type is normalised — a

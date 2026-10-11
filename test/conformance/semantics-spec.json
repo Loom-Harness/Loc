@@ -747,6 +747,24 @@
         "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-39",
+      "title": "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
+      "trigger": "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
+      "observable": "no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. The parameterless command's OpenAPI `requestBody` is not `required`.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
+        "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first `{}` command of every case three ways on all seven wire-gated legs"
+      ],
+      "tier": "behavioral"
     }
   ]
 }

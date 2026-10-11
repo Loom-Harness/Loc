@@ -582,7 +582,7 @@ const REASON_PHRASES: Record<number, string> = {
 export function frameworkProblemBody(status: number, detail: string, instance: string): string {
   const title = REASON_PHRASES[status] ?? "Error";
   // A 415 reads the same whether hono's own media-type gate or
-  // \`requireJsonContentType\` raised it (RS-43).
+  // \`requireJsonContentType\` raised it (RS-39).
   const said = status === 415 ? ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} : detail;
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
 }
@@ -629,7 +629,7 @@ async function hasNoContent(raw: Request): Promise<boolean> {
 }
 
 /** An EMPTY request body is the empty JSON object — on every body-carrying
- *  route, before any validator runs (RS-43).
+ *  route, before any validator runs (RS-39).
  *
  *  A command with no parameters has nothing to send, so a client that sends
  *  nothing (\`curl -X POST …/confirm\`, a \`fetch\` with no \`body\`) must be
