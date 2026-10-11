@@ -47,16 +47,20 @@ import {
   felizWorkflowForm,
   fieldErrorFn,
   findFieldName,
+  formFieldServerKey,
   formFileSelectMsg,
+  formServerField,
   formTouchedField,
   formTouchMsg,
   historyFieldName,
   idLabelsFrom,
   isValidatedField,
+  opHasForm,
   pageMetaFieldName,
   pageMetaMember,
   projectionFieldName,
   readFieldName,
+  wfHasForm,
 } from "./wire.js";
 
 /** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) —
@@ -224,6 +228,32 @@ function renderFormInput(formField: string, fld: FelizFormField, base: string): 
   return wrap(
     `Html.input [ ${tidP}prop.className "input input-bordered w-full"; ${typeProp}prop.placeholder "${placeholder}"; prop.value ${value}; prop.onChange (fun (v: string) -> dispatch (${fld.setMsg} v))${onBlur}${aria} ]`,
   );
+}
+
+/** A form's inputs, each followed by the slot its rejected submit's message for
+ *  that field renders in (`View.serverError` over the form's `ServerErrors`,
+ *  keyed by the field's JSON-pointer dot-path), plus the form-level slot that
+ *  precedes the submit.  `inputs` is `[]` for a form with no record (a
+ *  param-less op / workflow), which has no field to point at and no Model
+ *  cell to read. */
+function withServerErrors(
+  formField: string,
+  fields: readonly FelizFormField[],
+  base: string,
+  hasRecord: boolean,
+): { inputs: string[]; formError: string[] } {
+  const inputs = fields.map((fld) => renderFormInput(formField, fld, base));
+  if (!hasRecord) return { inputs, formError: [] };
+  const errs = `model.${formServerField(formField)}`;
+  return {
+    inputs: fields.map((fld, i) => {
+      const key = formFieldServerKey(fld);
+      return `${inputs[i]}; (View.serverError ${errs} "${key}" "${base}-server-error-${key.replaceAll(".", "-")}")`;
+    }),
+    formError: [
+      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-server-error")`,
+    ],
+  };
 }
 
 /** One dynamic-row sub-field input — the row-scoped sibling of `renderFormInput`.
@@ -675,14 +705,14 @@ export const felizTarget: WalkerTarget = {
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
     // default the page-object builder computes from the aggregate.
     const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-new`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true);
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Create ${upperFirst(form.aggregate)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a
@@ -733,7 +763,12 @@ export const felizTarget: WalkerTarget = {
     // container is `<base>-form`, the submit `<base>-submit` — the exact ids the
     // op page-object method waits for / clicks.
     const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-op-${op.name}`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(
+      form.formField,
+      form.fields,
+      base,
+      opHasForm(form),
+    );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     // The submit guard reads `Validation.<validFn>`, only emitted when the form
     // has flat fields; an array-only form has no required-field guard.
@@ -750,7 +785,7 @@ export const felizTarget: WalkerTarget = {
         : `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${gated}prop.onClick (fun _ -> dispatch (${form.submitMsg} id)); prop.text "${upperFirst(form.op)} ${upperFirst(form.aggregate)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}-form"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `WorkflowForm(runs: <wf>)` → one `Html.input` per workflow param + a
@@ -779,14 +814,19 @@ export const felizTarget: WalkerTarget = {
     // Testid namespace: the scaffold's `testid:` arg (`workflow-place_order`) or
     // the `workflow-<snake(wf)>` default the workflow page-object builder computes.
     const base = stringNamed(call, "testid") ?? `workflow-${snake(wf.name)}`;
-    const inputs = form.fields.map((fld) => renderFormInput(form.formField, fld, base));
+    const { inputs, formError } = withServerErrors(
+      form.formField,
+      form.fields,
+      base,
+      wfHasForm(form),
+    );
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     const disabled =
       form.fields.length > 0
         ? `prop.disabled (not (Validation.${form.validFn} model.${form.formField})); `
         : "";
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text "Run ${upperFirst(form.workflow)}" ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `Modal(trigger: Button(…), OperationForm(<agg>.<op>))` — the scaffold detail's

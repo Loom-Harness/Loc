@@ -52,7 +52,7 @@ describe("feliz param-less operation forms", () => {
   it("wires a Submit(id) + Done Msg but NO form record / setters", async () => {
     const app = await appFs();
     expect(app).toContain("| SubmitConfirmOrderOpForm of string");
-    expect(app).toContain("| ConfirmOrderOpDone of Result<unit, string>");
+    expect(app).toContain("| ConfirmOrderOpDone of Result<unit, ServerErrors>");
     // A param-less op has no form state — no record type, no Model field, no setters.
     expect(app).not.toContain("type ConfirmOrderOpForm =");
     expect(app).not.toContain("ConfirmOrderOpForm: ConfirmOrderOpForm");
@@ -61,7 +61,7 @@ describe("feliz param-less operation forms", () => {
 
   it("emits an id-qualified Api fn that POSTs an empty `{}` body", async () => {
     const app = await appFs();
-    expect(app).toContain("let confirmOrder (id: string) () : Async<Result<unit, string>> =");
+    expect(app).toContain("let confirmOrder (id: string) () : Async<Result<unit, ServerErrors>> =");
     expect(app).toContain('let body = "{}"');
     expect(app).toContain('Http.request (sprintf "/api/orders/%s/confirm" id)');
   });

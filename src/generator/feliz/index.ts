@@ -134,6 +134,7 @@ import {
   renderFileRefType,
   renderFormTypes,
   renderProvLineageType,
+  renderServerErrorsModule,
   renderValidation,
   renderViewModule,
   renderWireTypes,
@@ -1629,8 +1630,9 @@ function renderAppFs(
     "open Elmish",
     "open Elmish.React",
     // Thoth is needed for decoders (reads + async effects), encoders (forms),
-    // the UI-gate claims decode, AND the FileRef upload decoder.
-    (hasReads || hasForms || hasEffects || pageGate || hasFileState || hasFileWire) &&
+    // a rejected submit's `ServerErrors` decode, the UI-gate claims decode, AND
+    // the FileRef upload decoder.
+    (hasReads || hasFormSubmits || hasEffects || pageGate || hasFileState || hasFileWire) &&
       "open Thoth.Json",
     hasHttp && "open Fable.SimpleHttp",
     // Browser.Dom provides `window` for the auth sign-in/out redirects.
@@ -1706,14 +1708,18 @@ function renderAppFs(
     hasForms && encoders,
     hasForms && validation ? "" : false,
     validation || undefined,
+    // A rejected submit's decoded ProblemDetails — the error every create /
+    // operation / workflow Api fn fails with, so it precedes `Api`.
+    hasFormSubmits && "",
+    hasFormSubmits && renderServerErrorsModule(),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
     // View helpers — Remote matchers (reads) + the per-field `fieldError` matcher
     // (validated forms), so a form-only page still gets the helper.
-    (hasReads || hasFieldErrors || usesChart) && "",
-    (hasReads || hasFieldErrors || usesChart) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart),
+    (hasReads || hasFieldErrors || usesChart || hasForms) && "",
+    (hasReads || hasFieldErrors || usesChart || hasForms) &&
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),

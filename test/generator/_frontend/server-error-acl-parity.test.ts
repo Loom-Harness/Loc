@@ -14,11 +14,14 @@
 // client throws, and must land the error on the form field the `pointer`
 // names.
 //
-// It found that only React does.  The other five are WAIVERS below, each with
-// the defect it records; a waiver ratchets exactly like the slot-coverage
-// gate's — a waived target must STILL fail (executed for the two that carry a
-// mapper, statically for the three that carry none), so the fix that lands
-// without deleting its line fails here.
+// The four TypeScript targets (React, Vue, Svelte, Angular) are EXECUTED; the
+// F# (Feliz) and Dart (Flutter) mappers cannot run here, so their decode →
+// Model → field chain is pinned statically, and each decoder was run against
+// the same golden body through its own toolchain (Fable / `dart run`) when it
+// was written.  A target that regresses goes back on WAIVERS with the defect
+// it records; a waiver ratchets exactly like the slot-coverage gate's — a
+// waived target must STILL fail, so the fix that lands without deleting its
+// line fails here.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -83,6 +86,9 @@ interface Target {
    *  render (rather than a form runtime that owns both), assert the emitted
    *  CreateForm does both for `field`. */
   readonly wired?: (files: ReadonlyMap<string, string>, field: string) => void;
+  /** For a target whose mapper is not TypeScript (F#, Dart) and so cannot run
+   *  here: assert the emitted decode → Model → field chain for `field`. */
+  readonly statically?: (files: ReadonlyMap<string, string>, field: string) => void;
 }
 
 const TARGETS: readonly Target[] = [
@@ -202,20 +208,68 @@ export const loaded = { ApiError, run };`;
       );
     },
   },
-  { id: "feliz", platform: "feliz", framework: "feliz" },
-  { id: "flutter", platform: "flutter", framework: "flutter" },
+  {
+    id: "feliz",
+    platform: "feliz",
+    framework: "feliz",
+    // F# — not executable here.  The decoder pinned below was Fable-compiled
+    // and run against this same golden body (it files the message under
+    // "estimate"); this pins every link of the chain that probe rests on.
+    statically: (files, field) => {
+      const app = file(files, "web/src/App.fs");
+      expect(app, "the create fn must decode a rejection, not drop its body").toMatch(
+        /let createTicket [^\n]*Result<string, ServerErrors>>[\s\S]*?return Error \(ServerErrors\.ofResponse response\.statusCode response\.responseText\)/,
+      );
+      expect(app, "the decoder must read the errors[] ARRAY").toContain(
+        'Decode.fromString (Decode.field "errors" (Decode.list entry)) body',
+      );
+      expect(app).toContain(
+        'get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""), get.Required.Field "message" Decode.string',
+      );
+      expect(app, "a rejected create must land on the Model").toContain(
+        "| TicketCreated (Error e) -> { model with TicketCreateFormServer = e }, Cmd.none",
+      );
+      expect(app, `the "${field}" field must render its server message`).toContain(
+        `(View.serverError model.TicketCreateFormServer "${field}" "tickets-new-server-error-${field}")`,
+      );
+      expect(app, "what no field takes is the form-level message").toContain(
+        '(View.serverFormError model.TicketCreateFormServer [ "title"; "estimate" ] "tickets-new-server-error")',
+      );
+    },
+  },
+  {
+    id: "flutter",
+    platform: "flutter",
+    framework: "flutter",
+    // Dart — not executable here.  The `ServerErrors` class pinned below was
+    // run (`dart run`) against this same golden body and filed the message
+    // under "estimate"; this pins every link of the chain that probe rests on.
+    statically: (files, field) => {
+      const forms = file(files, "web/lib/forms.dart");
+      expect(forms, "the submit must decode a rejection, not print its status").toContain(
+        "final server = ServerErrors.fromResponse(res.statusCode, res.body);",
+      );
+      expect(forms).not.toContain("'Request failed (${res.statusCode})'");
+      expect(forms, "the decoder must read the errors[] ARRAY").toContain(
+        "final entries = decoded['errors'];\n      if (entries is List) {",
+      );
+      expect(forms).toContain("final message = entry['message'];");
+      expect(forms).toContain("final pointer = entry['pointer'];");
+      expect(forms, "the form must keep the decoded rejection").toContain("_server = server;");
+      expect(forms, "what no field takes is the form-level message").toContain(
+        "_error = server.formLevel(_serverFields);",
+      );
+      expect(forms, `the "${field}" field must render its server message`).toContain(
+        `child: Text(_server!.fields['${field}']!,`,
+      );
+    },
+  },
 ];
 
 /** `<target>` → the defect that keeps it from mapping a real 422 today.
- *  Deleting a line is how the gap closes; a stale line fails the gate. */
-const WAIVERS: Readonly<Record<string, string>> = {
-  feliz:
-    'no mapper: the HTTP helper returns `Error (sprintf "HTTP %d" statusCode)` and ' +
-    "drops the ProblemDetails body before any form sees it",
-  flutter:
-    "no mapper: lib/forms.dart sets `_error = 'Request failed (<status>)'` and never " +
-    "decodes the response body",
-};
+ *  Deleting a line is how the gap closes; a stale line fails the gate.  Empty:
+ *  all six map it. */
+const WAIVERS: Readonly<Record<string, string>> = {};
 
 // --- harness -----------------------------------------------------------------
 
@@ -322,6 +376,10 @@ describe("frontend ACL — a booted backend's 422 lands on the field it names", 
       const waiver = WAIVERS[t.id];
       const field = fieldOf(FIELD_ERROR!.pointer);
 
+      if (!t.load && t.statically && !waiver) {
+        t.statically(files, field);
+        return;
+      }
       if (!t.load) {
         // No mapper to execute: only a waiver can pass, and it must still be
         // true — the emitted web tree still reads no `pointer` at all.
