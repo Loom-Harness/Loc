@@ -1009,7 +1009,9 @@ describe("typescript generator", () => {
     const files = generateTypeScript(doc.parseResult.value as Model, HONO_V4_PINS);
     const wf = files.get("http/workflows.ts")!;
     expect(wf).toMatch(/await db\.transaction\(async \(tx\) => \{/);
-    expect(wf).toMatch(/const customers = new CustomerRepository\(tx, events\);/);
+    // The tx repository gets the buffering dispatcher, flushed after commit
+    // (banking-eval B-04 — see transactional-workflow-event-deferral.test.ts).
+    expect(wf).toMatch(/const customers = new CustomerRepository\(tx, __deferred\);/);
     // Save inside the tx callback.
     const txOpen = wf.indexOf("db.transaction(async");
     const saveIdx = wf.indexOf("await customers.save(target);");
