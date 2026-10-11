@@ -239,7 +239,9 @@ describe(".NET in-process event dispatch emission", () => {
     expect(disp).toContain(
       "public sealed class InProcessDomainEventDispatcher : IDomainEventDispatcher",
     );
-    expect(disp).toContain("_mediator.Publish((object)ev, cancellationToken).AsTask()");
+    expect(disp).toContain("await _mediator.Publish((object)ev, cancellationToken);");
+    // H-28: isolating by default on the request path (the relay turns it off).
+    expect(disp).toContain("public bool IsolateReactorFailures { get; set; } = true;");
 
     // Program.cs registers the in-process dispatcher (Scoped), not the no-op.
     const prog = files.get("Program.cs") ?? "";
