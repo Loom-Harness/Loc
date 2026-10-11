@@ -1012,7 +1012,9 @@ function renderPyOperationReturnType(t: TypeIR): string {
  *  fill.  Stamping the create set alone left `updatedBy` at its empty default.
  *  Shared with the routes builder, which threads `current_user` by it. */
 export function pyStampAssignments(
-  agg: { contextStamps?: readonly { event: string; assignments: readonly ContextStampAssignmentIR[] }[] },
+  agg: {
+    contextStamps?: readonly { event: string; assignments: readonly ContextStampAssignmentIR[] }[];
+  },
   event: "create" | "update",
 ): ContextStampAssignmentIR[] {
   const of = (ev: string): ContextStampAssignmentIR[] =>
