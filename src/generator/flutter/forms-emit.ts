@@ -1495,8 +1495,98 @@ function requiredFileGuards(fields: readonly FlutterFormField[]): string[] {
   return out;
 }
 
+/** The key a field's server error is filed under: the dot-path of the JSON
+ *  pointer a 422 names it with (`/price/amount` → `price.amount`). */
+function serverKey(f: FlutterFormField): string {
+  return [...(f.objectPath ?? []), f.jsonKey].join(".");
+}
+
+/** The slot under a field where its rejected submit's message renders — a
+ *  collection-`if`, so a field with no server error adds no widget. */
+function serverFieldError(f: FlutterFormField): string {
+  const key = `'${dartStr(serverKey(f))}'`;
+  return (
+    `if (_server?.fields[${key}] != null) Padding(padding: const EdgeInsets.only(bottom: 8), ` +
+    `child: Text(_server!.fields[${key}]!, style: TextStyle(color: Theme.of(context).colorScheme.error))),`
+  );
+}
+
+/** `ServerErrors` — a rejected submit, decoded from the backend's RFC 7807
+ *  ProblemDetails.  Each `errors[]` entry whose JSON pointer names a field is
+ *  filed under the field's dot-path (the form renders it under that field); a
+ *  pointer-less entry, or the problem's `detail`/`title` when there is no
+ *  `errors[]`, is the form-level message.  The Dart twin of the React
+ *  projects' `apply-server-errors.ts`; emitted once into `lib/forms.dart`. */
+export const SERVER_ERRORS_DART = `/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails:
+/// field messages keyed by the dot-path of the JSON pointer naming the field,
+/// and the form-level message.
+class ServerErrors {
+  const ServerErrors(this.fields, this.form);
+
+  final Map<String, String> fields;
+  final String? form;
+
+  /// Decode a non-2xx response.
+  static ServerErrors fromResponse(int status, String body) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      decoded = null;
+    }
+    final fields = <String, String>{};
+    String? form;
+    if (decoded is Map<String, dynamic>) {
+      final entries = decoded['errors'];
+      if (entries is List) {
+        for (final entry in entries) {
+          if (entry is! Map) continue;
+          final message = entry['message'];
+          if (message is! String || message.isEmpty) continue;
+          final pointer = entry['pointer'];
+          final path = pointer is String ? _pointerToPath(pointer) : '';
+          if (path.isEmpty) {
+            form ??= message;
+          } else {
+            fields[path] = message;
+          }
+        }
+      }
+      if (fields.isEmpty && form == null) {
+        final detail = decoded['detail'];
+        final title = decoded['title'];
+        if (detail is String && detail.isNotEmpty) {
+          form = detail;
+        } else if (title is String && title.isNotEmpty) {
+          form = title;
+        }
+      }
+    }
+    if (fields.isEmpty && form == null) form = 'Request failed ($status)';
+    return ServerErrors(fields, form);
+  }
+
+  /// The form-level message, or else a field message whose pointer names no
+  /// field the form renders (\`rendered\`) — no rejection goes unseen.
+  String? formLevel(List<String> rendered) {
+    if (form != null) return form;
+    for (final entry in fields.entries) {
+      if (!rendered.contains(entry.key)) return entry.value;
+    }
+    return null;
+  }
+
+  /// A JSON pointer (RFC 6901) as a dot-path; '' for the whole document.
+  static String _pointerToPath(String pointer) {
+    if (!pointer.startsWith('/')) return pointer;
+    return pointer.substring(1).split('/').map((s) => s.replaceAll('~1', '/').replaceAll('~0', '~')).join('.');
+  }
+}`;
+
 /** The `_submit` method for a fields-bearing (create / operation) form. */
 function submitMethod(spec: FlutterFormSpec): string[] {
+  // A param-less form has no field to point at: its rejection is all banner.
+  const hasSlots = spec.fields.length > 0;
   const gate =
     spec.fields.length > 0 ? "    if (!(_formKey.currentState?.validate() ?? false)) return;" : "";
   return [
@@ -1506,6 +1596,7 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     "    setState(() {",
     "      _submitting = true;",
     "      _error = null;",
+    ...(hasSlots ? ["      _server = null;"] : []),
     "    });",
     ...bodyAssembly(spec.fields),
     "    try {",
@@ -1522,9 +1613,19 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     "        Navigator.of(context).pop();",
     "        return;",
     "      }",
-    // Emitted Dart string interpolation — an escaped template literal keeps the
-    // `${res.statusCode}` in the generated Dart (not a TS template interp).
-    `      setState(() => _error = 'Request failed (\${res.statusCode})');`,
+    // A rejection lands at the fields its ProblemDetails pointers name; the
+    // rest is the banner's form-level message.
+    ...(hasSlots
+      ? [
+          "      final server = ServerErrors.fromResponse(res.statusCode, res.body);",
+          "      setState(() {",
+          "        _server = server;",
+          "        _error = server.formLevel(_serverFields);",
+          "      });",
+        ]
+      : [
+          "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
+        ]),
     "    } catch (e) {",
     "      setState(() => _error = '$e');",
     "    } finally {",
@@ -1549,8 +1650,8 @@ function destroySubmitMethod(spec: FlutterFormSpec): string[] {
     "        Navigator.of(context).pop();",
     "        return;",
     "      }",
-    // Emitted Dart string interpolation (escaped template literal — see above).
-    `      setState(() => _error = 'Delete failed (\${res.statusCode})');`,
+    // The problem's own sentence ("Order is still referenced …").
+    "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
     "    } catch (e) {",
     "      setState(() => _error = '$e');",
     "    } finally {",
@@ -1589,7 +1690,10 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   const errorBanner =
     "        if (_error != null)\n" +
     "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
-  const inputChildren = spec.fields.map((f) => `        ${fieldWidget(f)},`);
+  const inputChildren = spec.fields.flatMap((f) => [
+    `        ${fieldWidget(f)},`,
+    `        ${serverFieldError(f)}`,
+  ]);
   const submitChild = `        ${submitButton(spec)},`;
 
   let buildBody: string[];
@@ -1626,6 +1730,13 @@ export function renderFormWidget(spec: FlutterFormSpec): string {
   stateMembers.push(...stateDecls(spec.fields));
   stateMembers.push("  bool _submitting = false;");
   stateMembers.push("  String? _error;");
+  if (spec.kind !== "destroy" && spec.fields.length > 0) {
+    // The last rejected submit, and the field keys this form renders a slot for.
+    stateMembers.push("  ServerErrors? _server;");
+    stateMembers.push(
+      `  static const _serverFields = <String>[${spec.fields.map((f) => `'${dartStr(serverKey(f))}'`).join(", ")}];`,
+    );
+  }
 
   const initState = fkLoaders(spec.fields);
   const initStateBlock = initState.length > 0 ? ["", ...initState] : [];
@@ -1701,6 +1812,8 @@ export function renderFormsFile(
     ...(usesFile ? ["import 'models.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
+    "",
+    SERVER_ERRORS_DART,
   )}\n`;
 }
 

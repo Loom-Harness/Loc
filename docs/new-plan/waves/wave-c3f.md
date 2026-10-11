@@ -107,3 +107,11 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - The census `GAPS` map is empty, and seven `DEAD_KEY_WAIVERS` rows are deleted. The remaining rows are Feliz/Flutter's derived menu and Flutter's delete label, both in F7's fence.
   - Building the Feliz output found two defects, both fixed: a `For` over an unpaged `.all` lost its `then:`, and an Action's API function collided with an OperationForm on the same op.
   - **M-T1.42** is minted: the auto-paged Table makes an Action column sortable. Hand-off: `handoffs/wave-c3f-f6.md`.
+- **F7 folded** (2026-10-11; `claude/c3f-f7` @ `1ec223255`). **Frontend server-error mapping and Flutter.** All eight items are fixed:
+  - **Server-error mapping:** a server 422's `errors[]` lands under the named field, with the rest form-level, on vue (D-ACL-1), svelte (D-ACL-2), angular (D-ACL-3, new `lib/server-errors.ts`), feliz (D-ACL-4, `Result<_, ServerErrors>`) and flutter (D-ACL-5, a `ServerErrors` class; `DestroyForm` shows the problem's `detail`). ACL `WAIVERS` went from 5 to 0.
+  - **D-3b-1:** a parsed money keeps the wire string's scale on React/Vue/Svelte (one `_frontend/money-schema.ts`).
+  - **D-3b-2:** Flutter's one-click Action sends `{}` as JSON, so there's no more 415, and `KNOWN_DEFECTS` is empty.
+  - **D-3b-3 + D-I18N-9:** Feliz and Flutter render the explicit menu through `deriveSidebarFromUi`, with labels translated and each link gated by its page's `requires`.
+  - The fold kept F6's row id in Flutter's Action URL alongside F7's JSON body, and dropped both packets' deleted waivers.
+  - The `page-emitter-equivalence` baseline fixture is re-captured; its diff is F4's .NET int32 converter, money grammar and message-less sentences.
+  - Runtime: `run-ui-auth` flutter 10/10 (was 7 + a known defect), feliz 10/10, `run-ui` sales-system-vue 12/12. Hand-off: `handoffs/wave-c3f-f7.md`.

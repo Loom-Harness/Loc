@@ -3490,11 +3490,73 @@ function renderMutationFn(m: FelizMutation): (string | undefined)[] {
   ];
 }
 
+/** The `<Form>Server: ServerErrors` Model field holding a form's last rejected
+ *  submit, decoded (`renderServerErrorsModule`). */
+export function formServerField(formField: string): string {
+  return `${formField}Server`;
+}
+
+/** The key a form field's server error is filed under: the dot-path of the JSON
+ *  pointer a 422 names it with (`/price/amount` → `price.amount`). */
+export function formFieldServerKey(fld: FelizFormField): string {
+  return fld.objectKey ? `${fld.objectKey}.${fld.jsonKey}` : fld.jsonKey;
+}
+
+/** The `ServerErrors` type + decoder every submit (create / operation / workflow
+ *  form) fails with.  A non-2xx answer is the backend's RFC 7807 ProblemDetails:
+ *  each `errors[]` entry whose JSON pointer names a field is filed under the
+ *  field's dot-path — the form renders it at that field — and a pointer-less
+ *  entry, or the problem's `detail`/`title` when there is no `errors[]`, is the
+ *  form-level message.  The F# twin of the React projects'
+ *  `apply-server-errors.ts`. */
+export function renderServerErrorsModule(): string {
+  return lines(
+    "/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails:",
+    "/// field messages keyed by the dot-path of the JSON pointer naming the field,",
+    "/// and the form-level message.",
+    "type ServerErrors = { Fields: Map<string, string>; Form: string option }",
+    "",
+    "module ServerErrors =",
+    "  let empty : ServerErrors = { Fields = Map.empty; Form = None }",
+    "",
+    "  let formLevel (message: string) : ServerErrors = { Fields = Map.empty; Form = Some message }",
+    "",
+    '  /// A JSON pointer (RFC 6901) as a dot-path; "" for the whole document.',
+    "  let pointerToPath (pointer: string) : string =",
+    '    if pointer.StartsWith "/" then',
+    '      pointer.Substring(1).Split([| \'/\' |]) |> Array.map (fun seg -> seg.Replace("~1", "/").Replace("~0", "~")) |> String.concat "."',
+    "    else",
+    "      pointer",
+    "",
+    "  let private entry : Decoder<string * string> =",
+    '    Decode.object (fun get -> (get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""), get.Required.Field "message" Decode.string)',
+    "",
+    "  let private problemMessage : Decoder<string option> =",
+    "    Decode.object (fun get ->",
+    '      match get.Optional.Field "detail" Decode.string with',
+    '      | Some d when d <> "" -> Some d',
+    '      | _ -> get.Optional.Field "title" Decode.string)',
+    "",
+    "  /// Decode a non-2xx response body.",
+    "  let ofResponse (status: int) (body: string) : ServerErrors =",
+    '    match Decode.fromString (Decode.field "errors" (Decode.list entry)) body with',
+    "    | Ok entries when not (List.isEmpty entries) ->",
+    '      let placed = entries |> List.filter (fun (p, _) -> pointerToPath p <> "") |> List.map (fun (p, m) -> pointerToPath p, m)',
+    '      let unplaced = entries |> List.tryFind (fun (p, _) -> pointerToPath p = "") |> Option.map snd',
+    "      { Fields = Map.ofList placed; Form = unplaced }",
+    "    | _ ->",
+    "      match Decode.fromString problemMessage body with",
+    '      | Ok (Some message) when message <> "" -> formLevel message',
+    '      | _ -> formLevel (sprintf "HTTP %d" status)',
+  );
+}
+
 /** One async create function — `POST /api/<agg>` with the Thoth-encoded form
- *  body; a 2xx decodes the created record, anything else is an error. */
+ *  body; a 2xx decodes the created record, anything else is the decoded
+ *  rejection (`ServerErrors`). */
 function renderCreateFn(f: FelizForm): (string | undefined)[] {
   return [
-    `  let ${f.apiFn} (form: ${f.formType}) : Async<Result<${f.resultType}, string>> =`,
+    `  let ${f.apiFn} (form: ${f.formType}) : Async<Result<${f.resultType}, ServerErrors>> =`,
     "    async {",
     `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`,
     "      let! response =",
@@ -3506,9 +3568,9 @@ function renderCreateFn(f: FelizForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 201 then",
     `        match Decode.fromString ${f.decoderExpr} response.responseText with`,
     "        | Ok created -> return Ok created",
-    "        | Error e -> return Error e",
+    "        | Error e -> return Error (ServerErrors.formLevel e)",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -3530,7 +3592,7 @@ function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
   // `None` sends no header (the server then guards against its own load).
   const versionParam = f.ifMatch ? " (ifMatch: string option)" : "";
   return [
-    `  let ${f.apiFn} (id: string)${versionParam} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
+    `  let ${f.apiFn} (id: string)${versionParam} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3547,7 +3609,7 @@ function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 204 then",
     "        return Ok ()",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -3566,7 +3628,7 @@ export function wfHasForm(f: FelizWorkflowForm): boolean {
 function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
   const hasForm = wfHasForm(f);
   return [
-    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
+    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3580,7 +3642,7 @@ function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 204 then",
     "        return Ok ()",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -4012,6 +4074,9 @@ export function renderViewModule(
   hasIdSelect = false,
   hasFieldErrors = false,
   hasChart = false,
+  /** True when the page has a submitting form: its rejected submit's
+   *  `ServerErrors` render through `serverError` / `serverFormError`. */
+  hasServerErrors = false,
 ): string {
   // Which matcher a read needs is a question about its RESULT SHAPE, and
   // `listShaped` is the one field that answers it — `single` cannot, because it
@@ -4031,6 +4096,23 @@ export function renderViewModule(
     // screen reader announces the message with the field (a11y).
     '    | true, Some e -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text e ]',
     "    | _ -> Html.none",
+  ];
+  // A rejected submit's messages (`ServerErrors`): one at the field its JSON
+  // pointer named, the rest above the submit.  Announced as alerts — they
+  // appear after the user acted, not while they type.
+  const serverError = [
+    "  let serverError (errs: ServerErrors) (path: string) (testid: string) : ReactElement =",
+    "    match Map.tryFind path errs.Fields with",
+    '    | Some m -> Html.p [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "text-error text-sm mt-1"; prop.text m ]',
+    "    | None -> Html.none",
+    "",
+    // The form-level slot also takes a field message whose pointer names no
+    // field the form renders (`rendered`), so no rejection goes unseen.
+    "  let serverFormError (errs: ServerErrors) (rendered: string list) (testid: string) : ReactElement =",
+    "    let stray = errs.Fields |> Map.toList |> List.tryFind (fun (k, _) -> not (List.contains k rendered)) |> Option.map snd",
+    "    match (match errs.Form with Some m -> Some m | None -> stray) with",
+    '    | Some m -> Html.div [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text m ]',
+    "    | None -> Html.none",
   ];
   const idOptions = [
     "  let idOptions (r: Remote<'T list>) (idOf: 'T -> string) (labelOf: 'T -> string) : ReactElement list =",
@@ -4122,7 +4204,11 @@ export function renderViewModule(
     ...(hasIdSelect ? idOptions : []),
     (hasList || hasSingle || hasIdSelect) && hasFieldErrors ? "" : undefined,
     ...(hasFieldErrors ? fieldError : []),
-    (hasList || hasSingle || hasIdSelect || hasFieldErrors) && hasChart ? "" : undefined,
+    (hasList || hasSingle || hasIdSelect || hasFieldErrors) && hasServerErrors ? "" : undefined,
+    ...(hasServerErrors ? serverError : []),
+    (hasList || hasSingle || hasIdSelect || hasFieldErrors || hasServerErrors) && hasChart
+      ? ""
+      : undefined,
     ...(hasChart ? chart : []),
   );
 }

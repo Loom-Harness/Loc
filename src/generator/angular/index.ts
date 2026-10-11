@@ -73,6 +73,7 @@ import {
 } from "./realtime-handlers-builder.js";
 import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
+import { ANGULAR_SERVER_ERRORS_TS } from "./server-errors.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -196,6 +197,9 @@ export function generateAngularForContexts(
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
   // by any page rendering a sortable Table; emitted unconditionally.
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  // The submit handlers' 422 → form-control mapper (`server-errors.ts`);
+  // emitted unconditionally, like React's `apply-server-errors.ts`.
+  out.set("src/lib/server-errors.ts", ANGULAR_SERVER_ERRORS_TS);
   // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
   // renders the call verbatim, exactly like `navigate(…)`, so without an
   // emitted module and a matching import the component references a symbol the

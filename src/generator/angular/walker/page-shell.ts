@@ -88,6 +88,21 @@ function invalidGuard(form: { formVar: string; controls: { validators?: string[]
     : `    if (this.${form.formVar}.invalid) return;`;
 }
 
+/** A form submit's mutate-then-follow-up lines, wrapped so a rejection lands on
+ *  the form: `placeServerErrors` (`src/lib/server-errors.ts`) puts each 422
+ *  `errors[]` entry on the control its pointer names and rethrows whatever no
+ *  control can show to the app-level error handler.  The follow-up (navigate /
+ *  close) runs only on success. */
+function submitBody(formVar: string, lines: readonly string[]): string[] {
+  return [
+    "    try {",
+    ...lines.map((l) => `  ${l}`),
+    "    } catch (e) {",
+    `      placeServerErrors(e, this.${formVar});`,
+    "    }",
+  ];
+}
+
 /** The getter + add/remove member lines a form's dynamic-row fields contribute
  *  (empty when the form has none). */
 function formArrayMemberLines(
@@ -705,6 +720,15 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   if (usesToastEffect(page.body, actions, input.externFunctions)) {
     imports.push('import { toast } from "../../lib/toast";');
   }
+  // Every form submit's catch (`submitBody`) lands a 422 on the form controls.
+  if (
+    sink.forms.length > 0 ||
+    sink.workflowForms.length > 0 ||
+    sink.opForms.length > 0 ||
+    sink.modals.length > 0
+  ) {
+    imports.push('import { placeServerErrors } from "../../lib/server-errors";');
+  }
   const usedExternFns = [...(result.usedExternFunctions ?? new Set<string>())].sort();
   for (const fn of usedExternFns) {
     imports.push(`import { ${fn} } from "../../lib/${fn}";`);
@@ -855,8 +879,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
         invalidGuard(form),
-        `    const out = await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
-        `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
+        ...submitBody(form.formVar, [
+          `    const out = await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+          `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
+        ]),
         "  }",
       ].join("\n"),
     );
@@ -877,8 +903,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
         `    if (this.${form.formVar}.invalid) return;`,
-        `    await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
-        '    this.router.navigateByUrl("/workflows");',
+        ...submitBody(form.formVar, [
+          `    await this.${form.mutationVar}.mutateAsync(this.${form.formVar}.getRawValue());`,
+          '    this.router.navigateByUrl("/workflows");',
+        ]),
         "  }",
       ].join("\n"),
     );
@@ -914,7 +942,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         [
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
-          `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: this.${f.formVar}.getRawValue() });`,
+          ...submitBody(f.formVar, [
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: this.${f.formVar}.getRawValue() });`,
+          ]),
           "  }",
         ].join("\n"),
       );
@@ -1025,8 +1055,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         [
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
-          `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: this.${m.formVar}.getRawValue() });`,
-          `    this.${m.openSig}.set(false);`,
+          ...submitBody(m.formVar, [
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: this.${m.formVar}.getRawValue() });`,
+            `    this.${m.openSig}.set(false);`,
+          ]),
           "  }",
         ].join("\n"),
       );

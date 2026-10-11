@@ -300,14 +300,6 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
       '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
       "(`forms.dart`), which owns the widget's label",
   },
-  {
-    kind: "defect",
-    id: "D-I18N-9",
-    targets: ["feliz", "flutter"],
-    menus: ["explicit"],
-    key: /^menu\.(section|link)\./,
-    reason: "an explicit `menu {}` is extracted but the Feliz / Flutter shells never render it",
-  },
   // --- design over-merge (_walker/i18n-chrome.ts) --------------------------
   {
     kind: "over-merge",

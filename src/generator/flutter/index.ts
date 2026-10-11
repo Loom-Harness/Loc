@@ -72,6 +72,7 @@ import {
 } from "./forms-emit.js";
 import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
+import { FLUTTER_NAV_MENU_WIDGET, renderFlutterNavMenu } from "./menu-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
 import { renderFlutterMoneyRuntime, usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER, renderFlutterNavRuntime } from "./nav-runtime.js";
@@ -303,6 +304,9 @@ export function generateFlutterForContexts(
   const pageRoutes = new Map<string, string>(
     pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
   );
+  // The explicit `menu { }` — one shared widget every page's app bar mounts.
+  const navMenuSource = renderFlutterNavMenu(ui, nameCtx, authUi, i18nEnabled);
+  if (navMenuSource) out.set("lib/nav_menu.dart", navMenuSource);
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
     const r = renderPage(page, ui as UiIR, contexts, aggregatesByName, bcByAggregate, {
@@ -315,6 +319,7 @@ export function generateFlutterForContexts(
       nameCtx,
       pageRoutes,
       credentialed,
+      navMenu: navMenuSource !== "",
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -744,6 +749,9 @@ function renderPage(
      *  — the page shell then imports the credentialed `api_client.dart` drop-in
      *  instead of `package:http/http.dart`. */
     credentialed: boolean;
+    /** True when the ui declares an explicit `menu { }` — every page's app bar
+     *  then mounts it (`lib/nav_menu.dart`). */
+    navMenu: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -756,6 +764,7 @@ function renderPage(
     nameCtx,
     pageRoutes,
     credentialed,
+    navMenu,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -888,6 +897,7 @@ function renderPage(
           derivedLines,
           pageGate,
           credentialed,
+          navMenu,
         },
         bodyWidget,
         contexts,
@@ -902,6 +912,7 @@ function renderPage(
         usesComponent,
         derivedLines,
         credentialed,
+        navMenu,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -963,6 +974,8 @@ interface ConsumerBindings {
    *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
    *  bytes identical. */
   credentialed: boolean;
+  /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
+  navMenu: boolean;
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -1029,9 +1042,12 @@ function renderStatelessPage(
      *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
      *  emitted bytes identical. */
     credentialed: boolean;
+    /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
+    navMenu: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  if (opts.navMenu) imports.push("import '../nav_menu.dart';");
   // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
   // (this page has no `ref` of its own).
   if (bodyWidget.includes("Consumer(builder:")) {
@@ -1076,7 +1092,7 @@ function renderStatelessPage(
     // and before the tree that reads them — Dart locals are not hoisted.
     ...opts.derivedLines,
     "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')),`,
+    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
     "      body: SingleChildScrollView(",
     `        child: ${indentContinuation(bodyWidget, 8)},`,
     "      ),",
@@ -1219,6 +1235,7 @@ function renderConsumerPage(
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
   ];
   if (b.pageGate) imports.push("import '../auth.dart';");
+  if (b.navMenu) imports.push("import '../nav_menu.dart';");
   if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
@@ -1288,7 +1305,7 @@ function renderConsumerPage(
     "  Widget build(BuildContext context, WidgetRef ref) {",
     bindings,
     "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')),`,
+    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
     "      body: SingleChildScrollView(",
     `        child: ${guarded},`,
     "      ),",
