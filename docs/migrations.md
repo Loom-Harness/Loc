@@ -445,6 +445,62 @@ unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
 `WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
 live rows. A warning never changes the exit code.
 
+### A unique index follows a `softDeletable` flip (partial ↔ full)
+
+Under `softDeletable` the `unique (…)` index is **partial** (`WHERE is_deleted =
+false`), so a live row may reuse a soft-deleted row's key. The index name
+(`<table>_<cols>_uq`) depends only on the table and the columns, so flipping the
+capability keeps the name and changes only the predicate. The index diff
+compares the whole index (columns after renames, uniqueness, predicate,
+opclasses), not only the name: a same-named index whose shape changed is
+**rebuilt**, as a `DROP INDEX` + `CREATE … INDEX`, because Postgres cannot alter
+an index predicate. The drop rides the leading index-drop bucket and the create
+the trailing index-add bucket, so a predicate that names `is_deleted` is created
+after that column's `ADD COLUMN`, and dropped before its `DROP COLUMN`. All five
+backends render it: Ecto as `drop index(…)` + `create index(…, where: …)`, the
+others as shared Postgres SQL.
+
+```ddd
+// generation 1: aggregate Account with crudish { number: string  unique (number) }
+aggregate Account with softDeletable, crudish { number: string  owner: string  unique (number) }
+migration "soft-delete" { Account.isDeleted = false }   // fills the new NOT NULL column
+```
+```sql
+DROP INDEX "ledger"."accounts_number_uq";
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ADD COLUMN "is_deleted" BOOLEAN NULL;
+--> statement-breakpoint
+UPDATE "ledger"."accounts" SET "is_deleted" = FALSE WHERE "is_deleted" IS NULL;
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ALTER COLUMN "is_deleted" SET NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ADD COLUMN "deleted_at" TIMESTAMP WITH TIME ZONE NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_number_uq" ON "ledger"."accounts" ("number") WHERE is_deleted = false;
+```
+
+- **Full → partial (adding `softDeletable`)** relaxes the constraint: every row
+  the full index admitted, the partial one admits too. The flip is not
+  destructive and raises no warning. Adding the NOT NULL `is_deleted` column to a
+  populated table still needs the backfill shown above, or `--allow-destructive`.
+- **Partial → full (dropping `softDeletable`)** tightens the constraint. The
+  formerly soft-deleted rows now count, so a live row that reused a deleted
+  row's key makes the `CREATE UNIQUE INDEX` fail at boot. This raises
+  `loom.migration-unique-on-existing-table`. Dedupe the rows with a
+  `sql before` step, as described in the previous section. Dropping
+  `is_deleted` itself is a `dropColumn`, so it needs `--allow-destructive`.
+
+Before this, the diff paired indexes by name only. The flip emitted no index
+step, and the database kept whichever index the first generation created.
+
+The migration-evolution tier runs both directions against a populated database
+on every SQL backend (`runUniqueIndexEvolutionGate`, `npm run
+test:migration-evolution{,-python,-java,-dotnet,-elixir}`):
+- full → partial: the migration applies, a soft-deleted row's key is reused
+  (201), and a live duplicate gets 409;
+- partial → full: a `sql before` dedupe runs, the index is rebuilt full, and a
+  duplicate gets 409.
+
 ### Amending a generation that never applied
 
 Once a generation is emitted it is frozen: the snapshot's `lastVersion` has

@@ -53,6 +53,7 @@ import type {
   SystemIR,
   TraceabilityIR,
   TypeIR,
+  UniqueKeyIR,
   ValueObjectIR,
   WireField,
   WorkflowIR,
@@ -60,6 +61,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
@@ -896,14 +898,49 @@ export function enrichContext(
     const base = byName.get(a.extendsAggregate);
     return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
   };
+  // A concrete's writes are bound by every `unique (…)` key an ancestor
+  // declares, so the keys land on the concrete too.  Root-most keys first.
+  //   * TPC (`ownTable`): the concrete is a standalone table — without the copy
+  //     the key reaches no table at all (an abstract TPC base owns none) and
+  //     every per-table derivation keyed on `agg.uniqueKeys` (the migration's
+  //     `<table>_<cols>_uq` index on all five backends + Dapper's DbSchema)
+  //     silently drops it.  The keys are per TABLE, so duplicates ACROSS
+  //     sibling concretes are not prevented — `loom.unique-tpc-not-hierarchy-
+  //     wide` says so on the base.
+  //   * TPH (`sharedTable`): the base's shared table already carries the ONE
+  //     index (`tphTableForAggregate` reads the base's keys; a TPH concrete
+  //     emits no table), but the concrete's WRITE surface still has to map the
+  //     23505 it raises — the Hono per-router 409 arm and the Ecto
+  //     `unique_constraint` (named for the shared table) gate on the
+  //     concrete's own `uniqueKeys`, so without the copy a duplicate answered 500.
+  const inheritedUniqueKeysFor = (a: AggregateIR, seen: Set<string>): UniqueKeyIR[] => {
+    if (!a.extendsAggregate || seen.has(a.name)) return [];
+    seen.add(a.name);
+    const base = byName.get(a.extendsAggregate);
+    if (!base) return [];
+    return [...inheritedUniqueKeysFor(base, seen), ...(base.uniqueKeys ?? [])];
+  };
   const withInheritance = ctx.aggregates.map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
     const idValueType = rootIdValueTypeFor(a, new Set<string>());
     const fieldsChanged = merged !== a.fields;
     const idChanged = idValueType !== a.idValueType;
-    if (!fieldsChanged && !idChanged) return a;
-    return { ...a, fields: merged, idValueType };
+    const own = a.uniqueKeys ?? [];
+    const ownKeys = new Set(own.map((uk) => uk.columns.join(",")));
+    const inherited =
+      isTpcConcrete(a, ctx.aggregates) || isTphConcrete(a, ctx.aggregates)
+        ? inheritedUniqueKeysFor(a, new Set<string>()).filter(
+            (uk) => !ownKeys.has(uk.columns.join(",")),
+          )
+        : [];
+    if (!fieldsChanged && !idChanged && inherited.length === 0) return a;
+    return {
+      ...a,
+      fields: merged,
+      idValueType,
+      ...(inherited.length > 0 ? { uniqueKeys: [...inherited, ...own] } : {}),
+    };
   });
   const aggregates = withInheritance.map((a) => enrichAggregate(a, valueObjects, urlStyle));
   // paged-run (paged-queryHandler): a paged `queryHandler` over

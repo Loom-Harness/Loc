@@ -51,6 +51,7 @@ import {
   validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUniqueColumns,
+  validateUniqueTpcBase,
   validateUnmappedErrorStatuses,
   validateVariantMatch,
   validateWorkspaceUniqueness,
@@ -168,6 +169,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateWorkspaceUniqueness(loom, diags);
   // `unique (...)` value-object column rejection (needs the resolved IR type).
   validateUniqueColumns(loom, diags);
+  // TPC base `unique (...)`: per-table, not hierarchy-wide (warning).
+  validateUniqueTpcBase(loom, diags);
   // System-wide: warn when a workflow event consumer subscribes to an event no
   // channel carries (it can't be dispatched in-process).  Needs every
   // context's channels, so it runs once over the whole model, not per-context.
