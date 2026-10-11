@@ -66,3 +66,10 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - **Behaviour change:** a LiveView form posting `""` for a required text field now saves `""` (node's wire contract); `phoenix-ui-e2e` confirms in CI.
   - The `intrinsics` `"   "` probe stays held for F4: the only divergence left is M-T6.87's default sentence.
   - Hand-off: `handoffs/wave-c3f-f1.md`.
+- **F8 folded** (2026-10-11; `claude/c3f-f8` @ `a6b6df695`). **The elixir Schemathesis cell is binding.** Measured locally on `storefront-elixir`: 26 findings + 26 error keys, 23 of 29 operations erroring → 5 waived findings, 0 errors, 29/29 operations tested. The other four legs were re-run with the pin and are clean. Root causes:
+  - an unpinned `jsonschema-rs` 0.56.0 broke the fuzzer's generator on all five legs from 2026-09-10 → pinned to `0.49.1`, and an untestable operation is now a finding (`<op>::error:<type>`);
+  - VO properties registered no OpenAPI component → the schema module, plus a corpus-wide dangling-`$ref` check;
+  - the harness fuzzed the LiveView pages (relative `servers`) → `specServerBase`;
+  - a body-parse failure corrupted the next keep-alive request → `connection: close`;
+  - find params reached the query unchecked → `__check_find_params/2` answers 422 at the param.
+  - F34 (elixir persists a VO's raw wire map) is minted **M-T6.89** and waived W37/W38. Hand-off: `handoffs/wave-c3f-f8.md`.
