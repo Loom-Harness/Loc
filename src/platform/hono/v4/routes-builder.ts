@@ -3,7 +3,12 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
+import {
+  INT32_MAX,
+  INT32_MIN,
+  LONG_SAFE_MAX,
+  LONG_SAFE_MIN,
+} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -143,6 +148,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -2615,7 +2621,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
  *  are deliberately not matched here. */
 const PLAIN_STRING_BASE = "z.string()";
 
-const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The bound carries the cross-backend range sentence (RS-39) rather than
+ *  zod's own text, which is both framework-worded and zod-major-specific
+ *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
+ *  equal to …" on 3). */
+const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}).max(${INT32_MAX}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this

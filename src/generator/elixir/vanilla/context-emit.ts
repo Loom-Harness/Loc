@@ -32,7 +32,7 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -332,17 +332,10 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
 /** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
- *  guard here and the create/update changeset in `changeset-emit.ts`.
- *
- *  Spelled like `MONEY_RANGE_MESSAGE` beside it, and for the same reason: a
- *  client sees ONE family of wire refusals rather than a different sentence per
- *  column kind.  It is elixir-local because the other four backends each render
- *  their framework's own text for this (zod's "Number must be less than or
- *  equal to …", pydantic's "Input should be less than or equal to …", Bean
- *  Validation's "must be less than or equal to …"), so there is no shared
- *  string to converge on — only a shared STATUS, which is the part that
- *  matters: 422, not the 500 the database used to answer. */
-export const INT32_RANGE_MESSAGE = "Integer out of range";
+ *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
+ *  the cross-backend range sentence (RS-39, `INTEGER_RANGE_MESSAGE`), sent
+ *  bare — no value appended — exactly as the other four send it. */
+export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
 
 function renderNumericParamHelpers(
   needsDecimal: boolean,
@@ -415,7 +408,7 @@ function renderNumericParamHelpers(
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, __loom_param_error(record, field, value, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
 
   defp __loom_int32_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
