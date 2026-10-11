@@ -481,8 +481,8 @@ export interface OperationIR {
    * `GET /{id}/can_<op>` returns `{ allowed }` for UI enablement.
    * Lowered in the aggregate env (operation params are out of scope —
    * `loom.when-references-op-param`); named criteria / aggregate
-   * functions inline like any boolean position.  Emission: Hono +
-   * .NET; gated on elixir (`loom.when-unsupported`). */
+   * functions inline like any boolean position.  Emitted by every
+   * backend. */
   when?: ExprIR;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
@@ -775,6 +775,10 @@ export interface ContextStampAssignmentIR {
 
 export interface TestIR {
   name: string;
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
   statements: TestStmtIR[];
   /** Traceability back-link: the `verifies <TC-id>` clause
    *  naming the TestCase this executable test realises.  Undefined when
@@ -805,6 +809,10 @@ export type TestStmtIR =
 export interface EnumIR {
   name: string;
   values: string[];
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
 }
 
 export interface ValueObjectIR {
@@ -3167,6 +3175,10 @@ export type Platform =
 
 export interface DeployableIR {
   name: string;
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
   /** The platform **family** (`"node"`, `"dotnet"`, `"react"`, …) —
    *  the closed union every downstream consumer branches on.  A
    *  `family@version` pin in the source is normalised here to its

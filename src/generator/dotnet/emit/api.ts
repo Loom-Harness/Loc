@@ -1,6 +1,7 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
+import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
   errorStatuses,
@@ -819,10 +820,18 @@ export function renderExceptionFilter(
      *  filter then answers a `DomainException` carrying a `RuleCode` with the
      *  same errors[] entry (M-T1.11 (c)). */
     domainFloorCodes?: boolean;
+    /** Ruling D4 (#20): true only under the dev-stub verifier
+     *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
+     *  Otherwise it is the constant `Forbidden`; the gate stays in the
+     *  `forbidden` log line either way. */
+    echoForbiddenDetail?: boolean;
   },
 ): string {
   const usesValidators = !!options?.usesValidators;
   const localizeMessages = !!options?.localizeMessages;
+  const forbiddenDetail = options?.echoForbiddenDetail
+    ? "fe.Message"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // Resolved structural-conflict statuses baked as literals into the arms
   // below — 409 by default, or the api's `httpStatus <Conflict> -> <Code>`
   // override.  Both the log-event `status` field and the ProblemDetails status
@@ -1159,7 +1168,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
               { name: "status", valueExpr: `${forbiddenStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("forbidden");
-            context.Result = Problem(context, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", fe.Message, trace_id);
+            context.Result = Problem(context, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", ${forbiddenDetail}, trace_id);
             context.ExceptionHandled = true;
             return;
         }

@@ -192,6 +192,18 @@ async function runCase(c) {
     const unitResults = [];
 
     if (!EXTERNAL_BASE) {
+      // Warnings are fatal, exactly as the build gates compile (`dotnet build
+      // --no-restore /warnaserror`, corpus-dotnet-build / generated-dotnet-build).
+      // This leg compiles models NO build gate does — the five shared
+      // systems/*.ddd (sales, payments, ledger, shapes, wire-contract) — and
+      // `dotnet run` / `dotnet test` alone
+      // let a warning through (#2994: "a green booted app is not a green
+      // compile").  It runs FIRST: the test/run builds below are then
+      // incremental no-ops, and an incremental build re-emits no warnings, so
+      // the flag on a later build would pass vacuously.
+      execFileSync("dotnet", ["restore"], { cwd: deplDir, stdio: "pipe" });
+      execFileSync("dotnet", ["build", "--no-restore", "--nologo", "/warnaserror"], { cwd: deplDir, stdio: "pipe" });
+
       // Run the emitted domain xUnit suite (if any) — pure domain, no DB.  TRX
       // logger gives per-test outcomes; a build/run throw with no parsed cases
       // is surfaced rather than silently dropped.

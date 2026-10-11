@@ -113,7 +113,7 @@ The back-fill of a feature that shipped **three phases with no mission tracking 
 **Shipped — placement (re-verified on fresh `main` 2026-07-30, not taken from the proposal):**
 - **Phase 1** — `test … for <Aggregate>` hoisted out of its aggregate to `ContextMember` / `ModelMember` (so tests can live in their own `tests/*.ddd`), attached to `AggregateIR.tests`, re-lowered byte-compatibly (#2163).
 - **Phase 2 (partial)** — the extra unit anchors: `valueobject` and `domainService` host `test` blocks (`ddd.langium` `TestBlock` in both member unions; `checkTestPlacement`'s `isAggregate || isValueObject || isDomainService`) (#2179).
-- **Phase 3 — the context-integration rung, on ALL FIVE backends.** `test "…"` nested in a `context` lowers to `BoundedContextIR.tests` and emits an in-process integration test against live repositories, no HTTP (`INTEGRATION_BACKENDS = {node, python, dotnet, java, elixir}` in `src/language/validators/test-placement.ts`; the `loom.context-test-unsupported` warning now suppresses for every backend) (#2188 + the per-backend follow-ons). *Note: `coverage.md` said "Phase 1+2 shipped" — Phase 3 had landed too, on all five.*
+- **Phase 3 — the context-integration rung, on ALL FIVE backends.** `test "…"` nested in a `context` lowers to `BoundedContextIR.tests` and emits an in-process integration test against live repositories, no HTTP (`src/language/validators/test-placement.ts` suppresses the `loom.context-test-unsupported` warning for any backend deployable, via `platformOwnsBackend`) (#2188 + the per-backend follow-ons). *Note: `coverage.md` said "Phase 1+2 shipped" — Phase 3 had landed too, on all five.*
 
 **Open (a) — the `workflow` unit anchor.** Phase 2 named `valueobject` / `workflow` / `domainService`; only two landed. `WorkflowMember` (`ddd.langium:1390`) has no `TestBlock` arm, so a workflow's orchestration has no unit-tier home — it is reachable only through the api/e2e tier or a context integration test. Size **S**: one grammar arm, one `checkTestPlacement` predicate, lower into `WorkflowIR.tests`, route to the existing unit emitters (the pattern the VO/domainService anchors already set).
 
@@ -170,6 +170,11 @@ The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` 
 
 Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 
+**Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
+
+- **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
+- **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
+
 ## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
 
 The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
@@ -197,6 +202,8 @@ if (isLambda(expr)) {
 The collection-op path two hundred lines up does it correctly (`collElem && isLambda(a.value) ? lowerLambda(a.value, env, collElem) : …`), so the element type is available — it is simply not threaded to the bare-lambda site. Every `receiverType` / `memberType` derived inside such a lambda is therefore wrong, which defeats the IR's central promise that backends never re-resolve.
 
 This is the enabling change for the formatter work: a per-type formatter table cannot route `Text`'s child while every page-body field types as `string`. #2871's D4 is downstream of it.
+
+**F-041 is closed by an IR backstop (#3133), not by this mission.** Where the lambda's receiver IS typed in the IR (the `of:` form #3050 landed), `loom.member-unresolved` (`src/ir/validate/checks/member-resolution-checks.ts`) refuses an invented member the language layer couldn't see. `eval/repro/broken/b09-page-wrong-aggregate.ddd` (`o.totl`) is now refused and pinned in `ddd-source-census.test.ts`. A bare lambda still types its parameter `string`, so the backstop can't see into it; that part of this mission stands.
 
 **The fix:** thread the known element type to the bare-lambda call site the way `applySuffixToRecv` already does, and make the no-known-type case a diagnostic rather than a silent `string`. **The first half landed with #3050 for the `of:` forms the page DSL documents; the remainder this mission now covers is the second half** — the placeholder itself.
 
@@ -353,3 +360,35 @@ Item **V14** (#2838). The expression form of a variant `match` carries its resol
 **The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
 
 **Verification.** The pinned case flips; one negative case per gate on the statement form.
+
+## M-T5.44 — Only one `resource` per (context, kind), even for `api` / `objectStore` / `mailer` / `queue` — `open` · **M** · P3 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#42a** (Clearline F-042). Two `kind: api` resources on one context (`ocr`, `fraud`) are refused: `Deployable 'd' has two dataSources for (Sales, kind: api): 'ocr' and 'fraud'. Pick exactly one per (context, kind).` (`loom.datasource-duplicate`, `src/language/validators/deployable.ts:572-586`). The refusal is honest and documented, so this is not a defect. But the rule is right only for the persistence kinds (`state`, `eventLog`, `snapshot`, `cache`, `replica`). The verb-addressed kinds are called by resource name, and the emitters already emit one client per resource name, so two external APIs on one context is a reasonable model the language refuses.
+
+**The fix, once ruled:** keep the duplicate key for the persistence kinds; allow several `api` / `objectStore` / `mailer` / `queue` resources per context. Verify on all five backends that two same-kind resources get distinct clients and distinct env vars.
+
+**Verification.** A compile-tier corpus fixture with two `api` and two `objectStore` resources on one context, on all five backends; the persistence-kind refusal keeps its negative case.
+
+## M-T5.45 — No event, value-object-equality or navigation matcher in `test` / `test e2e` — `open` · **M** · P2 (design first)
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#43** (testability audit F7-r / F11-r). `src/util/intrinsic-matchers.ts` has 13 matchers (`toBe`, the four comparisons, `toBeSameInstant`, `toHaveText`, `toHaveCount`, `toBeVisible`, `toContain`, `toBeNull`, `toBeAbsent`, `toThrow`). There is no way to assert that an operation **emitted** an event, that two value objects are **equal**, or that a UI action did **not navigate** (`not.` exists for locator matchers only; a ui `toThrow` is refused with `loom.e2e-ui-throw-invalid`). `expect(n).toEmit(Renamed)` and `expect(n).toEqual(n)` are refused at parse ("expect requires a matcher"), which is honest.
+
+The silent half of #43 — `expect(n.events).toContain(Renamed)` and `expect(n.bogus).toBe(1)` validate clean and emit TS2339 / TS2304 — is [M-T5.41](#m-t541)'s (unit `test` bodies are never validated); do not duplicate it here.
+
+**The design:** `expect(x).toEmit(Event)` at the unit tier through the aggregate's `pullEvents()`; `toEqual` for value objects (structural, the wire's equality); a `toHaveURL` / not-navigated locator matcher for `test e2e` against a ui.
+
+**Verification.** A type-system test per matcher; the generated unit-test compile tier on all five backends; one ui e2e case per locator matcher.
+
+## M-T5.46 — ICU `plural` / `select` in backend domain code: render it, not drop it — `open` · **M** · P3
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Follow-up of owner ruling **D8** (eval-closure item **#38**; Clinica F-006, Meridian F-002). An interpolated string in a backend `derived` or operation body drops an ICU `plural` / `select` hole's branch text: `"{n, plural, one {# item} other {# items}}"` emits just the number. The drop of the *format* on the backend is recorded as deliberate (`archive/T1-done.md` §M-T1.11), and wave C6 of the review adds the warning `loom.interp-format-dropped-in-domain` now. This mission is the rendering D8 deferred: the branch text is authored content, and losing it is a wrong string, not a formatting nicety.
+
+**The fix:** a small ICU `plural`/`select` evaluator per backend (or one shared helper in each runtime kernel) over the already-parsed interpolation IR; `number`/`date` formats may stay dropped by the M-T1.11 decision. Once it lands, delete the D8 warning in the same PR.
+
+**Verification.** A wire-golden case whose `derived` returns a `plural` and a `select` string, byte-identical on all five backends.

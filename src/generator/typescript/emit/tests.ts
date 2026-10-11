@@ -14,6 +14,7 @@ import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import {
+  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestLiteral,
   type TestLiteralTarget,
@@ -317,6 +318,11 @@ export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): stri
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
   const actual = renderTestExpr(inner, ctx);
   const args = expr.args.map((a) => renderTestExpr(a, ctx)).join(", ");
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
+  // `toEqual`, not `toBe` — two `Date` objects are never `Object.is`-identical,
+  // and `toEqual` compares their time value.
+  const dt = coerceMatcherExpected(expr, args, TS_TEST_LITERAL);
+  if (dt !== undefined) return `  expect(${actual}).${negate ? "not." : ""}toEqual(${dt});`;
   const tail = negate ? `not.${expr.member}` : expr.member;
   return `  expect(${actual}).${tail}(${args});`;
 }

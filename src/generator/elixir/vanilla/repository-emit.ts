@@ -267,7 +267,12 @@ function renderRepository(
     `      {:error, {:forbidden, ${JSON.stringify(missingClaimMessage(stamp))}}}`,
     "    else",
   ]);
-  const claimGuardEnd = claimGuardLines.length > 0 ? ["    end"] : [];
+  // One `end` per guard: each stamp opens its own `if … do … else`, so two
+  // claim-valued stamps (say `createdBy := currentUser.id` from a capability
+  // and `ownerRole := currentUser.role` from the context) nest two blocks — a
+  // single `end` left the module uncompilable (`missing terminator: end`),
+  // caught by the `stamps-principal` corpus fixture on the behavioural leg.
+  const claimGuardEnd = requiredClaimStamps(agg, "create").map(() => "    end");
 
   const insertBody = preload
     ? `case ${insertPipeline} do

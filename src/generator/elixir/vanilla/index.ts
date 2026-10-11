@@ -17,12 +17,14 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { brokerChannelBindings } from "../../_channels/bindings.js";
@@ -105,7 +107,7 @@ import { emitVanillaWorkflowInstances } from "./workflow-instances-emit.js";
 
 export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): Map<string, string> {
   const { contexts, deployable, sys, sourcemap, pack } = args;
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/vanilla/index");
   const appName = toSnakeApp(deployable.name);
   const appModule = toModulePrefix(appName);
 
@@ -203,6 +205,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       // M-T1.11 (c) — a messaged rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(deployable, sys),
     ),
   );
 

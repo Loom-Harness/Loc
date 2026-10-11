@@ -43,13 +43,20 @@ system FulfillmentSaga {
       workflow OrderFulfillment {
         orderId: Order id
         attempts: int
+        // Own-state writes in an EVENT-STARTED create and in the reactor —
+        // a plain assign, then a compound `+=` read-modify-write of the row
+        // (PROMOTED from the per-backend `*-workflow-own-state-assign.test.ts`
+        // string copies, M-T9.42; the instance read in the e2e is the claim).
         create(p: OrderPlaced) by p.order {
+          attempts := 1
+          attempts += 1
           let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {
           let ship = Shipments.getById(s.shipment)
           ship.markTracked()
+          attempts += 1
         }
       }
     }
@@ -78,6 +85,11 @@ system FulfillmentSaga {
     // addresses a real row on the public surface.
     let shipById = api.shipments.getById(ship)
     expect(shipById.status).toBe("Tracked")
+    // The saga row's own state: the event-started create wrote 1 then `+= 1`,
+    // the reactor `+= 1` on the row it reloaded — 3, where a compound write
+    // that lost its read-back answers 1, and one that never persisted 0.
+    let saga = api.orderFulfillment.instance(ord)
+    expect(saga.attempts).toBe(3)
 
     // The canonical `update` beside the event-emitting `place()`: it writes the
     // same `status` column WITHOUT emitting, so a backend that hung the saga

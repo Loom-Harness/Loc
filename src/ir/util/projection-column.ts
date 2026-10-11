@@ -41,7 +41,8 @@
 //   node / mikroorm      `b."amount_amount"`            flattened, snake hops
 //   python / SQLAlchemy  `BillRow.amount_amount`        flattened, snake hops
 //   dotnet / EF Core     `o.Amount.Amount`              OWNED object path
-//   dotnet / dapper      `"amount_amount"`              flattened, snake hops
+//   dotnet / dapper      `("amount"->>'Amount')::numeric`   ONE jsonb column
+//                        (System.Text.Json, PascalCase keys) — an extraction
 //   java / JPA           `e.amount.amount`              EMBEDDED object path
 //   elixir / Ecto        the whole VO is ONE `:map` (jsonb) column, so the leaf
 //                        is a jsonb extraction, not a column at all
@@ -88,6 +89,13 @@ export function flatColumnKey(col: ProjectionColumn): string {
  *  src/system/migrations-builder.ts, which is what actually wrote the DDL. */
 export function sqlColumnName(col: ProjectionColumn): string {
   return col.path.map(snake).join("_");
+}
+
+/** True when the path descends INTO a value object — the case where the
+ *  backends stop agreeing (a flattened column on four of them, an
+ *  owned/embedded object path on two, one jsonb blob on Ecto). */
+export function isValueObjectLeaf(col: ProjectionColumn): boolean {
+  return col.path.length > 1;
 }
 
 /** The source-row member chain an expression names, OUTERMOST-LAST, or `null`

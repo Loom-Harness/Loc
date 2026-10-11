@@ -1,4 +1,4 @@
-function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}} }) {
+function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}}, disabled, disabledReason{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}}{{#if gated}}; disabled: boolean; disabledReason: string{{/if}} }) {
   const { open, onOpen, onClose } = useDisclosure();
 {{#each idTargets}}  const {{this.hookVar}} = useAll{{this.namePlural}}();
 {{/each}}  const {{{destructured}}} = useForm<{{{formGenerics}}}>({
@@ -8,7 +8,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: Ret
   const { fields: {{this.name}}Fields, append: append{{this.pascal}}, remove: remove{{this.pascal}} } = useFieldArray({ control, name: "{{this.name}}" });{{/each}}
   return (
     <>
-      <Button colorPalette="brand" variant="{{#if triggerPrimary}}solid{{else}}outline{{/if}}" onClick={onOpen} data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
+      <Button colorPalette="brand" variant="{{#if triggerPrimary}}solid{{else}}outline{{/if}}" onClick={onOpen} {{#if gated}}disabled={disabled} title={disabled ? disabledReason : undefined} {{/if}}data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
       <Dialog.Root open={open} onOpenChange={(e) => { if (!e.open) onClose(); }}>
         <Portal>
           <Dialog.Backdrop />

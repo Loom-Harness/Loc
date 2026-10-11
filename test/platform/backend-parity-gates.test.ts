@@ -1,28 +1,22 @@
 // F1 parity guardrail (backend-parity-plan W5).  Mechanises the invariant that
-// a capability feature can never be silently "ungated AND unemitting" on a
-// backend — the F1 footgun, where a backend parses a feature keyword, the
-// validator doesn't gate it, and the emitter drops it on the floor.
+// a capability feature can never be silently dropped by a backend — the F1
+// footgun, where a backend parses a feature keyword, the validator doesn't gate
+// it, and the emitter drops it on the floor.
 //
-// For each capability feature × each domain backend, the (feature, backend)
-// pair must be in EXACTLY ONE of two states:
+// Every feature below ships on all five domain backends, so for each
+// (feature, backend) pair the test asserts BOTH:
 //
-//   1. GATED   — validateLoomModel(...) returns an error with the feature's
-//                gate code (the feature is rejected at compile time), or
-//   2. EMITTED — generateSystems(model).files contains the feature's
-//                backend-specific emitter marker (the feature is realised).
+//   1. ACCEPTED — validateLoomModel(...) returns no error-severity diagnostic,
+//                 so no gate refuses the feature on that backend; and
+//   2. EMITTED  — generateSystems(model).files contains the feature's
+//                 backend-specific emitter marker (the feature is realised).
 //
-// "Neither" (no gate error AND no emitter marker) is the F1 silent gap and
-// FAILS this test.  This is the inverse of the per-feature backend gate sets in
-// `src/ir/validate/checks/system-checks.ts` (LIMITED_FAMILIES, PROVENANCE_-,
-// AUDIT_OP_-, AUDIT_LIFECYCLE_-, EVENT_SOURCING_-, EVENT_SOURCING_WORKFLOW_-,
-// FIELD_MASK_-, FILTER_BYPASS_FAMILIES, PAGED_QH_-, PROJECTION_QT_- /
-// _AGG_- / _GROUPBY_- / _WF_SOURCE_- / _PROJ_SOURCE_SUPPORTED, TPH_CAPABLE) and
-// in `structural-checks.ts` (SUPPORTED_PAGED_ / _UNION_ / _WHEN_ / _RETURN_-
-// BACKENDS).  The test additionally cross-checks that the emit/gate split
-// matches gate-set membership, so drift in EITHER direction is caught:
-//
-//   - a backend the gate set CLAIMS emits but actually doesn't  → emit miss;
-//   - a backend NOT in the gate set that silently emits anyway  → unlisted emit.
+// Accepted-but-not-emitted is the F1 silent gap and FAILS this test.  Every
+// row is supported on all five backends, so there is no per-feature backend
+// gate set to cross-check (a set naming every backend gates nothing).  When
+// partial support appears, the honest place for it is a
+// `loom.*-unsupported` validator code — and a row here would then expect that
+// code on the unsupporting backend instead of the marker.
 //
 // Markers were chosen empirically (generate each feature × emitting backend,
 // pick a robust shared/per-backend string proven present on the emitting
@@ -38,26 +32,18 @@ import { generateSystems } from "../../src/system/index.js";
 import { parseString } from "../_helpers/parse.js";
 
 // The five domain (logic-running, persistence-owning) backends.  `elixir` has a
-// single foundation — vanilla (plain Phoenix+Ecto) — which emits capability
-// filters, provenance, audited operations, event sourcing, and TPH, so it is in
-// the `emits` set for every feature below.
+// single foundation — vanilla (plain Phoenix+Ecto) — which emits every feature
+// below.
 const DOMAIN_BACKENDS = ["node", "dotnet", "java", "python", "elixir"] as const;
 type Backend = (typeof DOMAIN_BACKENDS)[number];
 
 interface Feature {
   /** Human name for diagnostics. */
   readonly name: string;
-  /** The validator gate code that rejects this feature on an unsupporting backend. */
-  readonly code: string;
   /** Build a `.ddd` source exercising the feature, hosted on `platform`. */
   readonly ddd: (platform: string) => string;
-  /** Backends whose generator EMITS the feature today (the gate-set membership,
-   *  used ONLY to cross-check the emit/gate split — NOT to decide the core
-   *  no-silent-gap assertion). */
-  readonly emits: ReadonlySet<Backend>;
-  /** Per-backend emitter marker string proving the feature emitted.  A backend
-   *  not in `emits` has no marker (it is expected to gate instead). */
-  readonly marker: Partial<Record<Backend, string>>;
+  /** Per-backend emitter marker string proving the feature emitted. */
+  readonly marker: Record<Backend, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,8 +170,8 @@ system TPH {
   deployable d { platform: ${platform}, contexts: [Fleet], dataSources: [st], serves: A, port: 4000 }
 }`;
 
-// A `queryHandler H(...): <Agg> paged` — the explicit-handler PAGED branch
-// (`PAGED_QH_SUPPORTED`).  A backend without it would crash on the `paged`
+// A `queryHandler H(...): <Agg> paged` — the explicit-handler PAGED branch.
+// A backend without it would crash on the `paged`
 // generic carrier at its return-type render, so the emitted marker below is
 // each backend's page/pageSize/sort/dir handler signature, not merely "a
 // handler exists".
@@ -208,7 +194,7 @@ system PQH {
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// Query-time projection (`PROJECTION_QT_SUPPORTED`) — the always-current read
+// Query-time projection — the always-current read
 // model (`from … where … select …`, no folds).  Distinct emit path from the
 // folded projection every backend already had.
 const queryTimeProjectionDdd = (platform: string): string => `
@@ -232,8 +218,7 @@ system QTP {
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// Whole-table aggregation in a query-time `select` (`PROJECTION_AGG_SUPPORTED`)
-// — the SINGLETON read model.  The point of the shape is that the aggregation
+// Whole-table aggregation in a query-time `select` — the SINGLETON read model.  The point of the shape is that the aggregation
 // happens IN SQL, so every marker below is the pushed-down COUNT, never a
 // client-side fold.
 const wholeTableAggregationDdd = (platform: string): string => `
@@ -255,7 +240,7 @@ system WTA {
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// GROUPED projection (`PROJECTION_GROUPBY_SUPPORTED`) — one row per distinct
+// GROUPED projection — one row per distinct
 // grouping key, aggregates per group in SQL, the LIST response shape.  A third
 // emit arm, distinct from both the singleton aggregation and the per-row read.
 const groupByProjectionDdd = (platform: string): string => `
@@ -279,8 +264,7 @@ system GBP {
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// A query-time projection sourced `from <Workflow>` (`PROJECTION_WF_SOURCE_-
-// SUPPORTED`) reads the workflow's persisted saga-state rows, not an aggregate
+// A query-time projection sourced `from <Workflow>` reads the workflow's persisted saga-state rows, not an aggregate
 // repository — so each marker names the WORKFLOW STATE table/entity, which is
 // the whole point: a backend that fell back to the aggregate repo would emit a
 // broken reference, and one that emitted nothing would be the silent gap.
@@ -310,8 +294,7 @@ system WSP {
   deployable d { platform: ${platform}, contexts: [C], dataSources: [st], serves: A, port: 4000 }
 }`;
 
-// A query-time projection sourced `from <OtherProjection>` (`PROJECTION_PROJ_-
-// SOURCE_SUPPORTED`) reads the SOURCE projection's persisted `<Proj>Row`
+// A query-time projection sourced `from <OtherProjection>` reads the SOURCE projection's persisted `<Proj>Row`
 // read-model table.  Same discipline as the workflow-source row: the marker
 // names the read-model table, not the aggregate.
 const projectionSourceProjectionDdd = (platform: string): string => `
@@ -339,7 +322,7 @@ system PSP {
   deployable d { platform: ${platform}, contexts: [C], dataSources: [st], serves: A, port: 4000 }
 }`;
 
-// `mask unless <expr>` field read-redaction (`FIELD_MASK_BACKENDS`).  This is
+// `mask unless <expr>` field read-redaction.  This is
 // the one feature on the table whose silent gap is a SECURITY hole rather than
 // a missing capability — an unredacted mask ships the sensitive value in the
 // clear — so each marker is the redaction ITSELF (the principal-guarded
@@ -362,9 +345,8 @@ system Masked {
   deployable d { platform: ${platform}, contexts: [Staff], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// Audited LIFECYCLE actions (`audited create` / `destroy`,
-// `AUDIT_LIFECYCLE_BACKENDS`) — a SEPARATE gate set from `AUDIT_OP_BACKENDS`,
-// which the `operation … audited` row above covers.  Markers pin the DESTROY
+// Audited LIFECYCLE actions (`audited create` / `destroy`) — a SEPARATE emit
+// path from the `operation … audited` row above.  Markers pin the DESTROY
 // staging (before=wire / after=null) specifically, so passing the operation row
 // says nothing about this one.
 const auditedLifecycleDdd = (platform: string): string => `
@@ -384,9 +366,8 @@ system ShopLc {
   deployable api { platform: ${platform}, contexts: [Ordering], dataSources: [ordersState], port: 4000 }
 }`;
 
-// Event-sourced WORKFLOW (`workflow X eventSourced`,
-// `EVENT_SOURCING_WORKFLOW_BACKENDS`) — the saga analogue of a
-// `persistedAs: eventLog` aggregate, and a gate set of its own: a backend
+// Event-sourced WORKFLOW (`workflow X eventSourced`) — the saga analogue of a
+// `persistedAs: eventLog` aggregate, with an emit path of its own: a backend
 // without the runtime silently MISgenerates it as a state-based saga (mutable
 // `<Wf>State` row, appliers dropped).  Markers therefore name the FOLD, which a
 // state-based saga would never emit.
@@ -410,10 +391,9 @@ system ESWF {
   deployable d { platform: ${platform}, contexts: [C], dataSources: [st], serves: A, port: 4000 }
 }`;
 
-// Generic carriers (`paged` / `envelope`, structural-checks
-// `SUPPORTED_PAGED_BACKENDS`).  Note this is a DIFFERENT gate from the paged
-// queryHandler above: this one fires on a generic-instance type anywhere in a
-// payload / find / aggregate position, the other on an explicit handler's
+// Generic carriers (`paged` / `envelope`).  Note this is a DIFFERENT emit path
+// from the paged queryHandler above: this one is a generic-instance type in a
+// payload / find / aggregate position, the other an explicit handler's
 // return.  Both are pinned because either can regress alone.
 const genericCarrierDdd = (platform: string): string => `
 system GC {
@@ -429,7 +409,7 @@ system GC {
   deployable d { platform: ${platform}, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
 }`;
 
-// Discriminated unions (`SUPPORTED_UNION_BACKENDS`) via `T option`, which lowers
+// Discriminated unions via `T option`, which lowers
 // to `union(Order, none)`.  `Order or Cancel` is NOT usable here: a union find
 // must be the repo's aggregate plus `none`/an `error` payload
 // (`loom.union-find-shape-unsupported`), which would make the row test the wrong
@@ -448,7 +428,7 @@ system UN {
   deployable d { platform: ${platform}, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
 }`;
 
-// `when` canCommand gate (`SUPPORTED_WHEN_BACKENDS`) — the predicate evaluated
+// `when` canCommand gate — the predicate evaluated
 // before the body (409 Disallowed) plus the side-effect-free
 // `GET /{id}/can_<op>` probe.  An unenforced state gate is a correctness hole,
 // so the marker is the probe each backend must expose.
@@ -469,10 +449,9 @@ system WG {
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [s], serves: A, port: 4000 }
 }`;
 
-// Union operation RETURN (`SUPPORTED_RETURN_BACKENDS`) — `operation f(): T or E`
-// and the RFC-7807 translation of the error variant.  A third union-shaped gate,
-// separate from `loom.union-unsupported` (which never inspects an operation's
-// return type), so the marker is the error-variant ARM of the response mapping.
+// Union operation RETURN — `operation f(): T or E` and the RFC-7807
+// translation of the error variant.  A separate emit path from the union find
+// above, so the marker is the error-variant ARM of the response mapping.
 const unionReturnDdd = (platform: string): string => `
 system UR {
   subdomain D {
@@ -491,12 +470,12 @@ system UR {
   deployable d { platform: ${platform}, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
 }`;
 
-// `ignoring <Cap>` filter bypass (`FILTER_BYPASS_FAMILIES`).  The emitted proof
+// `ignoring <Cap>` filter bypass.  The emitted proof
 // is a NEGATIVE one — the bypassing read must OMIT the capability predicate —
 // so each marker is the bypassed find's exact predicate WITHOUT the
 // `is_deleted` conjunct that the sibling `normal()` find still carries.  A
 // backend that "supported" the clause while silently keeping the filter loses
-// the marker, which is precisely the regression the gate set warns about.
+// the marker, which is precisely the regression this row exists to catch.
 //
 // This is also the row that forced `probeCell`'s single-parse rule (see its
 // doc-comment): a `capability` is a top-level, globally scoped declaration, so
@@ -527,25 +506,18 @@ system BypassShop {
 }`;
 
 // ---------------------------------------------------------------------------
-// The FEATURES table.  `emits` mirrors the gate-set membership in
-// system-checks.ts and structural-checks.ts (each row names its own set) — all
-// five domain backends emit every feature below (the vanilla Elixir foundation
-// included), which is exactly why the matrix has to keep checking: a set that
-// names everything shipping cannot tell "the gate works" from "the gate is
-// unreachable" on its own, and the EMIT half is what makes the claim falsifiable.
-// `marker` strings were verified empirically (present on every `emits` backend,
-// absent on a feature-free baseline).
+// The FEATURES table.  All five domain backends emit every feature below (the
+// vanilla Elixir foundation included).  `marker` strings were verified
+// empirically (present on every backend, absent on a feature-free baseline).
 // ---------------------------------------------------------------------------
 
 const FEATURES: readonly Feature[] = [
   {
     name: "capability filter (soft-delete `filter !this.archived`)",
-    code: "loom.context-filter-no-principal",
     ddd: filterDdd,
     // Non-principal relational filter: every domain backend emits it
-    // (LIMITED_FAMILIES node/elixir/java/python AND it into each read;
-    // dotnet rides EF `HasQueryFilter`).
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
+    // (node/elixir/java/python AND it into each read; dotnet rides EF
+    // `HasQueryFilter`).
     marker: {
       node: "not(eq(schema.orders.archived",
       dotnet: "!x.Archived",
@@ -557,13 +529,11 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "capability filter on a `shape: document` aggregate (in-app, no column to narrow)",
-    code: "loom.context-filter-no-principal",
     ddd: documentFilterDdd,
     // All five evaluate the predicate over the REHYDRATED instance: node/python
     // filter the mapped list, java appends inside the loop, .NET hoists it into
     // `_CapabilityVisible`, elixir filters the `%<Agg>.Data{}` embed the row
     // rehydrates to.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: ".filter((x) => (!x.archived))",
       dotnet: "_CapabilityVisible(Order x) => (!x.Archived)",
@@ -574,7 +544,6 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "capability filter on a `shape: embedded` aggregate (column root, jsonb containment)",
-    code: "loom.context-filter-no-principal",
     ddd: embeddedFilterDdd,
     // The embedded persistence adapter keeps the ROOT's fields as columns, so
     // the predicate must STILL be a column narrowing — the same marker as the
@@ -582,7 +551,6 @@ const FEATURES: readonly Feature[] = [
     // backend whose embedded read degraded to load-then-filter (the document
     // shape's strategy) would drop the string and fail here, which is the whole
     // reason a shape the relational row "already covers" earns its own cell.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "not(eq(schema.orders.archived",
       dotnet: "!x.Archived",
@@ -593,11 +561,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "provenance (`provenanced` field)",
-    code: "loom.provenanced-backend-unsupported",
     ddd: provenanceDdd,
-    // PROVENANCE_BACKENDS = node/dotnet/java/python/elixir (vanilla emits the
+    // every backend emits it (vanilla emits the
     // provenance_records side table).
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "provenance_records",
       dotnet: "provenance_records",
@@ -608,11 +574,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "audited operation (`operation … audited`)",
-    code: "loom.audited-backend-unsupported",
     ddd: auditedDdd,
-    // AUDIT_OP_BACKENDS = node/dotnet/java/python/elixir (vanilla emits the
+    // every backend emits it (vanilla emits the
     // audit_records side table).
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "audit_records",
       dotnet: "audit_records",
@@ -623,13 +587,11 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "event sourcing (`persistedAs: eventLog`)",
-    code: "loom.event-sourcing-backend-unsupported",
     ddd: eventSourcingDdd,
-    // EVENT_SOURCING_BACKENDS = node/dotnet/python/java/elixir.  The stream lives
+    // every backend emits it.  The stream lives
     // in the single per-context event log `<ctx>_events` (context `Accounts` →
     // `accounts_events`), shared by every ES stream in the context and
     // discriminated by `stream_type` (event-log-architecture.md).
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "accounts_events",
       dotnet: "accounts_events",
@@ -640,10 +602,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "TPH inheritance (abstract base + `extends`, sharedTable)",
-    code: "loom.tph-backend-unsupported",
     ddd: tphDdd,
-    // TPH_CAPABLE = node/dotnet/elixir/python/java (all five domain backends).
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       // node/dotnet/python: one shared `vehicles` table (TPH) vs per-concrete
       // tables (TPC).  java: the JPA `@DiscriminatorValue`.  elixir (vanilla):
@@ -658,13 +617,10 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "audited LIFECYCLE action (`create … audited` / `destroy … audited`)",
-    code: "loom.audited-backend-unsupported",
     ddd: auditedLifecycleDdd,
-    // AUDIT_LIFECYCLE_BACKENDS = node/dotnet/java/python/elixir — a SEPARATE set
-    // from AUDIT_OP_BACKENDS above, sharing the `loom.audited-backend-unsupported`
-    // code.  Markers pin the DESTROY staging so the operation row can't cover
+    // every backend emits it — a SEPARATE emit path from the operation row
+    // above.  Markers pin the DESTROY staging so the operation row can't cover
     // for this one.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: 'event: "audit_recorded", action: "destroy", target: "Order"',
       dotnet: '"audit_recorded", "destroy", "Order"',
@@ -675,13 +631,11 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "event-sourced WORKFLOW (`workflow … eventSourced` + appliers)",
-    code: "loom.event-sourced-workflow-unsupported",
     ddd: eventSourcedWorkflowDdd,
-    // EVENT_SOURCING_WORKFLOW_BACKENDS = node/dotnet/python/java/elixir.  The
+    // every backend emits it.  The
     // failure mode this guards is not "nothing emitted" but "misgenerated as a
     // state-based saga", so every marker names the fold/stream, which a
     // state-based saga never emits.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "async function appendFulfilEvents(",
       dotnet: "private void _ApplyPaid(Paid pa)",
@@ -692,12 +646,10 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "`mask unless` field read-redaction",
-    code: "loom.field-mask-unsupported",
     ddd: fieldMaskDdd,
-    // FIELD_MASK_BACKENDS = node/dotnet/python/java/elixir.  The silent gap here
+    // every backend emits it.  The silent gap here
     // is a SECURITY hole (the value ships in the clear), so each marker is the
     // principal-guarded redaction itself.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "toWireMasked(root: Employee, currentUser: User | null): unknown {",
       dotnet: 'is { } __maskUser0 && (__maskUser0.Role == "admin")',
@@ -709,12 +661,10 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "paged `queryHandler H(...): <Agg> paged`",
-    code: "loom.paged-query-handler-unsupported-backend",
     ddd: pagedQueryHandlerDdd,
-    // PAGED_QH_SUPPORTED = node/python/java/dotnet/elixir.  Markers are each
+    // every backend emits it.  Markers are each
     // backend's page/pageSize/sort/dir handler surface — a handler that dropped
     // the paged branch would still exist, but not with this signature.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "orders.findAllByInRegion(rgn, query.page, query.pageSize, query.sort, query.dir)",
       dotnet: "IQueryHandler<ListInRegionQuery, Paged<OrderResponse>>",
@@ -726,10 +676,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "query-time projection (`from … where … select …`, no folds)",
-    code: "loom.projection-query-time-unsupported",
     ddd: queryTimeProjectionDdd,
-    // PROJECTION_QT_SUPPORTED = node/python/elixir/java/dotnet.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "const rows = await repo.liveTotals();",
       dotnet:
@@ -741,12 +688,10 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "whole-table aggregation in a query-time `select` (SQL push-down)",
-    code: "loom.projection-whole-table-aggregation-unsupported",
     ddd: wholeTableAggregationDdd,
-    // PROJECTION_AGG_SUPPORTED = node/python/dotnet/java/elixir.  The shape only
+    // every backend emits it.  The shape only
     // means anything if the COUNT happens in SQL, so no marker is satisfiable by
     // loading rows and folding them in the app.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "await db.select({ orders: count() }).from(schema.orders);",
       dotnet: ".Select(g => new { Orders = g.Count() })",
@@ -757,10 +702,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "GROUPED projection (`group by`, one row per key)",
-    code: "loom.projection-groupby-unsupported-backend",
     ddd: groupByProjectionDdd,
-    // PROJECTION_GROUPBY_SUPPORTED = node/python/dotnet/java/elixir.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: ".groupBy(schema.orders.region).orderBy(schema.orders.region)",
       dotnet: ".GroupBy(o => new { o.Region })",
@@ -771,11 +713,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "query-time projection sourced `from <Workflow>` (saga-state rows)",
-    code: "loom.projection-workflow-source-unsupported-backend",
     ddd: workflowSourceProjectionDdd,
-    // PROJECTION_WF_SOURCE_SUPPORTED = node/python/java/dotnet/elixir.  Every
+    // every backend emits it.  Every
     // marker names the WORKFLOW STATE table, not the aggregate repository.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "await db.select().from(schema.fulfils).where(gt(schema.fulfils.attempts, 0))",
       dotnet: "_db.Fulfils.AsNoTracking().Where(r => r.Attempts > 0)",
@@ -786,11 +726,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "query-time projection sourced `from <OtherProjection>` (read-model rows)",
-    code: "loom.projection-source-unsupported-backend",
     ddd: projectionSourceProjectionDdd,
-    // PROJECTION_PROJ_SOURCE_SUPPORTED = node/python/java/dotnet/elixir.  Markers
+    // every backend emits it.  Markers
     // name the SOURCE projection's `<Proj>Row` table.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "db.select().from(schema.orderTotalses).where(gt(schema.orderTotalses.total, 100))",
       dotnet: "_db.OrderTotalses.AsNoTracking().Where(r => r.Total > 100)",
@@ -801,10 +739,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "generic carrier (`paged` find return)",
-    code: "loom.generic-carrier-unsupported",
     ddd: genericCarrierDdd,
-    // structural-checks SUPPORTED_PAGED_BACKENDS = node/dotnet/elixir/python/java.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "async recent(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }>",
       dotnet:
@@ -817,10 +752,7 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "discriminated union (`T option` find — tagged wire + absence producer)",
-    code: "loom.union-unsupported",
     ddd: unionDdd,
-    // structural-checks SUPPORTED_UNION_BACKENDS = node/dotnet/elixir/python/java.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: "async f(): Promise<Order | null> {",
       dotnet: "Task<Order?> F(CancellationToken cancellationToken = default);",
@@ -831,12 +763,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "`when` canCommand gate (409 Disallowed + `GET /{id}/can_<op>`)",
-    code: "loom.when-unsupported",
     ddd: whenGateDdd,
-    // structural-checks SUPPORTED_WHEN_BACKENDS = node/dotnet/python/elixir/java.
     // An unenforced state gate is a correctness hole, so the marker is the probe
     // route each backend must expose beside the guarded operation.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: 'path: "/{id}/can_cancel",',
       dotnet: "public sealed record CanCancelQuery(OrderId Id) : IQuery<CanResponse>;",
@@ -847,12 +776,9 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "union operation return (`operation f(): T or E` → RFC-7807)",
-    code: "loom.operation-return-unsupported",
     ddd: unionReturnDdd,
-    // structural-checks SUPPORTED_RETURN_BACKENDS = node/dotnet/python/java/elixir.
     // Markers are the ERROR-variant arm of the response mapping — a backend that
     // emitted only the success arm would 200 on a domain error.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: 'if (result.type === "NotFound") {',
       dotnet: "case D.Domain.Orders.stringOrNotFound_NotFound v:",
@@ -863,16 +789,14 @@ const FEATURES: readonly Feature[] = [
   },
   {
     name: "`ignoring <Cap>` filter bypass (the read OMITS the capability predicate)",
-    code: "loom.filter-bypass-unsupported",
     ddd: filterBypassDdd,
-    // FILTER_BYPASS_FAMILIES = dotnet/node/elixir/java/python.  Uniquely on this
+    // every backend emits it.  Uniquely on this
     // table the emitted proof is NEGATIVE: the bypassing `recent()` must carry
     // its own `name != ""` predicate and NOTHING else, while the sibling
     // `normal()` still AND-s `is_deleted = false`.  A backend that accepted
     // `ignoring` while silently keeping the filter loses the marker — which is
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
-    emits: new Set<Backend>(["node", "dotnet", "java", "python", "elixir"]),
     marker: {
       node: '.from(schema.products).where(ne(schema.products.name, ""));',
       dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
@@ -885,95 +809,55 @@ const FEATURES: readonly Feature[] = [
   },
 ];
 
-/** `platform:` clause for a backend.  `elixir` has a single (vanilla)
- *  foundation, so the bare keyword is unambiguous. */
-const platformClause = (b: Backend): string => b;
-
-/** Gate + emit verdict for one (feature, backend) cell, from a SINGLE parse.
+/** Accept + emit verdict for one (feature, backend) cell, from a SINGLE parse.
  *
  *  One parse, deliberately.  `parseString` shares one Langium service instance
  *  and evicts only the single previous document, so two parses of the same
  *  source in flight at once let the macro expander re-run over a document that
  *  is still live — a `with <Cap>` aggregate then collects the capability's
  *  filter TWICE (observed as EF `IgnoreQueryFilters(["IsDeletedFilter",
- *  "IsDeletedFilter2"])`, i.e. a model no `.ddd` describes).  Nothing about a
- *  gate-vs-emit comparison needs two models anyway: both verdicts are pure
+ *  "IsDeletedFilter2"])`, i.e. a model no `.ddd` describes).  Nothing about an
+ *  accept-vs-emit comparison needs two models anyway: both verdicts are pure
  *  functions of one, and asking the same question of one AST is also the
  *  stronger claim.
  *
- *  Generation may THROW on a gated/invalid model (the gate path is what catches
- *  it) — a throw counts as "not emitted". */
+ *  Generation may THROW on an invalid model — a throw counts as "not emitted". */
 async function probeCell(
   feature: Feature,
   backend: Backend,
-): Promise<{ gated: boolean; emitted: boolean }> {
-  const { model } = await parseString(feature.ddd(platformClause(backend)), {
-    validate: false,
-  });
-  const gated = validateLoomModel(enrichLoomModel(lowerModel(model))).some(
-    (d) => d.severity === "error" && d.code === feature.code,
-  );
-  const marker = feature.marker[backend];
+): Promise<{ errors: string[]; emitted: boolean }> {
+  const { model } = await parseString(feature.ddd(backend), { validate: false });
+  const errors = validateLoomModel(enrichLoomModel(lowerModel(model)))
+    .filter((d) => d.severity === "error")
+    .map((d) => `${d.code}: ${d.message}`);
   let files: Map<string, string>;
   try {
     files = generateSystems(model).files;
   } catch {
-    return { gated, emitted: false };
+    return { errors, emitted: false };
   }
-  // When the gate-set claims this backend does NOT emit, there is no marker to
-  // look for — treat any incidental file content as "not emitted" so the
-  // cross-check below stays honest (the gate must be carrying the pair).
-  if (!marker) return { gated, emitted: false };
-  return { gated, emitted: [...files.values()].some((c) => c.includes(marker)) };
+  const marker = feature.marker[backend];
+  return { errors, emitted: [...files.values()].some((c) => c.includes(marker)) };
 }
 
-describe("backend capability-feature parity gates (F1 guardrail)", () => {
+describe("backend capability-feature parity (F1 guardrail)", () => {
   for (const feature of FEATURES) {
     describe(feature.name, () => {
       for (const backend of DOMAIN_BACKENDS) {
-        it(`${backend}: is gated XOR emitted (never a silent gap)`, async () => {
-          const { gated, emitted } = await probeCell(feature, backend);
-
-          // (1) The core F1 invariant: a (feature, backend) pair is NEVER
-          // "neither".  A gap here means the backend parses the feature,
-          // doesn't gate it, and silently drops it — the exact footgun this
-          // test exists to prevent.
+        it(`${backend}: is accepted AND emitted (never a silent gap)`, async () => {
+          const { errors, emitted } = await probeCell(feature, backend);
           expect(
-            gated || emitted,
-            `F1-class silent gap: ${feature.name} on ${backend} is neither gated nor emitted ` +
-              `(validator returned no '${feature.code}' error AND no emitter marker found). ` +
-              `Either gate the feature on ${backend} (add it to the gate set in ` +
-              `system-checks.ts) or emit it (and add the marker to this test).`,
-          ).toBe(true);
-
-          // (2) Exactly one state — never BOTH gated and emitted (a gated
-          // feature must not also realise; that would mean the gate is dead).
-          expect(
-            gated && emitted,
-            `${feature.name} on ${backend} is BOTH gated and emitted — the gate is ` +
-              `unreachable or the marker is a false positive.`,
-          ).toBe(false);
-
-          // (3) Positive cross-check: a backend the gate set CLAIMS emits must
-          // actually emit (catches "listed but doesn't really emit"), and a
-          // backend NOT in the set must be gated (catches "silently emitting
-          // an unlisted backend").
-          const shouldEmit = feature.emits.has(backend);
+            errors,
+            `${feature.name} on ${backend} is refused by the validator — every backend ships ` +
+              `this feature, so no gate should fire.`,
+          ).toEqual([]);
           expect(
             emitted,
-            shouldEmit
-              ? `${feature.name}: gate set claims ${backend} emits, but no marker ` +
-                  `'${feature.marker[backend]}' was found in the generated output.`
-              : `${feature.name}: ${backend} is NOT in the gate set but silently emitted ` +
-                  `a marker — it must be gated instead.`,
-          ).toBe(shouldEmit);
-          expect(
-            gated,
-            shouldEmit
-              ? `${feature.name}: ${backend} emits, so it must not also be gated.`
-              : `${feature.name}: ${backend} is not an emitting backend, so it must be ` +
-                  `gated with '${feature.code}'.`,
-          ).toBe(!shouldEmit);
+            `F1-class silent gap: ${feature.name} on ${backend} validates clean, but no ` +
+              `emitter marker '${feature.marker[backend]}' was found in the generated output. ` +
+              `Either emit the feature on ${backend} or gate it with a \`loom.*-unsupported\` ` +
+              `code (and make this row expect that code there).`,
+          ).toBe(true);
         });
       }
     });

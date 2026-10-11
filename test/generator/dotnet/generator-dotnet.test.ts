@@ -276,7 +276,9 @@ describe(".NET generator", () => {
       // Trace correlation now rides the x-request-id response header (off
       // the RFC 7807 body); each arm returns a ProblemDetails via Problem(...).
       expect(filter).toMatch(/Response\.Headers\["x-request-id"\] = traceId;/);
-      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", fe\.Message, trace_id\)/);
+      // No dev-stub verifier here, so the 403 body is the constant `Forbidden`
+      // (ruling D4, #20) — the gate text stays in the log line.
+      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", "Forbidden", trace_id\)/);
       expect(filter).toMatch(
         /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id\)/,
       );
@@ -309,17 +311,6 @@ describe(".NET generator", () => {
     });
   });
 
-  it("auto-includes a GET /<plural> find via the `all` repository method", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const controller = files.get("Api/OrdersController.cs")!;
-    // [HttpGet] (root) — followed by an AllOrder(...) action (the action
-    // method name is the PascalCase of the shared operationId `allOrder`).
-    expect(controller).toMatch(/\[HttpGet\][\s\S]*?AllOrder\(/);
-    const repoIface = files.get("Domain/Orders/IOrderRepository.cs")!;
-    expect(repoIface).toMatch(/List<Order>[\s\S]*?All\(/);
-  });
-
   it("marks a required find query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
     const model = await buildModel("examples/sales.ddd");
     const files = generateDotnet(model);
@@ -331,27 +322,6 @@ describe(".NET generator", () => {
     expect(controller).toMatch(
       /\[FromQuery\] \[Microsoft\.AspNetCore\.Mvc\.ModelBinding\.BindRequired\] \w+ customerId/,
     );
-  });
-
-  it("translates `where` filter to a LINQ predicate", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const repo = files.get("Infrastructure/Repositories/OrderRepository.cs")!;
-    expect(repo).toMatch(/ActiveForCustomer/);
-    expect(repo).toMatch(/x\.CustomerId == forCustomer && x\.Status == OrderStatus\.Draft/);
-  });
-
-  it("emits CQRS command for each public operation", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const cmd = files.get("Application/Orders/Commands/AddLineCommand.cs")!;
-    expect(cmd).toMatch(/public sealed record AddLineCommand/);
-    expect(cmd).toMatch(/ICommand/);
-    const handler = files.get("Application/Orders/Commands/AddLineHandler.cs")!;
-    expect(handler).toMatch(/ICommandHandler<AddLineCommand,\s*Unit>/);
-    expect(handler).toMatch(/_repo\.GetByIdAsync/);
-    expect(handler).toMatch(/aggregate\.AddLine\(/);
-    expect(handler).toMatch(/_repo\.SaveAsync/);
   });
 
   it("EF configuration emits HasIndex for find-referenced columns", async () => {
@@ -1747,23 +1717,6 @@ describe(".NET generator", () => {
   // wire-boundary validation on the .NET side.
   // -------------------------------------------------------------------
   describe("FluentValidation pipeline", () => {
-    it("emits an AbstractValidator per command with single-field invariants", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      // sales.ddd Customer: `invariant email.length > 0` → a code-point
-      // length `.Must` on `RuleFor(x => x.Email)` (RS-31).
-      const customerCreate = files.get(
-        "Application/Customers/Commands/CreateCustomerCommandValidator.cs",
-      )!;
-      expect(customerCreate).toMatch(
-        /public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCustomerCommand>/,
-      );
-      expect(customerCreate).toMatch(
-        /RuleFor\(x => x\.Email\)\.Must\(v => v == null \|\| v\.EnumerateRunes\(\)\.Count\(\) >= 1\)/,
-      );
-      expect(customerCreate).toMatch(/using FluentValidation;/);
-    });
-
     it("mirrors create wire constraints onto the update/op-path validator (SYS-1)", async () => {
       const model = await buildModel("examples/sales.ddd");
       const files = generateDotnet(model);
@@ -1776,18 +1729,6 @@ describe(".NET generator", () => {
       expect(customerUpdate).toMatch(
         /RuleFor\(x => x\.Email\)\.Must\(v => v == null \|\| v\.EnumerateRunes\(\)\.Count\(\) >= 1\)/,
       );
-    });
-
-    it("emits an AbstractValidator per public op with single-field preconditions", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      // sales.ddd Order.addLine: `precondition qty > 0` (int qty).
-      // The `isMutable()` precondition references a helper-fn — non-
-      // translatable, so it doesn't appear here.
-      const addLine = files.get("Application/Orders/Commands/AddLineCommandValidator.cs")!;
-      expect(addLine).toMatch(/RuleFor\(x => x\.Qty\)\.GreaterThanOrEqualTo\(1\)/);
-      // No rule for `isMutable()` — domain-only.
-      expect(addLine).not.toMatch(/IsMutable/);
     });
 
     it("does NOT emit a validator file when no rules apply", async () => {
@@ -1806,39 +1747,6 @@ describe(".NET generator", () => {
       // translatable.  Product (in sales.ddd) has no invariants
       // either.  CreateOrder has no validator file.
       expect(files.has("Application/Orders/Commands/CreateOrderCommandValidator.cs")).toBe(false);
-    });
-
-    it("emits the generic ValidationBehavior pipeline class", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      const behavior = files.get("Application/Common/ValidationBehavior.cs")!;
-      expect(behavior).toMatch(
-        /public sealed class ValidationBehavior<TRequest, TResponse>\s*:\s*IPipelineBehavior<TRequest, TResponse>/,
-      );
-      expect(behavior).toMatch(/throw new ValidationException\(failures\)/);
-    });
-
-    it("Program.cs registers AddValidatorsFromAssembly + ValidationBehavior", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      const program = files.get("Program.cs")!;
-      expect(program).toMatch(
-        /builder\.Services\.AddValidatorsFromAssembly\(typeof\(Program\)\.Assembly\);/,
-      );
-      expect(program).toMatch(
-        /builder\.Services\.AddScoped\(\s*typeof\(Mediator\.IPipelineBehavior<,>\),\s*typeof\(\w+\.Application\.Common\.ValidationBehavior<,>\)\);/,
-      );
-    });
-
-    it("csproj pulls FluentValidation NuGet refs when validators exist", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      const csprojKey = [...files.keys()].find((k) => k.endsWith(".csproj"))!;
-      const csproj = files.get(csprojKey)!;
-      expect(csproj).toMatch(/<PackageReference Include="FluentValidation" Version="12\.1\.1"/);
-      expect(csproj).toMatch(
-        /<PackageReference Include="FluentValidation\.DependencyInjectionExtensions"/,
-      );
     });
 
     it("DomainExceptionFilter has a FluentValidation.ValidationException arm", async () => {

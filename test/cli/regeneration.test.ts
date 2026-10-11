@@ -211,15 +211,60 @@ describe("generate system is a function of the model", () => {
     expect(preview).toMatch(/2 of which had local modifications \(pinnable via \.loomignore\)/);
     // …and still predicts the write set exactly (the tag is not a new class).
     expect(plannedWrites(preview)).toEqual([...edited].sort());
+    // …and the summary NAMES them (eval item #40a) — the count alone gave the
+    // `.loomignore` remedy no path to pin.
+    expect(preview).toMatch(
+      /Would overwrite local modifications in \(add a path to .*\.loomignore/,
+    );
+    for (const rel of edited) expect(preview.split("\n")).toContain(`  ${rel}`);
 
     // The real run reports the same, and still overwrites — the contract.
     const real = generate(SRC, out);
     expect(real, real).toMatch(
       /Wrote 2 file\(s\) in .*, 2 of which had local modifications \(pinnable via \.loomignore\)/,
     );
+    expect(real).toMatch(
+      /Overwrote local modifications in \(add a path to .*\.loomignore so the next run/,
+    );
+    for (const rel of edited) expect(real.split("\n")).toContain(`  ${rel}`);
     for (const rel of edited) {
       expect(fs.readFileSync(path.join(out, rel), "utf8")).not.toContain("a human edited this");
     }
+  }, 180_000);
+
+  it("caps the named list of locally-modified files (#40a)", () => {
+    const out = mkTmp("localedit-cap");
+    generate(SRC, out);
+    const manifest = JSON.parse(fs.readFileSync(path.join(out, ".loom/manifest.json"), "utf8")) as {
+      entries: { path: string; hash?: string; scaffoldOnce?: boolean }[];
+    };
+    const edited = manifest.entries
+      // Migrations are a protected family (never rewritten once on disk), so
+      // an edit to one is not an overwrite — keep them out of the sample.
+      .filter(
+        (e) =>
+          e.hash &&
+          !e.scaffoldOnce &&
+          !e.path.startsWith(".loom/") &&
+          !e.path.includes("migrations/"),
+      )
+      .map((e) => e.path)
+      .slice(0, 12);
+    expect(edited).toHaveLength(12);
+    for (const rel of edited) fs.appendFileSync(path.join(out, rel), "\n// a human edited this\n");
+
+    const preview = generate(SRC, out, ["--dry-run"]);
+    const lines = preview.split("\n");
+    const head = lines.findIndex((l) => l.startsWith("Would overwrite local modifications in"));
+    expect(head, preview).toBeGreaterThan(-1);
+    // Ten named, then the remainder counted — never the whole list.
+    expect(lines.slice(head + 1, head + 11)).toEqual(
+      [...edited]
+        .sort()
+        .slice(0, 10)
+        .map((p) => `  ${p}`),
+    );
+    expect(lines[head + 11]).toBe("  … and 2 more");
   }, 180_000);
 
   it("says nothing about local modifications when there are none", () => {

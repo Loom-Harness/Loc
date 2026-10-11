@@ -27,7 +27,7 @@ describe("java generator — resource clients", () => {
   it("emits one client class per consumable sourceType under <base>.resources", async () => {
     const files_ = await files();
     const s3 = files_.get(`${ROOT}/resources/S3Resources.java`)!;
-    expect(s3).toContain("public static void salesFilesPut(String key, String body) {");
+    expect(s3).toContain("public static void salesFilesPut(String key, Object body) {");
     expect(s3).toContain("public static String salesFilesGet(String key) {");
     expect(s3).toContain("public static String salesFilesSignedUrl(String key) {");
     expect(s3).toContain('System.getenv().getOrDefault("SALES_FILES_URL_BUCKET", "app-files")');

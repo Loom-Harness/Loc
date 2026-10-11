@@ -1,4 +1,4 @@
-function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}} }) {
+function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}}, disabled, disabledReason{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}}{{#if gated}}; disabled: boolean; disabledReason: string{{/if}} }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
 {{#each idTargets}}  const {{this.hookVar}} = useAll{{this.namePlural}}();
@@ -9,7 +9,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: Ret
   const { fields: {{this.name}}Fields, append: append{{this.pascal}}, remove: remove{{this.pascal}} } = useFieldArray({ control, name: "{{this.name}}" });{{/each}}
   return (
     <>
-      <Button colorScheme="brand" variant="{{#if triggerPrimary}}solid{{else}}outline{{/if}}" onClick={onOpen} data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
+      <Button colorScheme="brand" variant="{{#if triggerPrimary}}solid{{else}}outline{{/if}}" onClick={onOpen} {{#if gated}}isDisabled={disabled} title={disabled ? disabledReason : undefined} {{/if}}data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
       <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent>

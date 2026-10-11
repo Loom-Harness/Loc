@@ -188,6 +188,7 @@ export function validateUpdateGateSuggestions(
               hasDefault: f.default !== undefined,
             }),
             source: `${ctx.name}/${agg.name}`,
+            origin: agg.origin,
           });
         }
       }

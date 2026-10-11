@@ -74,8 +74,7 @@ export default defineMacro({
       // nameable column is `id`.  Every tile here is a direct-table
       // aggregation, so each of those would be refused downstream
       // (`loom.projection-columnless-source`, or — for a filtered document
-      // source — `loom.projection-document-source-capability-filtered`, or on
-      // java `loom.projection-whole-table-aggregation-unsupported#document`).
+      // source — `loom.projection-document-source-capability-filtered`).
       // Shared with the ui half (`dashboardFieldsFor`) so a card can never bind
       // a projection this macro skipped.
       if (!hasDashboardTable(agg)) continue;

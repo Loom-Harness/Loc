@@ -107,6 +107,12 @@ export function renderRepositoryPortsFile(
 
   const usesIds = /\bIds\.\w/.test(scan);
   const usesUser = referenced("User");
+  // A `find` whose parameter or result is `money` / `decimal` spells `Decimal`
+  // in its signature (the concrete repository imports decimal.js for it); the
+  // pooled port file must import the type too or the generated project fails
+  // `tsc` with TS2304 — the `intrinsics` corpus fixture's `byFloorPrice(whole:
+  // money)` was the first find with a money parameter (wave C3 3d → 3-A fold).
+  const usesDecimal = referenced("Decimal");
   const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(referenced)
     .sort();
@@ -120,6 +126,7 @@ export function renderRepositoryPortsFile(
       "// Auto-generated.  Do not edit by hand.",
       "// Domain-owned repository ports (hexagonal architecture — audit S7).",
       usesIds ? 'import type * as Ids from "./ids";' : null,
+      usesDecimal ? 'import type Decimal from "decimal.js";' : null,
       usesUser ? 'import type { User } from "../auth/user-types";' : null,
       voEnumNames.length > 0
         ? `import type { ${voEnumNames.join(", ")} } from "./value-objects";`

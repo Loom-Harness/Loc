@@ -23,6 +23,7 @@
 
 import type { EnrichedBoundedContextIR, ExprIR, UiIR } from "../../ir/types/loom-ir.js";
 import { AUDIT_ENTRY_TYPE } from "../../ir/util/audit-history.js";
+import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { groupedProjectionNames, readableProjectionNames } from "../../ir/util/projection-read.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -51,6 +52,16 @@ export interface FlutterRead {
    *  and is what makes a SERVER-DRIVEN `Table` possible: a sort or page tap
    *  writes page state, the family key changes, and Riverpod refetches. */
   paged: boolean;
+  /** True when `GET /<aggs>` serves a BARE ARRAY rather than the `{items, …}`
+   *  envelope — a declared `find all(): T[]`, whose signature says so.
+   *
+   *  Separate from `paged`, which asks whether THIS read threads page controls.
+   *  A read can be unpaged against a paged route (an `.all` inside a plain
+   *  list) and must still reach into `items`; only the wire shape decides how
+   *  the body is decoded.  Casting a bare array to `Map<String, dynamic>` is a
+   *  `_TypeError` on first load, and `flutter analyze` cannot see a wrong JSON
+   *  shape — so this is read off the model rather than assumed. */
+  bareList?: boolean;
   /** A PARAMETERIZED repository find (`find named(n: string): Product[]`) — the
    *  declared params, in order, with the Dart type each lowers to.
    *
@@ -296,6 +307,9 @@ export function collectFlutterReads(
         single: detected.operation === "byId",
         routePath: `/${snake(plural(detected.aggregateName))}`,
         paged: detected.operation !== "byId" && isPagedQuery(ofArg, pagedCtx),
+        bareList:
+          detected.operation === "all" &&
+          !isPagedAllRead(detected.aggregateName, pagedCtx.bcByAggregate),
       });
     }
   }
@@ -484,8 +498,14 @@ function renderReadProvider(read: FlutterRead): string {
     "  if (res.statusCode != 200) {",
     `    throw Exception('GET ${routePath} failed (\${res.statusCode})');`,
     "  }",
-    "  final body = jsonDecode(res.body) as Map<String, dynamic>;",
-    "  final items = body['items'] as List<dynamic>;",
+    // A declared `find all(): T[]` serves the rows themselves; the
+    // paged-by-default auto-`findAll` wraps them in `{items, …}`.
+    ...(read.bareList
+      ? ["  final items = jsonDecode(res.body) as List<dynamic>;"]
+      : [
+          "  final body = jsonDecode(res.body) as Map<String, dynamic>;",
+          "  final items = body['items'] as List<dynamic>;",
+        ]),
     "  return items",
     `      .map((e) => ${aggregate}.fromJson(e as Map<String, dynamic>))`,
     "      .toList();",

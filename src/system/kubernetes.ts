@@ -12,6 +12,7 @@ import {
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { platformFor } from "../platform/registry.js";
+import { emissionSink } from "../util/emission-sink.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes raw-manifest emitter (D-K8S-FORMAT / D-K8S-SCOPE — see
@@ -584,7 +585,7 @@ function renderBroker(sys: SystemIR, b: BrokerModel): string {
 /** Raw Kubernetes manifests under `k8s/` — the default render of the Helm
  *  chart.  Ingress is omitted (the chart ships it disabled by default). */
 export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("system/kubernetes");
   const workloads = buildWorkloads(sys);
   for (const w of workloads) {
     out.set(`k8s/${w.name}-deployment.yaml`, renderDeployment(sys, w));

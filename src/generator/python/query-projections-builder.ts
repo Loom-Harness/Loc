@@ -7,7 +7,7 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { isQueryTimeProjection, queryProjectionUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { projectionSourceTable, tableOwnerName } from "../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -149,7 +149,14 @@ export function buildPyQueryProjectionsFile(
           bypassCaps: p.query.bypassCaps,
         })
       : null;
-    aggLowered.set(p.name, conjoinPy(own, caps));
+    // A TPH (`sharedTable`) concrete reads its root's shared table, so the
+    // `kind` discriminator must scope it — without it every sibling
+    // concrete's rows enter the aggregate (eval item 10: silent wrong data).
+    const { tableOwner, kind } = projectionSourceTable(p.query.source, ctx.aggregates);
+    const kindPred: PyPredicate | null = kind
+      ? { expr: `${rowClassName(tableOwner)}.kind == ${JSON.stringify(kind)}`, ops: new Set() }
+      : null;
+    aggLowered.set(p.name, conjoinPy(kindPred, conjoinPy(own, caps)));
   }
   const routeBlocks = projections.map((p) => {
     const grouped = groupedAggregates(p);

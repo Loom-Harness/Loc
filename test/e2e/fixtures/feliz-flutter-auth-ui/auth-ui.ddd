@@ -1,0 +1,90 @@
+// The runtime auth-UI fixture for the two SELF-HOSTING frontends (M-T9.14's
+// residue: "no RUNTIME auth-UI leg").  Driven by test/behavioral/run-ui-auth.mjs,
+// which generates it once per frontend (`platform: feliz` as written, and
+// `platform: flutter` by substitution), builds the frontend with its own
+// toolchain, and serves it and the generated Hono backend from ONE origin.
+//
+// It is `test/e2e/fixtures/auth-gate-e2e/auth-gate.ddd` (the react/vue/svelte/
+// angular gate smoke) with two deliberate differences:
+//
+//   1. NO `auth { oidc … }` block, so the backend registers its DEV-STUB
+//      verifier — every request is a principal, and the `x-loom-dev-claims`
+//      header (the behavioural tier's `DEV_CLAIMS` mechanism) picks WHICH one.
+//      The leg therefore needs no IdP and mocks nothing on the happy paths: the
+//      app's own `/auth/me` probe reaches the real backend and decodes the
+//      principal the header chose, and the `requires` on `approve` is checked by
+//      the backend as well as mirrored by the button.  (The JSX gate smoke
+//      mocks `/auth/me` with no backend at all.)
+//   2. `Job` is `crudish`, so the leg can seed the row the gated detail page
+//      reads.
+//
+// Gates, one per site the frontends mirror:
+//   - menu:   "Public" ungated (control), "Admin" role == admin, "Super" role
+//             == superadmin — the dev-stub admin sees Admin and not Super;
+//   - page:   /admin and /super render their body or the Forbidden view;
+//   - action: the Approve button on a Job's page is shown to admin only, and
+//             the backend refuses a non-admin `approve` with a 403.
+system Gatekeeper {
+  user { id: string  role: string }
+
+  subdomain Ops {
+    context Work {
+      aggregate Job with crudish {
+        title: string
+        status: string
+        operation approve() {
+          requires currentUser.role == "admin"
+          status := "approved"
+        }
+      }
+      repository Jobs for Job { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource jobState { for: Work, kind: state, use: primary }
+
+  api OpsApi from Ops
+  deployable api {
+    platform: node
+    contexts: [Work]
+    serves: OpsApi
+    dataSources: [jobState]
+    port: 8080
+    auth: required
+  }
+
+  ui WebApp {
+    api Ops: OpsApi
+    page Public { route: "/public" body: Heading { "Public" } }
+    page Admin { route: "/admin" requires currentUser.role == "admin" body: Heading { "Admin Area" } }
+    page Super { route: "/super" requires currentUser.role == "superadmin" body: Heading { "Super Area" } }
+    page Job {
+      route: "/jobs/:id"
+      body: QueryView {
+        of: Ops.Job.byId(id),
+        single: true,
+        loading: Loader {},
+        empty: Empty { "Not found" },
+        data: j => Toolbar {
+          Action { j.approve }
+        }
+      }
+    }
+    menu {
+      section "Main" {
+        link Public,
+        link Admin,
+        link Super
+      }
+    }
+  }
+
+  deployable web {
+    platform: feliz
+    targets: api
+    ui: WebApp { Ops: api }
+    port: 3001
+    auth: ui
+  }
+}

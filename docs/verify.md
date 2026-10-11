@@ -108,7 +108,7 @@ A top-level `results` array of normalized outcomes. One row per executed test:
 | Field | |
 |---|---|
 | `name` | **required** — the title as the runner reports it (`it("…")` / `[Fact(DisplayName="…")]` / `test("…")`). Usually the DSL `test` / `test e2e` string verbatim; for an **api e2e** test it is that string plus ` against <deployable>` (see *Reported titles* below), which the join undoes for you. |
-| `status` | **required** — `"pass"` \| `"fail"` \| `"skip"`. |
+| `status` | **required** — `"pass"` \| `"fail"` \| `"skip"`. Anything else (a runner's `"passed"` / `"failed"`, say) is malformed input: `ddd verify` exits **2** naming the entry index and value and the spelling it expected — it is never read as "no result", which would let a failed test leave its requirement merely unverified. |
 | `suite` | optional disambiguator. Unit-test names are unique only *within* an aggregate, so the join is by `(suite, name)`. Pass the runner's reported suite: the **aggregate name** for a unit test, `"<System> e2e"` for an api e2e test, and for a **ui** test either that or the `<System>.ui.spec.ts` spec-file title Playwright reports. |
 | `kind` | optional, informational. |
 

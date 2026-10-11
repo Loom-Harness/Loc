@@ -73,4 +73,34 @@ system ClaimIntake {
     serves: ClaimsApi
     port: 4000
   }
+
+  test e2e "a command payload crosses the workflow route and lands every field" against d {
+    let cargo = api.cargos.create({ code: "CRG-1" })
+    api.claimHandling.run({ c: { cargo: cargo.id, description: "Dented crate", amount: money("125.50"), priority: 2, note: "handle with care" } })
+    api.claimHandling.run({ c: { cargo: cargo.id, description: "Wet pallet", amount: money("10.00"), priority: 5 } })
+    let filed = api.claims.all({ sort: "priority", dir: "asc" })
+    expect(filed.total).toBe(2)
+    let first = filed.items.first()
+    expect(first.description).toBe("Dented crate")
+    expect(decimal(first.amount)).toBe(125.5)
+    expect(first.priority).toBe(2)
+    expect(first.note).toBe("handle with care")
+    expect(first.cargo).toBe(cargo.id)
+    let second = filed.items.where(c => c.priority == 5).first()
+    expect(second.description).toBe("Wet pallet")
+    expect(second.note).toBe(null)
+    expect(api.claims.getById(first).description).toBe("Dented crate")
+    api.claims.update(second, { cargo: cargo.id, description: "Wet pallet", amount: money("12.00"), priority: 5, note: "dried" })
+    expect(api.claims.getById(second).note).toBe("dried")
+    expect(api.cargos.getById(cargo).code).toBe("CRG-1")
+    api.cargos.update(cargo, { code: "CRG-2" })
+    expect(api.cargos.all().total).toBe(1)
+    let direct = api.claims.create({ cargo: cargo.id, description: "Direct", amount: money("1.00"), priority: 9 })
+    expect(api.claims.getById(direct).priority).toBe(9)
+    api.claims.destroy(direct)
+    api.claims.destroy(first)
+    api.claims.destroy(second)
+    api.cargos.destroy(cargo)
+    expect(api.claims.all().total).toBe(0)
+  }
 }

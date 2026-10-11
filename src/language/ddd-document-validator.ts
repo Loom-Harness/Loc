@@ -44,6 +44,7 @@ import {
   type ValidationOptions,
 } from "langium";
 import type { Diagnostic } from "vscode-languageserver-types";
+import { misplacedDeclaration } from "./misplaced-declaration.js";
 import {
   refineParseErrorOffset,
   reservedDeclarationName,
@@ -98,7 +99,8 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
     if (!text) return;
     const refined =
       refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
-      reservedDeclarationName(first, text);
+      reservedDeclarationName(first, text) ??
+      misplacedDeclaration(first, text);
     if (!refined) return;
     const start = offsetToPosition(text, refined.offset);
     diagnostic.range = {

@@ -41,15 +41,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 import { checkVariantMatchShape } from "./variant-match-shape.js";
 
-// Backend platforms that render the paged generic carrier / the `or`-union
-// operation return.  Both are EXPORTED so the diagnostic-firing census can
-// check the claim its UNREACHABLE_PIN makes: each set today contains every
-// backend-owning platform, so `unsupported` is always empty and the gate
-// cannot fire.  A sixth backend that has not ported either feature makes the
-// gate live again — and fails that pin, which is the point.
-export const SUPPORTED_PAGED_BACKENDS = new Set(["node", "dotnet", "elixir", "python", "java"]);
-export const SUPPORTED_RETURN_BACKENDS = new Set(["node", "dotnet", "python", "java", "elixir"]);
-
 // ---------------------------------------------------------------------------
 // Workspace uniqueness — multi-file (Stage A) makes it easy to declare
 // two `valueobject Money` in different files, two `context Sales`, or
@@ -72,6 +63,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-valueobject",
         source: `valueobject ${vo.name}`,
+        origin: vo.origin,
         message: diagMessage("loom.duplicate-valueobject", { name: vo.name }),
       });
     } else {
@@ -86,6 +78,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-enum",
         source: `enum ${e.name}`,
+        origin: e.origin,
         message: diagMessage("loom.duplicate-enum", { name: e.name }),
       });
     } else {
@@ -117,6 +110,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-context",
         source: `context ${c.name}`,
+        origin: c.origin,
         message: diagMessage("loom.duplicate-context", { name: c.name }),
       });
     } else {
@@ -140,6 +134,7 @@ export function validateWorkspaceUniqueness(
           severity: "error",
           code: "loom.valueobject-shadows-root",
           source: `${c.name}.${vo.name}`,
+          origin: vo.origin,
           message: diagMessage("loom.valueobject-shadows-root", { name: c.name, voName: vo.name }),
         });
       }
@@ -152,6 +147,7 @@ export function validateWorkspaceUniqueness(
           severity: "error",
           code: "loom.enum-shadows-root",
           source: `${c.name}.${e.name}`,
+          origin: c.origin,
           message: diagMessage("loom.enum-shadows-root", { name: c.name, eName: e.name }),
         });
       }
@@ -204,6 +200,7 @@ export function validateDuplicateTables(sys: EnrichedSystemIR, diags: LoomDiagno
         severity: "error",
         code: "loom.duplicate-table",
         source: `${sys.name}.${ctx.name}.${agg.name}`,
+        origin: agg.origin,
         message: diagMessage("loom.duplicate-table", { who, key }),
       });
     }
@@ -235,6 +232,7 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
               severity: "error",
               code: "loom.unique-valueobject-field",
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
               message: diagMessage("loom.unique-valueobject-field", { col, name: agg.name }),
             });
           }
@@ -282,6 +280,7 @@ export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDia
           code: "loom.find-reserved-name",
           message: diagMessage("loom.find-reserved-name", { name: repo.name, findName: find.name }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
       if (seen.has(find.name)) {
@@ -290,131 +289,11 @@ export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDia
           code: "loom.duplicate-find",
           message: diagMessage("loom.duplicate-find", { name: repo.name, findName: find.name }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
       seen.add(find.name);
     }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Generic-payload instantiation gate (payload-transport-layer.md, P3a).
-//
-// The `paged` / `envelope` carriers parse, lower to a `genericInstance`
-// TypeIR, and pass the AST-level carrier-bound check — but emission
-// (monomorphization → per-instance DTOs across the four backends) is P3b.
-// Until then, any `genericInstance` reachable from a type position is a
-// hard error: a generic in a field / find-return / op-signature must be
-// emittable, so this blocks the pipeline before a backend renderer sees it
-// (the renderers also carry a defensive `throw` for the same kind).  Mirrors
-// the "parses + represents in IR, then a not-implemented IR error" staging
-// the inheritance track used for TPH.
-// ---------------------------------------------------------------------------
-
-/** First generic-constructor name reachable inside a type, or undefined.
- *  Descends array / optional / generic-instance wrappers. */
-function firstGenericCtor(type: TypeIR): string | undefined {
-  switch (type.kind) {
-    case "genericInstance":
-      return type.ctor;
-    case "array":
-      return firstGenericCtor(type.element);
-    case "optional":
-      return firstGenericCtor(type.inner);
-    default:
-      return undefined;
-  }
-}
-
-export function validateGenericInstancesUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that can emit generic carriers (`paged` / `envelope`) today.
-  // Grows one slice at a time; when a context is served only by these (or by
-  // no backend at all — the legacy single-context path), the carrier is
-  // emittable and the gate stays quiet.  React is a frontend, not a backend,
-  // so it never appears here — its hooks consume whatever the backend serves.
-  // `"node"` is the hono/TS backend's platform identity (realization axes);
-  // `"dotnet"` the EF/ASP.NET backend; `"elixir"` the Phoenix backend
-  // (the legacy `phoenix` / `phoenixLiveView` platform aliases canonicalize
-  // to `elixir` per D-ELIXIR-PLATFORM).  All four backends now emit
-  // generic carriers.
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_PAGED_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  const flag = (type: TypeIR, where: string): void => {
-    const ctor = firstGenericCtor(type);
-    if (!ctor) return;
-    diags.push({
-      severity: "error",
-      code: "loom.generic-carrier-unsupported",
-      message: diagMessage("loom.generic-carrier-unsupported", {
-        where,
-        ctor,
-        unsupported: unsupported.sort().join(", "),
-        supportedPagedBackends: [...SUPPORTED_PAGED_BACKENDS].sort().join(", "),
-      }),
-      source: `${ctx.name}/${where}`,
-    });
-  };
-
-  // Payload fields.
-  for (const p of ctx.payloads) {
-    for (const f of p.fields) flag(f.type, `payload ${p.name}.${f.name}`);
-  }
-  // Repository find returns + params.
-  for (const repo of ctx.repositories) {
-    for (const find of repo.finds) {
-      flag(find.returnType, `repository ${repo.name}.${find.name} return`);
-      for (const param of find.params)
-        flag(param.type, `repository ${repo.name}.${find.name}(${param.name})`);
-    }
-  }
-  // Aggregates — and their parts — fields, derived, function signatures,
-  // operation params.
-  for (const agg of ctx.aggregates) {
-    flagAggregateLike(agg, `aggregate ${agg.name}`, flag);
-    for (const op of agg.operations) {
-      for (const param of op.params)
-        flag(param.type, `aggregate ${agg.name}.${op.name}(${param.name})`);
-    }
-    for (const part of agg.parts) flagAggregateLike(part, `part ${part.name}`, flag);
-  }
-  // Value objects.
-  for (const vo of ctx.valueObjects) flagAggregateLike(vo, `valueobject ${vo.name}`, flag);
-}
-
-// ---------------------------------------------------------------------------
-// Discriminated-union instantiation gate (payload-transport-layer.md, P4a).
-//
-// Both union surfaces — anonymous `A or B` (in any type position) and named
-// `payload Foo = A | B` — lower to a `union` TypeIR, and `T option` lowers to
-// `union[T, none]`.  P4a represents these in the IR and validates them
-// (duplicate-variant, exhaustiveness), but emission across the four backends
-// is P4b–d.  Until then, any `union` reachable from a type position is a hard
-// error — emission is wired in slice by slice, releasing this gate per
-// backend.  Unconditional (not platform-aware): no backend emits unions yet,
-// so a union anywhere blocks the pipeline before a renderer sees it.  Mirrors
-// the P3a `genericInstance` staging above.
-// ---------------------------------------------------------------------------
-
-/** True iff a `union` (or its `none` unit) is reachable inside a type,
- *  descending array / optional / generic-instance / union wrappers. */
-function containsUnion(type: TypeIR): boolean {
-  switch (type.kind) {
-    case "union":
-    case "none":
-      return true;
-    case "array":
-      return containsUnion(type.element);
-    case "optional":
-      return containsUnion(type.inner);
-    case "genericInstance":
-      return containsUnion(type.arg);
-    default:
-      return false;
   }
 }
 
@@ -498,148 +377,7 @@ export function validateUnionFindShapes(
           aggregateName: repo.aggregateName,
         }),
         source: `${ctx.name}/repository ${repo.name}.${find.name}`,
-      });
-    }
-  }
-}
-
-export function validateUnionsUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that emit discriminated-union tagged wire today.  Grows one slice
-  // at a time (P4b: hono/TS; P4c: dotnet; P4d: phoenix); React is a frontend,
-  // not a backend, so it never appears here — its hooks consume whatever the
-  // backend serves.  `"node"` is the hono/TS backend's platform identity.
-  // When a context is served only by these (or by no backend at all — the
-  // legacy single-context path), unions are emittable and the gate stays quiet.
-  const SUPPORTED_UNION_BACKENDS = new Set(["node", "dotnet", "elixir", "python", "java"]);
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_UNION_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  const flag = (type: TypeIR, where: string): void => {
-    if (!containsUnion(type)) return;
-    diags.push({
-      severity: "error",
-      code: "loom.union-unsupported",
-      message: diagMessage("loom.union-unsupported", {
-        where,
-        unsupported: unsupported.sort().join(", "),
-        supportedUnionBackends: [...SUPPORTED_UNION_BACKENDS].sort().join(", "),
-      }),
-      source: `${ctx.name}/${where}`,
-    });
-  };
-
-  // Named-union payloads carry `variants`; record payloads carry `fields`.
-  for (const p of ctx.payloads) {
-    if (p.variants) for (const v of p.variants) flag(v, `payload ${p.name} variant`);
-    for (const f of p.fields) flag(f.type, `payload ${p.name}.${f.name}`);
-  }
-  for (const repo of ctx.repositories) {
-    for (const find of repo.finds) {
-      flag(find.returnType, `repository ${repo.name}.${find.name} return`);
-      for (const param of find.params)
-        flag(param.type, `repository ${repo.name}.${find.name}(${param.name})`);
-    }
-  }
-  for (const agg of ctx.aggregates) {
-    flagAggregateLike(agg, `aggregate ${agg.name}`, flag);
-    for (const op of agg.operations) {
-      for (const param of op.params)
-        flag(param.type, `aggregate ${agg.name}.${op.name}(${param.name})`);
-    }
-    for (const part of agg.parts) flagAggregateLike(part, `part ${part.name}`, flag);
-  }
-  for (const vo of ctx.valueObjects) flagAggregateLike(vo, `valueobject ${vo.name}`, flag);
-}
-
-// ---------------------------------------------------------------------------
-// Operation-return gate (exception-less.md, spike).
-//
-// `operation foo(...): X or NotFound { ... return ... }` parses, lowers to an
-// `OperationIR.returnType` + `return` statements, and prints — and the Hono/TS
-// backend (`"node"`) now emits the producer side: the returned union value is
-// tagged at lowering and the operation route translates an `error`-variant
-// result to an RFC-7807 ProblemDetails status (a success → HTTP 200).  The
-// other backends (dotnet, phoenix) don't emit the route translation yet, so a
-// return-typed operation stays a hard error while any of them serve the
-// context — mirroring the P3a/P4a/P4c surface-first staging.
-// ---------------------------------------------------------------------------
-
-/**
- * `when` canCommand gate (criterion.md, use site 2) — backend support.
- * All five backends (node / .NET / python / elixir / java) evaluate the
- * predicate before the body (409 Disallowed) and expose the side-effect-free
- * `GET /{id}/can_<op>`, so this guard is now latent.  It stays as the safety
- * net for any future backend that lands before its `when` emitter does — a
- * `when`-gated op served by an unsupported backend is a hard error (surfacing
- * it beats silently skipping the gate — an unenforced state gate is a
- * correctness hole).
- */
-export function validateWhenGateSupport(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  const SUPPORTED_WHEN_BACKENDS = new Set(["node", "dotnet", "python", "elixir", "java"]);
-  const unsupported = [...backendPlatforms].filter((p) => !SUPPORTED_WHEN_BACKENDS.has(p));
-  if (unsupported.length === 0) return;
-
-  for (const agg of ctx.aggregates) {
-    for (const op of agg.operations) {
-      if (!op.when) continue;
-      diags.push({
-        severity: "error",
-        code: "loom.when-unsupported",
-        message: diagMessage("loom.when-unsupported", {
-          name: agg.name,
-          opName: op.name,
-          unsupported: unsupported.sort().join(", "),
-          supportedWhenBackends: [...SUPPORTED_WHEN_BACKENDS].sort().join(", "),
-        }),
-        source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
-      });
-    }
-  }
-}
-
-export function validateOperationReturnsUnimplemented(
-  ctx: BoundedContextIR,
-  diags: LoomDiagnostic[],
-  backendPlatforms: Set<string>,
-): void {
-  // Backends that emit the operation-return ProblemDetails translation today.
-  // `"node"` is the Hono/TS backend (exception-less.md spike); python/java/dotnet
-  // and elixir (plain Ecto/Phoenix) followed — every backend emits it for any
-  // returning op.  No backend (legacy single-context path) → emittable, gate
-  // stays quiet.
-
-  const isCapable = (p: string): boolean => SUPPORTED_RETURN_BACKENDS.has(p);
-
-  for (const agg of ctx.aggregates) {
-    for (const op of agg.operations) {
-      if (!op.returnType) continue;
-      // NOTE: a bare *scalar* operation return (`operation describe(): string`)
-      // is NOT gated. It compiles on every backend (the op-self-call build
-      // fixtures rely on it) even though its HTTP wire contract diverges
-      // (200-with-body on node/elixir vs 204-discard on dotnet/python/java) —
-      // BUG-003, tracked in docs/audits/showcase-coverage-bugs.md, not closed
-      // by rejecting the feature. Only the `or`-union backend-support gate below
-      // applies here.
-      if (op.returnType.kind !== "union") continue;
-      const unsupported = [...backendPlatforms].filter((p) => !isCapable(p));
-      if (unsupported.length === 0) continue;
-      diags.push({
-        severity: "error",
-        code: "loom.operation-return-unsupported",
-        message: diagMessage("loom.operation-return-unsupported", {
-          name: agg.name,
-          opName: op.name,
-          unsupported: unsupported.sort().join(", "),
-        }),
-        source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
+        origin: repo.origin,
       });
     }
   }
@@ -672,6 +410,7 @@ export function validateUnmappedErrorStatuses(
             opName: op.name,
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
     }
@@ -697,26 +436,8 @@ export function validateReservedStructuralErrorNames(
       code: "loom.reserved-structural-error-name",
       message: diagMessage("loom.reserved-structural-error-name", { name: p.name }),
       source: `${ctx.name}/error ${p.name}`,
+      origin: ctx.origin,
     });
-  }
-}
-
-/** Shared field / derived / function-signature walk for the structural
- *  shapes (aggregate, entity part, value object) that carry all three. */
-function flagAggregateLike(
-  node: {
-    fields: { name: string; type: TypeIR }[];
-    derived: { name: string; type: TypeIR }[];
-    functions: FunctionIR[];
-  },
-  where: string,
-  flag: (type: TypeIR, where: string) => void,
-): void {
-  for (const f of node.fields) flag(f.type, `${where}.${f.name}`);
-  for (const d of node.derived) flag(d.type, `${where}.${d.name}`);
-  for (const fn of node.functions) {
-    flag(fn.returnType, `${where}.${fn.name} return`);
-    for (const param of fn.params) flag(param.type, `${where}.${fn.name}(${param.name})`);
   }
 }
 
@@ -756,6 +477,7 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
             opName: op.name,
           }),
           source: `${ctx.name}/${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
       for (const stmt of op.statements) {
@@ -769,6 +491,7 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
             kind: stmt.kind,
           }),
           source: `${ctx.name}/${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
     }
@@ -818,6 +541,7 @@ export function validateEventSourcedDiscipline(
         code: "loom.applier-on-non-event-sourced",
         message: diagMessage("loom.applier-on-non-event-sourced#ir", { name: agg.name }),
         source: `${ctx.name}/${agg.name}`,
+        origin: agg.origin,
       });
     }
 
@@ -839,6 +563,7 @@ export function validateEventSourcedDiscipline(
           length: creates.length,
         }),
         source: `${ctx.name}/${agg.name}`,
+        origin: agg.origin,
       });
     }
 
@@ -854,6 +579,7 @@ export function validateEventSourcedDiscipline(
           code: "loom.duplicate-applier",
           message: diagMessage("loom.duplicate-applier#ir", { name: agg.name, count, eventName }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
       }
     }
@@ -900,6 +626,7 @@ export function validateEventSourcedDiscipline(
                 label: cmd.label,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
             break;
           case "emit":
@@ -913,6 +640,7 @@ export function validateEventSourcedDiscipline(
                   eventName: stmt.eventName,
                 }),
                 source: `${ctx.name}/${agg.name}`,
+                origin: agg.origin,
               });
             }
             break;
@@ -946,6 +674,7 @@ export function validateEventSourcedDiscipline(
               code: "loom.applier-emits",
               message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
             break;
           case "call":
@@ -958,6 +687,7 @@ export function validateEventSourcedDiscipline(
                 stmtName: stmt.name,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
             break;
           case "precondition":
@@ -971,6 +701,7 @@ export function validateEventSourcedDiscipline(
                 kind: stmt.kind,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
             break;
           // A fold's legitimate vocabulary: state writes, bindings, the
@@ -1420,6 +1151,7 @@ export function validateFieldDefaults(ctx: BoundedContextIR, diags: LoomDiagnost
         code: "loom.field-default-not-constant",
         message: diagMessage("loom.field-default-not-constant", { owner, name: f.name, found }),
         source: `${ctx.name}/${owner}.${f.name}`,
+        origin: f.origin,
       });
     }
   };
@@ -1530,6 +1262,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
           verb,
         }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
     });
   };
@@ -1619,6 +1352,7 @@ export function validateCurrentUserScope(ctx: BoundedContextIR, diags: LoomDiagn
           code: "loom.currentuser-not-in-request-scope",
           message: diagMessage("loom.currentuser-not-in-request-scope", { location }),
           source: `${ctx.name}/${location}`,
+          origin: ctx.origin,
         });
       }
     });
@@ -1686,6 +1420,7 @@ export function validatePermissionRefs(ctx: BoundedContextIR, diags: LoomDiagnos
         code: "loom.unknown-permission",
         message: diagMessage("loom.unknown-permission", { name }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
     }
   };
@@ -2106,6 +1841,7 @@ export function validateLifecycleBodyDropped(
               platforms: esGateUnsupportedOn.join(", "),
             }),
             source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
+            origin: create.origin,
           });
         }
       }
@@ -2169,6 +1905,7 @@ export function validateLifecycleBodyDropped(
                 : "",
           }),
           source: `${ctx.name}/aggregate ${agg.name}.create`,
+          origin: agg.origin,
         });
       }
     }
@@ -2257,6 +1994,7 @@ export function validateLifecycleBodyDropped(
             plural: plural(snake(agg.name)),
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${label}`,
+          origin: agg.origin,
         });
       }
     }
@@ -2325,6 +2063,7 @@ export function validateNamedLifecycleDropped(
             name: action.name,
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${label} ${action.name}`,
+          origin: action.origin,
         });
       }
     }
@@ -2417,6 +2156,7 @@ export function validateContainmentCycles(ctx: BoundedContextIR, diags: LoomDiag
             part: partName,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
         return;
       }

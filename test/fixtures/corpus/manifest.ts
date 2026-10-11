@@ -59,11 +59,11 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *  context — i.e. that emit every artifact the VO needs, not just the reference
  *  to it.
  *
- *  `python` and `elixir` are absent, and this is the NAME of that exclusion.  One
- *  root cause, two shapes: both emitters resolve a VO name through
- *  `ctx.valueObjects` only, so the CALL SITE (derived from the aggregate's wire
- *  shape, which spans contexts) is emitted while the DEFINITION (derived from the
- *  context's own VO list) is not.
+ *  `python` is absent, and this is the NAME of that exclusion: its emitter
+ *  resolves a VO name through `ctx.valueObjects` only, so the CALL SITE (derived
+ *  from the aggregate's wire shape, which spans contexts) is emitted while the
+ *  DEFINITION (derived from the context's own VO list) is not.  elixir resolves
+ *  its wire serializers through `valueObjectPool` (own ∪ siblings) and is in.
  *
  *    python  `db/schema.py` and the migration create `ship_to_line1` /
  *            `ship_to_geo_lat` / `ship_to_geo_lng`, while `receipt_repository.py`
@@ -73,45 +73,11 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *            context's aggregate fails.  `mypy --strict` sees only the hydrate
  *            site (the two bind sites are untyped dict literals), so the compile
  *            tier catches 1 of the 3.
- *    elixir  `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
- *            defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
- *            while the OWNING context's `person_controller.ex` defines both —
- *            `** (CompileError) undefined function serialize_addr/1`, so
- *            `mix compile --warnings-as-errors` fails outright.
  *
- *  This is the platform evaluation's F-008.  The fix on both is to resolve through
- *  the sibling pool (as `findValueObjectInScope` already does elsewhere); each key
- *  returns the day its emitter does.
- *
- *  NOTE FOR THE NEXT READER — elixir was first recorded here as FREE, on the
- *  reasoning that a VO is one `:map`/jsonb cell there so there is no flattening to
- *  get wrong.  That reasoning was sound and the conclusion was wrong: flattening
- *  is not the only artifact a VO needs, and the claim came from INSPECTING the
- *  emitted schema rather than compiling the project.  `mix compile` in CI found it
- *  in minutes.  Same correction the commons dev-experience audit had to make for
- *  the same reason (grading a target by inspection); see
- *  docs/audits/2026-09-29-fixture-shape-coverage.md. */
-const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter(
-  (b) => b !== "python" && b !== "vanilla",
-);
-
-/** The backends that emit a ROOT-LEVEL (shared-kernel) value object's declaration
- *  BEFORE the context-local one whose field is typed by it.
- *
- *  `node` and `python` are absent, and this is the NAME of that exclusion — one
- *  emission-order bug reached from one shape on two backends.  node's
- *  `http/<agg>.routes.ts` initialises `const OuterSchema` from `UnLocodeSchema`
- *  four lines before that `const` is declared (`TS2448` + `TS2454`), a temporal
- *  dead-zone read that is fatal at module evaluation — the generated API does not
- *  boot.  python's `app/domain/value_objects.py` and `app/http/wire_models.py`
- *  both emit `class Outer` ahead of `class UnLocode` (`ruff F821`, four times).
- *  This is the evaluation's F-007, whose FRONTEND half is already fixed
- *  (`web/src/api/<agg>.ts` orders correctly) while both backend halves are open.
- *  `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) exists for
- *  exactly this; both keys return when the emitters route through it. */
-const ORDERED_ROOT_VO_EMISSION: readonly Backend[] = ALL.filter(
-  (b) => b !== "node" && b !== "python",
-);
+ *  This is the platform evaluation's F-008.  The fix is to resolve through the
+ *  sibling pool (as `findValueObjectInScope` already does elsewhere); python's key
+ *  returns the day its emitter does. */
+const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "python");
 
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
@@ -126,6 +92,43 @@ const ORDERED_ROOT_VO_EMISSION: readonly Backend[] = ALL.filter(
  *  `java.util.regex.Pattern`, elixir's `Regex`/`=~` live in Kernel.  One import in
  *  the python wire-model emitter returns the key. */
 const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
+
+/** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
+ *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
+ *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
+ *  so a read model has to bridge the two halves: the fold writes the leaves, the
+ *  read route rebuilds the nest.
+ *
+ *  **node** does, as of the PR that mints this fixture.  The other four are
+ *  excluded — an honest, named exclusion rather than a red gate, and each key
+ *  returns with its own fix:
+ *
+ *  - **java** almost certainly belongs here already: it is the one backend whose
+ *    emission bridges both halves — `@Embedded` + `@AttributeOverride` onto
+ *    exactly the migration's flat columns (`emit/projection-state.ts`), then
+ *    `new OrderBoardResponse(…, StampResponse.from(x.stamp()), x.seen() == null ?
+ *    null : StampResponse.from(x.seen()), AuditResponse.from(x.audit()))` with
+ *    both response records emitted (`emit/projection-reads.ts`).  It is held out
+ *    only because it was not COMPILED: `gradle testClasses bootJar` in
+ *    `gradle:9-jdk25` could not resolve its dependencies (Maven Central answered
+ *    429 through the sandbox proxy, twice).  Adding `"java"` here is a one-line
+ *    change for whoever can run that gate.  One behavioural caveat to check when
+ *    they do: JPA hands back a non-null `@Embedded` instance with null fields
+ *    when every column is null, so java's `x.seen() == null` arm may answer an
+ *    object of nulls where node answers `null`.
+ *
+ *  - **dotnet**: `OrderBoardRowConfiguration` maps the value object as a SCALAR
+ *    property to one column (`builder.Property(x => x.St).HasColumnName("st")`)
+ *    that the migration never creates, so EF fails at model build.  The
+ *    controller half is already right (it projects a nested `StampResponse`).
+ *  - **python**: the route returns `{"st": row.st}` against a SQLAlchemy model
+ *    whose only attributes are `st_at_time` / `st_who` — `AttributeError`.
+ *  - **elixir** (`vanilla`): the row schema types the field `field :st, :map`
+ *    over a table with no `st` column.  Its fix is entangled with #3082, which
+ *    makes elixir's state-table migration COLLAPSE value-object leaves into one
+ *    `:map` column — i.e. elixir is moving to a different column shape than the
+ *    other four read.  That fork wants settling before a key is minted here. */
+const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -223,6 +226,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
   { id: "saga", title: "in-process dispatch / saga with persisted correlation", doc: "workflow", backends: ALL },
   {
+    id: "reactor-failure",
+    title:
+      "a reactor that throws AFTER its triggering command committed — the command keeps its 2xx, the failure is isolated + logged `reactor_failed`",
+    doc: "workflow",
+    backends: ALL,
+    note: "H-28 (helpdesk eval, #3126): an event-triggered `create(e) by` starter that threw turned the committed `resolve` into a 500 (node, elixir) / 422 (.NET), and the client's retry then hit the state gate; java / python instead rolled the command back with the reactor.  The behavioural `test e2e` drives one reactor that succeeds and one the reactor refuses, and pins the command's 2xx + committed write on both.",
+  },
+  {
     id: "workflow-enum-state",
     title: "workflow whose persisted state field is an enum — the instance-response DTO names <Enum>Schema",
     doc: "workflow",
@@ -246,6 +257,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  M-T5.36 P9 (F5) added the BEHAVIOURAL half: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and the `test e2e` DSL had no verb for that — `api.fulfillment.run(…)` was refused as an unknown AGGREGATE — so the note here used to defer it.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that verb set, and this fixture is their runtime proof: the folded `status` / `attempts` scalars are asserted on the very row the command create must have persisted, which is the half of F58 no compile gate can see",
   },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
+  {
+    id: "projection-valueobject-row",
+    title:
+      "value object on a folded read model — leaf columns folded, nested object served (plus an absent optional one and a value object inside a value object)",
+    backends: PROJECTION_VO_ROW,
+    note: "Minted by the PR that fixed node (`backends` is node-only — see `PROJECTION_VO_ROW` for why each of the other four is held out, java included).  The shape validated `0 error(s)` and emitted on all five backends while FOUR of them produced a read model that cannot run — node with two compile errors in the generated project (`state.stamp = e.stamp` against a row that holds `stamp_atTime` / `stamp_who`, TS2339; `stamp: StampSchema.nullish()` with `StampSchema` declared nowhere, TS2304), dotnet with an EF model-build failure, python with an `AttributeError`, elixir naming a column the migration does not create.  Only java bridged the flat-column / nested-wire halves.  Nothing caught it because no corpus fixture carried a value object on a folded projection, so no tier ever compiled or booted one.  The optional field is never folded on purpose (the wire `null` arm) and `Audit` holds a `Stamp` on purpose (two levels of flattening, which a one-level implementation gets wrong silently).",
+  },
   {
     id: "projection-fold-statements",
     title:
@@ -285,7 +303,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
     doc: "tenancy",
     backends: ALL,
-    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while `loom.filter-bypass-unsupported`'s family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
+    note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
   },
   {
     id: "projection-document-aggregation",
@@ -294,6 +312,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by audit A1: `loom.projection-columnless-source` deliberately allows `count()` over a document source, and NOTHING pinned that the allowed cell still emits — while java's cell was broken outright.  Java JOINED the row 2026-09-13 (M-T4.2, wave C2 packet 2d): its aggregation over a document source runs the same query NATIVE (`createNativeQuery`, `select count(*) from <schema>.<table> e`) instead of as JPQL over an `@Entity` a document aggregate does not have, so the per-backend gate and its two `#document` message variants are deleted.  Proved on a BOOTED Spring Boot app against Postgres 18: the singleton arm answers `{\"articles\":0}` then `{\"articles\":3}` after three creates, and the grouped arm answers one row per id — numbers from the database, not from the emitter.  The filtered crossing is still refused universally (`loom.projection-document-source-capability-filtered`); that negative lives in `test/ir/projection-document-aggregation.test.ts`.",
+  },
+  {
+    id: "projection-tph-source",
+    title:
+      "direct-table projection arms over a TPH (`sharedTable`) concrete source, and a `sum` over a value-object leaf",
+    doc: "language",
+    backends: ALL,
+    note: "minted by eval items 10 + 14b (2026-09-28 closure review): node named the concrete's nonexistent table (`schema.autoClaims`, TS2339), python/elixir read the shared table with no `kind` conjunct (a sibling concrete's rows counted — silent wrong data), and elixir summed the jsonb VO column itself (`sum(record.amount)`).  The e2e block asserts the numbers, since two of the three defects compiled clean.",
   },
   {
     id: "projection-join",
@@ -424,8 +450,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a ROOT-LEVEL (ambient / shared-kernel) value object nested inside a CONTEXT-LOCAL one — the third VO lookup pool, and the emission ORDER it forces",
     doc: "language",
-    backends: ORDERED_ROOT_VO_EMISSION,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).  A root-level VO is the documented shared kernel and the third pool a name resolves through (`ctx.valueObjects`, `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  Only FOUR models in the repo declared one, all under `web/src/examples/`, and all four are MULTI-FILE — while `react-build-cases.ts` is single-file-only by construction, so NO compile gate on any backend or frontend had ever seen a shared kernel, and the corpus had none.  Carries both nesting directions because different code emits them: root VO -> aggregate field (`Shipment.tag`, the direction the examples had) and root VO -> CONTEXT-LOCAL VO field (`Outer.origin`, which nothing had, and which is the ordering-sensitive one).  This is the evaluation's F-007, whose halves have since diverged: react/vue/svelte are FIXED (the frontend api module emits the root VO's schema first), while NODE IS STILL BROKEN — `http/shipment.routes.ts` emits the context-local `OuterSchema` before the root-level `UnLocodeSchema` it initialises from, a temporal-dead-zone read (`TS2448` + `TS2454`).  Same defect the evaluation reported on the frontends, surviving on the backend after the frontend half was fixed, which is why the SHAPE and not the symptom is what a fixture must carry.  PYTHON IS BROKEN THE SAME WAY, in two more files: `app/domain/value_objects.py` and `app/http/wire_models.py` both emit `class Outer` (annotating `origin: UnLocode`) before `class UnLocode`, so ruff reports `F821 Undefined name 'UnLocode'` four times.  ONE emission-order bug, TWO backends — which is the argument for carrying the shape in the shared corpus rather than per-backend.  node and python are therefore excluded from `backends:` here via the named `ORDERED_ROOT_VO_EMISSION` set above (a reasoned exclusion, not a compile-skip — see `gate-ledger.test.ts`); `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) already exists to fix both, and both keys return with it.  dotnet/java are free (declarations hoist — a record/class has no initialisation order) and elixir is free (a VO is one `:map` cell, no schema const); all three ride as the contrast.",
+    backends: ALL,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).  A root-level VO is the documented shared kernel and the third pool a name resolves through (`ctx.valueObjects`, `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  Only FOUR models in the repo declared one, all under `web/src/examples/`, and all four are MULTI-FILE — while `react-build-cases.ts` is single-file-only by construction, so NO compile gate on any backend or frontend had ever seen a shared kernel, and the corpus had none.  Carries both nesting directions because different code emits them: root VO -> aggregate field (`Shipment.tag`, the direction the examples had) and root VO -> CONTEXT-LOCAL VO field (`Outer.origin`, which nothing had, and which is the ordering-sensitive one).  This is the evaluation's F-007, whose halves have since diverged: react/vue/svelte are FIXED (the frontend api module emits the root VO's schema first), while NODE IS STILL BROKEN — `http/shipment.routes.ts` emits the context-local `OuterSchema` before the root-level `UnLocodeSchema` it initialises from, a temporal-dead-zone read (`TS2448` + `TS2454`).  Same defect the evaluation reported on the frontends, surviving on the backend after the frontend half was fixed, which is why the SHAPE and not the symptom is what a fixture must carry.  PYTHON IS BROKEN THE SAME WAY, in two more files: `app/domain/value_objects.py` and `app/http/wire_models.py` both emit `class Outer` (annotating `origin: UnLocode`) before `class UnLocode`, so ruff reports `F821 Undefined name 'UnLocode'` four times.  ONE emission-order bug, TWO backends — which is the argument for carrying the shape in the shared corpus rather than per-backend.  RESOLVED (F-007 backend halves): node's four `<Vo>Schema`-emitting builders (routes, workflow, projection, explicit handlers) and python's two class emitters (`emit/value-objects.ts`, `emit/http-models.ts`) now route through `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) — the helper the frontends already used — so node and python rejoined `backends:` and the named exclusion was deleted.  dotnet/java are free (declarations hoist — a record/class has no initialisation order) and elixir is free (a VO is one `:map` cell, no schema const); all three ride as the contrast.",
   },
   {
     id: "vo-cross-context",
@@ -556,6 +582,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     title: "domainService — cross-aggregate pure/reading/mutating ops orchestrated by workflows",
     doc: "domain-services",
     backends: ALL,
+    note: "Also carries a `precondition` in a domainService operation's OWN body (`FeeQuote.forAmount`) — the last shape `docs/audits/2026-09-29-fixture-shape-coverage.md` named as next in line, found in 0 of the 406 models it scanned, and the evaluation's F-009 trigger.  Such a precondition lowers to a throw/raise of the domain-error type inside the SERVICE module, whose import list each backend builds from a different sweep than the one collecting the service's own calls: node emitted `throw new DomainError(...)` with the name imported nowhere (TS2304, and `ReferenceError` at runtime — a 422 answering 500), shipped because the generated Dockerfile builds with `tsup`/esbuild, which strips types without checking them.  The near-miss that let the gap survive a fixture which LOOKS like it covers this: the two preconditions already here (`Registration.isHolderFree(holder)`, `s.tier(0.00) != \"\"`) are both in WORKFLOW bodies, emitted into the workflow module, which already collected its service imports — one level in, different emitter, different import sweep.  It sits on `FeeQuote` because `forAmount` is what `Account.withdraw`'s `requires` gate calls and the `test e2e` block calls `withdraw`, so the guard runs on a path the behavioural tier executes rather than compile-only; the predicate HOLDS for every value the e2e passes, so no response changes and the reviewed wire golden stays valid (verified by diffing the generated file map before/after: only the service module and the content-hash manifest move).  Keep the predicate true — one that fires here rewrites the golden.  MUTATION-PROVED: dropping `DomainError` from `usedErrors` in `src/generator/typescript/emit/domain-service.ts` turns this fixture RED (TS2304) while the pre-widening fixture, and `handler-triad` / `handler-resource-ops` / `projection` / `workflow-create-state`, all stay GREEN.",
   },
   {
     id: "scaffold-macros",
@@ -634,6 +661,30 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
+  },
+  {
+    id: "stamps-principal",
+    title:
+      "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
+    doc: "capabilities",
+    backends: ALL,
+    note: "M-T9.42 promotion of the `*-stamping.test.ts` string copies: each pinned how its emitter spells the principal read; this asserts the value that lands in the row, on every leg.",
+  },
+  {
+    id: "intrinsics",
+    title:
+      "scalar intrinsics in memory (derived trim / trim().toLower() / money round / int abs, an invariant over trim().length) and in SQL (column-side and value-side trim, toLower both sides, floor, abs, a reified criterion)",
+    doc: "stdlib",
+    backends: ALL,
+    note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
+  },
+  {
+    id: "wire-ingress",
+    title:
+      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
   },
 ] as const;
 

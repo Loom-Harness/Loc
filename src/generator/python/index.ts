@@ -19,12 +19,20 @@ import {
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
+import {
+  foreignEventValueTypes,
+  resolveForeignEvents,
+  valueObjectFieldTypes,
+  withForeignValueTypes,
+} from "../../ir/util/foreign-event-types.js";
 import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
+import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -34,9 +42,15 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
-import { resetTableDiscoverySql, TEST_RESET_ENV, TEST_RESET_PATH } from "../../util/test-reset.js";
+import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
+} from "../../util/test-reset.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -148,7 +162,7 @@ export interface GeneratePythonArgs {
 }
 
 export function generatePythonForContexts(args: GeneratePythonArgs): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/python/index");
   const slug = pythonProjectName(args.deployable.name);
   const mergedBase = mergeContexts(args.contexts);
   const sourcemap = args.sourcemap;
@@ -191,21 +205,17 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   const knownEventNames = new Set(mergedBase.events.map((e) => e.name));
   const mergedSubscriptions = dispatchSubscriptionsOf(mergedPre);
   const carriedEventNames = channelBindings.flatMap((b) => b.events);
-  const foreignConsumedEvents = [
-    ...new Set([...mergedSubscriptions.map((s) => s.event), ...carriedEventNames]),
-  ]
-    .filter((name) => !knownEventNames.has(name))
-    .flatMap((name) => {
-      for (const sub of args.sys.subdomains) {
-        for (const c of sub.contexts) {
-          const ev = c.events.find((e) => e.name === name);
-          if (ev) return [ev];
-        }
-      }
-      return [];
-    });
+  const foreignConsumedEvents = resolveForeignEvents(
+    [...mergedSubscriptions.map((s) => s.event), ...carriedEventNames],
+    knownEventNames,
+    args.sys,
+  );
+  // The value objects / enums those foreign events reach join too:
+  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
+  // which must therefore declare them (eval item 11).
+  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
   const merged: EnrichedBoundedContextIR = {
-    ...mergedPre,
+    ...withForeignValueTypes(mergedPre, foreignValueTypes),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -543,6 +553,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
+    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -627,6 +638,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         merged.events,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
+        valueObjectPool(merged),
       ),
     );
   }
@@ -682,6 +694,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       // M-T1.11 (c): the domain-floor code answer rides on a messaged
       // aggregate rule the same way.
       hasDomainFloorMessages(merged),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(args.deployable, args.sys),
     ),
   );
   out.set("app/http/wire_models.py", renderPyWireModels(merged));
@@ -1152,25 +1166,47 @@ function renderMain(
   // entirely when the user declares no carryable field.
   const pyClaimFields = devClaimFields(authUser?.fields);
   const pyDevClaims = authRequired && !oidc && pyClaimFields.length > 0;
+  // Every dev stub decodes a present header (ruling D6, #23) — even one with
+  // no carryable claim — so a malformed header answers 400 rather than
+  // silently running the request as the built-in identity.
+  const pyDevStub = authRequired && !oidc;
+  const pyDecodeDevClaims = [
+    "def _decode_dev_claims(injected: str) -> dict[str, Any]:",
+    '    """Decode the header as a base64 JSON OBJECT, or raise',
+    "    MalformedDevClaimsError (the auth middleware answers it 400).",
+    '    """',
+    "    try:",
+    "        claims = json.loads(base64.b64decode(injected))",
+    "    except ValueError as err:",
+    "        raise MalformedDevClaimsError() from err",
+    "    if not isinstance(claims, dict):",
+    "        raise MalformedDevClaimsError()",
+    "    return claims",
+    "",
+    "",
+  ];
   return lines(
     `"""FastAPI application entrypoint.`,
     "",
     "Auto-generated by Loom.  Pin via .loomignore to customise.",
     `"""`,
     "",
-    pyDevClaims ? "import base64" : null,
-    pyDevClaims ? "import json" : null,
+    pyDevStub ? "import base64" : null,
+    pyDevStub ? "import json" : null,
+    "import hmac",
     "import os",
+    "import sys",
     "from collections.abc import AsyncIterator",
     "from contextlib import asynccontextmanager",
     pyDevClaims ? "from dataclasses import replace" : null,
     hasEmbeddedSpa ? "from pathlib import Path as FilePath" : null,
     stubKwargs.includes("datetime.") ? "from datetime import UTC, datetime" : null,
     stubKwargs.includes("Decimal(") ? "from decimal import Decimal" : null,
-    pyDevClaims ? "from typing import Any" : null,
+    pyDevStub ? "from typing import Any" : null,
     hasStaticSubpathGuard ? "from collections.abc import Awaitable, Callable" : null,
     "",
     `from fastapi import FastAPI${(authRequired && !oidc) || hasStaticSubpathGuard ? ", Request" : ""}`,
+    "from fastapi import Header, HTTPException",
     "from fastapi import Response",
     "from fastapi.middleware.cors import CORSMiddleware",
     hasEmbeddedSpa ? "from fastapi.responses import FileResponse" : null,
@@ -1180,7 +1216,7 @@ function renderMain(
     authRequired ? "from app.auth.routes import router as auth_router" : null,
     authRequired && !oidc ? "from app.auth.user import User" : null,
     authRequired && !oidc
-      ? "from app.auth.verifier import assert_user_verifier_registered, register_user_verifier"
+      ? "from app.auth.verifier import (\n    MalformedDevClaimsError,\n    assert_user_verifier_registered,\n    register_user_verifier,\n)"
       : null,
     oidc ? "from app.auth.oidc import register_oidc_verifier" : null,
     oidc ? "from app.auth.oidc import router as auth_oidc_router" : null,
@@ -1239,15 +1275,13 @@ function renderMain(
                   "# injection the Hono dev stub honours (dotnet/java/elixir parity).",
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
+                  ...pyDecodeDevClaims,
                   "async def _dev_stub_verifier(request: Request) -> User:",
                   `    user = User(${stubKwargs})`,
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if not injected:",
                   "        return user",
-                  "    try:",
-                  "        claims = json.loads(base64.b64decode(injected))",
-                  "    except Exception:",
-                  "        return user",
+                  "    claims = _decode_dev_claims(injected)",
                   "    overrides: dict[str, Any] = {}",
                   // Header key = declared field name; attr = its snake_case form.
                   // A list claim is element-checked too: a mixed array would
@@ -1270,7 +1304,12 @@ function renderMain(
               : [
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
-                  "async def _dev_stub_verifier(_: Request) -> User:",
+                  ...pyDecodeDevClaims,
+                  "async def _dev_stub_verifier(request: Request) -> User:",
+                  "    # No declared claim is carryable, but a malformed header still refuses.",
+                  '    injected = request.headers.get("x-loom-dev-claims")',
+                  "    if injected:",
+                  "        _decode_dev_claims(injected)",
                   `    return User(${stubKwargs})`,
                 ]),
             "",
@@ -1405,24 +1444,29 @@ function renderMain(
     // cross-backend parity contract (no other backend lists it).
     // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
     //
-    // The route is only DEFINED when the switch is on, so where it is off the
-    // path does not exist and a request 404s through FastAPI's own not-found
-    // handler having touched nothing.  Unlike the other four backends this one
-    // has no default: the Python image ships no production-profile marker to
-    // read, so a default of "on" would leave a truncate endpoint in every
-    // deployment.  The generated compose file sets `LOOM_TEST_RESET=1`, so the
-    // documented recipe works; running uvicorn by hand needs it too.
+    // The route is only DEFINED when an operator sets BOTH `LOOM_TEST_RESET=1`
+    // and a `LOOM_TEST_RESET_TOKEN`, so otherwise the path does not exist and a
+    // request 404s through FastAPI's own not-found handler having touched
+    // nothing.  The generated compose file does not opt in (finding H-30).
+    // Each request must carry the token in `x-loom-test-reset`, compared with
+    // `hmac.compare_digest`; otherwise 403.
     //
     // `include_in_schema=False` for the same reason `/metrics` has it: this is
     // infra, and the cross-backend OpenAPI parity check compares documented
     // surfaces.
-    `_TEST_RESET_ENABLED = os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1"`,
+    `_TEST_RESET_TOKEN = os.environ.get(${JSON.stringify(TEST_RESET_TOKEN_ENV)}, "")`,
+    `_TEST_RESET_ENABLED = os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1" and _TEST_RESET_TOKEN != ""`,
+    `if os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1" and not _TEST_RESET_TOKEN:`,
+    "    print(",
+    `        "${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset; ${TEST_RESET_PATH} is NOT defined.",`,
+    "        file=sys.stderr,",
+    "    )",
     "",
     "",
     "if _TEST_RESET_ENABLED:",
     "",
     `    @app.post(${JSON.stringify(TEST_RESET_PATH)}, include_in_schema=False)`,
-    "    async def test_reset() -> dict[str, object]:",
+    `    async def test_reset(x_loom_test_reset: str = Header(default="")) -> dict[str, object]:`,
     '        """Truncate every application table and re-apply seed data.',
     "",
     "        Tables are discovered at runtime, so this also reaches what the",
@@ -1430,6 +1474,8 @@ function renderMain(
     "        materialized projections, the seed marker) and cannot drift from a",
     "        migration chain that has moved on.  The migration ledger, the timer",
     '        watermark and the pg-boss job store are preserved."""',
+    "        if not hmac.compare_digest(x_loom_test_reset.encode(), _TEST_RESET_TOKEN.encode()):",
+    '            raise HTTPException(status_code=403, detail="missing or wrong reset token")',
     "        async with engine.begin() as conn:",
     `            found = (await conn.execute(text(${JSON.stringify(resetTableDiscoverySql())}))).all()`,
     '            targets = [f\'"{r[0]}"."{r[1]}"\' for r in found]',
@@ -1698,7 +1744,15 @@ function renderProblemPy(
    *  carries the `ValueObjectInvariantError` handler (M-T5.1). */
   valueObjectInvariants = false,
   domainFloorCodes = false,
+  /** Ruling D4 (#20): true only under the dev-stub verifier
+   *  (`echoesDenialDetail`) — the 403 body then echoes the failed gate.
+   *  Otherwise it is the constant `Forbidden`; the gate stays in the
+   *  `forbidden` log line either way. */
+  echoForbiddenDetail = false,
 ): string {
+  const forbiddenDetail = echoForbiddenDetail
+    ? "str(err)"
+    : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL);
   // Structural-conflict statuses resolved through the `httpStatus` mapper: the
   // 23505 unique-violation handler → UniquenessConflict, the ConcurrencyError
   // handler → ConcurrencyConflict, the DisallowedError (`when`-gate) handler →
@@ -1979,7 +2033,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _forbidden(request: Request, err: ForbiddenError) -> JSONResponse:
         log("warn", "forbidden", message=str(err), status=${forbiddenStatus})
         record_domain_fault("forbidden")
-        return problem(request, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", str(err))
+        return problem(request, ${forbiddenStatus}, "${problemTitle(forbiddenStatus)}", ${forbiddenDetail})
 
     # The 7807 title on the when-gate rung is the ERROR NAME
     # (errorTitle humanises Disallowed), not the 409 reason phrase.  The

@@ -235,7 +235,7 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
     if (err instanceof ForbiddenError) {
       c.get("log").warn({ event: "forbidden", aggregate: "Product", message: err.message, status: 403 });
       recordDomainFault("forbidden");
-      return problem(403, "Forbidden", err.message);
+      return problem(403, "Forbidden", err.detail);
     }
     if (err instanceof DisallowedError) {
       c.get("log").warn({ event: "disallowed", aggregate: "Product", message: err.message, status: 409 });

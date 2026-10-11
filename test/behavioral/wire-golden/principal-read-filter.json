@@ -1,0 +1,281 @@
+{
+  "case": "principal-read-filter",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/work_orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/work_orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/work_orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/work_orders/mine",
+      "status": 200,
+      "body": [
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 1
+        },
+        {
+          "done": true,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Pump",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/work_orders/mine_by_state?d=false",
+      "status": 200,
+      "body": [
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/work_orders/mine_by_state?d=true",
+      "status": 200,
+      "body": [
+        {
+          "done": true,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Pump",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/work_orders/by_title?t=Boiler",
+      "status": 200,
+      "body": [
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 1
+        },
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/work_orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/work_orders/mine",
+      "status": 200,
+      "body": [
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 1
+        },
+        {
+          "done": true,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Pump",
+          "version": 1
+        },
+        {
+          "done": false,
+          "id": "<volatile:key>",
+          "technicianUserId": "<volatile:key>",
+          "title": "Boiler",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/work_orders/{id}",
+      "status": 200,
+      "body": {
+        "done": false,
+        "id": "<volatile:key>",
+        "technicianUserId": "<volatile:key>",
+        "title": "Boiler",
+        "version": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/work_orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "done": false,
+            "id": "<volatile:key>",
+            "technicianUserId": "<volatile:key>",
+            "title": "Boiler",
+            "version": 1
+          },
+          {
+            "done": true,
+            "id": "<volatile:key>",
+            "technicianUserId": "<volatile:key>",
+            "title": "Pump",
+            "version": 1
+          },
+          {
+            "done": false,
+            "id": "<volatile:key>",
+            "technicianUserId": "<volatile:key>",
+            "title": "Boiler",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "DELETE",
+      "path": "/api/work_orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/work_orders/mine_by_state?d=true",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/work_orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "DELETE",
+      "path": "/api/work_orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/work_orders/{id}",
+      "status": 404,
+      "body": {
+        "detail": "WorkOrder {id} not found",
+        "instance": "/api/work_orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "PATCH",
+      "path": "/api/work_orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/work_orders",
+        "instance": "/api/work_orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/work_orders",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/work_orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin"
+      }
+    }
+  ]
+}

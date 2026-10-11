@@ -49,16 +49,20 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `handle …(){}` continuation (event-triggered creates and `on(...)`
   reactors are not client-reachable, so they are excluded);
 - **repository `find`s** — the same optional `requires` gate (see
-  [Find gates](#find-requires-gates) below).  The auto-injected `find all`
-  list route is the one exception: it is compiler-synthesized with no author
-  source line, so it is out of default-deny scope.  Declaring an explicit
-  `find all(): T[] requires <expr>` gates that route, and does so on **all
+  [Find gates](#find-requires-gates) below).  The list route
+  (`GET /api/<plural>`, backed by the auto-injected `find all`) is the one
+  find that is a **warning** rather than an error: under `denyByDefault` an
+  ungated list read raises `loom.default-deny-list-ungated` (ruling D5 —
+  same tier as the by-id warning, so existing models keep building).  The
+  warning names its remedy: declaring an explicit
+  `find all(): T[] requires <expr>` replaces the injected find and gates that
+  route (`requires true` marks it intentionally public), and does so on **all
   five** backends — node/Hono and .NET emit a route per repository find and so
   always honoured it, while java, python and elixir each special-case `all` out
   of their named-find loop and used to emit the list route without reading its
   gate.  All five now resolve the list read through one shared derivation
   (`src/ir/util/read-gates.ts`).
-- **the synthesised by-id read is the second exception — and unlike the list
+- **the synthesised by-id read is the second warning — and unlike the list
   read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
   on all five backends and carries no gate on any of them, so gating an
   aggregate everywhere else (an admin-only `find all`, gated operations) still
@@ -474,6 +478,24 @@ public cancel(reason: string): void {
 }
 ```
 
+**What the 403 says (ruling D4, eval-closure #20).** The thrown message names
+the failed gate, and every backend writes it to its `forbidden` log line. Whether
+the RFC 7807 **body** repeats it depends on the verifier the deployable ships:
+
+| Verifier | 403 `detail` | Server log `forbidden` line |
+|---|---|---|
+| dev stub (`auth: required`, a `user { … }` block, no `auth { oidc … }`) | `Forbidden: currentUser.role == "manager" && reason != ""` | same text |
+| a real verifier (`auth { oidc … }`), or no verifier at all | `Forbidden` | `Forbidden: currentUser.role == "manager" && reason != ""` |
+
+So a production caller learns that it was forbidden, not which predicate it
+failed; the dev stub keeps the echo because naming the gate is the useful answer
+while you are wiring claims. One helper per backend decides it from the same two
+facts that pick the verifier (`echoesDenialDetail`, `src/ir/util/denial-detail.ts`):
+node's `ForbiddenError.detail` (read by every `onError` arm), .NET's
+`DomainExceptionFilter`, Java's `ApiExceptionAdvice`, Python's
+`install_error_handlers`, and Phoenix's `ProblemDetails.problem_response/4` (plus
+the LiveView create form's flash).
+
 Consequences worth knowing:
 
 - The aggregate method **drops its `currentUser: User` parameter** when the gate
@@ -736,6 +758,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
+| `loom.policy-out-of-scope` | a `PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
@@ -1097,6 +1120,41 @@ When an aggregate operation references `currentUser`, the route
 handler reads `c.get("currentUser") as User` at the top and passes
 it as the trailing argument to the aggregate method.
 
+### Absent claims (generated OIDC verifier)
+
+A claim the verified token does not carry becomes the field's **null**, never
+`undefined` or a stub default. Every backend lowers `currentUser.x != null` to a
+plain null test, so the value an absent claim maps to decides the gate.
+
+```ddd
+user { id: string  role: string  permissions: string[]  agentId: string? }
+// …
+operation take() { requires currentUser.agentId != null }
+```
+
+```ts
+// node — auth/oidc.ts
+const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];
+function toUser(payload: JWTPayload): UserClaims | null {
+  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null; // → 401
+  return {
+    id: claim(payload, "sub") as string,
+    // …
+    agentId: (claim(payload, "agentId") ?? null) as string | null, // absent → null → 403
+  };
+}
+```
+
+- **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
+  `!= null` gate denies (403). The token still verifies.
+- **Required scalar claim, absent** → node rejects the token (401). The other
+  backends map it to `""` (.NET, Java) or `None`/`nil` (Python, Elixir).
+- **Required array claim, absent** → the empty list. An IdP routinely omits an
+  empty `permissions`, so this is not a reason to reject.
+- **Unread claims.** .NET and Java read optional claims only when the type is
+  `string`. Any other optional type (for example `Customer id?`) is always
+  null there.
+
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
 Until you register a real verifier, every backend ships an **accept-all dev
@@ -1110,10 +1168,21 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
-> **The encoding is load-bearing.** The stub decodes inside a `try/catch` that
-> falls back to the built-in identity, so a **raw-JSON** header does not fail —
-> it is silently ignored, and the request runs as the built-in `admin`. A gate
-> that then passes looks like your claims were applied when they never were.
+> **The encoding is load-bearing.** A header that is **present but does not
+> decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
+> is refused on all five backends with **400**, before any route runs
+> (ruling D6, eval-closure #23):
+>
+> ```json
+> { "type": "about:blank", "title": "Bad Request", "status": 400,
+>   "detail": "malformed x-loom-dev-claims header: expected a base64-encoded JSON object",
+>   "instance": "/api/orders" }
+> ```
+>
+> It used to be silently ignored, running the request as the built-in `admin`,
+> so a permission test that sent a typo'd header could pass as the broad
+> principal it never meant to be. An absent or empty header still means the
+> built-in identity.
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid

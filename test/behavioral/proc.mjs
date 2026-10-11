@@ -32,6 +32,7 @@
 // suite, so `test/harness/behavioral-proc.test.ts` gates this behaviour on every
 // PR instead of only when one of the slow booted legs happens to lose the race.
 
+import { randomBytes } from "node:crypto";
 import net from "node:net";
 
 /** Default deadline for `waitForPort`.  Runners with a faster boot pass their
@@ -133,4 +134,22 @@ export function stopServer(server, { graceMs = 15_000 } = {}) {
     // nothing — check once more so teardown cannot hang on a reaped child.
     if (server.exitCode !== null || server.signalCode !== null) done();
   });
+}
+
+/**
+ * Opt this leg into the generated backend's state-reset seam
+ * (`src/util/test-reset.ts`).  The seam is opt-in and token-gated (finding
+ * H-30): a backend serves `POST /__loom/test-reset` only with
+ * `LOOM_TEST_RESET=1` AND a `LOOM_TEST_RESET_TOKEN`, and the emitted suite only
+ * sends it when it holds the same token.  Set on `process.env`, so the
+ * in-process node app and every backend this leg spawns with
+ * `{ ...process.env }` inherit it; each runner also forwards the token into
+ * the env it hands the emitted suite.  Idempotent — one token per process.
+ */
+export function optInTestReset() {
+  if (!process.env.LOOM_TEST_RESET_TOKEN) {
+    process.env.LOOM_TEST_RESET_TOKEN = randomBytes(16).toString("hex");
+  }
+  process.env.LOOM_TEST_RESET = "1";
+  return process.env.LOOM_TEST_RESET_TOKEN;
 }

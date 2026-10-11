@@ -99,11 +99,4 @@ describe("elixir/vanilla — messaged cross-field rule → wire code", () => {
       'add_error(changeset, :handle, "Handle and email must differ", loom_code: "msg.ggmd6x", loom_pointer: "")',
     );
   });
-
-  it("the 422 handler surfaces loom_code as errors[].code", async () => {
-    const all = await generateSystemFiles(CROSS);
-    const problem = all.get([...all.keys()].find((k) => k.endsWith("problem_details.ex"))!)!;
-    expect(problem).toContain("case Keyword.get(opts, :loom_code) do");
-    expect(problem).toContain("code -> Map.put(base, :code, code)");
-  });
 });

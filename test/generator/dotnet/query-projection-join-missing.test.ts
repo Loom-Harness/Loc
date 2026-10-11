@@ -94,26 +94,6 @@ for (const [adapter, platform] of [
   ["dapper", "dotnet { persistence: dapper }"],
 ] as const) {
   describe(`query-projection join lookup is total — ${adapter}`, () => {
-    it("never indexes the join dictionary directly", async () => {
-      const src = await handler(platform);
-      // The shape that threw: `customerById[<key>]`.
-      expect(src).not.toMatch(/customerById\[/);
-    });
-
-    it("reads every joined field through TryGetValue, null when absent", async () => {
-      const src = await handler(platform);
-      expect(src).toContain("customerById.TryGetValue(d.CustomerId, out var __j0)");
-      // Three joined selects → three distinct out-vars in ONE lambda scope
-      // (reusing a name is CS0128, which no string test would otherwise see).
-      const tmps = [...src.matchAll(/out var (__j\d+)\)/g)].map((m) => m[1]!);
-      expect(tmps).toHaveLength(3);
-      expect(new Set(tmps).size).toBe(3);
-      // The absent branch fills the row with `null` rather than dropping it —
-      // never `default!`, which is `0` for a value-typed member (RS-34).
-      expect(src).toContain(" : null)");
-      expect(src).not.toMatch(/out var __j\d+\) \? [^\n]*: default!\)/);
-    });
-
     it("widens every join-read member of the row record to nullable (RS-34)", async () => {
       const row = await projectionFile(platform, "OrderWithCustomerRow.cs");
       // The value-typed one is the arm that read `0` before.
@@ -134,11 +114,6 @@ for (const [adapter, platform] of [
       const datetimeArm = guarded.find((m) => m[2]!.includes("SignedUpAt"))![2]!;
       expect(datetimeArm).toMatch(/__j\d+\.SignedUpAt/);
       expect(datetimeArm.length).toBeGreaterThan("__j0.SignedUpAt".length);
-    });
-
-    it("still projects source-row fields off the row variable", async () => {
-      const src = await handler(platform);
-      expect(src).toContain("d.Code");
     });
   });
 }

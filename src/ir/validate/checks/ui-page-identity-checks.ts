@@ -51,7 +51,14 @@ export function validateUiPageIdentity(loom: EnrichedLoomModel, diags: LoomDiagn
         // `ddd parse` had just called clean.  Checked here for the same reason
         // the path/slot pairs above are: one derivation, every frontend.
         if (page.route) {
-          const priorRoute = byRoute.get(page.route);
+          // Keyed by the route with empty segments dropped: `/foo` and `/foo/`
+          // (or `//foo`) are one route to every router and one directory to
+          // SvelteKit (`routeToKitDir` filters empty segments the same way).
+          const routeKey = `/${page.route
+            .split("/")
+            .filter((seg) => seg.length > 0)
+            .join("/")}`;
+          const priorRoute = byRoute.get(routeKey);
           // ONE pair is exempt, and it is a language rule rather than an
           // oversight: a scaffold-synthesised `Home` YIELDS to a user page that
           // claims the same route.  `classifyPage`'s own contract says so
@@ -85,7 +92,7 @@ export function validateUiPageIdentity(loom: EnrichedLoomModel, diags: LoomDiagn
             // The page that actually MOUNTS owns the route from here on, so a
             // THIRD page at the same route still collides with the winner
             // rather than with the yielded Home.
-            byRoute.set(page.route, page);
+            byRoute.set(routeKey, page);
           }
         }
         const path = page.emitPath;

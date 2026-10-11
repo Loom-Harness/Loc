@@ -40,13 +40,13 @@ describe(".NET resource client emission", () => {
     const s3 = files.get("api/Resources/S3Resources.cs")!;
     expect(s3).toMatch(/using Amazon.S3;/);
     expect(s3).toMatch(/public static class S3Resources/);
-    expect(s3).toMatch(/public static async Task SalesFiles_Put\(string key, string body\)/);
+    expect(s3).toMatch(/public static async Task SalesFiles_Put\(string key, object body\)/);
     expect(s3).toMatch(/public static async Task<string\?> SalesFiles_Get\(string key\)/);
     expect(s3).toMatch(/GetPreSignedURL/);
 
     const mq = files.get("api/Resources/RabbitmqResources.cs")!;
     expect(mq).toMatch(/using RabbitMQ.Client;/);
-    expect(mq).toMatch(/public static async Task SalesJobs_Enqueue\(string message\)/);
+    expect(mq).toMatch(/public static async Task SalesJobs_Enqueue\(object message\)/);
     expect(mq).toMatch(/CreateChannelAsync/);
 
     const api = files.get("api/Resources/RestApiResources.cs")!;

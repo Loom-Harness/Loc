@@ -42,12 +42,36 @@ system SeedValues {
         invariant size >= 0
       }
       repository Parts for Part { }
+
+      // The seed LITERAL coercions (PROMOTED from the per-backend
+      // `*-seed.test.ts` string copies, M-T9.42).  A seed row is written as
+      // literals, but the create factory it goes through takes typed values: a
+      // `datetime` field arrives as an ISO string and must be parsed into the
+      // backend's instant type (`new Date(…)`, `Instant.parse`,
+      // `datetime.fromisoformat`, …), and a value-object field arrives as a
+      // bare object literal that must become the value object — with an
+      // omitted OPTIONAL member filled as null so the positional constructor
+      // stays aligned.  Each backend pinned its own spelling of that; the
+      // value that reaches the wire is the same claim on all of them.
+      valueobject Venue {
+        line1: string
+        line2: string?
+        city: string
+      }
+      aggregate Meetup with crudish {
+        title: string
+        startsAt: datetime
+        endsAt: datetime?
+        venue: Venue
+      }
+      repository Meetups for Meetup { }
       // `default` always runs at first boot; the other two are opt-in via
       // LOOM_SEED, and asserting their ABSENCE is what proves the dataset gate
       // rather than just the insert.
       seed default {
         Part { name: "Alpha", size: 1, tier: Free }
         Part { name: "Beta", size: 2, tier: Pro }
+        Meetup { title: "Kickoff", startsAt: "2024-01-01T09:30:00Z", endsAt: "2024-01-02T17:00:00Z", venue: { line1: "1 Main St", city: "Springfield" } }
       }
       seed demo { Part { name: "Gamma", size: 3, tier: Pro } }
       seed wired raw {
@@ -111,5 +135,27 @@ system SeedValues {
     let afterDelete = api.parts.all({ sort: "name", dir: "asc" })
     expect(afterDelete.total).toBe(2)
     expect(afterDelete.items.first().name).toBe("Alpha")
+
+    // ── the seeded literals reached the row as typed values ─────────────────
+    let meetups = api.meetups.all()
+    expect(meetups.total).toBe(1)
+    let kickoff = meetups.items.first()
+    expect(kickoff.title).toBe("Kickoff")
+    expect(string(kickoff.startsAt).contains("2024-01-01T09:30:00")).toBe(true)
+    expect(string(kickoff.endsAt).contains("2024-01-02T17:00:00")).toBe(true)
+    expect(kickoff.venue.line1).toBe("1 Main St")
+    expect(kickoff.venue.line2).toBe(null)
+    expect(kickoff.venue.city).toBe("Springfield")
+
+    // The same shapes through the api, so the aggregate's routes are driven
+    // beside the seeded row.
+    let talk = api.meetups.create({ title: "Talk", startsAt: "2024-02-01T10:00:00Z", venue: { line1: "2 Side St", city: "Shelbyville" } })
+    let talkRead = api.meetups.getById(talk)
+    expect(talkRead.endsAt).toBe(null)
+    expect(talkRead.venue.city).toBe("Shelbyville")
+    api.meetups.update(talk, { title: "Talk 2", startsAt: "2024-02-01T10:00:00Z", venue: { line1: "2 Side St", line2: "Unit 4", city: "Shelbyville" } })
+    expect(api.meetups.getById(talk).venue.line2).toBe("Unit 4")
+    api.meetups.destroy(talk)
+    expect(api.meetups.getById(talk)).toThrow(404)
   }
 }
