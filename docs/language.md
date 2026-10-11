@@ -449,7 +449,7 @@ Inside an aggregate or an `entity` part:
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
-| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file). Lowers per backend — see [Tests](#tests). |
+| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file — which must be `import`ed from the entry file). Lowers per backend — see [Tests](#tests). |
 
 Entity parts may declare only `contains`, properties, `derived`,
 `invariant`, and `function` — no `operation` / `create` / `destroy` /
@@ -1246,7 +1246,10 @@ Each aggregate may declare zero or more `test` blocks at the root level
 hoisted beside its subject — or into a `tests/*.ddd` file — as
 `test "…" for <Subject> { … }`, where the subject is an aggregate, value
 object, domain service, or a bounded context for the in-process
-integration rung):
+integration rung).  A `tests/*.ddd` file is **not** discovered on its own:
+like any other file it joins the project only through an `import` from
+the entry file (`import "./tests/order.ddd"` in `main.ddd`) — an
+unimported test file is silently ignored.
 
 ```ddd
 test "money literal builds" {
