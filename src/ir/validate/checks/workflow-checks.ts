@@ -133,12 +133,16 @@ export function validateWorkflows(
    *  REQUIRED, not optional: an omitted list would silently disable that gate,
    *  which is the exact failure shape it exists to close. */
   allCtxs: readonly BoundedContextIR[],
+  /** Root-level (context-less) declaration names — shared-kernel value
+   *  objects, enums, payloads.  See {@link declaredTypeNames}. */
+  rootDeclNames: readonly string[] = [],
 ): void {
   // Repository names this context does NOT declare but a sibling does.
   const foreignRepos = foreignRepositoryOwners(ctx, allCtxs);
   // Projection names model-wide — the `loom.workflow-unknown-name` gate names
   // a projection receiver specifically (D3: the docs once promised it).
   const projectionNames = new Set(allCtxs.flatMap((c) => c.projections.map((p) => p.name)));
+  const declaredNames = declaredTypeNames(allCtxs, rootDeclNames);
   // Reserved-name guard: workflows share the context namespace with
   // aggregates, value objects, enums, events, repositories.
   const namesUsed = new Map<string, string>();
@@ -185,7 +189,7 @@ export function validateWorkflows(
     );
     validateWorkflowBody(ctx, wf, diags, crossContextBindings);
     validateWorkflowInlineRepoCalls(ctx, wf, diags);
-    validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, diags);
+    validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, declaredNames, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
@@ -389,13 +393,54 @@ function validateWorkflowInlineRepoCalls(
 //   * a repository of THIS context  → `loom.workflow-inline-repository-call`;
 //   * a repository of ANOTHER context → `loom.workflow-cross-context-repository`;
 //   * the `__bad__` placeholder `let` → `loom.workflow-unrecognised-statement`.
+//
+// A name that IS a declaration is NOT flagged, even though lowering leaves it
+// `refKind: "unknown"` too: `let c = Category.create(name: label)` (the
+// named-argument factory spelling) lowers to a `method-call` on an unresolved
+// `Category` ref, and every backend renders it as the real class.  Only a name
+// that binds to NOTHING model-wide — or to a projection — is a defect here.
 // ---------------------------------------------------------------------------
+
+/** Every name a workflow body may legitimately mention as a type / receiver:
+ *  every declaration in every context (aggregates and their parts, value
+ *  objects, enums, events, payloads, repositories, workflows, criteria,
+ *  retrievals, domain services, channels, handlers) plus the root-level ones.
+ *  Projections are deliberately absent — they are the D3 case. */
+function declaredTypeNames(
+  allCtxs: readonly BoundedContextIR[],
+  rootDeclNames: readonly string[],
+): ReadonlySet<string> {
+  const out = new Set<string>(rootDeclNames);
+  const add = (xs: readonly { name: string }[] | undefined): void => {
+    for (const x of xs ?? []) out.add(x.name);
+  };
+  for (const c of allCtxs) {
+    add(c.aggregates);
+    for (const a of c.aggregates) add(a.parts);
+    add(c.valueObjects);
+    add(c.siblingValueObjects);
+    add(c.enums);
+    add(c.siblingEnums);
+    add(c.events);
+    add(c.payloads);
+    add(c.repositories);
+    add(c.workflows);
+    add(c.criteria);
+    add(c.retrievals);
+    add(c.domainServices);
+    add(c.channels);
+    add(c.commandHandlers);
+    add(c.queryHandlers);
+  }
+  return out;
+}
 
 function validateWorkflowUnresolvedNames(
   ctx: BoundedContextIR,
   wf: WorkflowIR,
   foreignRepos: ReadonlyMap<string, string>,
   projectionNames: ReadonlySet<string>,
+  declaredNames: ReadonlySet<string>,
   diags: LoomDiagnostic[],
 ): void {
   const ownRepos = new Set(ctx.repositories.map((r) => r.name));
@@ -411,6 +456,7 @@ function validateWorkflowUnresolvedNames(
             walkExprDeep(root, (e) => {
               if (e.kind !== "ref" || e.refKind !== "unknown") return;
               if (ownRepos.has(e.name) || foreignRepos.has(e.name)) return;
+              if (declaredNames.has(e.name)) return;
               if (flagged.has(e.name)) return;
               flagged.add(e.name);
               const kind = st.kind === "expr-let" ? `let '${st.name}'` : st.kind;

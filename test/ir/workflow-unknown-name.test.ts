@@ -77,6 +77,18 @@ describe("loom.workflow-unknown-name (IR, phase ⑦)", () => {
     expect(hit?.message).toBe("workflow 'W': precondition references unknown name 'ready'.");
   });
 
+  it("does NOT flag a declared aggregate as a named-argument factory receiver", async () => {
+    // `Category.create(name: label)` lowers to a `method-call` on an
+    // unresolved `Category` ref, yet every backend emits the real class
+    // (generated-feliz-build.yml's showcase model).  A declared name is not
+    // the defect; only a name binding to nothing — or to a projection — is.
+    const ds = await diags(
+      "aggregate Category with crudish { name: string }",
+      'precondition p != p  let c = Category.create(name: "x")',
+    );
+    expect(ds.map((d) => `${d.code}: ${d.message}`).filter((s) => s.startsWith(CODE))).toEqual([]);
+  });
+
   it("leaves an inline repository read to its own, more specific gate", async () => {
     const ds = await diags("", 'precondition Ps.getById(p).name != ""');
     const codes = ds.map((d) => d.code);
