@@ -49,6 +49,24 @@ describe("a value-object field default renders in the WIRE shape", () => {
     expect(src).not.toContain("MoneySchema.default(new Money(");
   });
 
+  it("hono: every defaulted create field carries exactly ONE `.default(...)`", async () => {
+    // `zodFor(…, "create-body")` bakes the IMPLICIT `.default([])` into a
+    // non-nullable collection; the explicit `= []` then appended its own, so
+    // the schema read `z.array(z.string()).default([]).default([])`.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "node"), "invoice.routes.ts");
+    const create = src.slice(
+      src.indexOf("const CreateInvoiceRequest = z.object({"),
+      src.indexOf('.openapi("CreateInvoiceRequest")'),
+    );
+    expect(create).toContain("  tags: z.array(z.string()).default([]),");
+    // Scalar, enum and VO defaults: the same single-owner rule.
+    for (const field of ["total", "credit", "tier", "note", "seats", "tags"]) {
+      const line = create.split("\n").find((l) => l.startsWith(`  ${field}: `));
+      expect(line, `no create-schema line for ${field}`).toBeDefined();
+      expect(line!.match(/\.default\(/g), `${field}: ${line}`).toHaveLength(1);
+    }
+  });
+
   it(".NET: the request param goes nullable and the controller coalesces", async () => {
     const files = await generateCorpusCase(FEATURE, "dotnet");
     const req = fileEndingWith(files, "InvoiceRequests.cs");
@@ -87,6 +105,17 @@ describe("a value-object field default renders in the WIRE shape", () => {
     expect(ctl).toContain("request.Tags is null ? [] : request.Tags.Select(__e => __e).ToList()");
   });
 
+  it(".NET: a declared-optional field is an omittable `= null` factory param", async () => {
+    // `Invoice.create({ reference: "R" })` in a domain test renders
+    // `Invoice.Create(reference: "R")`; a required positional `Money? discount`
+    // made that CS7036, so the whole unit tier failed to build.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "dotnet"), "Invoice.cs");
+    expect(src).toMatch(
+      /public static Invoice Create\(string reference, [^)]*Money\? discount = null\)/,
+    );
+    expect(src).toContain("e.Discount = discount;");
+  });
+
   it(".NET: a declared-optional VO field's FluentValidation rule narrows and guards", async () => {
     // `discount: Money?` is a nullable `MoneyRequest?` with no default at all;
     // `SetValidator(new MoneyRequestValidator())` on it is CS8620 under
@@ -107,8 +136,24 @@ describe("a value-object field default renders in the WIRE shape", () => {
     // (no-default) collection arm already used `new ArrayList<>()`; the
     // explicit `= []` arm rendered the literal straight through.
     const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
-    expect(src).toContain("e.tags = tags != null ? tags : new ArrayList<>(List.of());");
+    expect(src).toContain(
+      "e.tags = tags != null ? new java.util.ArrayList<>(tags) : new ArrayList<>(List.of());",
+    );
     expect(src).toContain("import java.util.ArrayList;");
+  });
+
+  it("java: every write of an owned value list stores a mutable COPY", async () => {
+    // The default is one of four ways a `List.of(…)` reaches `tags`: a
+    // generated domain test hands `create` / `update` a `List.of(…)` literal,
+    // and `tags := [t]` renders one.  The fixture's domain tests append after
+    // each write; this pins the emitted shape for each.
+    const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
+    // create: the supplied list is copied, not aliased.
+    expect(src).toContain("e.tags = tags != null ? new java.util.ArrayList<>(tags)");
+    // update (crudish `tags := tags`) and an operation's `tags := [t]`.
+    expect(src).toContain("this.tags = new java.util.ArrayList<>(tags);");
+    expect(src).toContain("this.tags = new java.util.ArrayList<>(List.of(t));");
+    expect(src).not.toMatch(/this\.tags = (tags|List\.of\(t\));/);
   });
 
   it("java: the entity imports BigDecimal for a default it renders into the factory", async () => {

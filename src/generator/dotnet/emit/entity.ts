@@ -860,6 +860,12 @@ export function renderEntity(
     if (omission.kind === "empty-collection") return "[]";
     return undefined; // plain optional — already nullable
   };
+  // A plain OPTIONAL input (`discount: Money?`, no default) is omittable too:
+  // omitted means null, which needs no coalesce — only the `= null` that lets
+  // a caller (a generated domain test, `Create(reference: "R")`) leave it out.
+  const plainOptional = (f: FieldIR): boolean =>
+    !isRequiredCreateInput(f) && createOmissionValue(f).kind === "null";
+  const trailing = (f: FieldIR): boolean => csFactoryDefault(f) !== undefined || plainOptional(f);
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
@@ -889,12 +895,11 @@ export function renderEntity(
           // partition, not a sort, so declared order is preserved within each
           // group; the handler calls by name, so the reorder is invisible.
           `    public static ${entity.name} Create(${[
-            ...createInputFieldList.filter((f) => csFactoryDefault(f) === undefined),
-            ...createInputFieldList.filter((f) => csFactoryDefault(f) !== undefined),
+            ...createInputFieldList.filter((f) => !trailing(f)),
+            ...createInputFieldList.filter(trailing),
           ]
             .map((f) => {
-              const dflt = csFactoryDefault(f);
-              if (dflt === undefined) return `${renderCsType(f.type)} ${escapeCsharpIdent(f.name)}`;
+              if (!trailing(f)) return `${renderCsType(f.type)} ${escapeCsharpIdent(f.name)}`;
               // `T? x = null` rather than `T x = <default>`: a C# optional
               // parameter default must be a compile-time constant, which a
               // rendered default expression (a VO ctor, an enum member, a

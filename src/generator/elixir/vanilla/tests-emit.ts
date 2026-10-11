@@ -479,6 +479,10 @@ export function vtExpr(e: ExprIR, env: Env): string {
       return `%{${e.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, env)}`).join(", ")}}`;
     case "paren":
       return `(${vtExpr(e.inner, env)})`;
+    case "list":
+      // A list literal is a plain Elixir list — the shape a create attrs map
+      // and an op's params map both take for a collection field.
+      return `[${e.elements.map((x) => vtExpr(x, env)).join(", ")}]`;
     case "unary": {
       if (e.op === "!") return `not ${vtExpr(e.operand, env)}`;
       // Fold a negative sign into a money/decimal literal — `-Decimal.new("1.0")`

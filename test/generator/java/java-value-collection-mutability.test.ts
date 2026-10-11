@@ -86,6 +86,11 @@ describe("java generator — value-object collections arrive mutable", () => {
     expect(entity).toContain(
       "public void update(String reference, List<Money> lineItems, List<Money> surcharges) {",
     );
-    expect(entity).toContain("this.lineItems = lineItems;");
+    // The entity stores a mutable COPY of what `update` is handed (the
+    // service's ArrayList here; a domain test's `List.of(…)` elsewhere).  For
+    // an @ElementCollection a reassigned reference is a fresh ArrayList either
+    // way, so Hibernate sees the same shape it did when the service's list was
+    // stored directly.
+    expect(entity).toContain("this.lineItems = new java.util.ArrayList<>(lineItems);");
   });
 });

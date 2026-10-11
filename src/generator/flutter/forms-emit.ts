@@ -55,6 +55,7 @@ import type {
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
@@ -200,11 +201,19 @@ export interface FlutterFormSpec {
   /** Whether this form styles its submit as a destructive (error-coloured)
    *  action (destroy forms). */
   destructive: boolean;
-  /** A `when`-gated operation's `can_<op>` probe — `forms.dart` declares the
-   *  `provider` over `GET <path>`, and the widget takes a `blocked` flag that
-   *  disables its submit (the call site watches the provider).  Absent for an
-   *  ungated op: the widget is byte-identical. */
-  gateProbe?: { provider: string; path: string };
+  /** Whether the submit sends the optimistic-concurrency `If-Match`
+   *  precondition (`sendsIfMatchPrecondition` — a `versioned` aggregate's
+   *  `update`).  The widget then takes an optional `expectedVersion` — the
+   *  version of the record the call site has loaded — and quotes it into the
+   *  header.  Left null (no loaded record at the call site) it sends no header,
+   *  exactly like the JS clients' `ifMatch(undefined)`.  Optional so every
+   *  other spec stays byte-identical. */
+  ifMatch?: boolean;
+  /** A `when`-gated operation's `can_<op>` probe provider (declared in
+   *  `gates.dart`, see {@link renderGatesFile}).  The widget takes a `blocked`
+   *  flag that disables its submit; the call site watches the provider.
+   *  Absent for an ungated op: the widget is byte-identical. */
+  gateProbe?: { provider: string };
 }
 
 /** The Riverpod provider of a `when`-gated op's `can_<op>` probe
@@ -616,14 +625,8 @@ export function flutterOperationForm(
     fields,
     dropped,
     destructive: false,
-    ...(op.when
-      ? {
-          gateProbe: {
-            provider: canProbeProviderName(aggName, op.name),
-            path: `/${snake(plural(aggName))}/$id/can_${opPath}`,
-          },
-        }
-      : {}),
+    ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    ...(op.when ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
   };
 }
 
@@ -1507,7 +1510,12 @@ function submitMethod(spec: FlutterFormSpec): string[] {
     ...bodyAssembly(spec.fields),
     "    try {",
     `      final res = await http.post(apiUri('${spec.pathExpr}'),`,
-    "          headers: const {'Content-Type': 'application/json'},",
+    // #27 / F-023 — a `versioned` update carries the loaded record's version as
+    // a QUOTED entity-tag (RFC 9110 §8.8.3, the spelling every backend parses),
+    // so a concurrent edit is refused (409/412) instead of silently overwritten.
+    spec.ifMatch
+      ? "          headers: {'Content-Type': 'application/json', if (widget.expectedVersion != null) 'If-Match': '\"${widget.expectedVersion}\"'},"
+      : "          headers: const {'Content-Type': 'application/json'},",
     "          body: jsonEncode(body));",
     "      if (res.statusCode >= 200 && res.statusCode < 300) {",
     "        if (!mounted) return;",
@@ -1567,12 +1575,14 @@ function submitButton(spec: FlutterFormSpec): string {
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
 export function renderFormWidget(spec: FlutterFormSpec): string {
   const w = spec.widgetName;
-  const ctorArgs = spec.gateProbe
-    ? "{super.key, required this.id, this.blocked = false}"
-    : spec.needsId
-      ? "{super.key, required this.id}"
+  const ctorArgs =
+    spec.needsId || spec.gateProbe
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}}`
       : "{super.key}";
-  const idField = spec.needsId ? ["  final String id;"] : [];
+  const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
+  // The loaded record's `version` (the `versioned` capability's synthetic `int`
+  // token), threaded in by the call site for the `If-Match` precondition.
+  if (spec.ifMatch) idField.push("  final int? expectedVersion;");
   // A `when`-gated op: the call site passes the `can_<op>` probe's verdict.
   if (spec.gateProbe) idField.push("  final bool blocked;");
 
@@ -1675,20 +1685,6 @@ export function renderFormsFile(
   // `FileRef` from `models.dart`; a File-free form set keeps its old import
   // list byte-identical.
   const usesFile = formsUseFilePicker(forms);
-  // `when`-gated ops' `can_<op>` probes.  `autoDispose`, so a page re-entered
-  // after a mutation re-queries rather than reading a stale verdict.
-  const probes = forms.flatMap((f) => (f.gateProbe ? [f.gateProbe] : []));
-  const probeBlocks = probes.map((g) =>
-    [
-      `final ${g.provider} = FutureProvider.autoDispose.family<bool, String>((ref, id) async {`,
-      `  final res = await http.get(apiUri('${g.path}'));`,
-      "  if (res.statusCode != 200) {",
-      `    throw Exception('GET ${g.path} failed (\${res.statusCode})');`,
-      "  }",
-      "  return (jsonDecode(res.body) as Map<String, dynamic>)['allowed'] == true;",
-      "});",
-    ].join("\n"),
-  );
   return `${lines(
     "// Form widgets — one self-contained StatefulWidget per CreateForm /",
     "// OperationForm / DestroyForm a ui hosts.  Each POSTs/DELETEs over",
@@ -1699,12 +1695,55 @@ export function renderFormsFile(
     "",
     ...(usesFile ? ["import 'package:file_picker/file_picker.dart';"] : []),
     "import 'package:flutter/material.dart';",
-    ...(probes.length > 0 ? ["import 'package:flutter_riverpod/flutter_riverpod.dart';"] : []),
     flutterHttpImport(credentialed),
     "",
     "import 'config.dart';",
     ...(usesFile ? ["import 'models.dart';"] : []),
     "",
-    ...[...probeBlocks, ...blocks].flatMap((b, i) => (i === 0 ? [b] : ["", b])),
+    ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
+  )}\n`;
+}
+
+/** `lib/gates.dart` — one Riverpod probe per `when`-gated public operation of
+ *  the deployable's aggregates, over its `GET /<plural>/{id}/can_<op>`
+ *  companion.  Every op trigger (`OperationForm` dialog, `Action` button)
+ *  watches its probe, so it lives beside neither the forms nor the reads: a
+ *  page with an `Action` and no form must still reach it.  `autoDispose`, so a
+ *  page re-entered after a mutation re-queries rather than reading a stale
+ *  verdict.  `""` when no operation is gated (no file is emitted). */
+export function renderGatesFile(
+  aggregates: readonly { name: string; operations: readonly OperationIR[] }[],
+  credentialed = false,
+): string {
+  const blocks = aggregates.flatMap((agg) =>
+    agg.operations
+      .filter((op) => op.visibility === "public" && op.when)
+      .map((op) => {
+        const path = `/${snake(plural(agg.name))}/$id/can_${snake(op.routeSlug ?? op.name)}`;
+        return [
+          `final ${canProbeProviderName(agg.name, op.name)} = FutureProvider.autoDispose.family<bool, String>((ref, id) async {`,
+          `  final res = await http.get(apiUri('${path}'));`,
+          "  if (res.statusCode != 200) {",
+          `    throw Exception('GET ${path} failed (\${res.statusCode})');`,
+          "  }",
+          "  return (jsonDecode(res.body) as Map<String, dynamic>)['allowed'] == true;",
+          "});",
+        ].join("\n");
+      }),
+  );
+  if (blocks.length === 0) return "";
+  return `${lines(
+    "// `can_<op>` probes — one per `when`-gated operation.  An op trigger",
+    "// watches its probe and disables while it answers `allowed: false`.",
+    "// Generated by the Loom Flutter target; do not edit.",
+    "",
+    "import 'dart:convert';",
+    "",
+    "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+    flutterHttpImport(credentialed),
+    "",
+    "import 'config.dart';",
+    "",
+    ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
   )}\n`;
 }

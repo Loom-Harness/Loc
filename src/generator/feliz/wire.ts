@@ -55,12 +55,13 @@ import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
-import { isPagedQuery } from "../_walker/paged-query.js";
+import { isPagedQuery, type PagedQueryContext, queryShape } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
@@ -1007,6 +1008,23 @@ export interface FelizOperationForm extends FormRecord {
   opPath: string;
   /** `Router.navigate` segments after success (`["products"]`). */
   navigateSegs: string[];
+  /** Whether the call sends the optimistic-concurrency `If-Match` precondition
+   *  (`sendsIfMatchPrecondition` — a `versioned` aggregate's `update`).  The
+   *  api fn then takes a `string option` version between the id and the form,
+   *  and the submit arm passes the loaded record's `version` (see
+   *  `ifMatchVersionExpr`).  Optional so every other form stays byte-identical. */
+  ifMatch?: boolean;
+}
+
+/** The F# expression the submit arm passes as an op form's `If-Match` version:
+ *  the `version` of the record the page loaded (`model.<Agg>ById`), when that
+ *  record is the one the route id addresses — the Elmish twin of the JS
+ *  clients' `ifMatch(loaded?.version)` query-cache read.  `None` (no header, the
+ *  server's vacuous fallback) when the Model holds no byId read of the
+ *  aggregate, or it has not loaded. */
+export function ifMatchVersionExpr(aggregate: string, hasByIdRead: boolean): string {
+  if (!hasByIdRead) return "None";
+  return `(match model.${byIdFieldName(aggregate)} with | Loaded (Some __loaded) when __loaded.id = id -> Some (string __loaded.version) | _ -> None)`;
 }
 
 /** A one-click operation action a page hosts — `Action { <instance>.<op> }` on a
@@ -1032,6 +1050,38 @@ export interface FelizAction {
   opPath: string;
   /** Button label (`Activate` — `humanize(op)`). */
   label: string;
+  /** True when SOME `Action` of this op carries a `then:` effect (M-FT.5).  The
+   *  ui then also gets a `<Trigger>Then of string * (unit -> unit)` Msg pair
+   *  (`actionThenMsg` / `actionThenDoneMsg`): the view dispatches it with the
+   *  effect as a closure, and the `Done (Ok ())` arm runs it after the POST
+   *  succeeds — the MVU twin of the JSX `mutateAsync({}).then(() => …)`.  A
+   *  then-less action keeps the plain pair, byte-identical. */
+  hasThen?: boolean;
+}
+
+/** The trigger `Msg` of an `Action` that carries a `then:` effect — the route
+ *  id plus the effect closure (`ArchiveNoteThen`). */
+export function actionThenMsg(a: Pick<FelizAction, "triggerMsg">): string {
+  return `${a.triggerMsg}Then`;
+}
+
+/** The result `Msg` of a `then:`-bearing `Action` — the op's result plus the
+ *  effect closure to run on success (`ArchiveNoteThenDone`). */
+export function actionThenDoneMsg(a: Pick<FelizAction, "triggerMsg">): string {
+  return `${a.triggerMsg}ThenDone`;
+}
+
+/** Merge one ui's (or page's) collected actions into `out`, deduped by trigger
+ *  `Msg` — a later `then:`-bearing occurrence of an already-collected action
+ *  still marks it `hasThen`, so the `Then` Msg pair the view dispatches exists
+ *  whichever page named it first. */
+export function mergeFelizAction(out: FelizAction[], a: FelizAction): void {
+  const existing = out.find((x) => x.triggerMsg === a.triggerMsg);
+  if (!existing) {
+    out.push({ ...a });
+    return;
+  }
+  if (a.hasThen) existing.hasThen = true;
 }
 
 /** Build the `FelizAction` for an `Action { <instance>.<op> }` — the MVU wiring
@@ -1508,6 +1558,7 @@ export function felizOperationForm(
     navigateSegs: snake(plural(name)).split("/"),
     fields,
     fieldArrays: buildFieldArrays(formType, op.params, vosByName, enumsByName, idLabels),
+    ...(sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
   };
 }
 
@@ -2042,6 +2093,7 @@ export function collectPageForms(
 function operationFormSpecs(
   body: ExprIR,
   aggregatesByName: ReadonlySet<string>,
+  shapeCtx?: PagedQueryContext,
 ): { agg: string; op: string }[] {
   const out: { agg: string; op: string }[] = [];
   // `binding` maps a single-record QueryView data-lambda param → its aggregate
@@ -2054,7 +2106,9 @@ function operationFormSpecs(
       const ofArg = names.indexOf("of") >= 0 ? e.args[names.indexOf("of")] : undefined;
       const dataArg = names.indexOf("data") >= 0 ? e.args[names.indexOf("data")] : undefined;
       const agg =
-        isSingleQueryView(e) && ofArg ? singleQueryAggregate(ofArg, aggregatesByName) : undefined;
+        isSingleQueryView(e, shapeCtx) && ofArg
+          ? singleQueryAggregate(ofArg, aggregatesByName)
+          : undefined;
       for (const arg of e.args) {
         if (arg === dataArg && arg.kind === "lambda" && arg.body && agg) {
           walk(arg.body, new Map([...binding, [arg.param, agg]]));
@@ -2096,12 +2150,14 @@ export function collectPageOperationForms(
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  /** Resolves an unflagged QueryView's single-record shape (`isSingleQueryView`). */
+  shapeCtx?: PagedQueryContext,
 ): FelizOperationForm[] {
   if (!page.body) return [];
   const nameSet = new Set(aggregatesByName.keys());
   const out: FelizOperationForm[] = [];
   const seen = new Set<string>();
-  for (const { agg: aggName, op: opName } of operationFormSpecs(page.body, nameSet)) {
+  for (const { agg: aggName, op: opName } of operationFormSpecs(page.body, nameSet, shapeCtx)) {
     const agg = aggregatesByName.get(aggName);
     if (!agg) continue;
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
@@ -2136,18 +2192,19 @@ function singleQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): str
 export function collectPageActions(
   page: PageIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  /** Resolves an unflagged QueryView's single-record shape (`isSingleQueryView`). */
+  shapeCtx?: PagedQueryContext,
 ): FelizAction[] {
   if (!page.body) return [];
   const aggNames = new Set(aggregatesByName.keys());
   const out: FelizAction[] = [];
-  const seen = new Set<string>();
   // Walk carrying `binding`: single-QueryView data-lambda param → aggregate name
   // (the render-time `ctx.paramTypes` twin).
   const walk = (e: ExprIR, binding: ReadonlyMap<string, string>): void => {
     if (e.kind === "call" && e.name === "QueryView") {
       const names = e.argNames ?? [];
       const ofArg = names.indexOf("of") >= 0 ? e.args[names.indexOf("of")] : undefined;
-      const single = isSingleQueryView(e);
+      const single = isSingleQueryView(e, shapeCtx);
       const dataArg = names.indexOf("data") >= 0 ? e.args[names.indexOf("data")] : undefined;
       const agg = single && ofArg ? singleQueryAggregate(ofArg, aggNames) : undefined;
       // The data lambda's param binds to the queried aggregate; other args walk
@@ -2172,10 +2229,8 @@ export function collectPageActions(
         );
         if (agg && op) {
           const action = felizAction(agg.name, op);
-          if (!seen.has(action.triggerMsg)) {
-            seen.add(action.triggerMsg);
-            out.push(action);
-          }
+          if ((e.argNames ?? []).includes("then")) action.hasThen = true;
+          mergeFelizAction(out, action);
         }
       }
       return;
@@ -2450,12 +2505,26 @@ function renderUploadFn(): (string | undefined)[] {
   ];
 }
 
-/** True when a `QueryView` call is `single: true` (byId — one record, not a list). */
-function isSingleQueryView(e: Extract<ExprIR, { kind: "call" }>): boolean {
+/** True when a `QueryView` yields ONE record (a byId, or a find returning `T` /
+ *  `T?`) — the explicit `single: true` opt-in OR the read's DERIVED shape
+ *  (`queryShape`), exactly the walker's `explicitSingle || shape.single`.
+ *
+ *  Keying the collectors on the literal flag alone is what let them disagree
+ *  with the renderer (M-FT.5): an unflagged `QueryView { of: X.byId(id), data:
+ *  n => Action { n.archive } }` rendered `dispatch (ArchiveX id)` — the walker
+ *  derives `single` — while no `ArchiveX` Msg case or Api fn was ever collected,
+ *  and the F# did not compile.  `shapeCtx` absent keeps the flag-only answer. */
+function isSingleQueryView(
+  e: Extract<ExprIR, { kind: "call" }>,
+  shapeCtx?: PagedQueryContext,
+): boolean {
   const names = e.argNames ?? [];
   const idx = names.indexOf("single");
   const arg = idx >= 0 ? e.args[idx] : undefined;
-  return arg?.kind === "literal" && arg.lit === "bool" && arg.value === "true";
+  if (arg?.kind === "literal" && arg.lit === "bool" && arg.value === "true") return true;
+  const ofIdx = names.indexOf("of");
+  const ofArg = ofIdx >= 0 ? e.args[ofIdx] : undefined;
+  return !!(ofArg && shapeCtx && queryShape(ofArg, shapeCtx).single);
 }
 
 /** Every `WorkflowForm(runs: <wf>)` workflow name a page body hosts, in tree
@@ -3407,8 +3476,12 @@ export function opHasForm(f: FelizOperationForm): boolean {
  *  A PARAM-LESS op takes `(id) ()` and posts an empty `{}` body (no form). */
 function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
   const hasForm = opHasForm(f);
+  // #27 / F-023 — a `versioned` update takes the loaded version and sends it as
+  // a QUOTED entity-tag (RFC 9110 §8.8.3, the spelling every backend parses);
+  // `None` sends no header (the server then guards against its own load).
+  const versionParam = f.ifMatch ? " (ifMatch: string option)" : "";
   return [
-    `  let ${f.apiFn} (id: string) ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
+    `  let ${f.apiFn} (id: string)${versionParam} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3418,6 +3491,9 @@ function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
     "        |> Http.method POST",
     "        |> Http.content (BodyContent.Text body)",
     '        |> Http.header (Headers.contentType "application/json")',
+    f.ifMatch
+      ? '        |> (fun req -> match ifMatch with | Some v -> req |> Http.header (Headers.create "If-Match" (sprintf "\\"%s\\"" v)) | None -> req)'
+      : undefined,
     "        |> Http.send",
     "      if response.statusCode = 200 || response.statusCode = 204 then",
     "        return Ok ()",
