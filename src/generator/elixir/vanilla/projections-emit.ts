@@ -5,6 +5,7 @@ import type {
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -60,7 +61,7 @@ export function emitVanillaProjectionSchemas(
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   const schema = sys ? resolveContextSchema(ctx, sys) : undefined;
-  const enumsByName = new Map<string, EnumIR>(ctx.enums.map((e) => [e.name, e]));
+  const enumsByName = new Map<string, EnumIR>(enumPool(ctx).map((e) => [e.name, e]));
   const refs: VanillaProjectionRef[] = [];
   for (const proj of folded) {
     out.set(

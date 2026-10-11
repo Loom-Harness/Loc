@@ -156,10 +156,6 @@ const p2 = (what: string): Waiver => ({
   deferred: `D1 / P2 (python): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
 });
-const p3 = (what: string): Waiver => ({
-  deferred: `D1 / P3 (elixir+java+dotnet): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 const p4 = (what: string): Waiver => ({
   deferred: `D1 / P4 (frontends): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
@@ -295,37 +291,6 @@ const WAIVERS: Record<string, Waiver> = {
   ),
   "src/generator/python/workflows-builder.ts#buildPyWorkflowsFile": p2(
     "workflows import candidates",
-  ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P3 (elixir + java + dotnet) drains these.
-  // Also P3's, but INVISIBLE to this detector (the context is passed whole
-  // as a `{ enums?: EnumIR[] }` decls bag, so no `.enums` read happens on a
-  // context-typed receiver): `elixir/state-default.ts#stateDefault` called as
-  // `stateDefault(f.type, ctx)` from `vanilla/workflow-execution-emit.ts`.
-  // =========================================================================
-  "src/generator/elixir/vanilla/schema-emit.ts#emitVanillaSchemas": p3(
-    "Ecto schema enum lookup (`:string` instead of Ecto.Enum)",
-  ),
-  "src/generator/elixir/vanilla/projections-emit.ts#emitVanillaProjectionSchemas": p3(
-    "projection schema enum lookup",
-  ),
-  "src/generator/elixir/vanilla/value-collection-schema-emit.ts#emitVanillaValueCollectionSchemas":
-    p3("value-collection schema enum lookup"),
-  "src/generator/elixir/liveview-emit.ts#emitLiveViewPages": p3("LiveView enum name → decl map"),
-  "src/generator/elixir/dispatch-emit.ts#emitWorkflowStateSchemas": p3(
-    "workflow state schema enum lookup",
-  ),
-  "src/generator/elixir/dispatch-emit.ts#emitDispatch": p3("dispatch state schema enum lookup"),
-  "src/generator/java/emit/workflow-state.ts#javaStateDefault": p3(
-    "workflow state default (first enum value)",
-  ),
-  "src/generator/java/index.ts#emitAggregate": p3(
-    "mangled-enum codec lookup for a sibling-enum column",
-  ),
-  "src/generator/dotnet/emit/seed.ts#renderSeedFile": p3("seed `using …Domain.Enums` gate"),
-  "src/generator/dotnet/emit/tests.ts#renderSubjectTestsFile": p3(
-    "unit-test `using …Domain.Enums` gate (a sibling enum lives in the sibling's namespace)",
   ),
 
   // =========================================================================
