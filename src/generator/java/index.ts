@@ -1032,6 +1032,7 @@ function emitProjectFromContexts(
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
         localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
+        resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
       dispatcherOpFragments,
     );

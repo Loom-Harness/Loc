@@ -464,7 +464,7 @@ The tick rides the ordinary in-process dispatcher, so a reactor sees no differen
 
 ## `apply` — the `eventSourced` fold
 
-Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` assignments only), exactly like an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
+Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` / `+=` / `-=`, `let` and `if`), under exactly the rules of an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold) (`loom.applier-emits` / `loom.applier-guard` / `loom.applier-impure-call` / `loom.applier-stmt-invalid`). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
 
 ```ddd
 workflow settlement eventSourced {

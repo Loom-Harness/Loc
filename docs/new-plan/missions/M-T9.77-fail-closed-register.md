@@ -238,7 +238,11 @@ system W {
 
 ## M-T9.79 — Statement vocabulary of event-sourced / workflow bodies (`create`, `apply`, `function`, `on`)
 
+*All seven sites closed — see the archived mission in [`../archive/T9-done.md`](../archive/T9-done.md).*
+
 ### `src/generator/elixir/dispatch-emit.ts#renderStmt`
+
+**Fixed — rendered.** The Phoenix reactor/starter renderer now has an arm for every `WorkflowStmtIR` kind: `repo-delete` (the context's delete entry, or `Repo.delete/1` when the aggregate has no delete surface), `resource-call`, a mutating `domain-service-call` (the command path's inlined service clauses) and `if let` (the command path's one-row retrieval + `case`); the default arm is now a `never` check (census entry `invariant`). Compiled with `mix compile --warnings-as-errors`.
 
 A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/resource-call/domain-service-call in reactor bodies).
 
@@ -287,6 +291,8 @@ system R {
 
 ### `src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner`
 
+**Fixed — refused.** `validateElixirIfSupport` now walks an aggregate's `creates` and `destroys` as well as its operations, so an `if` in an event-sourced `create` is `loom.elixir-if-stmt-unsupported#event-sourced`.
+
 An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.
 
 Crash: `Error: platform: elixir — an 'if' statement reached the event-sourced command emitter; it is refused at validation (loom.elixir-if-stmt-unsupported#event-sourced).`
@@ -329,6 +335,8 @@ system Ledger {
 
 ### `src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement`
 
+**Fixed — refused, target-neutrally.** An applier yields nothing: `return` (and a bare call statement) in any applier, aggregate or workflow, is `loom.applier-stmt-invalid` (`validateApplierBodies`, `body-stmt-vocabulary.ts`, which also takes over the `loom.applier-emits` / `-impure-call` / `-guard` rule and now applies it to workflow appliers). An `if` in a workflow applier on Phoenix is `loom.elixir-if-stmt-unsupported`.
+
 A `return` in an event-sourced aggregate `apply` body passes both applier-discipline validators but the elixir fold renderer has no `return` arm (an `if` in an eventSourced WORKFLOW apply is likely also unguarded).
 
 Crash: `Error: elixir vanilla fold: unsupported applier statement 'return' — an applier folds pure assignments / collection mutations / let bindings only; the event-sourcing discipline validator should have rejected this.`
@@ -369,6 +377,8 @@ system Ledger {
 </details>
 
 ### `src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap`
+
+**Fixed — refused, target-neutrally.** Constructing an entity part outside the aggregate that owns it (any workflow body, or another aggregate's body) is `loom.cross-aggregate-entity-part` (`#construct`); the same shape crashed Java's renderer in every workflow position.
 
 An eventSourced workflow `apply` that constructs a contained entity part of an aggregate in the same context (`let l = Line { sku: a.sku }`) validates clean, but the workflow fold has no part resolver.
 
@@ -413,6 +423,8 @@ system WFN {
 
 ### `src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines`
 
+**Fixed — refused.** `validateElixirIfSupport` now classifies workflow `function` block bodies with the same `"value"` predicate as aggregate functions (`loom.elixir-if-stmt-unsupported#return-in-branch`).
+
 A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.
 
 Crash: `Error: platform: elixir — an 'if' statement with a return-in-branch reached the vanilla aggregate-function emitter; it is refused at validation (loom.elixir-if-stmt-unsupported#return-in-branch).`
@@ -448,6 +460,8 @@ system WF {
 </details>
 
 ### `src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt`
+
+**Fixed — rendered.** The Python ES-workflow applier renders `let`, a bare expression and `if` / `else`; every other kind is refused for all backends by `validateApplierBodies`.
 
 A workflow applier containing a `let` binding (`apply(pr: PaymentRegistered) { let x = pr.amount  paid := paid + x }`) validates clean, but the Python ES-workflow applier renderer only handles assign/add/remove.
 
@@ -520,6 +534,8 @@ system FulfillmentSys {
 </details>
 
 ### `src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt`
+
+**Fixed — rendered.** The Hono ES-workflow applier renders `let`, a bare expression and `if` / `else`; every other kind is refused for all backends by `validateApplierBodies`.
 
 The applier purity rules (loom.applier-emits/-impure-call/-guard) cover aggregate appliers and explicitly allow let/if/expression/return; an eventSourced workflow `apply(r) { let a = r.at  firedAt := a }` (or an `if`) validates clean and the hono ES-workflow applier refuses it.
 

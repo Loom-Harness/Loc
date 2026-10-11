@@ -784,7 +784,7 @@ function opCallSource(
  *  param-op calls into context mutating-fn with-clauses.  Returns `[]` when
  *  `ctx` is absent (legacy/test path) or the op isn't resolvable/mutating — the
  *  caller then keeps the sound side-effect fallback. */
-function resolveInlinedServiceClauses(
+export function resolveInlinedServiceClauses(
   st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>,
   renderCtx: RenderCtx,
   contextModule: string,

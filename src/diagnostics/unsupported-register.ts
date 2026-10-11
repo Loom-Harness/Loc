@@ -421,7 +421,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // M-T1.20, which already IS the register of frontend refusals accepted in
     // `.ddd`.  Unlike its neighbours there, this one is not per-target: all six
     // refuse it, which is what makes it a surface decision rather than a port.
-    site: "src/ir/validate/checks/if-stmt-checks.ts:365",
+    site: "src/ir/validate/checks/if-stmt-checks.ts:387",
     what:
       "the `if` STATEMENT in a `ui` page / component / store body, on EVERY frontend.  A page body " +
       "is an expression tree — a condition is a VALUE there (`cond ? a : b`, `match`) — and no " +
