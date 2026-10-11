@@ -338,7 +338,7 @@ test("place and confirm an order through the UI", async ({ page }) => {
 });
 ```
 
-Assert against a **`getById`-bound** read, as above. A locator assertion taken straight off a `create` result (`let o = ui.orders.create({…})` … `expect(o.reference).toHaveText("…")`) parses and validates clean but currently **crashes `generate system`** (`expect requires a matcher …` out of `renderExpectStmt`) — re-open the row with `getById` first.
+Assert against a **`getById`-bound** read, as above. A locator assertion taken straight off a `ui` `create` result (`let o = ui.orders.create({…})` … `expect(o.reference).toHaveText("…")`) lowers to that same read inlined — `(await new OrderDetailPage(page, o.id).goto()).field("reference")` — because the submitted form returns only `{ id }`: the row is re-opened, never read off the create result. (The `api` side has no such rewrite — see the response-read check above.)
 
 `ui.workflows.<name>(…)` resolves through the generated workflow page object. The page objects (`web_app/e2e/pages/<agg>.ts`) are emitted from the same UI shape under [`src/generator/_frontend/`](../../src/generator/_frontend/) and shared across the frontends.
 
