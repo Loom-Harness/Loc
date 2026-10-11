@@ -98,6 +98,7 @@ import {
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -1768,7 +1769,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )});`,
   ];
 }

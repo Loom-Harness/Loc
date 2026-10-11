@@ -1654,11 +1654,15 @@ by the queryable-subset validator.
 
 `findById` and `getById` are auto-generated for every aggregate
 (no need to declare them in the repository).  An auto-included
-`find all(): T[]` is also added to every aggregate's repository, so
+`find all(): T paged` is also added to every aggregate's repository (a bare
+`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends`
+subtype aggregate, whose rows cannot page), so
 all five backends always expose `GET /<plural>` and every frontend
 (react, vue, svelte, angular, feliz, flutter) always has a list page to
 render.  Declaring your own `find all(...)` in the DSL overrides the
-implicit one.
+implicit one, and its declared return type is the wire contract: write
+`find all(): T paged requires <expr>` to gate the list and keep the
+`Paged<T>` envelope; `find all(): T[]` answers a bare JSON array.
 
 **Absence, in a body.**  `getById` and a find declared `: T` load a single
 row and answer the declared **404** when it is not there — on the GET route,

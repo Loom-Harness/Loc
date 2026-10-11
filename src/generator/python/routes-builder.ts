@@ -38,6 +38,7 @@ import {
 } from "../../ir/util/api-surface.js";
 import { maskedHistoryFields } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -1209,7 +1210,7 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   return [
     `    if ${renderPyNegatedGuard(op.when, { thisName: "found" })}:`,
     `        raise DisallowedError(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )})`,
   ];
 }

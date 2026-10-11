@@ -13,6 +13,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -404,7 +405,7 @@ export function renderJavaService(
     });
   const whenGateLine = (op: (typeof agg.operations)[number]): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&

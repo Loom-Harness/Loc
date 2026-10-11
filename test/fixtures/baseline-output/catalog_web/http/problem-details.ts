@@ -47,10 +47,13 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
  *  `format: uuid` is preserved for the spec (the paramTypeDiffs parity
  *  dimension compares `type` + `format`); the regex additionally publishes
  *  `pattern`, which is what Python already published, so the two specs now
- *  agree where they previously differed. */
+ *  agree where they previously differed.
+ *
+ *  A miss answers `Expected UUID.` — the regex itself never
+ *  reaches the client. */
 export const UuidString = z
   .string()
-  .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/)
+  .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, "Expected UUID.")
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2

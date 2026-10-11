@@ -378,7 +378,7 @@ a \`requires <expr>\` gate, or the build fails with
 "intentionally public" escape.  Two things to know:
 
 - The synthesised **list** read is coverable — declare
-  \`find all(): <T>[] requires <expr>\` on the repository and the gate lands on
+  \`find all(): <T> paged requires <expr>\` on the repository and the gate lands on
   \`GET /api/<plural>\`; until you do, the build *warns*
   (\`loom.default-deny-list-ungated\`).  The synthesised **by-id** read
   (\`GET /api/<plural>/{id}\`) has no gate surface yet, so the build *warns*

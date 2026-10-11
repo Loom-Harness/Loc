@@ -55,13 +55,14 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   ungated list read raises `loom.default-deny-list-ungated` (ruling D5 —
   same tier as the by-id warning, so existing models keep building).  The
   warning names its remedy: declaring an explicit
-  `find all(): T[] requires <expr>` replaces the injected find and gates that
-  route (`requires true` marks it intentionally public), and does so on **all
-  five** backends — node/Hono and .NET emit a route per repository find and so
-  always honoured it, while java, python and elixir each special-case `all` out
-  of their named-find loop and used to emit the list route without reading its
-  gate.  All five now resolve the list read through one shared derivation
-  (`src/ir/util/read-gates.ts`).
+  `find all(): T paged requires <expr>` replaces the injected find and gates
+  that route (`requires true` marks it intentionally public).  Spell the
+  return type the way the warning does: the injected read is `T paged` (the
+  `Paged<T>` envelope) on every aggregate whose rows page, and a declared
+  `all` answers exactly the type it names — `T[]` is a bare JSON array, so
+  writing it to add a gate changes the response shape every client parses.
+  The gate is enforced on **all five** backends, which resolve the list read
+  through one shared derivation (`src/ir/util/read-gates.ts`).
 - **the synthesised by-id read is the second warning — and unlike the list
   read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
   on all five backends and carries no gate on any of them, so gating an

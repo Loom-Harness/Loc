@@ -18,6 +18,7 @@ import type {
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
@@ -529,7 +530,7 @@ export function renderEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderCsExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
-          `operation '${op.name}' is not allowed in the current state of ${entity.name}.`,
+          disallowedDetail(op.name, entity.name, op.whenSource),
         )});`
       : null;
   for (const op of operations) {

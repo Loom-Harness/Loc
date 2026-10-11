@@ -15,6 +15,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -633,7 +634,7 @@ export function renderJavaEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderJavaExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
-          `operation '${op.name}' is not allowed in the current state of ${entity.name}.`,
+          disallowedDetail(op.name, entity.name, op.whenSource),
         )});`
       : null;
   const opLines: string[] = [];
