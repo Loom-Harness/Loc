@@ -24,7 +24,7 @@ system HandlerResourceOps {
     context Sales {
       aggregate Order with crudish {
         name: string
-        operation archive() { emit OrderArchived { orderRef: id, name: name } }
+        operation retire() { emit OrderArchived { orderRef: id, name: name } }
         operation touch() { emit OrderTouched { orderRef: id, name: name } }
       }
       repository Orders for Order {
