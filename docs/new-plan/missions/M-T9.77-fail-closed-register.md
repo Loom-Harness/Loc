@@ -754,7 +754,7 @@ All thirteen sites closed; the census entries are re-classified `guardedBy`. One
 |---|---|
 | `_walker/walker-core.ts#emitExpr$4` | refused — `loom.ui-this-unbound` (every page / component / store surface) |
 | `_walker/walker-core.ts#unsupportedPageStmt` | refused — `loom.ui-assign-not-state` (a write whose root is not the host's `state` field) |
-| `feliz/fs-expr.ts#renderFsMethodCall` | refused — `loom.intrinsic-unknown` / `loom.unknown-member` on a typed receiver (the AST gate's codes, raised where the AST cannot type a ui `state` / action param / store value); `.matches` / `.filter` via the per-target table |
+| `feliz/fs-expr.ts#renderFsMethodCall` | refused — `loom.intrinsic-unknown` / `loom.unknown-member` on a typed receiver (since M-T5.47 by the AST gate itself; the IR re-raises only on an action-body lambda param and a value-object `function`); `.matches` via the per-target table |
 | `feliz/fs-expr.ts#renderFsExpr$3` | refused on Feliz — `loom.ui-body-feature-unsupported` (`block-lambda-in-action`) |
 | `feliz/fs-expr.ts#renderFsExpr$4` | refused — `this`: `loom.ui-this-unbound`; an action value: `loom.ui-body-feature-unsupported` (`action-ref-value`) |
 | `feliz/update-emit.ts#renderUpdateStmt` | `toast(…)` **rendered** (`Cmd.ofEffect (fun _ -> updateToast …)`, Fable + vite build green); an unresolved store call is `loom.unresolved-action-ref`, which now walks store bodies |

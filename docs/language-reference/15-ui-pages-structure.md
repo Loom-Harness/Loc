@@ -284,11 +284,11 @@ export default function Counter() {
 |---|---|
 | `loom.ui-this-unbound` | `this` — a ui body has no aggregate instance in scope |
 | `loom.ui-assign-not-state` | `:=` / `+=` / `-=` on a name that is not the host's own `state` field (a `let`, a param, another store's field) |
-| `loom.intrinsic-unknown` / `loom.unknown-member` | a method the stdlib does not define on a `state` / `derived` / action-param / store value (`s.indexOf(…)`, `xs.reverse()`, a value-object `function`) |
+| `loom.intrinsic-unknown` / `loom.unknown-member` | a method the stdlib does not define on a `state` / action-param / store value or a row (`s.indexOf(…)`, `xs.reverse()`, `xs.filter(…)` — write `.where(…)`), or a value-object `function` |
 | `loom.ui-find-call-arity` | a find read called with a different number of arguments than the find declares |
 | `loom.unresolved-action-ref` | a bare call in a page, component **or store** action that names no sibling action, ui function or view effect |
 
-A few shapes render on some frontends only; `loom.ui-body-feature-unsupported` refuses them where they don't, from one table (`UI_BODY_FEATURE_RENDERERS` in `src/ir/validate/checks/ui-body-vocabulary-checks.ts`). Feliz does not render a block lambda or an action named as a value inside an action, a `match await` nested in an arm / in a store action / beside other statements, `.filter(…)` (write `.where(…)`), or a find read whose parameter is not a scalar, whose return is not the aggregate, or whose argument is not a `state` cell, store field, literal or the route `id`. Flutter does not render a nested or store-action `match await`, or `.filter(…)`. The string regex `.matches(…)` renders on Phoenix LiveView only.
+A few shapes render on some frontends only; `loom.ui-body-feature-unsupported` refuses them where they don't, from one table (`UI_BODY_FEATURE_RENDERERS` in `src/ir/validate/checks/ui-body-vocabulary-checks.ts`). Feliz does not render a block lambda or an action named as a value inside an action, a `match await` nested in an arm / in a store action / beside other statements, or a find read whose parameter is not a scalar, whose return is not the aggregate, or whose argument is not a `state` cell, store field, literal or the route `id`. Flutter does not render a nested or store-action `match await`. The string regex `.matches(…)` renders on Phoenix LiveView only.
 
 ### Effect markers and `match await`
 

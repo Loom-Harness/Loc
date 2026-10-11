@@ -182,7 +182,7 @@ system ExpressionShowcase {
         Stat { "endsWith", string(s.endsWith("  ")) },
         Stat { "contains", string(s.contains("Hello")) },
         Stat { "replace", s.replace("-", " ") },
-        Stat { "split", string(s.split("-")) },
+        Stat { "split", s.split("-").join(", ") },
 
         // numeric intrinsics
         Stat { "abs", string(n.abs()) },

@@ -793,7 +793,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "loom.frontend-collection-op-unsupported",
       "loom.ui-body-feature-unsupported",
     ],
-    note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member, validateUiBodyRules — an action-body lambda param counts as typed); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` and `filter` by the per-target table (string-regex-match / array-filter). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
+    note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member — by the AST typing pass since M-T5.47, and by validateUiBodyRules on an action-body lambda param and a value-object function); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` by the per-target table (string-regex-match). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
   },
 
   // src/generator/feliz/index.ts

@@ -1,7 +1,7 @@
 import type { EventIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
-import type { BrokerBinding } from "../_channels/bindings.js";
+import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
 import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ export function buildPyChannelsFile(
       : "CHANNEL_BINDINGS: list[dict[str, str]] = [",
     ...unique.map(
       (b) =>
-        `    {"cs_name": ${JSON.stringify(b.csName)}, "address": ${JSON.stringify(b.address)}, "env_var": ${JSON.stringify(b.envVar)}, "context": ${JSON.stringify(b.contextName)}, "transport": ${JSON.stringify(b.transport)}, "group": ${JSON.stringify(b.group)}${hasKafka ? `, "key": ${JSON.stringify(b.key ?? "")}` : ""}},`,
+        `    {"cs_name": ${JSON.stringify(b.csName)}, "address": ${JSON.stringify(b.address)}, "env_var": ${JSON.stringify(b.envVar)}, "context": ${JSON.stringify(b.contextName)}, "transport": ${JSON.stringify(b.transport)}, "group": ${JSON.stringify(b.group)}${hasKafka ? `, "key": ${JSON.stringify(b.key ?? "")}, "offset_reset": ${JSON.stringify(kafkaStartsAtEarliest(b) ? "earliest" : "latest")}` : ""}},`,
     ),
     "]",
     "",
@@ -473,14 +473,20 @@ export function buildPyChannelsFile(
           "        address: str,",
           "        group: str,",
           "        handler: ChannelEnvelopeHandler,",
+          '        offset_reset: str = "latest",',
           "    ) -> None:",
           "        await self._ensure_topic(address)",
+          "        # A NEW group's start offset (D3): a work-queue channel starts at",
+          "        # the earliest offset so events published before the group's",
+          "        # first join are not lost; a log channel starts at the latest.",
+          "        # A group with committed offsets resumes from them either way.",
           "        consumer = AIOKafkaConsumer(",
           "            address,",
           "            bootstrap_servers=self._bootstrap,",
           "            **self._sasl,",
           "            group_id=group,",
           "            enable_auto_commit=False,",
+          "            auto_offset_reset=offset_reset,",
           "        )",
           "        await consumer.start()",
           "        self._consumers.append(consumer)",
@@ -703,7 +709,9 @@ export function buildPyChannelsFile(
                 ...(hasKafka
                   ? [
                       "        if isinstance(transport, KafkaChannelTransport):",
-                      '            await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                      "            await transport.subscribe(",
+                      '                binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                      "            )",
                       "            continue",
                     ]
                   : []),
@@ -722,8 +730,27 @@ export function buildPyChannelsFile(
             : hasRabbit || hasKafka
               ? [
                   // rabbit and kafka share the (address, group, handler)
-                  // subscribe shape, so mixed rabbit+kafka needs no branch.
-                  '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                  // subscribe shape; kafka additionally takes the new-group
+                  // start offset (D3), so a mixed rabbit+kafka deployable
+                  // branches on the driver.
+                  ...(hasKafka && hasRabbit
+                    ? [
+                        "        if isinstance(transport, KafkaChannelTransport):",
+                        "            await transport.subscribe(",
+                        '                binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                        "            )",
+                        "            continue",
+                        '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                      ]
+                    : hasKafka
+                      ? [
+                          "        await transport.subscribe(",
+                          '            binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
+                          "        )",
+                        ]
+                      : [
+                          '        await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+                        ]),
                 ]
               : [
                   "        if id(transport) not in subscribed:",

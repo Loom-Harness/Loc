@@ -78,7 +78,6 @@ export type UiBodyFeature =
   | "store-async-effect"
   | "async-effect-with-siblings"
   | "string-regex-match"
-  | "array-filter"
   | "find-read-composite-param"
   | "find-read-non-aggregate-return"
   | "find-read-unbound-arg";
@@ -104,10 +103,11 @@ export const UI_BODY_FEATURE_RENDERERS: Readonly<Record<UiBodyFeature, ReadonlyS
   // No frontend has a regex arm: the JS walkers and Dart emit `s.matches(…)`
   // verbatim (no such method) and Feliz has no arm.
   "string-regex-match": new Set(["phoenixLiveView"]),
-  // The native JS spelling (docs/page-metamodel.md): verbatim on the JS
-  // frontends, `Enum.filter` on HEEx.  F# lists and Dart lists have no
-  // `filter` member, and Feliz's action path has no arm; `where` renders on all.
-  "array-filter": new Set([...JS_FRONTENDS, "phoenixLiveView"]),
+  // (The native `.filter(…)` once had a row here.  Since M-T5.47's single
+  // typing pass every receiver a page can hold — `state`, a row lambda, a
+  // QueryView data set — is an AST-typed array, whose member surface is the
+  // collection-op catalogue, so `.filter` is refused upstream with
+  // `loom.unknown-member` on every frontend; `.where(…)` renders on all.)
   // Feliz builds a find request in `init` as a query string and decodes the
   // aggregate's own record (`ir/util/feliz-find-read.ts`).
   "find-read-composite-param": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
@@ -148,11 +148,6 @@ const FEATURE_TEXT: Readonly<Record<UiBodyFeature, { label: string; why: string;
       label: "the string regex `.matches(…)`",
       why: "its page renderer has no regex arm (it would emit a call to a method the language does not have)",
       hint: "Validate the pattern on the backend — a field rule or an operation `precondition` — and show its error.",
-    },
-    "array-filter": {
-      label: "the native list method `.filter(…)`",
-      why: "its lists have no `filter` member, so the call would be emitted verbatim into code that does not compile",
-      hint: "Write the stdlib `.where(…)`, which renders on every frontend.",
     },
     "find-read-composite-param": {
       label: "a read of a find with a non-scalar parameter",
@@ -237,9 +232,6 @@ export function uiBodyFeaturesUsed(
   const methodFeatures = (exprs: readonly ExprIR[], stmts: readonly StmtIR[], where: string) => {
     const visit = (e: ExprIR): void => {
       if (e.kind !== "method-call") return;
-      // `filter` is matched by NAME: a QueryView `data:` row set is lowered at
-      // the `string` placeholder type, and it is the documented receiver.
-      if (e.member === "filter") add("array-filter", where);
       if (e.member !== "matches") return;
       const t = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
       if (t.kind === "primitive" && t.name === "string") add("string-regex-match", where);
@@ -531,18 +523,30 @@ function checkStateWrites(ui: UiIR, host: BodyHost, diags: LoomDiagnostic[]): vo
 //
 // The AST validator rejects a method the stdlib does not define
 // (`loom.intrinsic-unknown` on a primitive, `loom.unknown-member` on a
-// collection) wherever its type environment can type the receiver — domain
-// bodies, page / component params.  It cannot type a ui `state` field, a
-// `derived`, an action param, a store field, or a `let` over one of them, so
-// `s.indexOf("a")` / `xs.reverse()` on those validated clean: the JS frontends
-// emitted it verbatim (`indexOf` happens to be JavaScript; `frob` is TS2339),
-// Dart likewise, and Feliz crashed.  The IR HAS the receiver type, so the same
-// two codes are raised here — but only where the receiver's type is real: a
-// bare render-tree lambda param is lowered at a `string` PLACEHOLDER, and an
-// api handle (`C.Order.byName(…)`) carries no type at all.
+// collection or record) wherever its type environment can type the receiver.
+// Since M-T5.47's single typing pass that covers a ui `state` field, an action
+// param, a store field, a `let` over one of them, a match binding and a row
+// lambda — so for those receivers the AST already reports the shape and this
+// check stays silent (`"ast"` trust) rather than raise it a second time.  Two
+// shapes remain the IR's alone: a bare action-body lambda's param, which the
+// AST leaves untyped but the IR lowers at the `string` the action renderers
+// dispatch by (`"typed"`), and a value-object FUNCTION called in a ui body,
+// which the AST admits (the function exists in the domain) but no frontend's
+// wire record carries (`loom.unknown-member#ui-record-function`).  A bare
+// render-tree lambda param is lowered at a `string` PLACEHOLDER, and an api
+// handle (`C.Order.byName(…)`) carries no type at all: neither is trusted.
 
-/** How far a name's lowered type can be trusted. */
-type Trust = "typed" | "placeholder" | "untyped";
+/** How far a name's lowered type can be trusted: `"ast"` — real, and the AST
+ *  gate already reports an unknown method on it; `"typed"` — real, and only
+ *  the IR can see it. */
+type Trust = "ast" | "typed" | "placeholder" | "untyped";
+
+/** An operator's result type is fixed by the operator, so it is always real;
+ *  it is the AST gate's to report unless an operand is one only the IR types
+ *  (a bare action-lambda param). */
+function operatorTrust(...operands: Trust[]): Trust {
+  return operands.includes("typed") ? "typed" : "ast";
+}
 
 function checkMethodVocabulary(
   host: BodyHost,
@@ -553,18 +557,19 @@ function checkMethodVocabulary(
   /** Set once the render-tree surfaces are walked and the action bodies begin. */
   let inAction = false;
   const base = new Map<string, Trust>();
-  for (const n of host.stateNames) base.set(n, "typed");
+  for (const n of host.stateNames) base.set(n, "ast");
   for (const n of host.astTypedNames) base.set(n, "untyped");
   const visitExpr = (e: ExprIR, scope: Map<string, Trust>, where: string): void => {
     if (e.kind === "method-call") {
       checkMethod(e, scope, where);
       // A collection-op lambda binds its param at the element type, so it is
       // as trustworthy as the receiver it iterates.
-      if (e.isCollectionOp && receiverTrust(e.receiver, scope) === "typed") {
+      const recv = receiverTrust(e.receiver, scope);
+      if (e.isCollectionOp && (recv === "typed" || recv === "ast")) {
         visitExpr(e.receiver, scope, where);
         for (const arg of e.args) {
           if (arg.kind === "lambda") {
-            const inner = new Map(scope).set(arg.param, "typed");
+            const inner = new Map(scope).set(arg.param, recv);
             visitLambdaBody(arg, inner, where);
           } else visitExpr(arg, scope, where);
         }
@@ -612,14 +617,18 @@ function checkMethodVocabulary(
     where: string,
   ): void => {
     if (e.isIntrinsicMatcher || isCollectionOp(e.member)) return;
-    if (receiverTrust(e.receiver, scope) !== "typed") return;
+    const trust = receiverTrust(e.receiver, scope);
+    if (trust !== "typed" && trust !== "ast") return;
     const t = e.receiverType.kind === "optional" ? e.receiverType.inner : e.receiverType;
+    const isRecordFunction = t.kind === "valueobject" && recordFunctions.get(t.name)?.has(e.member);
+    // The AST gate reports every other unknown method on an AST-typed receiver.
+    if (trust === "ast" && !isRecordFunction) return;
     if (t.kind === "valueobject") {
       const key = `${where}\u0000${e.member}\u0000${t.name}`;
       if (reported.has(key)) return;
       reported.add(key);
       diags.push(
-        recordFunctions.get(t.name)?.has(e.member)
+        isRecordFunction
           ? {
               severity: "error",
               code: "loom.unknown-member",
@@ -643,9 +652,6 @@ function checkMethodVocabulary(
     // frontend renders it is the vocabulary table's question.
     if (t.kind === "primitive" && intrinsicFor(t.name, e.member)) return;
     if (t.kind === "primitive" && t.name === "string" && e.member === "matches") return;
-    // `filter` is the documented native spelling of `where` in a page body
-    // (docs/page-metamodel.md, "A lambda is also admissible…").
-    if (t.kind === "array" && e.member === "filter") return;
     const key = `${where}\u0000${e.member}\u0000${typeLabel(e.receiverType)}`;
     if (reported.has(key)) return;
     reported.add(key);
@@ -679,7 +685,7 @@ function checkMethodVocabulary(
   inAction = true;
   for (const a of host.actions) {
     const scope = new Map(base);
-    for (const p of a.params) scope.set(p.name, "typed");
+    for (const p of a.params) scope.set(p.name, "ast");
     visitBlock(a.body, scope, `${host.where} action '${a.name}'`);
   }
 }
@@ -691,23 +697,26 @@ function receiverTrust(e: ExprIR, scope: ReadonlyMap<string, Trust>): Trust {
     case "literal":
     case "list":
     case "convert":
-    case "binary":
-    case "unary":
     case "i18nFormat":
     case "duration":
-      return "typed";
+      return "ast";
+    case "binary":
+      return operatorTrust(receiverTrust(e.left, scope), receiverTrust(e.right, scope));
+    case "unary":
+      return operatorTrust(receiverTrust(e.operand, scope));
     case "paren":
       return receiverTrust(e.inner, scope);
     case "member":
     case "method-call":
       return receiverTrust(e.receiver, scope);
     case "ref": {
-      if (e.refKind === "store-field" || e.refKind === "match-binding") return "typed";
+      if (e.refKind === "store-field" || e.refKind === "match-binding") return "ast";
       const bound = scope.get(e.name);
       if (bound === "placeholder") {
         // A row-shaped primitive (`For`, `Table`) binds its lambda at the REAL
-        // row type; only the bare-lambda fallback is the `string` placeholder.
-        return e.type && !isPlaceholderString(e.type) ? "typed" : "placeholder";
+        // row type (which the AST types too); only the bare-lambda fallback is
+        // the `string` placeholder.
+        return e.type && !isPlaceholderString(e.type) ? "ast" : "placeholder";
       }
       return bound ?? "untyped";
     }

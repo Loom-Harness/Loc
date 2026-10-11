@@ -201,15 +201,18 @@ const PROBES: readonly Probe[] = [
     host: { page: 'b := s.matches("a+")' },
     expect: { feature: "string-regex-match" },
   },
+  // `.filter` once had a per-target row; since M-T5.47 the AST types the
+  // receiver and refuses it on every frontend (an array's members are the
+  // collection-op catalogue).
   {
     id: "filter-body",
     host: { body: "Stack { For { each: xs.filter(x => x > 1), x => Text { string(x) } } }" },
-    expect: { feature: "array-filter" },
+    expect: { refused: "loom.unknown-member" },
   },
   {
     id: "filter-action",
     host: { page: "xs := xs.filter(x => x > 1)" },
-    expect: { feature: "array-filter" },
+    expect: { refused: "loom.unknown-member" },
   },
   {
     id: "find-list-param",
@@ -243,9 +246,6 @@ const REFUSAL_REASON: Readonly<Record<string, string>> = {
   "svelte × regex-match": "emits `s.matches(…)` — no such method on a JS string",
   "angular × regex-match": "emits `this.s().matches(…)` — no such method on a JS string",
   "flutter × regex-match": "emits `state.s.matches(…)` — Dart's String has no `matches`",
-  "feliz × filter-body": "emits `model.Xs.filter(…)` — an F# list has no `filter` member",
-  "flutter × filter-body": "emits `xs.filter(…)` — a Dart List has no `filter`",
-  "flutter × filter-action": "emits `state.xs.filter(…)` — a Dart List has no `filter`",
 };
 
 const tag = (i: number): string => String(i).padStart(2, "0");
