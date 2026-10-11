@@ -101,5 +101,9 @@ system StampsPrincipal {
     expect(edited.body).toBe("second")
     expect(edited.createdBy).toBe(note.createdBy)
     expect(edited.updatedBy).toBe(note.createdBy)
+    let notes = api.notes.all()
+    expect(notes.total).toBe(1)
+    api.notes.destroy(n)
+    expect(api.notes.getById(n)).toThrow(404)
   }
 }

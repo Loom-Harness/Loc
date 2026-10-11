@@ -85,6 +85,11 @@ const BASELINE: Record<string, Divergence> = {
   // not the record.  Drain with the A1 class fix.
   "audit-history.ddd Ordering.Memo": "missing-in-record",
   "stamps-principal.ddd Desk.Ticket": "missing-in-record",
+  // Two more A1 witnesses from wave C3F F5's fixtures, not regressions:
+  // audit-history's `Order implements timestamped` (`createdAt`/`updatedAt`)
+  // and stamps-principal's `Note with auditable` (the four prelude stamps).
+  "audit-history.ddd Ordering.Order": "missing-in-record",
+  "stamps-principal.ddd Journal.Note": "missing-in-record",
   // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
   // carries the `softDeletable` mixin — one more instance of THIS class, not
   // a new divergence.

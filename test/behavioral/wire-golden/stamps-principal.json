@@ -136,6 +136,49 @@
     },
     {
       "seq": 11,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "second",
+            "createdAt": "<timestamp>",
+            "createdBy": "admin",
+            "id": "<volatile:key>",
+            "updatedAt": "<timestamp>",
+            "updatedBy": "admin",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -148,7 +191,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -161,7 +204,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -174,7 +217,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
