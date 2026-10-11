@@ -111,7 +111,7 @@ const TARGETS: readonly Target[] = [
     load: (files) => {
       const src = file(files, "web/src/lib/form.ts");
       const fn = evalModule(
-        `export ${sliceBlock(src, "function applyServerError(")}`,
+        `export ${sliceBlock(src, "function applyServerError(")}\n${sliceBlock(src, "function pointerToPath(")}`,
         "applyServerError",
       );
       return {
@@ -137,13 +137,20 @@ const TARGETS: readonly Target[] = [
         "export class ApiError",
       );
       // The mapper is a method of the form object, closing over the form's
-      // `errors` rune state; rebuild exactly that closure around it.
+      // `errors` rune state; rebuild exactly that closure around it.  The
+      // mapper tests `instanceof ApiError`, so the error is built from the
+      // SAME class instance the mapper's module sees.
       const mod = `${ApiErrorSrc}
 let errors: Record<string, string> = {};
+${sliceBlock(src, "function pointerToPath(")}
 const form = { ${sliceBlock(src, "applyServerErrors(e: unknown) {")} };
-export function run(e: unknown) { errors = {}; form.applyServerErrors(e); return errors; }`;
-      const run = evalModule(mod, "run") as (e: unknown) => Record<string, string>;
-      return { ApiError: evalModule(ApiErrorSrc, "ApiError") as never, map: run };
+function run(e: unknown) { errors = {}; form.applyServerErrors(e); return errors; }
+export const loaded = { ApiError, run };`;
+      const { ApiError, run } = evalModule(mod, "loaded") as {
+        ApiError: never;
+        run: (e: unknown) => Record<string, string>;
+      };
+      return { ApiError, map: run };
     },
   },
   { id: "angular", platform: "angular", design: "primeng" },
@@ -154,15 +161,6 @@ export function run(e: unknown) { errors = {}; form.applyServerErrors(e); return
 /** `<target>` → the defect that keeps it from mapping a real 422 today.
  *  Deleting a line is how the gap closes; a stale line fails the gate. */
 const WAIVERS: Readonly<Record<string, string>> = {
-  vue:
-    'lib/form.ts `applyServerError` tests `"errors" in err` on the thrown ApiError, ' +
-    "whose ProblemDetails lives on `.body` — and then reads `errors` as a field-keyed " +
-    "RECORD where the wire carries an ARRAY of {pointer,message,code}; every 422 " +
-    "lands on `__global`",
-  svelte:
-    "lib/forms.svelte.ts `applyServerErrors` unwraps `.body` correctly but reads " +
-    "`errors` as a field-keyed RECORD; `Object.entries` of the wire's ARRAY yields " +
-    '["0", {pointer,…}], the non-string value is skipped, and the 422 goes global',
   angular:
     "no mapper: a CreateForm's submit awaits `mutateAsync` with no catch, so a 422 " +
     "reaches the app-level LoomErrorHandler banner and no field is marked",

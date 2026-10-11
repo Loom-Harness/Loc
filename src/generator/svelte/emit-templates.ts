@@ -69,11 +69,11 @@ export interface LoomForm<T> {
   readonly submitting: boolean;
   reset(): void;
   submit(onValid: (vals: T) => Promise<void> | void): Promise<void>;
-  /** Decode an RFC 7807 ProblemDetails 422 body (or any
-   *  \`{ errors: { field: msg } }\` shape) into per-field errors.
-   *  Returns "fields" when at least one error attached to a field,
-   *  "global" with a title for problem bodies without field errors,
-   *  and "unhandled" otherwise. */
+  /** Decode an RFC 7807 ProblemDetails 422 body (its \`errors\` ARRAY of
+   *  \`{ pointer, code, message }\`) into per-field errors.  Returns "fields"
+   *  when every error attached to a field, "global" with a title for a
+   *  pointer-less error or a problem body without field errors, and
+   *  "unhandled" otherwise. */
   applyServerErrors(e: unknown): { kind: "fields" } | { kind: "global"; title: string } | { kind: "unhandled" };
 }
 
@@ -152,24 +152,30 @@ export function createForm<S extends z.ZodType>(
     applyServerErrors(e: unknown) {
       const body = e instanceof ApiError ? e.body : e;
       if (body && typeof body === "object") {
-        const rec = body as { errors?: Record<string, string | string[]>; title?: string; detail?: string };
-        if (rec.errors && typeof rec.errors === "object") {
+        const rec = body as { errors?: unknown; title?: string; detail?: string };
+        // A 422's \`errors\` is an ARRAY of \`{ pointer, code, message }\`: an entry
+        // whose JSON pointer names a field lands on that field's dot-path
+        // (\`/price/amount\` → \`price.amount\`); a pointer-less entry (a
+        // whole-object rule) is the form-level message.
+        if (Array.isArray(rec.errors)) {
           const next: Record<string, string> = { ...errors };
           let any = false;
-          for (const [k, v] of Object.entries(rec.errors)) {
-            const msg = Array.isArray(v) ? v[0] : v;
-            if (typeof msg === "string") {
-              // ProblemDetails keys may be PascalCase — align with the
-              // camelCase form paths the zod schemas use.
-              const path = k.length > 0 ? k[0]!.toLowerCase() + k.slice(1) : k;
-              next[path] = msg;
+          let formLevel: string | undefined;
+          for (const entry of rec.errors as unknown[]) {
+            if (!entry || typeof entry !== "object") continue;
+            const { pointer, message } = entry as { pointer?: unknown; message?: unknown };
+            if (typeof message !== "string" || message.length === 0) continue;
+            const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
+            if (path) {
+              next[path] = message;
               any = true;
+            } else {
+              formLevel ??= message;
             }
           }
-          if (any) {
-            errors = next;
-            return { kind: "fields" as const };
-          }
+          if (any) errors = next;
+          if (formLevel !== undefined) return { kind: "global" as const, title: formLevel };
+          if (any) return { kind: "fields" as const };
         }
         // RFC 7807 \`detail\` carries the domain sentence; \`title\` is only the
         // reason phrase ("Unprocessable Entity"), so prefer the former.
@@ -186,6 +192,16 @@ export function createForm<S extends z.ZodType>(
       return { kind: "unhandled" as const };
     },
   };
+}
+
+/** A JSON pointer (RFC 6901) as the form's dot-path; "" for the whole document. */
+function pointerToPath(pointer: string): string {
+  if (!pointer.startsWith("/")) return pointer;
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((seg) => decodeURIComponent(seg).replaceAll("~1", "/").replaceAll("~0", "~"))
+    .join(".");
 }
 
 /** Modal focus trap (a Svelte \`use:\` action).  On mount it moves focus to the
