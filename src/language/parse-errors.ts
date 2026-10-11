@@ -40,9 +40,10 @@
 
 import type { IRecognitionException, IToken, TokenType } from "chevrotain";
 import type { LangiumCoreServices, ParseResult } from "langium";
-import { LangiumParserErrorMessageProvider } from "langium";
+import { AstUtils, GrammarAST, LangiumParserErrorMessageProvider } from "langium";
 import { diagMessage } from "../diagnostics/messages.js";
 import { nearestName } from "../util/edit-distance.js";
+import { DddGrammar } from "./generated/grammar.js";
 import {
   isDeclareOnlySoftKeyword,
   isFieldNameKeyword,
@@ -410,4 +411,60 @@ export function sourceTextOf(parseResult: ParseResult<object>): string | undefin
  *  holds a service reference the browser bundle would keep alive. */
 export function ruleParserOf(services: LangiumCoreServices): RuleParser {
   return services.parser.LangiumParser as unknown as RuleParser;
+}
+
+/** The field access-modifier keywords (`managed`, `immutable`, …), read off
+ *  the grammar's `FieldAccess` rule so a new modifier is covered the moment
+ *  it parses. */
+const FIELD_ACCESS_KEYWORDS: ReadonlySet<string> = (() => {
+  const rule = DddGrammar().rules.find(
+    (r): r is GrammarAST.ParserRule => GrammarAST.isParserRule(r) && r.name === "FieldAccess",
+  );
+  const out = new Set<string>();
+  if (rule) {
+    for (const n of AstUtils.streamAllContents(rule)) {
+      if (GrammarAST.isKeyword(n)) out.add(n.value);
+    }
+  }
+  return out;
+})();
+
+/** Exported for the test that pins the derivation. */
+export function fieldAccessKeywords(): ReadonlySet<string> {
+  return FIELD_ACCESS_KEYWORDS;
+}
+
+/**
+ * An access modifier written AFTER the field's default — `status: S = Draft
+ * managed`.  `Property` is `name ':' type <modifiers> ('=' default)?`, so the
+ * property ends at the default and the modifier (a soft keyword) is read as
+ * the NEXT field's name; the failure then lands on whatever follows it,
+ * wanting that field's `:` — `Expecting token of type ':' but found 'n'`, a
+ * line below the cause.  Say the order and point at the modifier.
+ * `undefined` for every other failure, so the message is only ever replaced.
+ */
+export function accessModifierAfterDefault(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset)) return undefined;
+  if (!err.message.startsWith("Expecting token of type ':'")) return undefined;
+  const m =
+    /(?:^|[\n{};])[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*([^=\n{};:]+?)[ \t]*=[ \t]*([^\n{};]+?)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(
+      text.slice(0, token.startOffset),
+    );
+  const [, name, type, def, modifier] = m ?? [];
+  if (!m || !name || !type || !def || !modifier || !FIELD_ACCESS_KEYWORDS.has(modifier)) {
+    return undefined;
+  }
+  const offset = m.index + m[0].trimEnd().length - modifier.length;
+  return {
+    offset,
+    length: modifier.length,
+    message: diagMessage("loom.parse-error#access-modifier-after-default", {
+      modifier,
+      fixed: `${name}: ${type} ${modifier} = ${def}`,
+    }),
+  };
 }

@@ -4893,6 +4893,12 @@ export const DIAGNOSTIC_MESSAGES = {
     notHere: unknown;
     remedy: unknown;
   }) => `'${p.keyword}' declarations belong ${p.where}${p.notHere} — ${p.remedy}.`,
+  // An access modifier after the field's default — `status: S = Draft
+  // managed`.  The property ends at the default and the modifier is read as
+  // the next field's NAME, so chevrotain reports "Expecting ':'" on the line
+  // below.  Say the order (`src/language/parse-errors.ts`).
+  "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
+    `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;
