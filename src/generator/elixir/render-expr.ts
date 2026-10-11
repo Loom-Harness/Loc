@@ -1,4 +1,5 @@
 import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -20,6 +21,7 @@ import {
 } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { elixirCodePointLength } from "../_expr/code-point.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -1389,6 +1391,28 @@ function isStringType(e: ExprIR): boolean {
   return false;
 }
 
+/** The Elixir boolean for a principal term, over a NON-nil `current_user`
+ *  (the caller guards the actor).  Enum claims compare as their declared name
+ *  through `to_string/1`, so an atom-valued and a string-valued claim agree. */
+function renderEctoPrincipalTest(pt: PrincipalTerm): string | null {
+  const hasEnum = [pt.left, pt.right].some(
+    (o) => o.kind === "value" && o.expr.kind === "ref" && o.expr.refKind === "enum-value",
+  );
+  return renderPrincipalTest(pt, {
+    claim: (field) =>
+      hasEnum ? `to_string(current_user.${snake(field)})` : `current_user.${snake(field)}`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value") return JSON.stringify(v.name);
+      if (v.kind === "literal") return renderLiteral(v.lit, v.value);
+      return null;
+    },
+    isNull: (x) => `is_nil(${x})`,
+    isNotNull: (x) => `not is_nil(${x})`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+}
+
 function renderBinary(
   l: string,
   r: string,
@@ -1407,6 +1431,17 @@ function renderBinary(
   if (ectoQuery) {
     if (isNowLiteral(e.left)) l = "^DateTime.utc_now()";
     if (isNowLiteral(e.right)) r = "^DateTime.utc_now()";
+  }
+  // A principal term (`currentUser.role == "agent"`) reads no column: its
+  // truth is fixed for the request, so it is decided in Elixir — false without
+  // an actor — and pinned as ONE boolean, which Ecto casts as `:boolean`
+  // inside `and` / `or` / `not`.
+  if (ectoQuery) {
+    const pt = principalTerm(e);
+    if (pt) {
+      const test = renderEctoPrincipalTest(pt);
+      if (test !== null) return `^(not is_nil(current_user) and ${test})`;
+    }
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  `duration ± duration` and `duration * int` stay native integer

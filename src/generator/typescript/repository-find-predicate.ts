@@ -21,6 +21,7 @@ import type {
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -34,6 +35,7 @@ import {
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
@@ -255,6 +257,25 @@ export function lowerToDrizzle(
         ops.add(fn);
         return `${fn}(${l}, ${r})`;
       }
+      // A principal term (`currentUser.role == "agent"`) reads no column: its
+      // truth is fixed for the request, so it is decided in JS against the
+      // principal and enters the query as a constant `sql` TRUE / FALSE.
+      {
+        const pt = principalTerm(e);
+        if (pt) {
+          const test = renderPrincipalTest(pt, {
+            claim: (field) => `${principal}.${field}`,
+            value: (v) => renderValue(v),
+            isNull: (x) => `${x} == null`,
+            isNotNull: (x) => `${x} != null`,
+            eq: (l, r) => `${l} === ${r}`,
+            ne: (l, r) => `${l} !== ${r}`,
+          });
+          if (test === null) return null;
+          ops.add("sql");
+          return `(${test} ? sql\`true\` : sql\`false\`)`;
+        }
+      }
       const drizzleFn = COMPARE_OP_TO_DRIZZLE[e.op];
       if (!drizzleFn) return null;
       // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, which
@@ -335,7 +356,12 @@ export function lowerToDrizzle(
           for (const op of ["and", "isNull", "isNotNull"]) ops.add(op);
           onNull = `and(isNull(${colExpr}), isNotNull(${colExpr}))`;
         }
-        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${valueExpr}))`;
+        // TS narrows a member chain rooted at an identifier (`currentUser.x`)
+        // but not one rooted at a CALL (`requireCurrentUser().x`, the
+        // capability-filter accessor), so the non-null branch asserts what the
+        // ternary just tested.
+        const narrowed = valueExpr.includes("(") ? `${valueExpr}!` : valueExpr;
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${narrowed}))`;
       }
       return `${orientedFn}(${colExpr}, ${valueExpr})`;
     }

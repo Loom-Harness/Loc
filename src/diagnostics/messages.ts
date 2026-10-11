@@ -2834,7 +2834,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
     `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
     `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
-    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
+    `separation within a tenant. To scope single-record reads by role, give '${p.name}' a row ` +
+    `\`filter\` — a capability filter applies to every read, this one included, and may test ` +
+    `the principal directly (\`filter currentUser.role == "agent" || this.owner == ` +
+    `currentUser.id\`). Otherwise, until the by-id gate surface lands (mission M-T3.19), keep ` +
     `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
     `whole api is restricted.`,
   // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A

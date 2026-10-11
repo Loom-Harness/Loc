@@ -128,11 +128,18 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
   // silently emit nothing (Drizzle/Ecto) or fail at C# render (.NET).
   // `currentUser.<scalar>` is admitted here exactly as in find filters:
   // the backend threads the request principal in (row-level
-  // soft-delete / tenancy filters are the motivating case).
+  // soft-delete / tenancy filters are the motivating case).  Unlike a find,
+  // a capability filter also admits a column-free principal term
+  // (`currentUser.role == "agent"`, see `principalTerm`): it is the only
+  // place a per-role row split can be written, and it covers the
+  // synthesised by-id read that no `requires` can reach.
   for (const agg of ctx.aggregates) {
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
     for (const predicate of filters) {
-      const offending = firstNonQueryablePredicate(predicate, { thisTypesUnresolved: true });
+      const offending = firstNonQueryablePredicate(predicate, {
+        thisTypesUnresolved: true,
+        admitPrincipalTerms: true,
+      });
       if (offending) {
         diags.push({
           severity: "error",
