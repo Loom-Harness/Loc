@@ -174,6 +174,18 @@ describe("<vo>.equals call shape is validated like a scalar intrinsic", () => {
     );
   });
 
+  it("types the call `bool` — a non-bool use of its result is a type error", async () => {
+    // Only the typing pass knows the intrinsic's result type; were it left
+    // `unknown`, this mistyped function would validate (unknown fails open).
+    const src = systemFor("node").replace(
+      "function isAt(pier: string, position: int): bool =",
+      "function isAt(pier: string, position: int): int =",
+    );
+    const { diagnostics } = await parseString(src);
+    const errors = diagnostics.filter((d) => d.severity === 1).map((d) => d.message);
+    expect(errors.some((m) => /\bbool\b/.test(m) && /\bint\b/.test(m))).toBe(true);
+  });
+
   it("still rejects a genuinely absent member", async () => {
     expect(await errorsFor("berth.sameAs(berth)")).toEqual(
       expect.arrayContaining(["loom.unknown-member"]),
