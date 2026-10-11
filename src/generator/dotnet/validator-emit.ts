@@ -283,8 +283,13 @@ function voRequestFields(
       each: borne.each,
       // A VO-typed field carrying a VO default is emitted NULLABLE on the
       // request record (`wire-default.ts`), and `IValidator<T>` is not
-      // `IValidator<T?>` — CS8620.  The rule has to narrow and skip.
-      nullable: isNullableWireDefault(p.default),
+      // `IValidator<T?>` — CS8620.  The rule has to narrow and skip.  A
+      // declared-OPTIONAL VO field (`label: Label?`) is the same nullable
+      // `LabelRequest?` on the record with no default involved at all, and
+      // hits the identical CS8620 under `/warnaserror`.  (Only the scalar
+      // `RuleFor` arm reads this: `RuleForEach` over a nullable list binds
+      // `IEnumerable<T>` and compiles as is.)
+      nullable: p.type.kind === "optional" || isNullableWireDefault(p.default),
     });
   }
   return out;

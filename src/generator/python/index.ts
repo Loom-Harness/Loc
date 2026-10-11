@@ -45,7 +45,12 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
-import { resetTableDiscoverySql, TEST_RESET_ENV, TEST_RESET_PATH } from "../../util/test-reset.js";
+import {
+  resetTableDiscoverySql,
+  TEST_RESET_ENV,
+  TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
+} from "../../util/test-reset.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -1188,7 +1193,9 @@ function renderMain(
     "",
     pyDevStub ? "import base64" : null,
     pyDevStub ? "import json" : null,
+    "import hmac",
     "import os",
+    "import sys",
     "from collections.abc import AsyncIterator",
     "from contextlib import asynccontextmanager",
     pyDevClaims ? "from dataclasses import replace" : null,
@@ -1199,6 +1206,7 @@ function renderMain(
     hasStaticSubpathGuard ? "from collections.abc import Awaitable, Callable" : null,
     "",
     `from fastapi import FastAPI${(authRequired && !oidc) || hasStaticSubpathGuard ? ", Request" : ""}`,
+    "from fastapi import Header, HTTPException",
     "from fastapi import Response",
     "from fastapi.middleware.cors import CORSMiddleware",
     hasEmbeddedSpa ? "from fastapi.responses import FileResponse" : null,
@@ -1436,24 +1444,29 @@ function renderMain(
     // cross-backend parity contract (no other backend lists it).
     // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
     //
-    // The route is only DEFINED when the switch is on, so where it is off the
-    // path does not exist and a request 404s through FastAPI's own not-found
-    // handler having touched nothing.  Unlike the other four backends this one
-    // has no default: the Python image ships no production-profile marker to
-    // read, so a default of "on" would leave a truncate endpoint in every
-    // deployment.  The generated compose file sets `LOOM_TEST_RESET=1`, so the
-    // documented recipe works; running uvicorn by hand needs it too.
+    // The route is only DEFINED when an operator sets BOTH `LOOM_TEST_RESET=1`
+    // and a `LOOM_TEST_RESET_TOKEN`, so otherwise the path does not exist and a
+    // request 404s through FastAPI's own not-found handler having touched
+    // nothing.  The generated compose file does not opt in (finding H-30).
+    // Each request must carry the token in `x-loom-test-reset`, compared with
+    // `hmac.compare_digest`; otherwise 403.
     //
     // `include_in_schema=False` for the same reason `/metrics` has it: this is
     // infra, and the cross-backend OpenAPI parity check compares documented
     // surfaces.
-    `_TEST_RESET_ENABLED = os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1"`,
+    `_TEST_RESET_TOKEN = os.environ.get(${JSON.stringify(TEST_RESET_TOKEN_ENV)}, "")`,
+    `_TEST_RESET_ENABLED = os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1" and _TEST_RESET_TOKEN != ""`,
+    `if os.environ.get(${JSON.stringify(TEST_RESET_ENV)}) == "1" and not _TEST_RESET_TOKEN:`,
+    "    print(",
+    `        "${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset; ${TEST_RESET_PATH} is NOT defined.",`,
+    "        file=sys.stderr,",
+    "    )",
     "",
     "",
     "if _TEST_RESET_ENABLED:",
     "",
     `    @app.post(${JSON.stringify(TEST_RESET_PATH)}, include_in_schema=False)`,
-    "    async def test_reset() -> dict[str, object]:",
+    `    async def test_reset(x_loom_test_reset: str = Header(default="")) -> dict[str, object]:`,
     '        """Truncate every application table and re-apply seed data.',
     "",
     "        Tables are discovered at runtime, so this also reaches what the",
@@ -1461,6 +1474,8 @@ function renderMain(
     "        materialized projections, the seed marker) and cannot drift from a",
     "        migration chain that has moved on.  The migration ledger, the timer",
     '        watermark and the pg-boss job store are preserved."""',
+    "        if not hmac.compare_digest(x_loom_test_reset.encode(), _TEST_RESET_TOKEN.encode()):",
+    '            raise HTTPException(status_code=403, detail="missing or wrong reset token")',
     "        async with engine.begin() as conn:",
     `            found = (await conn.execute(text(${JSON.stringify(resetTableDiscoverySql())}))).all()`,
     '            targets = [f\'"{r[0]}"."{r[1]}"\' for r in found]',

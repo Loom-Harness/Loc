@@ -51,8 +51,9 @@ describe("scaffold list sortable columns = server sort whitelist (F4)", () => {
     const headers = [...list.matchAll(/setSortKey\("(\w+)"\)/g)].map((m) => m[1]);
     expect(accepted).toEqual(["id", "name", "tier", "joined", "active"]);
     expect(headers).toEqual(accepted);
-    // …while every column still RENDERS.
-    for (const col of ["Salary", "Owner Ref", "Version", "Nick", "Score"])
+    // …while every other list column still RENDERS (the `version` token is
+    // transport-only and is not a list column at all — M-T3.4).
+    for (const col of ["Salary", "Owner Ref", "Nick", "Score"])
       expect(list).toContain(`"${col}"`);
   });
 });
