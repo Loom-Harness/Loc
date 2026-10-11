@@ -212,9 +212,10 @@ system LoomLanding {
 
             // ── Hero code card ──────────────────────────────────
             // Phase 3 closed the syntax-highlighting gap.  This
-            // CodeBlock loads highlight.js from CDN and renders the
-            // source with coloured tokens — same setup `docs/build.mjs`
-            // already uses for the markdown pages.
+            // CodeBlock renders the source with coloured tokens through
+            // a vendored highlight.js — bundled with the app (no CDN),
+            // and fetched as its own chunk only once a code block is on
+            // screen, so pages without one never pay for it.
             CodeBlock {
               language: "typescript",
               title:    "orders.ddd",

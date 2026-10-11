@@ -150,6 +150,7 @@ export function validateIndexSuggestions(sys: EnrichedSystemIR, diags: LoomDiagn
             code: "loom.index-suggestion",
             message: diagMessage("loom.index-suggestion", { name: agg.name, fName: f.name, where }),
             source: `${ctx.name}/${agg.name}`,
+            origin: agg.origin,
           });
         }
       }

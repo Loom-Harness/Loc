@@ -63,6 +63,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-valueobject",
         source: `valueobject ${vo.name}`,
+        origin: vo.origin,
         message: diagMessage("loom.duplicate-valueobject", { name: vo.name }),
       });
     } else {
@@ -77,6 +78,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-enum",
         source: `enum ${e.name}`,
+        origin: e.origin,
         message: diagMessage("loom.duplicate-enum", { name: e.name }),
       });
     } else {
@@ -108,6 +110,7 @@ export function validateWorkspaceUniqueness(
         severity: "error",
         code: "loom.duplicate-context",
         source: `context ${c.name}`,
+        origin: c.origin,
         message: diagMessage("loom.duplicate-context", { name: c.name }),
       });
     } else {
@@ -131,6 +134,7 @@ export function validateWorkspaceUniqueness(
           severity: "error",
           code: "loom.valueobject-shadows-root",
           source: `${c.name}.${vo.name}`,
+          origin: vo.origin,
           message: diagMessage("loom.valueobject-shadows-root", { name: c.name, voName: vo.name }),
         });
       }
@@ -143,6 +147,7 @@ export function validateWorkspaceUniqueness(
           severity: "error",
           code: "loom.enum-shadows-root",
           source: `${c.name}.${e.name}`,
+          origin: c.origin,
           message: diagMessage("loom.enum-shadows-root", { name: c.name, eName: e.name }),
         });
       }
@@ -195,6 +200,7 @@ export function validateDuplicateTables(sys: EnrichedSystemIR, diags: LoomDiagno
         severity: "error",
         code: "loom.duplicate-table",
         source: `${sys.name}.${ctx.name}.${agg.name}`,
+        origin: agg.origin,
         message: diagMessage("loom.duplicate-table", { who, key }),
       });
     }
@@ -226,6 +232,7 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
               severity: "error",
               code: "loom.unique-valueobject-field",
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
               message: diagMessage("loom.unique-valueobject-field", { col, name: agg.name }),
             });
           }
@@ -273,6 +280,7 @@ export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDia
           code: "loom.find-reserved-name",
           message: diagMessage("loom.find-reserved-name", { name: repo.name, findName: find.name }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
       if (seen.has(find.name)) {
@@ -281,6 +289,7 @@ export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDia
           code: "loom.duplicate-find",
           message: diagMessage("loom.duplicate-find", { name: repo.name, findName: find.name }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
       seen.add(find.name);
@@ -368,6 +377,7 @@ export function validateUnionFindShapes(
           aggregateName: repo.aggregateName,
         }),
         source: `${ctx.name}/repository ${repo.name}.${find.name}`,
+        origin: repo.origin,
       });
     }
   }
@@ -400,6 +410,7 @@ export function validateUnmappedErrorStatuses(
             opName: op.name,
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
     }
@@ -425,6 +436,7 @@ export function validateReservedStructuralErrorNames(
       code: "loom.reserved-structural-error-name",
       message: diagMessage("loom.reserved-structural-error-name", { name: p.name }),
       source: `${ctx.name}/error ${p.name}`,
+      origin: ctx.origin,
     });
   }
 }
@@ -465,6 +477,7 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
             opName: op.name,
           }),
           source: `${ctx.name}/${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
       for (const stmt of op.statements) {
@@ -478,6 +491,7 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
             kind: stmt.kind,
           }),
           source: `${ctx.name}/${agg.name}.${op.name}`,
+          origin: op.origin,
         });
       }
     }
@@ -529,6 +543,7 @@ export function validateEventSourcedDiscipline(
         code: "loom.applier-on-non-event-sourced",
         message: diagMessage("loom.applier-on-non-event-sourced#ir", { name: agg.name }),
         source: `${ctx.name}/${agg.name}`,
+        origin: agg.origin,
       });
     }
 
@@ -550,6 +565,7 @@ export function validateEventSourcedDiscipline(
           length: creates.length,
         }),
         source: `${ctx.name}/${agg.name}`,
+        origin: agg.origin,
       });
     }
 
@@ -565,6 +581,7 @@ export function validateEventSourcedDiscipline(
           code: "loom.duplicate-applier",
           message: diagMessage("loom.duplicate-applier#ir", { name: agg.name, count, eventName }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
       }
     }
@@ -611,6 +628,7 @@ export function validateEventSourcedDiscipline(
                 label: cmd.label,
               }),
               source: `${ctx.name}/${agg.name}`,
+              origin: agg.origin,
             });
             break;
           case "emit":
@@ -624,6 +642,7 @@ export function validateEventSourcedDiscipline(
                   eventName: stmt.eventName,
                 }),
                 source: `${ctx.name}/${agg.name}`,
+                origin: agg.origin,
               });
             }
             break;
@@ -1077,6 +1096,7 @@ export function validateFieldDefaults(ctx: BoundedContextIR, diags: LoomDiagnost
         code: "loom.field-default-not-constant",
         message: diagMessage("loom.field-default-not-constant", { owner, name: f.name, found }),
         source: `${ctx.name}/${owner}.${f.name}`,
+        origin: f.origin,
       });
     }
   };
@@ -1187,6 +1207,7 @@ export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDi
           verb,
         }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
     });
   };
@@ -1276,6 +1297,7 @@ export function validateCurrentUserScope(ctx: BoundedContextIR, diags: LoomDiagn
           code: "loom.currentuser-not-in-request-scope",
           message: diagMessage("loom.currentuser-not-in-request-scope", { location }),
           source: `${ctx.name}/${location}`,
+          origin: ctx.origin,
         });
       }
     });
@@ -1343,6 +1365,7 @@ export function validatePermissionRefs(ctx: BoundedContextIR, diags: LoomDiagnos
         code: "loom.unknown-permission",
         message: diagMessage("loom.unknown-permission", { name }),
         source: `${ctx.name}/${location}`,
+        origin: ctx.origin,
       });
     }
   };
@@ -1763,6 +1786,7 @@ export function validateLifecycleBodyDropped(
               platforms: esGateUnsupportedOn.join(", "),
             }),
             source: `${ctx.name}/aggregate ${agg.name}.${create.name}`,
+            origin: create.origin,
           });
         }
       }
@@ -1826,6 +1850,7 @@ export function validateLifecycleBodyDropped(
                 : "",
           }),
           source: `${ctx.name}/aggregate ${agg.name}.create`,
+          origin: agg.origin,
         });
       }
     }
@@ -1914,6 +1939,7 @@ export function validateLifecycleBodyDropped(
             plural: plural(snake(agg.name)),
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${label}`,
+          origin: agg.origin,
         });
       }
     }
@@ -1982,6 +2008,7 @@ export function validateNamedLifecycleDropped(
             name: action.name,
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${label} ${action.name}`,
+          origin: action.origin,
         });
       }
     }
@@ -2074,6 +2101,7 @@ export function validateContainmentCycles(ctx: BoundedContextIR, diags: LoomDiag
             part: partName,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
         return;
       }

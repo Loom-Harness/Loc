@@ -4572,6 +4572,42 @@ a work queue because consumers dedupe on the envelope id. On a log, a fresh
 deployable replaying the whole history is a semantic change of its own
 (the replay cursor, M-T4.2), so it stays out of this ruling.
 
+## D-MESSAGELESS-RULE-WIRE-MESSAGE — a message-less single-field rule's 422 carries node's synthesized sentence, never the framework default
+
+**Status:** decided (owner ruling D10 of the 2026-09-28 eval-closure review, item #15d).
+
+**Question.** A rule with no `message "…"` clause that is a single-field shape
+(`invariant seats >= 1`, `precondition code.matches("^[A-Z]{3}$")`) rides each
+backend's NATIVE wire constraint, and the native constraint's text is whatever
+the framework says. On python that was pydantic's default —
+`String should match pattern '^[A-Z]{3}$'` — which puts the server's regex on
+the wire, and `Input should be greater than or equal to 1` for a bound. Which
+message does the wire carry?
+
+**Decision.** The sentence node already sends: `singleFieldMessage(field,
+pattern)` (`src/generator/zod-refine.ts` — "Code is not in the expected
+format", "Amount must be at least 1") for a shape node chains natively, and
+node's refine default (`Invariant violated: <src>`) for a conjunction node does
+not chain (`email.matches(r) && email.length <= 120`). Wire parity, and the
+regex never leaves the server. No `errors[].code` is attached — node attaches
+none for a message-less rule, and the code is the i18n key of AUTHORED text.
+
+**Python shape.** The `Field(...)` constraint stays (it is what publishes
+`pattern`/`minLength`/`minimum` into the OpenAPI document), and each request /
+value-object model gains one `@field_validator(<fields>, mode="wrap")` whose
+`(field, pydantic error type) → message` table is built from the SAME
+classification as the kwargs (`src/generator/python/emit/wire-constraints.ts`).
+Only errors the table arms are re-raised as `PydanticCustomError(<type>,
+<message>)`; a type error or a nested model's error passes through. Done in the
+model rather than the `RequestValidationError` handler because the handler sees
+only a `loc`, and one field name can carry different bounds on two models.
+
+**Consequences.** Pinned by `test/generator/python/message-less-wire-message.test.ts`
+(derives node's message set and requires each in python's tables) and by the
+`validation-messages` wire golden (seq 14/15). .NET, Java and Elixir still send
+their own text — mission M-T6.86, held by four waivers in
+`test/_helpers/wire-waivers.ts`.
+
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
 
 **Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
@@ -4604,3 +4640,83 @@ create form's denial flash follows the same rule as the HTTP body.
 **Affects.** `docs/auth.md` (§ requires gates, § Dev-stub verifier); the five
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
+
+## D-DEFAULT-DENY-LIST-WARN — under `denyByDefault` an ungated list read is a warning; a cross-context policy call is a named error
+
+**Status:** ruled by the owner (eval closure review 2026-09-28, rulings D5 and
+D9; items 22 and 39 of
+`docs/audits/2026-09-28-eval-closure-review/reverified-items.json`).
+
+**D5: the list read.** Every aggregate serves `GET /api/<plural>`, which is
+backed by the repository find named `all`. Unless the author declares that
+find, enrichment injects it without a gate. Under `denyByDefault` the list
+read therefore served every row to any authenticated caller. The by-id
+warning fired, but the list did not. `default-deny-checks.ts` had exempted it
+as "compiler-synthesized, no author source line". That reason was weaker
+than the by-id one, because the author can write
+`find all(): T[] requires <expr>`, and all five backends enforce it
+(`src/ir/util/read-gates.ts`).
+
+The ruling is a **warning**, `loom.default-deny-list-ungated`, at the same
+tier as `loom.default-deny-by-id-ungated`. Existing models keep building, and
+the message names the line that silences the warning. An author-declared
+`find all` with no gate gets the same warning. The declared-find error arm
+still skips `all`, so leaving it out would bring back the silent case.
+Promoting the warning to an error is left to the runtime-gating mission
+(M-T3.19 / #3109).
+
+**D9: cross-context policy calls.** Function-form policies are
+context-local. Before this ruling, a `requires P()` naming a policy declared
+in another context reported only `'requires' must be of type 'bool', got
+'unknown'`. It now reports `loom.policy-out-of-scope`: "policy P is declared
+in context A; policies are context-local — redeclare it in B". The type
+system types such a call `bool` (`outOfScopePolicyCall`,
+`src/language/type-system.ts`), so the named error is the only one raised.
+The detection has two limits:
+
+- It covers only the call form `P(args)`. A bare name has too many other
+  readings.
+- It sees only one document. In a multi-file model, a context declared in
+  another file is not searched, and that case keeps the old wording.
+
+Sharing a policy across contexts (at subdomain or system level) needs its own
+language decision. It is a separate mission.
+
+**Touches:** `src/ir/validate/checks/default-deny-checks.ts`,
+`src/language/validators/policy-fn.ts`, `src/language/type-system.ts`,
+`src/diagnostics/messages.ts`, `docs/auth.md`,
+`docs/language-reference/17-auth.md`, `docs/language.md`.
+
+---
+
+## D-ICU-DOMAIN-DROP-WARN — an ICU branch hole in backend domain code is a warning now; rendering the branches is a mission
+
+**Status:** applied (owner ruling D8, eval-closure review 2026-09-28, item 38; wave C, implementer C7).
+
+**Question.** A template hole carrying `, plural` / `, select` / `, selectordinal`
+is admitted anywhere a template is. Every backend leaf table renders the
+`i18nFormat` wrapper as its bare operand (`i18nFormat: (inner) => inner` in the
+node, .NET, Java, Python and Elixir `render-expr.ts`), so in a `derived`,
+`function` or `operation` body the BRANCH TEXT vanishes:
+`` derived p: string = `{qty, plural, one {# item} other {# items}}` `` yields
+`"3"`, with zero diagnostics on `parse` and `generate`.
+
+**Options.** (a) render the branches on all five backends as a match/if chain over
+the branch keys (English CLDR `one`/`other` plus `=N` exact matches); (b) warn
+where the drop happens and document it; (c) refuse it as an error.
+
+**Decision.** (b): the warning `loom.interp-format-dropped-in-domain` on every
+`plural`/`select`/`selectordinal` hole whose template sits in a `derived`,
+`function` (incl. top-level) or `operation` (aggregate or domain-service) body,
+and never inside a `ui`. (a) becomes a mission; (c) would refuse models that
+generate and run today.
+
+**Scope kept deliberately narrow.** `number`/`date`/`time` formats are dropped in
+domain code too, but they lose only formatting, not text, so they stay silent
+(the docs say so). Templates in other backend bodies (workflows, handlers) are
+not covered by the ruling and stay silent until the rendering mission decides
+them.
+
+**Affects.** `src/language/validators/template.ts`; `src/diagnostics/messages.ts`;
+`src/diagnostics/code-docs.ts`; `docs/language.md`;
+`docs/language-reference/05-expressions.md`.

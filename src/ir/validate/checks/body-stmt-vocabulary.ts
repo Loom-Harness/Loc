@@ -41,6 +41,7 @@ import type {
   StmtIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
+import type { OriginRef } from "../../types/origin.js";
 import {
   walkExprDeep,
   walkStmtChildren,
@@ -112,7 +113,12 @@ function branchStmtsDeep(s: StmtIR, out: StmtIR[]): void {
  *  applier body is a pure fold.  Deep, so a refused kind inside a branch is
  *  caught exactly like one at the top of the body. */
 export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
-  const check = (owner: string, appliers: readonly ApplyIR[], source: string): void => {
+  const check = (
+    owner: string,
+    appliers: readonly ApplyIR[],
+    source: string,
+    origin: OriginRef | undefined,
+  ): void => {
     for (const ap of appliers) {
       // The impurity codes look everywhere, lambda blocks included (an `emit`
       // is impure wherever it sits); the vocabulary looks at the fold's own
@@ -131,6 +137,7 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
             code: "loom.applier-emits",
             message: diagMessage("loom.applier-emits", { owner, event: ap.event }),
             source,
+            origin,
           });
         } else if (refusal === "call" && stmt.kind === "call") {
           diags.push({
@@ -142,6 +149,7 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
               stmtName: stmt.name,
             }),
             source,
+            origin,
           });
         } else if (refusal === "guard") {
           diags.push({
@@ -153,6 +161,7 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
               kind: stmt.kind,
             }),
             source,
+            origin,
           });
         } else if (refusal === "vocabulary") {
           diags.push({
@@ -165,6 +174,7 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
               allowed: [...APPLIER_STMT_KINDS].join(" / "),
             }),
             source,
+            origin,
           });
         }
       }
@@ -174,11 +184,11 @@ export function validateApplierBodies(ctx: BoundedContextIR, diags: LoomDiagnost
     // A non-event-sourced aggregate's appliers are refused whole
     // (`loom.applier-on-non-event-sourced`); their bodies are not checked.
     if (agg.persistedAs !== "eventLog") continue;
-    check(`aggregate '${agg.name}'`, agg.appliers ?? [], `${ctx.name}/${agg.name}`);
+    check(`aggregate '${agg.name}'`, agg.appliers ?? [], `${ctx.name}/${agg.name}`, agg.origin);
   }
   for (const wf of ctx.workflows) {
     if (!wf.eventSourced) continue;
-    check(`workflow '${wf.name}'`, wf.appliers ?? [], `${ctx.name}/${wf.name}`);
+    check(`workflow '${wf.name}'`, wf.appliers ?? [], `${ctx.name}/${wf.name}`, wf.origin);
   }
 }
 

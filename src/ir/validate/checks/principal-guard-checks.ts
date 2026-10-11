@@ -84,6 +84,7 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
               principalNoun,
             }),
             source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
             code: "loom.stamp-principal-without-auth",
           });
         }
@@ -97,6 +98,7 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
               name: agg.name,
             }),
             source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
             code: "loom.stamp-on-event-sourced-invalid",
           });
         }
@@ -198,6 +200,7 @@ export function validateGuardPrincipalWithoutAuth(sys: SystemIR, diags: LoomDiag
           principalNoun,
         }),
         source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
         code: "loom.guard-principal-without-auth",
       });
     };
