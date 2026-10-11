@@ -84,6 +84,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
+  "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
   "loom.match-empty": "05-expressions.md#ternary--match",
   "loom.match-no-else": "05-expressions.md#ternary--match",

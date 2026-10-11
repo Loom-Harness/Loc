@@ -131,12 +131,17 @@ function csEnvOverridable(envVar: string, v: AuthValueIR | undefined): string {
 function csClaimRead(f: FieldIR, auth: AuthIR): string {
   const param = upperFirst(f.name);
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `default!` and was null for
+  // every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `${param}: ClaimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional
+    return optional
       ? `${param}: ClaimString(payload, ${path})`
       : `${param}: ClaimString(payload, ${path}) ?? string.Empty`;
   }
@@ -152,7 +157,7 @@ function csClaimRead(f: FieldIR, auth: AuthIR): string {
   // leak.  Mirrors Java's `stubValue(t)` → `List.of()` fallback and the
   // dev stub's own empty-list literal on this side, so both .NET
   // principal-construction sites now agree.
-  if (!f.optional && t.kind === "array") {
+  if (!optional && t.kind === "array") {
     return `${param}: ${stubCsharpValueForType(t)}`;
   }
   return `${param}: default!`;
@@ -314,6 +319,9 @@ public sealed class OidcUserVerifier : IUserVerifier
                 return null;
             }
         }
+        // A claim present as JSON null is absent: ToString() would answer
+        // "", which a requires-gate != null test reads as present.
+        if (current.ValueKind == JsonValueKind.Null) return null;
         return current.ValueKind == JsonValueKind.String ? current.GetString() : current.ToString();
     }
 

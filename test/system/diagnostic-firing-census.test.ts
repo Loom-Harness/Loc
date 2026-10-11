@@ -556,6 +556,18 @@ system Reserved {
   user { id: guid  isSystem: bool }
   subdomain S { context C { aggregate A with crudish { name: string } } }
 }`,
+  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
+  // domain code, where every backend renders the hole as its bare value — the
+  // branch text ("items") is dropped.  The warning says so where it happens.
+  "loom.interp-format-dropped-in-domain": `
+system IcuDrop {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      qty: int
+      derived label: string = \`{qty, plural, one {# item} other {# items}}\`
+    }
+  } }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.

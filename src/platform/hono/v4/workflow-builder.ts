@@ -63,7 +63,11 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import {
   walkExprDeep,
@@ -176,6 +180,8 @@ export function buildWorkflowsFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        // Exact decimal refines: this file's decimal.js import is body-scanned.
+        "exact",
       ),
     );
   }
@@ -2034,15 +2040,57 @@ function buildProducerOutboxFile(ctx: EnrichedBoundedContextIR, usingMikro = fal
 
 function emitDispatcherFactory(byEvent: Map<string, string[]>, usingMikro = false): string[] {
   const out: string[] = [];
+  // Reactor failure isolation (H-28, workflow.md § "Reactor failures").  The
+  // request path dispatches AFTER the command committed, so a reactor throw
+  // must not turn that committed command into an error the client then
+  // retries into the state gate.  `isolateReactorFailures` (set by `createApp`
+  // and the boot script's request-path instance) runs each handler on its
+  // own and logs its failure `reactor_failed` instead of rethrowing it.  No
+  // inline retry: a reactor's side effects (a sent mail) are not idempotent,
+  // and redelivery is what a DURABLE channel's outbox relay is for.  The
+  // DEFAULT stays throwing — the relay, broker consumers and the timer
+  // scheduler drive this same factory and need the throw for their own
+  // retry / redelivery / dead-letter bookkeeping.
+  const hasHandlers = byEvent.size > 0;
+  out.push(`export interface InProcessDispatchOptions {`);
+  out.push(`  /** Log + swallow a reactor's failure instead of rethrowing it. */`);
+  out.push(`  isolateReactorFailures?: boolean;`);
+  out.push(`}`);
+  out.push(``);
+  if (hasHandlers) {
+    out.push(`async function runReactor(`);
+    out.push(`  opts: InProcessDispatchOptions,`);
+    out.push(`  handler: string,`);
+    out.push(`  event: Events.DomainEvent,`);
+    out.push(`  run: () => Promise<void>,`);
+    out.push(`): Promise<void> {`);
+    out.push(`  if (!opts.isolateReactorFailures) return run();`);
+    out.push(`  try {`);
+    out.push(`    await run();`);
+    out.push(`  } catch (err) {`);
+    out.push(
+      `    const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
+    );
+    out.push(
+      `    ${renderHonoStoreLogCall("reactorFailed", "handler, event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)")}`,
+    );
+    out.push(`  }`);
+    out.push(`}`);
+    out.push(``);
+  }
   out.push(`export function createInProcessDispatcher(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
+  out.push(`  ${hasHandlers ? "opts" : "_opts"}: InProcessDispatchOptions = {},`);
   out.push(`): DomainEventDispatcher {`);
   out.push(`  const dispatcher: DomainEventDispatcher = {`);
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      switch (event.type) {`);
   for (const [event, fns] of byEvent) {
     out.push(`        case "${event}": {`);
-    for (const fn of fns) out.push(`          await ${fn}(db, dispatcher, event);`);
+    for (const fn of fns)
+      out.push(
+        `          await runReactor(opts, "${fn}", event, () => ${fn}(db, dispatcher, event));`,
+      );
     out.push(`          break;`);
     out.push(`        }`);
   }
@@ -2534,7 +2582,8 @@ function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
 function collectUsedValueObjects(ctx: BoundedContextIR) {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(ctx: BoundedContextIR) {

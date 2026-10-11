@@ -817,6 +817,8 @@ public sealed class ChannelConsumerService : BackgroundService
         var ev = ChannelCodec.FromData(bare, envelope.Data);
         using var scope = _scopes.CreateScope();
         var dispatcher = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();
+        // Redelivery (strict queue path) rides the throw — never isolate here.
+        dispatcher.IsolateReactorFailures = false;
 ${consumerMarkedDispatch}
         ${
           hasKafka
