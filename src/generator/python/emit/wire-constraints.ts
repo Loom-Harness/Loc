@@ -92,9 +92,8 @@ export function createFieldMessageValidator(
       }
     }
   }
-  // Pydantic names a field by its ATTRIBUTE — in the decorator and in
-  // `info.field_name` alike — so a keyword-named field (`lambda`, aliased on
-  // the wire) is keyed by its escaped attribute (`lambda_`), never its wire key.
+  // Pydantic names a field by its python ATTRIBUTE (`lambda_`), never its
+  // wire alias (`lambda`) — both in the decorator and in `info.field_name`.
   const fields = [...table.keys()].map((f) => JSON.stringify(pythonWireIdent(f))).join(", ");
   return lines(
     "",

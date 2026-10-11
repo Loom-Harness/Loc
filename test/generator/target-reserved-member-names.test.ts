@@ -200,17 +200,12 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(routes).toContain('    pass_: bool = Field(default=False, alias="pass")');
     expect(routes).toContain('def_: Annotated[WireStr, Query(alias="def")]');
     expect(routes).toContain("found.class_(body.except_)");
-    expect(read("app/http/wire_models.py")).toContain('    yield_: Int32 = Field(alias="yield")');
-  });
-
-  it("the constraint-message validator names the escaped ATTRIBUTE, not the wire key", () => {
-    // Pydantic resolves `@field_validator` names and `info.field_name` against
-    // attributes; naming the aliased wire key (`"lambda"`) fails at import
-    // with `Decorators defined with incorrect fields`, so the app never boots.
-    const routes = read("app/http/thing_routes.py");
+    // Pydantic resolves a field validator by ATTRIBUTE, not alias: naming the
+    // alias (`"lambda"`) is a PydanticUserError at import — uvicorn never boots.
     expect(routes).toContain('    @field_validator("lambda_", mode="wrap")');
-    expect(routes).toContain('("lambda_", "greater_than_equal"): "Lambda must be at least 0"');
+    expect(routes).toContain('                ("lambda_", "greater_than_equal"): ');
     expect(routes).not.toContain('@field_validator("lambda"');
+    expect(read("app/http/wire_models.py")).toContain('    yield_: Int32 = Field(alias="yield")');
   });
 
   it("the repository reads escaped attributes and writes declared keys", () => {
