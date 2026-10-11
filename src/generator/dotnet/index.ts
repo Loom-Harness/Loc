@@ -111,6 +111,7 @@ import {
   renderDapperRepository,
   renderDapperSchema,
 } from "./emit/dapper.js";
+import { renderDapperConnectionLease } from "./emit/dapper-session.js";
 import {
   dapperPortRegistrations,
   dapperWorkflowTables,
@@ -808,6 +809,13 @@ function emitProjectFromContexts(
           .flatMap((m) => m.next.tables)
           .find((t) => t.name === "provenance_records"),
       ),
+    );
+    // The connection lease every Dapper repository opens + the ambient
+    // unit-of-work transaction it enlists in, so a `transactional` workflow's
+    // saves share ONE connection + transaction (dapper-session.ts).
+    out.set(
+      "Infrastructure/Repositories/DapperConnectionLease.cs",
+      renderDapperConnectionLease(ns),
     );
     // Workflow / saga / event-store / projection port adapters + the reused
     // persistence-neutral row POCOs (M-T6.9) — the raw-Npgsql siblings of the
