@@ -3051,10 +3051,6 @@ system S {
   "loom.throw-kind-integration-unsupported": throwKindProbe({
     contextTest: `        expect(wo.complete()).toThrow(precondition)`,
   }),
-  "loom.throw-kind-custom-message": throwKindProbe({
-    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
-    precondMessage: ` message "finish the work first"`,
-  }),
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,
   }),

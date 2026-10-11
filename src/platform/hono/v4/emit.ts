@@ -173,7 +173,7 @@ function valueObjectInvariantErrorTs(domainFloorCodes: boolean): string {
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   constructor(valueObject: string, message: string, code?: string) {
-    super(message, code, "");
+    super(message, "invariant", code, "");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
   }
@@ -187,7 +187,7 @@ export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
   constructor(valueObject: string, message: string, code?: string) {
-    super(message);
+    super(message, "invariant");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
     this.code = code;
@@ -196,28 +196,49 @@ export class ValueObjectInvariantError extends DomainError {
 `;
 }
 
-/** The base `DomainError`.  With the domain-floor code carriage on (M-T1.11
- *  (c)) a messaged invariant / field check / precondition throws its wire
- *  `msg.<hash>` code and RFC 6901 pointer along with the text; off, the class
- *  is byte-identical to before. */
+/** `DomainErrorKind` — which rung of the domain floor refused a call, carried
+ *  apart from the message text because an authored `message "..."` replaces the
+ *  derived sentence. */
+const DOMAIN_ERROR_KIND_TS = `/** Which rung of the domain floor refused a call: a \`precondition\` of the
+ *  operation, or an \`invariant\` of the aggregate / part / value object.  It is
+ *  carried apart from the message, which an authored \`message "..."\` replaces. */
+export type DomainErrorKind = "precondition" | "invariant";
+
+`;
+
+/** The base `DomainError`.  It carries the refusing rung as `kind`; with the
+ *  domain-floor code carriage on (M-T1.11 (c)) a messaged invariant / field
+ *  check / precondition also throws its wire `msg.<hash>` code and RFC 6901
+ *  pointer along with the text. */
 function domainErrorTs(domainFloorCodes: boolean): string {
   return domainFloorCodes
-    ? `export class DomainError extends Error {
+    ? `${DOMAIN_ERROR_KIND_TS}export class DomainError extends Error {
+  /** The rung that refused; undefined for a DomainError thrown outside the
+   *  precondition / invariant floor. */
+  readonly kind: DomainErrorKind | undefined;
   /** A messaged rule's \`msg.<hash>\` code — the same one the wire rung carries —
    *  and the RFC 6901 pointer its domain-floor \`errors[]\` entry names
    *  (M-T1.11 (c)).  Undefined for a message-less rule. */
   readonly code: string | undefined;
   readonly pointer: string | undefined;
-  constructor(message: string, code?: string, pointer?: string) {
+  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string) {
     super(message);
     this.name = "DomainError";
+    this.kind = kind;
     this.code = code;
     this.pointer = pointer;
   }
 }
 `
-    : `export class DomainError extends Error {
-  constructor(message: string) { super(message); this.name = "DomainError"; }
+    : `${DOMAIN_ERROR_KIND_TS}export class DomainError extends Error {
+  /** The rung that refused; undefined for a DomainError thrown outside the
+   *  precondition / invariant floor. */
+  readonly kind: DomainErrorKind | undefined;
+  constructor(message: string, kind?: DomainErrorKind) {
+    super(message);
+    this.name = "DomainError";
+    this.kind = kind;
+  }
 }
 `;
 }

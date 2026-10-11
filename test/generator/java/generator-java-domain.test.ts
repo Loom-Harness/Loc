@@ -138,7 +138,7 @@ describe("java generator — domain layer (S3)", () => {
   it("renders operation bodies: preconditions, assignment, emit in declared event order", async () => {
     const order = (await byFeatureFiles()).get(`${ROOT}/features/orders/Order.java`)!;
     expect(order).toContain(
-      'if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");',
+      'if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()", DomainException.Kind.PRECONDITION);',
     );
     expect(order).toContain("this.status = Status.confirmed;");
     expect(order).toContain("this._domainEvents.add(new OrderConfirmed(this.id, Instant.now()));");

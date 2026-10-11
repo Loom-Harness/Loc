@@ -19,7 +19,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -52,6 +52,10 @@ const TEST_ACTOR =
 //                              rejection (`DOMAIN_REJECTION_ERRORS`) and
 //                              rethrows anything else (a ReferenceError from
 //                              broken code fails the test, it does not pass it)
+//   expect(call).toThrow(precondition)
+//                           → `expectDomainRejection(() => { <call>; }, "precondition")`
+//                              — the same helper, additionally requiring a
+//                              `DomainError` whose structural `kind` is that rung
 //
 // The container is a plain test file colocated next to the domain class;
 // it imports the aggregate / parts / value objects directly.
@@ -155,22 +159,29 @@ function renderTestsCore(
   return lines.join("\n") + "\n";
 }
 
-/** The file-local helper a bare `expect(<call>).toThrow()` lowers to.  vitest's
- *  `toThrow(Class)` takes ONE class and the domain floor refuses through three
- *  sibling classes (`DOMAIN_REJECTION_ERRORS`), so the union is an `instanceof`
- *  chain.  A non-domain error is RETHROWN rather than reported, so the test
- *  fails with the real `ReferenceError` / `TypeError` and its stack. */
+/** The file-local helper `expect(<call>).toThrow()` / `.toThrow(<kind>)`
+ *  lowers to.  vitest's `toThrow(Class)` takes ONE class and the domain floor
+ *  refuses through three sibling classes (`DOMAIN_REJECTION_ERRORS`), so the
+ *  union is an `instanceof` chain; a rung narrows it to a `DomainError` whose
+ *  structural `kind` names that rung (never its message, which an authored
+ *  `message "..."` replaces).  A non-domain error is RETHROWN rather than
+ *  reported, so the test fails with the real `ReferenceError` / `TypeError`
+ *  and its stack. */
 function domainRejectionHelper(): string[] {
   const isDomain = DOMAIN_REJECTION_ERRORS.map((n) => `err instanceof ${n}`).join(" || ");
   return [
-    "/** A bare `toThrow()`: the call must be REFUSED by the domain floor (a precondition,",
-    " *  an invariant, a `when` state gate or a `requires`).  Any other error is a defect in",
-    " *  the code under test, not a rejection, and is rethrown. */",
-    "function expectDomainRejection(call: () => unknown): void {",
+    "/** The call must be REFUSED by the domain floor (a precondition, an invariant, a",
+    " *  `when` state gate or a `requires`) — by the named rung when `kind` is given.  Any",
+    " *  other error is a defect in the code under test, not a rejection, and is rethrown. */",
+    'function expectDomainRejection(call: () => unknown, kind?: "precondition" | "invariant"): void {',
     "  try {",
     "    call();",
     "  } catch (err) {",
-    `    if (${isDomain}) return;`,
+    "    if (kind !== undefined && err instanceof DomainError) {",
+    "      if (err.kind === kind) return;",
+    '      expect.fail(`expected the ${kind} rung to reject the call, but the ${err.kind ?? "unclassified"} rung did: ${err.message}`);',
+    "    }",
+    `    if (kind === undefined && (${isDomain})) return;`,
     "    throw err;",
     "  }",
     '  expect.fail("expected the call to be rejected by the domain, but it returned");',
@@ -375,11 +386,11 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
   if (s.kind === "expect-throws") {
     const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
     // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
-    // did.  vitest's `toThrow` takes a RegExp, so the rung's derived message
-    // prefix becomes an anchored pattern; without it a deleted `precondition`
-    // reads as green the moment an `invariant` throws in its place (F11).
+    // did: the helper reads the error's structural `kind`, so a deleted
+    // `precondition` fails the test the moment an `invariant` throws in its
+    // place, whatever either rule's message says.
     if (s.throwKind) {
-      return `  expect(${call}).toThrow(/${throwKindPatternSource(s.throwKind)}/);`;
+      return `  expectDomainRejection(${call}, ${JSON.stringify(s.throwKind)});`;
     }
     return `  expectDomainRejection(${call});`;
   }

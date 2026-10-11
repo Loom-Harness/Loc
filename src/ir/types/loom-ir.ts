@@ -804,6 +804,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
