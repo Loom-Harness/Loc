@@ -503,8 +503,8 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     // an IR-pure, target-neutral classifier of exactly this predicate; this is
     // the promotion the audit asked for, not a new analysis.  It stays the
     // owner of a bad statement SUBJECT: the statement form's `subjectType` is
-    // resolved only for the supported awaited-op shape (`awaitedOpReturnType`,
-    // lower-stmt.ts — M-T5.43 V14), so `validateVariantMatch` runs the variant
+    // a union only for the supported awaited-op shape (typed by the single
+    // typing pass, M-T5.47; gated by M-T5.43 V14), so `validateVariantMatch` runs the variant
     // gates on a union subject and leaves every other subject to this
     // SHAPE-based gate, which needs no type resolution.
     //
@@ -593,6 +593,7 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
                   name: dep.name,
                 }),
                 source: where,
+                origin: comp.origin,
               });
             });
           }

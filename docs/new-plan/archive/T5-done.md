@@ -324,3 +324,5 @@ Item **V14** (#2838). The expression form of a variant `match` carries its resol
 **The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
 
 **Verification.** The pinned case flips; one negative case per gate on the statement form.
+
+**Outcome.** The subject typing landed first, via the single typing pass (M-T5.47 cutover 3b, #3166) — the PR's own lowering-side resolver was dropped as a duplicate in its 2026-10-11 re-sync. #3106 wires the gates: `validateVariantMatch` (`structural-checks.ts`) runs the unknown / duplicate / non-exhaustive gates over every page / component / store action's `variant-match` statement, with one negative case per gate in `test/ir/variant-match-subject-type.test.ts`.

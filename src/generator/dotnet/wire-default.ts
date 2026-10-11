@@ -7,9 +7,15 @@
 //     `DateTime.UtcNow` / an ambient claim read;
 //   * a VALUE-OBJECT construction (`total: Money = Money { … }`) — a `new
 //     Money(0m, "USD")` constructor call.  It could not name the type there
-//     anyway: the request file carries no `Domain.ValueObjects` using.
+//     anyway: the request file carries no `Domain.ValueObjects` using;
+//   * a LIST LITERAL (`tags: string[] = []`, `codes: string[] = ["a"]`) —
+//     `renderCsExpr` yields a collection expression (`[]` / `["a"]`), which is
+//     an allocation, not a constant, even when empty.  `IReadOnlyList<T> Tags
+//     = []` is CS1736 (#3060's corpus attempt).  In the coalesce it is fine:
+//     the other arm (`request.Tags.Select(…).ToList()`) gives the conditional
+//     its `List<T>` type, and the collection expression converts to it.
 //
-// Both take the same escape hatch — the request param becomes NULLABLE with a
+// All three take the same escape hatch — the request param becomes NULLABLE with a
 // `= null` default, and the controller coalesces the per-request value on the
 // way into the command, where the domain namespace IS in scope.
 //
@@ -35,5 +41,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
  *  predicate, so the coalesce site can render the expression without an
  *  assertion. */
 export function isNullableWireDefault(e: ExprIR | undefined): e is ExprIR {
-  return e !== undefined && (isServerSourcedDefault(e) || isValueObjectDefault(e));
+  return (
+    e !== undefined && (isServerSourcedDefault(e) || isValueObjectDefault(e) || e.kind === "list")
+  );
 }

@@ -88,6 +88,7 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
             kind2: kind === "state" ? "State" : "EventLog",
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }
@@ -125,6 +126,7 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
           reason,
         }),
         source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
       });
     }
   }
@@ -169,6 +171,7 @@ export function validateFileFieldObjectStorage(sys: SystemIR, diags: LoomDiagnos
             fileField,
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }
@@ -223,6 +226,7 @@ export function validateSavingShapeSupport(sys: SystemIR, diags: LoomDiagnostic[
             supported: supported.join(", "),
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }
@@ -576,6 +580,7 @@ export function validateVanillaDocumentScope(sys: SystemIR, diags: LoomDiagnosti
             bits: bits.join(" and "),
           }),
           source: `${sys.name}/${dep.name}`,
+          origin: dep.origin,
         });
       }
     }

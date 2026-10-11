@@ -1,12 +1,10 @@
 import type { LValue, Statement } from "../../language/generated/ast.js";
 import {
-  isAggregate,
   isAssignOrCallStmt,
   isEmitStmt,
   isIfStmt,
   isLetStmt,
   isMatchStmt,
-  isOperation,
   isPreconditionStmt,
   isRequiresStmt,
   isReturnStmt,
@@ -15,26 +13,24 @@ import { findVerb } from "../resource-verbs.js";
 import { typeKey, variantTag as unionVariantTag } from "../stdlib/unions.js";
 import type { ExprIR, PathIR, StmtIR, TypeIR } from "../types/loom-ir.js";
 import {
+  ambientResourceKind,
   inferExprType,
   isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
   lowerExprInContext,
-  pathType,
+  passTargetSteps,
+  passType,
   provSiteFor,
   retargetCallArgs,
-  thisTypeOf,
 } from "./lower-expr.js";
 import {
   cstText,
   type Env,
   findDomainServiceByName,
-  findEntityByName,
   findFunctionInEnv,
   findOperationInEnv,
-  inAggregate,
   lowerAtom,
-  lowerType,
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
@@ -108,10 +104,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     // each arm's statement block, binding the (optional) narrowed variant value
     // as a real local (`match-binding`) so member reads inside the arm resolve.
     const subject = lowerExpr(stmt.subject, env);
-    const subjectType =
-      subject.kind === "ref"
-        ? subject.type
-        : (awaitedOpReturnType(subject, env) ?? inferExprType(stmt.subject, env));
+    const subjectType = subject.kind === "ref" ? subject.type : inferExprType(stmt.subject, env);
     const arms = stmt.varArms.map((arm) => {
       const varType = lowerAtom(arm.varType, env);
       const armEnv = arm.binding ? withLocal(env, arm.binding, "match-binding", varType) : env;
@@ -231,9 +224,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
         // produces for `this.prop.verb(...)`, so the two spellings agree.
         const segs = [lv.head, ...lv.tail];
         let recv: ExprIR = { kind: "this" };
-        let recvType: TypeIR = thisTypeOf(env);
+        const steps = passTargetSteps(lv);
+        let recvType: TypeIR = steps[0] ?? { kind: "primitive", name: "string" };
         for (let i = 0; i < segs.length - 1; i++) {
-          const memberType = pathType({ segments: segs.slice(0, i + 1) }, env, true);
+          const memberType = steps[i + 1] ?? { kind: "primitive", name: "string" };
           recv = {
             kind: "member",
             receiver: recv,
@@ -354,8 +348,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // spellings of one call now produce one IR shape.  (Workflow bodies take
       // their own `resource-call` path in `lower-workflow.ts` and are
       // unaffected.)
-      if (lv.call && lv.tail.length === 1 && env.resources?.has(lv.head)) {
-        const resourceKind = env.resources.get(lv.head)!;
+      const stmtResourceKind =
+        lv.call && lv.tail.length === 1 ? ambientResourceKind(lv.head, env) : undefined;
+      if (stmtResourceKind) {
+        const resourceKind = stmtResourceKind;
         const verb = lv.tail[0]!;
         const args = (lv.args ?? []).map((a) => lowerExpr(a, env));
         const verbDef = findVerb(resourceKind, verb);
@@ -430,7 +426,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       // money-typed target lowers as money — `subtotal := 0.50`
       // becomes `lit("money", "0.50")` so the backend emits the
       // precise constructor.
-      const targetType = pathType(path, env, lv.thisRef);
+      const targetType = passType(lv, env);
       const value = lowerExprInContext(stmt.value, targetType, env);
       return {
         stmt: { kind: "assign", target: path, value, targetType, prov },
@@ -438,7 +434,7 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
       };
     }
     if (stmt.op === "+=" || stmt.op === "-=") {
-      const targetType = pathType(path, env, lv.thisRef);
+      const targetType = passType(lv, env);
       const collection = targetType.kind === "array";
       const elementType = collection ? targetType.element : targetType;
       // Element-type context applies for both array push (`+=`) and
@@ -467,29 +463,4 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     stmt: { kind: "call", target: "function", name: "<unknown>", args: [] },
     envAfter: env,
   };
-}
-
-/** The declared return type of the aggregate operation an awaited `match`
- *  subject calls — `<apiHandle>.<Agg>.<op>(…)` or bare `<Agg>.<op>(…)`, the two
- *  shapes every frontend resolves (`classifyFelizAsyncEffect`).  `inferExprType`
- *  cannot type that call (the api handle is not a local, so the method-call
- *  falls to its `string` catch-all), which left `variant-match.subjectType` a
- *  `string` and kept the four type-grounded `match` gates off the statement
- *  form (audit F56, M-T5.43 V14).  Undefined for any other subject — the
- *  shape gate `loom.async-effect-subject-unsupported` owns those. */
-function awaitedOpReturnType(subject: ExprIR, env: Env): TypeIR | undefined {
-  if (subject.kind !== "method-call") return undefined;
-  const recv = subject.receiver;
-  const aggName =
-    recv.kind === "member" && recv.receiver.kind === "ref"
-      ? recv.member
-      : recv.kind === "ref" && !env.locals.has(recv.name)
-        ? recv.name
-        : undefined;
-  if (!aggName) return undefined;
-  const agg = findEntityByName(env, aggName);
-  if (!agg || !isAggregate(agg)) return undefined;
-  const op = agg.members.find((m) => isOperation(m) && m.name === subject.member);
-  if (!op || !isOperation(op) || !op.returnType) return undefined;
-  return lowerType(op.returnType, inAggregate(env, agg));
 }

@@ -1,16 +1,17 @@
-// `StmtIR.variant-match.subjectType` — audit finding F56, closed by M-T5.43 V14.
+// `StmtIR.variant-match.subjectType` — audit finding F56, closed by the single
+// typing pass (M-T5.47 cutover 3b); the gates wired by M-T5.43 V14.
 //
 // The field's own doc comment calls it "Resolved `or`-union TypeIR of the
 // subject — the variant set", and the four type-grounded `match` gates in
 // `variant-match-shape.ts` are written against exactly that promise.  It used
 // not to hold: `lowerMatchStmt` filled it from `inferExprType`, whose catch-all
-// is `{ kind: "primitive", name: "string" }`, so an awaited api-handle operation
-// call — the ONLY subject shape Stage 2 `match await` is for — typed as
-// `string`, and none of the gates could run on the statement form.
+// was `{ kind: "primitive", name: "string" }`, so an api-handle operation call
+// — the ONLY subject shape Stage 2 `match await` is for — typed as `string`,
+// and none of the gates could run on the statement form.
 //
-// `awaitedOpReturnType` (lower-stmt.ts) now types the subject from the awaited
-// aggregate operation's declared return, and `validateVariantMatch` runs the
-// unknown / duplicate / non-exhaustive gates over every page / component /
+// The pass types an operation invoked through the api handle as its declared
+// return type and lowering copies it; `validateVariantMatch` (M-T5.43 V14) runs
+// the unknown / duplicate / non-exhaustive gates over every page / component /
 // store action's `variant-match` statement.
 
 import { describe, expect, it } from "vitest";

@@ -72,12 +72,14 @@ import {
   resolveTypeRef,
   stepInto,
   stepIntoNode,
+  suffixType,
   T,
-  typeAfterSuffix,
   typeOf,
   typeToString,
   withTags,
 } from "../type-system.js";
+import { toDddType } from "../typing/adapt.js";
+import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import {
   canPromoteLiteralTo,
@@ -303,7 +305,7 @@ export function checkAssignOrCall(
     checkCallStmt(stmt, agg, op, env, accept);
     return;
   }
-  const targetType = lvalueType(stmt.target, agg, env, accept);
+  const targetType = lvalueType(stmt.target, accept);
   // Reject assignment to a derived property — derived members are
   // computed from other state and writing to them would silently no-op.
   if (lvalueIsDerived(stmt.target, agg)) {
@@ -317,8 +319,8 @@ export function checkAssignOrCall(
   if (stmt.op === ":=") {
     const valueType = typeOf(stmt.value, env);
     if (
-      !partlyUnknown(targetType) &&
-      !partlyUnknown(valueType) &&
+      targetType.kind !== "unknown" &&
+      valueType.kind !== "unknown" &&
       !isAssignable(valueType, targetType) &&
       !canPromoteLiteralTo(stmt.value, targetType)
     ) {
@@ -510,7 +512,7 @@ export function checkExprCallArgs(
           );
         }
       }
-      curType = typeAfterSuffix(curType, s, env);
+      curType = suffixType(s);
     }
   }
 }
@@ -776,7 +778,9 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
     if (recv.kind === "unknown") return;
   }
   const methodName = lv.tail[lv.tail.length - 1]!;
-  const memberNode = stepIntoNode(recv, methodName);
+  // A nullable read (`Orders.findById(…)`: `Order?`) still names its callee —
+  // arity and arg types do not depend on whether the receiver was guarded.
+  const memberNode = stepIntoNode(recv.kind === "optional" ? recv.inner : recv, methodName);
   if (!memberNode || (!isOperation(memberNode) && !isFunctionDecl(memberNode))) return;
   checkCallArgs(
     (memberNode as Operation | FunctionDecl).params,
@@ -1078,55 +1082,42 @@ export function checkCallStmt(
   });
 }
 
-export function lvalueType(
-  lv: LValue,
-  agg: Aggregate,
-  env: Env,
-  accept: ValidationAcceptor,
-): DddType {
-  // Resolve the head: a parameter, let-binding, or an aggregate property.
-  //
-  // An EXPLICIT `this.` prefix takes the first two off the table.  Skipping
-  // `env.resolve` is the whole point of the spelling: in
-  // `operation rename(name: string) { this.name := name }` the head and the
-  // parameter share a name, and resolving the head against the parameter would
-  // type-check the assignment against the WRONG member — silently, whenever
-  // the two types happen to be compatible.
-  //
-  // A BARE head that names a member of the aggregate is that member, too, even
-  // when a parameter / `let` of the same name is in scope (M-T5.42, V4): every
-  // backend emits an assignment as a write to the member (`this._name = …`),
-  // so type-checking `name := name` against the shadowing int parameter
-  // accepted a write its own target language rejects (TS2322 / CS0029).
-  const memberHead = lv.thisRef ? undefined : lookupRootMember(agg, lv.head);
-  const headSym =
-    lv.thisRef || (memberHead && memberHead.kind !== "unknown") ? undefined : env.resolve(lv.head);
-  let cur: DddType;
-  if (headSym) {
-    cur = headSym.type;
-  } else {
-    // Check aggregate root members
-    cur = lookupRootMember(agg, lv.head);
-    if (cur.kind === "unknown") {
+export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
+  // The target's receiver chain as the single typing pass typed it (M-T5.47):
+  // `this`, then the type after each segment.  The head resolves lexically
+  // (param, let, …) before the enclosing record's members — except under an
+  // EXPLICIT `this.`, the whole point of which is to skip a same-named
+  // parameter (`operation rename(name: string) { this.name := name }`) — and
+  // except a bare head naming a member of the enclosing aggregate, which the
+  // pass types as that member (M-T5.42 V4, `lvalueSteps`).
+  const steps = typingFor(lv).lvalueStepsAt(lv) ?? [];
+  const segs = [lv.head, ...lv.tail];
+  for (let i = 0; i < segs.length; i++) {
+    const t = steps[i + 1];
+    if (t && t.kind !== "unknown") continue;
+    // A segment that RESOLVED to a member whose own type did not (a typo'd
+    // or cross-file type) is reported where that type is written, not here.
+    if (
+      t?.kind === "unknown" &&
+      !["unresolved-name", "unresolved-member", "not-a-value"].includes(t.cause)
+    )
+      return T.unknown;
+    if (i === 0) {
       accept("error", diagMessage("loom.unresolved-lvalue-head", { head: lv.head }), {
         node: lv,
         property: "head",
         code: "loom.unresolved-lvalue-head",
       });
-      return T.unknown;
-    }
-  }
-  for (const seg of lv.tail) {
-    cur = stepInto(cur, seg);
-    if (cur.kind === "unknown") {
-      accept("error", diagMessage("loom.unresolved-member", { member: seg }), {
+    } else {
+      accept("error", diagMessage("loom.unresolved-member", { member: segs[i] }), {
         node: lv,
         code: "loom.unresolved-member",
       });
-      return T.unknown;
     }
+    return T.unknown;
   }
-  return cur;
+  // A declared field keeps the declaration view of a generic carrier.
+  return toDddType(steps[segs.length]!, { generic: "arg" });
 }
 
 /**
@@ -1158,18 +1149,5 @@ export function lvalueIsDerived(lv: LValue, agg: Aggregate): boolean {
       if (isDerivedProp(m) && m.name === lastSegment) return true;
     }
   }
-  return false;
-}
-
-/** `unknown`, or a collection/optional whose element is — the value every
- *  downstream check suppresses on.  A macro-emitted parameter can type as
- *  `unknown[]` (crudish's `update(items: LineItem[])` over a value-object
- *  array), and since a bare assignment head now resolves to the MEMBER
- *  (M-T5.42 V4) that parameter meets a fully-typed target — reporting
- *  `unknown[]` vs `LineItem[]` would blame the author for an unresolved type. */
-function partlyUnknown(t: DddType): boolean {
-  if (t.kind === "unknown") return true;
-  if (t.kind === "array") return partlyUnknown(t.element);
-  if (t.kind === "optional") return partlyUnknown(t.inner);
   return false;
 }

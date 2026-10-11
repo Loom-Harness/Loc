@@ -105,6 +105,7 @@ export function checkMarkupInCollectionLambda(
             param: arg.param,
           }),
           source: where,
+          origin: "origin" in host ? host.origin : undefined,
         });
       }
     }
@@ -225,6 +226,7 @@ export function checkMoneyInTextSlot(
                   aggregate: field.aggregate,
                 }),
             source: where,
+            origin: host.origin,
           });
         }
       }
