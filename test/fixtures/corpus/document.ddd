@@ -55,7 +55,7 @@ system DocSys {
     api.articles.addSection(a, { heading: "H", body: "B" })
     let read = api.articles.getById(a)
     expect(read.title).toBe("T1")
-    expect(read.stage).toBe(Pending)
+    expect(read.stage).toBe("Pending")
 
     // The canonical `update` on a `shape: document` aggregate rewrites the
     // ROOT scalars only — `sections` is a containment, not an update param —
@@ -64,10 +64,10 @@ system DocSys {
     // the document from the update input alone loses the section here.
     // The update is full-replacement, so it carries `stage` too: a default is a
     // construction rule and relaxes no update field (RS-26).
-    api.articles.update(a, { title: "T2", viewCount: 5, stage: Published })
+    api.articles.update(a, { title: "T2", viewCount: 5, stage: "Published" })
     let updated = api.articles.getById(a)
     expect(updated.title).toBe("T2")
-    expect(updated.stage).toBe(Published)
+    expect(updated.stage).toBe("Published")
     expect(updated.viewCount).toBe(5)
     expect(updated.sections.length).toBe(1)
 
