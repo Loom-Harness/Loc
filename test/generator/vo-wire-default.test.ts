@@ -110,7 +110,9 @@ describe("a value-object field default renders in the WIRE shape", () => {
     // `Invoice.Create(reference: "R")`; a required positional `Money? discount`
     // made that CS7036, so the whole unit tier failed to build.
     const src = fileEndingWith(await generateCorpusCase(FEATURE, "dotnet"), "Invoice.cs");
-    expect(src).toMatch(/public static Invoice Create\(string reference, [^)]*Money\? discount = null\)/);
+    expect(src).toMatch(
+      /public static Invoice Create\(string reference, [^)]*Money\? discount = null\)/,
+    );
     expect(src).toContain("e.Discount = discount;");
   });
 

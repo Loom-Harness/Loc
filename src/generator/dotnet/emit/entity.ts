@@ -865,8 +865,7 @@ export function renderEntity(
   // a caller (a generated domain test, `Create(reference: "R")`) leave it out.
   const plainOptional = (f: FieldIR): boolean =>
     !isRequiredCreateInput(f) && createOmissionValue(f).kind === "null";
-  const trailing = (f: FieldIR): boolean =>
-    csFactoryDefault(f) !== undefined || plainOptional(f);
+  const trailing = (f: FieldIR): boolean => csFactoryDefault(f) !== undefined || plainOptional(f);
   const createAssignments = createInputFieldList.map((f) => {
     const dflt = csFactoryDefault(f);
     // `??`, not a truthiness test: an explicit 0/""/false must survive.
