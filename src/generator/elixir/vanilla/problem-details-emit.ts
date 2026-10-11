@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { CONCURRENCY_CONFLICT_SUFFIX, problemTitle } from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
@@ -146,13 +146,14 @@ export function renderVanillaProblemDetailsModule(
   since the client read it (\`Ecto.StaleEntryError\`, rescued to
   \`{:error, :conflict}\`).  Logs the \`conflict\` catalog event, distinct from
   the \`unique (...)\` 409 (which logs \`disallowed\` via \`problem_response/4\`).
+  The detail names the aggregate and the row (RS-39), the same sentence the
+  other four backends serve: \`"<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}"\`.
   """
-  def conflict_response(conn) do
+  def conflict_response(conn, kind, id) do
+    detail = "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}"
+
     ${renderPhoenixLogCall("conflict", [
-      {
-        name: "message",
-        valueExpr: `"The resource was modified by another request; reload and retry."`,
-      },
+      { name: "message", valueExpr: "detail" },
       { name: "status", valueExpr: `${concurrencyStatus}` },
     ])}
     ${renderPhoenixDomainFault("conflict")}
@@ -162,7 +163,7 @@ export function renderVanillaProblemDetailsModule(
         type: "about:blank",
         title: ${JSON.stringify(problemTitle(concurrencyStatus))},
         status: ${concurrencyStatus},
-        detail: "The resource was modified by another request; reload and retry.",
+        detail: detail,
         instance: conn.request_path
       })
 

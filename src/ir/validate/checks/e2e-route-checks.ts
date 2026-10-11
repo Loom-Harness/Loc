@@ -62,6 +62,7 @@ import {
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { e2eIfMatchApplies, readE2eCallOptions } from "../../util/e2e-call-options.js";
 import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
 import {
   apisServedBy,
@@ -790,6 +791,44 @@ function checkApiPayload(
       diags,
       { kind: "operation" },
     );
+    checkCallOptions(call, agg, op.name, source, diags);
+  }
+}
+
+/** The optional THIRD argument of an operation call — `{ ifMatch: <version> }`,
+ *  rendered as the `If-Match` header (`e2e-call-options.ts`).  Any other shape,
+ *  a fourth argument, or an `ifMatch` on a route not every backend reads it on
+ *  is refused: the renderer used to drop a third argument without a word, so a
+ *  test that MEANT to send a stale precondition silently sent none. */
+function checkCallOptions(
+  call: MagicCall,
+  agg: AggregateIR,
+  opName: string,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.args.length <= 2) return;
+  const options = readE2eCallOptions(call.args[2]);
+  if (call.args.length > 3 || options === "malformed") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-call-options",
+      source,
+      message: diagMessage("loom.e2e-call-options#shape", { slug: call.slug, verb: call.verb }),
+    });
+    return;
+  }
+  if (options && !e2eIfMatchApplies(agg, opName)) {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-call-options",
+      source,
+      message: diagMessage("loom.e2e-call-options#if-match-scope", {
+        slug: call.slug,
+        verb: call.verb,
+        aggregate: agg.name,
+      }),
+    });
   }
 }
 

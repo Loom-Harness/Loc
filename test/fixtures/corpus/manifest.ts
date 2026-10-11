@@ -90,12 +90,12 @@ const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "pytho
  *    reactor's Audit row.  Discriminates.
  *  - python: passes.  Its reactor runs inside the open transaction (same
  *    session), so the dispatch half has no discriminating power there; armed
- *    because it honestly passes.  Its 409 `detail` sentence differs from
- *    node's (wire waiver, M-T6.91).
+ *    because it honestly passes.  Its 409 `detail` is node's sentence since
+ *    M-T6.91 (RS-39), so no wire waiver.
  *  - .NET DAPPER: armed adapter-only via `ADAPTER_ONLY_CASES`
  *    (test/behavioral/registers.mjs).  Discriminates #3224's atomicity fix:
  *    pre-fix the saves committed on their own connections (`expected 80 to
- *    be 90`).  Same 409 `detail` waiver.
+ *    be 90`).  Same 409 `detail` (RS-39).
  *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
  *    one tracked entity, so `debitTwice` never conflicts and the double debit
  *    commits (M-T6.90).  The key returns with that fix.
@@ -580,6 +580,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     title: "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
     doc: "audit",
     backends: ALL,
+  },
+  {
+    id: "concurrency-conflict",
+    title:
+      "optimistic concurrency — a stale `If-Match` on a `versioned` aggregate's update answers the named 409 (RS-39)",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
   },
   {
     id: "audit-history",

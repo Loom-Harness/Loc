@@ -399,6 +399,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-arity":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-bodyless-method":

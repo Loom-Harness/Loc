@@ -120,6 +120,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -349,7 +350,7 @@ ${
  *  apart via the \`conflict\` vs \`disallowed\` log event. */
 export class ConcurrencyError extends Error {
   constructor(aggregate: string, id: string) {
-    super(\`\${aggregate} \${id} was modified by another request\`);
+    super(\`\${aggregate} \${id} ${CONCURRENCY_CONFLICT_SUFFIX}\`);
     this.name = "ConcurrencyError";
   }
 }

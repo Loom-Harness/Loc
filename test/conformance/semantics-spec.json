@@ -747,6 +747,24 @@
         "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-39",
+      "title": "An optimistic-concurrency 409 carries the sentence `\"<Aggregate> <id> was modified by another request\"`",
+      "trigger": "`concurrency-conflict.ddd`: a `versioned` aggregate's `update` sent with a stale `If-Match` (the version the row had before an accepted update)",
+      "observable": "the write is refused with 409, `title` \"Conflict\", and the RFC 9457 `detail` is the sentence `\"<Aggregate> <id> was modified by another request\"` — the aggregate's PascalCase name, the conflicting row's id, no trailing punctuation — on every backend; the row keeps the accepted write.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+        "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)"
+      ],
+      "tier": "behavioral"
     }
   ]
 }
