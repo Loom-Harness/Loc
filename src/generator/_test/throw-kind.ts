@@ -30,6 +30,25 @@
 
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 
+/** The error classes a BARE `toThrow()` accepts on node and python: every way
+ *  the in-process domain floor refuses a call.
+ *
+ *    DomainError     — a `precondition`, an aggregate / part invariant, and a
+ *                      value object's invariant (`ValueObjectInvariantError`
+ *                      subclasses it);
+ *    DisallowedError — an operation's `when` state gate, raised at the
+ *                      domain-method entry (a sibling of `DomainError`, so the
+ *                      router can answer it 409 rather than 422);
+ *    ForbiddenError  — a non-leading `requires` left in the operation body.
+ *
+ *  Nothing else.  A bare `toThrow()` once lowered to "anything threw"
+ *  (vitest `.toThrow()`, `pytest.raises(Exception)`), so a `ReferenceError` /
+ *  `NameError` out of BROKEN generated code satisfied a negative test — the
+ *  claims evaluation's D2: a test passed only because codegen emitted an
+ *  undefined enum name.  Both backends emit all three classes unconditionally
+ *  in `domain/errors`, and spell them identically, hence one list. */
+export const DOMAIN_REJECTION_ERRORS = ["DisallowedError", "DomainError", "ForbiddenError"] as const;
+
 /** The derived message prefix each rung emits on node / python / java / .NET
  *  when the rule carries no authored `message`.  Kept as the exact emitted
  *  text (trailing space and all) so a matcher built from it cannot drift from
