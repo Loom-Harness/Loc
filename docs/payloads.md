@@ -197,8 +197,8 @@ for the two modes and the per-frontend support table.
 A union is a value that is **one of several distinct variants**, tagged on the
 wire so a consumer can branch. Two surfaces, one IR shape:
 
-**Anonymous `or`** — inline in a payload field or an exception-less operation
-return, no declaration:
+**Anonymous `or`** — inline in an exception-less operation return, no
+declaration (a payload field is refused — see [Position](#position)):
 
 ```
 aggregate Order {
@@ -244,8 +244,8 @@ data:
 
 The variant **tag** is the variant type's name (`Order`, `NotFound`, `none`, …).
 All five backends derive this shape from one resolver, so the wire is identical
-by construction. This tagged form is emitted for **payload fields** and
-**exception-less operation returns** — *not* repository finds (next):
+by construction. This tagged form is emitted for **exception-less operation
+returns** — *not* repository finds (next):
 
 | Backend | union emission |
 |---|---|
@@ -274,7 +274,7 @@ status — an `error` payload → its mapped RFC-7807 ProblemDetails status
 (`resource` filled with the aggregate name), `none` → `404`. There is no `type`
 discriminator and no union component in the OpenAPI schema. All five backends
 agree by construction (the wire matches a plain optional find); the tagged
-`oneOf` survives only for operation returns and payload fields.
+`oneOf` survives only for operation returns.
 
 > **Why the split.** A find's absent case is an *edge* (the row wasn't there),
 > not a domain-modelled alternative the producer chose — so it belongs at a
@@ -294,8 +294,10 @@ A or B[]               ≡  A or (B[])
 ### Position
 
 An **inline `or`** union (like a carrier) is a transport shape — it may appear
-only as a repository find return type, a payload field, or an operation /
-domain-service-operation return (`loom.union-position`). A **named** union is
+only as a repository find return type or an operation /
+domain-service-operation return (`loom.union-position`).  A payload field is
+refused as well: the tagged wire is emitted at the top of a return, and no
+backend renders a union nested inside a record. A **named** union is
 referenced by its name and so is unaffected.
 
 ---
@@ -306,7 +308,7 @@ referenced by its name and so is unaffected.
 |---|---|
 | `loom.union-duplicate-variant` | A repeated variant (`string or string`, `payload F = A \| A`) — the discriminator must be unambiguous. |
 | `loom.union-variant-not-carrier` | A `slot` variant — every variant must be a carrier type. |
-| `loom.union-position` | An inline `or` union outside a find return / payload field / operation return. |
+| `loom.union-position` | An inline `or` union outside a find return / operation return (a payload field included). |
 | `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged` / `envelope`. |

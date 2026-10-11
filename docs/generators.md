@@ -1160,7 +1160,7 @@ part) read-model field stays gated
 `loom.java-projection-field-unsupported`) — a defensive backstop, since a
 part type never resolves in workflow / projection scope.
 
-Discriminated unions (payload fields / operation returns; union *finds* take
+Discriminated unions (operation returns; union *finds* take
 the untagged optional-style path — see `payloads.md`), `shape: document` /
 `shape: embedded` persistence, event-sourced (`persistedAs: eventLog`)
 JPA streams, and non-principal capability filters on those non-relational
