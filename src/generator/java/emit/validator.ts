@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   emitsRestCreate,
-  forCreateInput,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -137,7 +137,7 @@ function commandSpecs(
   voByName: ReadonlyMap<string, ValueObjectIR>,
 ): CommandSpec[] {
   const specs: CommandSpec[] = [];
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   // A create validator exists only when there's a field-derived Create<Agg>Request
   // to validate.  Skip when there's no REST create at all, and for event-sourced
   // aggregates, whose create request is keyed by the `create` action's params

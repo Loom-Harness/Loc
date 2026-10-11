@@ -1,7 +1,7 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
-  forCreateInput,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
 import {
@@ -327,7 +327,7 @@ export function buildPyRoutesFile(
       // A `currentUser.*` create-field default binds `current_user: User` in
       // the create handler for its per-request coalesce.
       (hasCreateFactory(agg) &&
-        forCreateInput(agg.fields).some(
+        createInputFields(agg).some(
           (f) =>
             f.default !== undefined &&
             isServerSourcedDefault(f.default) &&
@@ -664,7 +664,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
       "",
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   const available = new Set(inputs.map((f) => f.name));
   const constraints = createFieldConstraints(agg.invariants, available);
   return lines(
@@ -918,7 +918,7 @@ function createRoute(
       `    return {"id": created.id}`,
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
   // per-request HERE (the request field is optional): the factory arg coalesces
   // the client's value with the freshly-evaluated default.  In the handler body

@@ -2973,14 +2973,42 @@ export const DIAGNOSTIC_MESSAGES = {
     `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
     `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
     `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
-  "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
-    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
-    `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
-    `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
-    `does not accept it — a client (or a \`test\` block) written from the ` +
-    `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
-    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
+  "loom.create-call-field-not-in-create": (p: { agg: unknown; fields: unknown; params: unknown }) =>
+    `\`${p.agg}.create({ … })\` passes ${p.fields}, which the declared \`create(…)\` does not ` +
+    `list.  Its parameters (${p.params}) are the factory input; every other field takes its ` +
+    `declared default.  Drop the key, or add the field to the \`create\` parameters.`,
+  // A declared `create(…)`'s parameter list is the create input, so each
+  // param must BE a client-suppliable field.
+  "loom.create-param-not-a-field": (p: { agg: unknown; param: unknown; fields: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names no field.  A declared ` +
+    `\`create(…)\`'s parameters ARE the \`POST /<plural>\` request contract — each one is ` +
+    `the wire slot of the same-named field, so a free-standing parameter has nowhere to ` +
+    `land.  Rename it to one of ${p.fields}, or declare the field.`,
+  "loom.create-param-not-a-field#server-owned": (p: {
+    agg: unknown;
+    param: unknown;
+    access: unknown;
+  }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names a \`${p.access}\` field, ` +
+    `which the server owns — a client cannot supply it at creation.  Drop it from the ` +
+    `parameter list (its declared default initialises it), or remove the \`${p.access}\` modifier.`,
+  "loom.create-param-not-a-field#type": (p: { agg: unknown; param: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' does not have the type of the ` +
+    `field '${p.param}' (including its \`?\`).  The parameter is that field's wire slot, so ` +
+    `declare it with the field's exact type.`,
+  // A field a narrowed `create(…)` leaves out must be one the factory can
+  // initialise on its own.
+  "loom.create-param-required-omitted": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', which is ` +
+    `required — non-nullable, with no default.  A declared parameter list IS the request ` +
+    `contract, so nothing would give '${p.field}' a value at creation.  Add it to the ` +
+    `parameters, give the field an \`= <default>\`, or make it optional (\`${p.field}: T?\`).`,
+  "loom.create-param-required-omitted#default": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', whose default ` +
+    `is not a compile-time constant (a literal or an enum member).  A field outside the ` +
+    `parameter list is initialised by the domain factory, which has no clock, principal or ` +
+    `constructor context to evaluate that default in.  Add '${p.field}' to the parameters, ` +
+    `or give it a constant default.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;

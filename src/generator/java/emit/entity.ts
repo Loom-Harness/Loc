@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -248,7 +248,7 @@ export function renderJavaEntity(
   const _idValueType = isAgg(entity) ? entity.idValueType : "guid";
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
   const operations = isAgg(entity) ? entity.operations : [];
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // The declared value an omittable create input takes when the caller passes
   // null, or undefined when the caller must supply it.  Server-sourced defaults
   // (`now()`, `currentUser.*`) keep their existing path.
@@ -919,9 +919,10 @@ export function renderJavaEntity(
           // `new BigDecimal("2.50")`, so a `money managed = money("2.50")` no
           // longer INSERTs a null into its NOT NULL column.
           ...(isAgg(entity)
-            ? constructionSeededFields(entity.fields).map(
-                (f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
-              )
+            ? constructionSeededFields(
+                entity.fields,
+                new Set(createInputFieldList.map((f) => f.name)),
+              ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
             : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
           `        return e;`,

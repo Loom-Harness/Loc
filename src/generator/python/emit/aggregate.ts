@@ -1,7 +1,7 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -96,6 +96,9 @@ interface EntityShape {
    *  single-level output is byte-identical. */
   parentName?: string;
   fields: FieldIR[];
+  /** The create factory's input fields — the aggregate's create-input
+   *  contract (`createInputFields`); empty for an entity part. */
+  createInputs: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
   invariants: InvariantIR[];
@@ -196,7 +199,7 @@ export function renderPyAggregate(
     root.hasCreate &&
     root.fields.some(
       (f) =>
-        !forCreateInput(root.fields).includes(f) &&
+        !root.createInputs.includes(f) &&
         !f.optional &&
         f.type.kind === "primitive" &&
         f.type.name === "datetime",
@@ -380,6 +383,7 @@ function rootShape(a: AggregateIR): EntityShape {
     isRoot: true,
     hasCreate: hasCreate(a),
     fields: a.fields,
+    createInputs: createInputFields(a),
     contains: a.contains,
     derived: a.derived,
     invariants: a.invariants,
@@ -400,6 +404,7 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
     rootName: root.name,
     parentName: directParentName(root, p.name, root.name),
     fields: p.fields,
+    createInputs: [],
     contains: p.contains,
     derived: p.derived,
     invariants: p.invariants,
@@ -883,7 +888,7 @@ function renderEntity(
   // the wire create set (incl. optionals); server-owned fields seed.
   let createFactory: string[] = [];
   if (e.isRoot && e.hasCreate && !e.eventSourced) {
-    const inputs = forCreateInput(e.fields);
+    const inputs = e.createInputs;
     const inputNames = new Set(inputs.map((f) => f.name));
     // A declared default is a CONSTRUCTION rule, so the factory materializes
     // it and the caller may omit the argument.  Server-sourced defaults
@@ -923,7 +928,7 @@ function renderEntity(
     // `mm: money managed = money("2.50")` no longer lands as `None` under a
     // `Decimal` annotation.
     const defaultSeeds = new Map(
-      constructionSeededFields(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
+      constructionSeededFields(e.fields, inputNames).map((f) => [f.name, renderPyExpr(f.default)]),
     );
     const fieldInit = (f: FieldIR): string => {
       if (inputNames.has(f.name)) {

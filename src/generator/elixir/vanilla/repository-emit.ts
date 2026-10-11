@@ -12,6 +12,7 @@
 // `context-emit.ts` so a workflow's `repo-let` lowering can call it.
 // ---------------------------------------------------------------------------
 
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import {
   envelopeReturn,
   PAGED_DEFAULT_PAGE,
@@ -519,7 +520,7 @@ ${
 
   @spec insert(map()${hasStamps && stampPrincipal ? ", map() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${claimGuardLines.length > 0 ? " | {:forbidden, String.t()}" : ""}}
   def insert(attrs${stampActorParam}) when is_map(attrs) do
-${claimGuardLines.length > 0 ? `${claimGuardLines.join("\n")}\n  ` : "  "}  ${insertBody}
+${declaredCreateParamNames(agg) !== undefined ? `    attrs = ${aggModule}Changeset.take_create_attrs(attrs)\n` : ""}${claimGuardLines.length > 0 ? `${claimGuardLines.join("\n")}\n  ` : "  "}  ${insertBody}
 ${claimGuardEnd.join("\n")}${claimGuardEnd.length > 0 ? "\n" : ""}  end
 
   @spec update(${aggModule}.t(), map()${updateSpecArgTail}) :: {:ok, ${aggModule}.t()} | {:error, ${updateErrTail}}
