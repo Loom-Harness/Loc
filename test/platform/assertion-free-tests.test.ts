@@ -82,12 +82,15 @@ const PINNED: Record<string, number> = {
   // journal-ordering gate, delegating to `runJournalOrderingGate` — which
   // `expect`s the journal's `when` values (applied entries held fixed, the
   // inserted one above the recorded watermark) and the post-boot
-  // information_schema probes, and throws on a failed boot.
-  "test/e2e/migration-evolution.test.ts": 5,
-  "test/e2e/migration-evolution-dotnet.test.ts": 1,
-  "test/e2e/migration-evolution-elixir.test.ts": 1,
-  "test/e2e/migration-evolution-java.test.ts": 1,
-  "test/e2e/migration-evolution-python.test.ts": 1,
+  // information_schema probes, and throws on a failed boot.  The last one in
+  // every file is the #3229 unique-index gate, delegating to
+  // `runUniqueIndexEvolutionGate` (which `expect`s each indexdef and every
+  // 201/409 across the three generations).
+  "test/e2e/migration-evolution.test.ts": 6,
+  "test/e2e/migration-evolution-dotnet.test.ts": 2,
+  "test/e2e/migration-evolution-elixir.test.ts": 2,
+  "test/e2e/migration-evolution-java.test.ts": 2,
+  "test/e2e/migration-evolution-python.test.ts": 2,
 };
 
 function testFiles(dir: string, out: string[] = []): string[] {
