@@ -98,7 +98,7 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/generator/typescript/hono-erp-bundle-regressions.test.ts": 1,
   "test/generator/typescript/hono-workflow-nested-saves.test.ts": 1,
   "test/generator/typescript/interpolation.test.ts": 2,
-  "test/generator/typescript/intrinsic-trim.test.ts": 5,
+  "test/generator/typescript/intrinsic-trim.test.ts": 3,
   "test/generator/typescript/nested-parts.test.ts": 3,
   "test/generator/typescript/paged-emit.test.ts": 3,
   "test/generator/typescript/retrieval-criterion-reify.test.ts": 1,

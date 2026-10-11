@@ -5,25 +5,13 @@
 // render-expr.ts (TS_INTRINSIC_RENDERERS); the SQL snippet in
 // repository-find-predicate.ts (DRIZZLE_INTRINSIC_SQL).
 
+//
+// The value-side arms (`this.name == q.trim()`, `toLower()` on both sides) are
+// asserted at run time by `corpus/intrinsics` on every leg, MikroORM included.
+
 import { describe, expect, it } from "vitest";
 import { generateHono } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
-
-describe("typescript generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
-  it("renders a value-side trim (param receiver) as plain JS", async () => {
-    const src = `
-      context Catalog {
-        aggregate Product { name: string }
-        repository Products for Product {
-          find byName(q: string): Product[] where this.name == q.trim()
-        }
-      }
-    `;
-    const model = await parseValid(src);
-    const repo = generateHono(model).get("db/repositories/product-repository.ts")!;
-    expect(repo).toContain("eq(schema.products.name, q.trim())");
-  });
-});
 
 describe("typescript generator — A2 string intrinsics end-to-end", () => {
   const SRC2 = `
@@ -46,12 +34,6 @@ describe("typescript generator — A2 string intrinsics end-to-end", () => {
     expect(domain).toContain("this._name.trim().toLowerCase()");
     expect(domain).toContain("this._name.slice(0, (0) + (1)).toUpperCase()");
     expect(domain).toContain('this._name.split(",").length');
-  });
-
-  it("renders toLower on BOTH sides of a where (column SQL + value JS)", async () => {
-    const model = await parseValid(SRC2);
-    const repo = generateHono(model).get("db/repositories/product-repository.ts")!;
-    expect(repo).toContain("eq(sql`lower(${schema.products.name})`, q.toLowerCase())");
   });
 });
 

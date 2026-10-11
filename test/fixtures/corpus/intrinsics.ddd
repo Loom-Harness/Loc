@@ -19,12 +19,12 @@
 //     and an int `abs()`;
 //   - `trim()`, `toLower()`, `floor()` and `abs()` on the COLUMN side of a
 //     find, matched against the stored value;
+//   - `trim()` and `toLower()` on the VALUE side (`q.trim()`), computed before
+//     the query — the arm the MikroORM adapter once answered with a 500;
 //   - the same column-side `trim()` through a reified criterion.
 //
-// Two claims the copies carry are NOT asserted here, because promoting them
-// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
-// a VALUE-side intrinsic in a find (`q.trim()`, `q.toLower()`) 500s on the
-// MikroORM adapter, and a
+// One claim the copies carry is NOT asserted here, because promoting it found
+// a defect (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md): a
 // whitespace-only name tripping `invariant name.trim().length > 0` answers
 // three different 422 bodies (node `/name` + the rule text; python a pydantic
 // `Value error, …` prefix with an empty pointer; elixir Ecto's "can't be blank",
@@ -53,6 +53,8 @@ system IntrinsicsSystem {
         find byFloorPrice(whole: money): Product[] where this.price.floor() == whole
         find byAbsQty(n: int): Product[] where this.qty.abs() == n
         find bobbish(): Product[] where Bobbish
+        find byTrimmedQuery(q: string): Product[] where this.name == q.trim()
+        find byLoweredQuery(q: string): Product[] where this.name.toLower() == q.toLower()
       }
     }
   }
@@ -92,6 +94,11 @@ system IntrinsicsSystem {
     let absolute = api.products.byAbsQty({ n: 3 })
     expect(absolute.count()).toBe(1)
     expect(absolute.first().qty).toBe(-3)
+    let trimmedQ = api.products.byTrimmedQuery({ q: "  Bob  " })
+    expect(trimmedQ.count()).toBe(1)
+    expect(trimmedQ.first().name).toBe("Bob")
+    let loweredQ = api.products.byLoweredQuery({ q: "BOB" })
+    expect(loweredQ.count()).toBe(1)
     // …and through a reified criterion.
     let viaCriterion = api.products.bobbish()
     expect(viaCriterion.count()).toBe(1)
