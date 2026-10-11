@@ -97,7 +97,7 @@ npm run test:schema-load           # LOOM_SCHEMA_LOAD=1 (docker sidecar, or LOOM
 # a rule that stops reproducing fails it too), documented in docs/audits/schemathesis-findings-2026-08.md.
 # Needs `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` + `cd test/behavioral && npm ci`.  ~1 min; nightly in CI.
 npm run test:schemathesis          # LOOM_SCHEMATHESIS=1 (node/Hono leg)
-npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; the elixir one is a discovery cell (not binding)
+npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; all five bind
 
 # Channels runtime e2e — cross-deployable eventing (redis/rabbitmq/kafka, CloudEvents + outbox relay);
 # per-broker × per-backend legs, each behind its own LOOM_CHANNELS_E2E[_<BROKER>][_<BACKEND>] var.

@@ -1832,9 +1832,34 @@ Gated by `test/generator/java/wire-boundary-null-skip.test.ts` plus the Route
 literals in `generator-java-openapi-customizer.test.ts`.
 
 
+### F34 — elixir: a value object is persisted as its raw wire map
+**Waiver:** W37 + W38 (elixir only) · **Severity: medium** · **Status: OPEN — mission [M-T6.89](../new-plan/T6-backend-parity.md#m-t689--elixir-persists-a-value-objects-raw-wire-map-a-missing-vo-field-500s-an-aggregate-invariant-an-undeclared-key-is-stored-and-a-nul-in-one-500s-jsonb).**
+
+```
+POST /api/wallets  balance: {"currency":"USD"}                        → 500
+   ** (FunctionClauseError) Decimal.decimal(nil)  — wallet_changeset.ex, `invariant balance.amount >= 0`
+POST /api/wallets  balance: {"amount":1,"currency":"USD","junk":1}    → 201, stored {"junk": 1, "amount": 1, "currency": "USD"}
+POST /api/wallets  balance: {"amount":1,"currency":"USD","x\u0000":1} → 500  Postgrex 22P05 (\u0000 cannot be converted to text)
+```
+
+A single value-object field is a `field :<name>, :map` jsonb column, cast
+verbatim. `validate_vo/3` runs the VO's validating constructor for its errors but
+the changeset keeps the REQUEST's map, so a VO missing a declared field reaches an
+aggregate invariant as `nil`, and an undeclared key is persisted (with a NUL in
+it, Postgres refuses the jsonb). The other four build the VO from its declared
+fields. The fix is in the changeset/validator emitters — another packet's tree in
+the wave that found it — so it is a mission rather than a fix here. W37
+(`not_a_server_error`) and W38 (`status_code_conformance`, the same 500 seen as an
+undeclared status) are scoped to the write operations whose body carries a value
+object, elixir only.
+
 ### The elixir leg
-It ships as a **discovery cell**: the matrix runs it, but `continue-on-error`
-keeps its verdict off the workflow's, because its waiver register is empty. The
+**2026-10-11 — triaged, and the cell BINDS** (`discovery: true` and
+`continue-on-error` are gone from `schemathesis.yml`). The history below is kept
+as the record of why it took three passes.
+
+It shipped as a **discovery cell**: the matrix ran it, but `continue-on-error`
+kept its verdict off the workflow's, because its waiver register was empty. The
 elixir toolchain could not be exercised locally when the matrix landed (the hex
 image was unreachable from the sandbox), and seeding rules by guesswork is worse
 than none — a wrong rule fails the leg from either direction. The first nightly
@@ -1890,17 +1915,35 @@ not "the toolchain cannot be run here" (it can now — recipe above) but "the le
 has 52 unattributed findings across six root causes, and attributing them is a
 packet of its own".
 
+**2026-10-11 — the triage (wave C3F packet F8).** Measured locally against
+`storefront-elixir` (29 operations, seed 20260811, the host-extracted
+`hexpm/elixir:1.18.4` toolchain, postgres 17). The 2026-10-05 nightly inventory
+(32 failures + 30 errors) turned out to be mostly the HARNESS, not the backend:
+
+| class | before | root cause | disposition |
+|---|---|---|---|
+| 16 runtime errors — on all FIVE legs | `'builtins.CanonicalSchema' object has no attribute 'is_satisfiable'` | schemathesis 4.24.3 leaves `jsonschema-rs` unpinned; 0.56.0 (2026-09-10) removed a method its generator calls, so every operation with a parameter errored before a request was sent — and the harness read only check results, so the other four legs counted those operations clean | **fixed** — `jsonschema-rs==0.49.1` pinned beside schemathesis in the workflow and `docs/testing.md`; `schemathesis-core.mjs` now keys an untestable operation as `<op>::error:<type>` (`test/system/schemathesis-core-parse.test.ts`) |
+| 14 schema errors | `Unresolvable reference … #/components/schemas/Money` | a value-object property was emitted as a raw `%OpenApiSpex.Reference{}`, which OpenApiSpex never registers | **fixed** — emitted as the VO's schema module (`openapi-emit.ts`); `vanilla-openapi-dangling-ref.test.ts` checks every raw `$ref` across the corpus resolves |
+| `200 Undocumented Content-Type` ×7, `400` on `/by_email`·`/by_owner`·`/{id}` (`Ecto.Query.CastError`), `404` TRACE, `405` DELETE | — | `--url` REPLACES the document's server URL, and phoenix publishes `servers: [{url: "/api"}]` with relative paths — so every request lost `/api` and was answered by the LiveView pages (`/customers/by_email` is the LiveView `show` route casting `"by_email"` to a uuid) | **fixed in the harness** — `specServerBase` carries the server's path onto the booted origin. The emitter half (path-embedding `/api` like the other four, M-T6.70) is open PR #3108; the harness works with either shape |
+| `405` on a valid `POST /api/customers`; `400 Missing Content-Type header` | — | `BodyParser` answered a parse failure with the PRE-parser `conn`, so Bandit "drained" a body it had already read on the keep-alive socket, consuming the head of the NEXT request (`OST /api/…` → 405; a broken request line → Bandit's own 400) | **fixed** — the answer closes the connection (`shell-emit.ts`, `vanilla-body-parser-keepalive.test.ts`) |
+| `500` on `/by_email` with no `email`; undeclared `400` on `/by_owner?owner=zz` | — | a find's declared params reached Ecto unchecked (`nil` comparison → ArgumentError; malformed uuid → CastError) | **fixed** — `__check_find_params/2` answers the declared 422 at the param's pointer, per published type (`find-controller.ts`, `vanilla-find-param-check.test.ts`); prod `--warnings-as-errors` compile + a boot over every param kind |
+| `200 API accepted schema-violating request` on the paged reads | — | F9 | **by design** — elixir added to W8 |
+| `500` on `POST /api/wallets` | — | F34 above | **waived** W37/W38, mission M-T6.89 |
+
+E1 (TRACE → 501) and E5 (`:erlang.-("", 1)` on a paged read) from the
+2026-09-10 inventory no longer reproduce: E1 was LiveView routing again, and E5
+was fixed with `page_param/4`. After: **5 findings, all waived, 0 errors, 29/29
+operations tested.** The other four legs, re-run with the pin, stay clean (node 7
+W8; python 7 W8; dotnet 7 W8; java 17 = W8 ×7 + W35 ×10).
+
 ---
 
 ## Follow-up slices
 
-1. **Seed the elixir leg and drop its `continue-on-error`** — the one cell of the
-   matrix whose rules are not yet written (see "The elixir leg" above), plus F15,
-   which is why it cannot run the shared fixtures at all. The 2026-09-10 run
-   turned this from a blocked task into a scoped one: the finding inventory and
-   its six clusters (E1–E5 + F9's class) are written down there, and E5 — a paged
-   read parameter arriving as `""` and reaching `:erlang.-("", 1)` → 500 — is a
-   real emitter defect that should be fixed rather than waived.
+1. **Fuzz the shared fixtures on elixir too.** The cell binds on its own
+   `storefront-elixir` case (2026-10-11, "The elixir leg" above); collapsing
+   `ELIXIR_CASES` into `SHARED_CASES` in `run-schemathesis-backend.mjs` is its own
+   discovery run, now that F15 lets elixir publish a spec for them.
 2. **Box a workflow's primitive params the way RS-26 boxes an operation's**
    (java) — F32 closed the reference-typed half of the workflow wire boundary; an
    ABSENT `int` param still deserializes to `0` instead of being refused.

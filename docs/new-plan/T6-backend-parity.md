@@ -749,3 +749,15 @@ Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `
 
 Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
 
+
+## M-T6.89 — elixir persists a value object's raw wire map: a missing VO field 500s an aggregate invariant, an undeclared key is stored (and a NUL in one 500s jsonb) — `open` · **S–M** · P2
+
+Found by wave C3F packet F8 (the elixir Schemathesis triage; register entry [F34](../audits/schemathesis-findings-2026-08.md#f34--elixir-a-value-object-is-persisted-as-its-raw-wire-map), waived as W37/W38 on the elixir leg only). A single value-object field is a `field :<name>, :map` jsonb column cast verbatim: `validate_vo/3` runs the VO's `new/1` over the map for its errors but the changeset keeps — and persists — the RAW request map, not the VO the constructor built. Measured on the booted `storefront-elixir` app (`POST /api/wallets`, `balance: Money`):
+
+```
+balance: {"currency":"USD"}                     → 500  FunctionClauseError Decimal.decimal(nil)  (wallet_changeset.ex, `invariant balance.amount >= 0`)
+balance: {"amount":1,"currency":"USD","junk":1} → 201  and the row stores {"junk": 1, "amount": 1, "currency": "USD"}
+balance: {"amount":1,"currency":"USD","x\u0000":1} → 500  Postgrex 22P05 (\u0000 cannot be converted to text)
+```
+
+node / python / .NET / java build the VO from its declared fields (an absent required field is a 422 at `/balance/amount`; an undeclared key is dropped). Fix in the changeset tree (`src/generator/elixir/vanilla/changeset-emit.ts` — the `validate_vo` path): refuse a VO missing a required field with the 422 at `/<field>/<sub>` before any aggregate invariant reads it, and persist the constructor's map (declared keys only) rather than the request's. Then drop `"elixir"` from W37/W38 in `test/behavioral/schemathesis-waivers.json` (deleting both rules) and mark F34 fixed. Not done in F8 because the changeset/validator emitters are packet F1's fence.
