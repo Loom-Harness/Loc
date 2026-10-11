@@ -474,8 +474,11 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   );
   lines.push("");
   lines.push("```bash");
-  // Every assignment gets its own continued line, including the last one, so
-  // the block is correct at one deployable as well as at four.
+  // Like every other block here it starts at the tree root, so it can be
+  // pasted on its own.  Every assignment gets its own continued line,
+  // including the last one, so the block is correct at one deployable as well
+  // as at four.
+  lines.push("cd e2e");
   for (const d of sys.deployables) {
     lines.push(`E2E_${ctx.slugOf(d.name).toUpperCase()}_BASE=http://localhost:${d.port} \\`);
   }
