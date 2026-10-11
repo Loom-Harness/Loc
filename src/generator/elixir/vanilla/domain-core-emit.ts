@@ -334,7 +334,7 @@ export function derivedAccessorLines(
 /** One `function` member as a `def <fn>(%__MODULE__{} = record, …)` on the
  *  aggregate schema module — the pure-core sibling of `function-emit.ts`'s
  *  context-facade copy. */
-export function renderPureFunction(
+function renderPureFunction(
   facadeMod: string,
   fn: FunctionIR,
   struct: PureStruct = RELATIONAL_STRUCT,
