@@ -30,7 +30,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited } from "./audit-stamp.js";
+import { aggregateIsAudited, auditStampImport } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
@@ -317,7 +317,7 @@ export function renderMikroDocumentRepository(
         ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
         : `import { AggregateNotFoundError } from "../../domain/errors";`,
       `import type { DomainEventDispatcher } from "../../domain/events";`,
-      docAudited && `import { stampInsert } from "../audit-stamp";`,
+      docAudited && auditStampImport(agg, { update: false }),
       `import { requestLog } from "../../obs/als";`,
       "",
       body,

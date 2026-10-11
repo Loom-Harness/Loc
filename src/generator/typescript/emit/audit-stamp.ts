@@ -12,10 +12,10 @@
 // AsyncLocalStorage in obs/als) — no `currentUser` threading.  A non-request save
 // (seed / system) has no context, so the helper returns the row unstamped.
 //
-// Emitted once per project as `db/audit-stamp.ts`, tailored to the audited
-// aggregates' actual `stamp onCreate`/`onUpdate` field set (the `auditable`
-// capability declares all four, but a hand-written `stamp` may declare a
-// subset, e.g. timestamps only).
+// Emitted once per project as `db/audit-stamp.ts`, with one helper pair per
+// audited aggregate tailored to that aggregate's own `stamp onCreate`/`onUpdate`
+// field set (the `auditable` capability declares all four, but a hand-written
+// `stamp` may declare a subset, e.g. timestamps only).
 // ---------------------------------------------------------------------------
 
 import type { ContextStampIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
@@ -25,6 +25,7 @@ import {
   requiredClaimStampsAcross,
 } from "../../../ir/util/principal-stamp.js";
 import { lines } from "../../../util/code-builder.js";
+import { upperFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 
 /** A single stamp field and the save-site expression that fills it. */
@@ -93,19 +94,59 @@ export function updateStampEntries(agg: EnrichedAggregateIR): StampEntry[] {
   return entriesFor(agg.contextStamps, "update");
 }
 
-/** The `db/audit-stamp.ts` helper module, tailored to the project's audited
- *  aggregates.  `stampInsert` fills the full create+update field set on a fresh
- *  row; `stampUpdate` overlays only the update fields (dropping the create-only
- *  ones so they stay immutable).  Both no-op outside a request scope. */
+/** The per-aggregate helper names in `db/audit-stamp.ts`.  Each aggregate gets
+ *  its OWN pair: one deployable serves aggregates with different stamp sets
+ *  (an `auditable` aggregate beside one stamping only `createdBy`, or a context
+ *  stamp that reaches one context only), and a shared helper would write one
+ *  aggregate's columns into another's row — a MikroORM insert names every key
+ *  it is handed, so a foreign column is a 500, and a foreign claim guard
+ *  refuses a principal the aggregate never reads. */
+function stampHelperNames(agg: EnrichedAggregateIR): { insert: string; update: string } {
+  const name = upperFirst(agg.name);
+  return { insert: `stamp${name}Insert`, update: `stamp${name}Update` };
+}
+
+/** The repository import of an aggregate's own stamp pair, bound to the
+ *  `stampInsert` / `stampUpdate` names every save site calls. */
+export function auditStampImport(agg: EnrichedAggregateIR, opts: { update: boolean }): string {
+  const n = stampHelperNames(agg);
+  const names = [
+    `${n.insert} as stampInsert`,
+    ...(opts.update ? [`${n.update} as stampUpdate`] : []),
+  ];
+  return `import { ${names.join(", ")} } from "../audit-stamp";`;
+}
+
+/** The `db/audit-stamp.ts` helper module: one `stamp<Agg>Insert` /
+ *  `stamp<Agg>Update` pair per audited aggregate, each tailored to that
+ *  aggregate's own `stamp onCreate`/`onUpdate` set.  The insert helper fills
+ *  the full create+update field set on a fresh row; the update helper overlays
+ *  only the update fields (dropping the create-only ones so they stay
+ *  immutable).  Both no-op outside a request scope. */
 export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
-  // Union the field→value mappings across every audited aggregate; the
-  // `auditable` macro makes these uniform, so the merged helper is shared.
+  const pairs = audited.map(renderStampPair);
+  return lines(
+    "// Auto-generated.  Do not edit by hand.",
+    `import { requestContext } from "../obs/als";`,
+    pairs.some((p) => p.needsPrincipal) ? `import type { User } from "../auth/user-types";` : null,
+    pairs.some((p) => p.hasGuards) ? `import { ForbiddenError } from "../domain/errors";` : null,
+    "",
+    ...pairs.flatMap((p) => p.body),
+  );
+}
+
+function renderStampPair(agg: EnrichedAggregateIR): {
+  body: string[];
+  needsPrincipal: boolean;
+  hasGuards: boolean;
+} {
+  const names = stampHelperNames(agg);
   const insert = new Map<string, StampEntry>();
-  for (const agg of audited) for (const e of insertStampEntries(agg)) insert.set(e.field, e);
+  for (const e of insertStampEntries(agg)) insert.set(e.field, e);
   const update = new Map<string, StampEntry>();
-  for (const agg of audited) for (const e of updateStampEntries(agg)) update.set(e.field, e);
-  // The create-only fields stampUpdate must strip so the `set` leaves them on
-  // their on-disk values.
+  for (const e of updateStampEntries(agg)) update.set(e.field, e);
+  // The create-only fields the update helper must strip so the `set` leaves
+  // them on their on-disk values.
   const createOnly = [...insert.keys()].filter((f) => !update.has(f));
 
   // A claim-valued principal stamp (`tenantId := currentUser.tenantId`) needs
@@ -123,11 +164,11 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
   // Each as a leading `, <field>: <value>` fragment so an empty set leaves the
   // spread (`{ ...row }`) clean — no dangling comma.
   const insertAssigns = [...insert.entries()].map(([f, e]) => `, ${f}: ${e.valueExpr}`).join("");
-  // F-018 — a claim-valued stamp into a NOT NULL column must REFUSE a principal
-  // whose claim is absent, rather than bind null and let the database raise an
+  // A claim-valued stamp into a NOT NULL column must REFUSE a principal whose
+  // claim is absent, rather than bind null and let the database raise an
   // opaque 500.  Emitted before the row is assembled: after it, the null is
   // already in the values and the guard is decoration.
-  const requiredInsert = requiredClaimStampsAcross(audited, "create");
+  const requiredInsert = requiredClaimStampsAcross([agg], "create");
   const insertGuards = requiredInsert.flatMap((stamp) => [
     `  if (currentUser.${stamp.claim} == null${stamp.claimIsString ? ` || currentUser.${stamp.claim} === ""` : ""}) {`,
     `    throw new ForbiddenError(${JSON.stringify(missingClaimMessage(stamp))});`,
@@ -139,34 +180,32 @@ export function renderAuditStampHelper(audited: EnrichedAggregateIR[]): string {
       ? `const { ${createOnly.map((f) => `${f}: _${f}`).join(", ")}, ...rest } = row;`
       : `const rest = row;`;
 
-  return lines(
-    "// Auto-generated.  Do not edit by hand.",
-    `import { requestContext } from "../obs/als";`,
-    insertNeedsPrincipal || updateNeedsPrincipal
-      ? `import type { User } from "../auth/user-types";`
-      : null,
-    insertGuards.length > 0 ? `import { ForbiddenError } from "../domain/errors";` : null,
-    "",
-    "// Stamp a freshly-inserted row's audit columns from the ambient request",
-    "// principal.  A non-request save (seed / system) has no context, so the row",
-    "// is returned unstamped.",
-    "export function stampInsert<T extends Record<string, unknown>>(row: T): T {",
-    "  const ctx = requestContext();",
-    "  if (!ctx) return row;",
-    ...(insertNeedsPrincipal ? principalBinding : []),
-    ...insertGuards,
-    `  return { ...row${insertAssigns} };`,
-    "}",
-    "",
-    "// Stamp an updated row's mutable audit columns; the create-only columns are",
-    "// dropped from the result so the upsert's `set` leaves them immutable.",
-    "export function stampUpdate<T extends Record<string, unknown>>(row: T): Partial<T> {",
-    "  const ctx = requestContext();",
-    "  if (!ctx) return row;",
-    ...(updateNeedsPrincipal ? principalBinding : []),
-    `  ${stripBinding}`,
-    `  return { ...rest${updateAssigns} } as unknown as Partial<T>;`,
-    "}",
-    "",
-  );
+  return {
+    needsPrincipal: insertNeedsPrincipal || updateNeedsPrincipal,
+    hasGuards: insertGuards.length > 0,
+    body: [
+      `// Stamp a freshly-inserted ${agg.name} row's audit columns from the ambient`,
+      "// request principal.  A non-request save (seed / system) has no context, so",
+      "// the row is returned unstamped.",
+      `export function ${names.insert}<T extends Record<string, unknown>>(row: T): T {`,
+      "  const ctx = requestContext();",
+      "  if (!ctx) return row;",
+      ...(insertNeedsPrincipal ? principalBinding : []),
+      ...insertGuards,
+      `  return { ...row${insertAssigns} };`,
+      "}",
+      "",
+      `// Stamp an updated ${agg.name} row's mutable audit columns; the create-only`,
+      "// columns are dropped from the result so the upsert's `set` leaves them",
+      "// immutable.",
+      `export function ${names.update}<T extends Record<string, unknown>>(row: T): Partial<T> {`,
+      "  const ctx = requestContext();",
+      "  if (!ctx) return row;",
+      ...(updateNeedsPrincipal ? principalBinding : []),
+      `  ${stripBinding}`,
+      `  return { ...rest${updateAssigns} } as unknown as Partial<T>;`,
+      "}",
+      "",
+    ],
+  };
 }
