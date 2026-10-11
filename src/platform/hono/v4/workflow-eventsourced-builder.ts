@@ -12,6 +12,7 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
     }
   }
   if (inner.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === inner.name);
+    const e = enumPool(ctx).find((x) => x.name === inner.name);
     const first = e?.values[0];
     return first ? `"${first}"` : `""`;
   }

@@ -19,7 +19,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
-import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -306,7 +306,7 @@ export function renderSchema(
   // `text(col, { enum: [...] })` is type-identical to `pgEnum(...)` on the TS
   // side (drizzle infers the same `"Draft" | "Confirmed" | …` union for reads
   // and writes) and emits the TEXT column the migration actually creates.
-  const enumLines = ctx.enums.map(
+  const enumLines = enumPool(ctx).map(
     (e) =>
       `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
   );

@@ -11,7 +11,11 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import {
   coerceMatcherExpected,
@@ -118,7 +122,9 @@ function renderTestsCore(
   const voNames = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter(refs);
-  const enumNames = ctx.enums.map((e) => e.name).filter(refs);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(refs);
   const usesIds = /\bIds\.\w/.test(bodyStr);
   // A money literal / money expression in a test body renders as
   // `new Decimal("…")` / `.eq(...)` receivers (M-T6.44's fixture was the first

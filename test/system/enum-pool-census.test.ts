@@ -148,10 +148,6 @@ const ALL_CONTEXTS = {
     "unions `.enums` over EVERY context of the deployable/system, which already contains every sibling enum — not a per-context name resolution",
 };
 
-const p1 = (what: string): Waiver => ({
-  deferred: `D1 / P1 (typescript+hono): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 const p2 = (what: string): Waiver => ({
   deferred: `D1 / P2 (python): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
@@ -180,62 +176,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/python/explicit-handlers-emit.ts#emitPyExplicitRouteRouter": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
-
-  // =========================================================================
-  // DEFERRED — fleet packet P1 (typescript + hono) drains these.
-  // =========================================================================
-  "src/generator/typescript/emit/aggregate.ts#renderAggregate": p1(
-    "domain import candidates (tsc TS2304 on a sibling enum)",
-  ),
-  "src/generator/typescript/repository-imports-builder.ts#collectEnums": p1(
-    "repository import candidates",
-  ),
-  "src/generator/typescript/emit/tests.ts#renderTestsCore": p1("unit-test import candidates"),
-  "src/generator/typescript/emit/seed.ts#emitSeeds": p1("seed import candidates"),
-  "src/generator/typescript/emit/domain-service.ts#renderDomainServices": p1(
-    "domain-service import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-document.ts#renderMikroDocumentRepository": p1(
-    "MikroORM document repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-embedded.ts#renderMikroEmbeddedRepository": p1(
-    "MikroORM embedded repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-event-sourced.ts#renderMikroEventSourcedRepository": p1(
-    "MikroORM event-sourced repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-relational.ts#renderMikroRepository": p1(
-    "MikroORM relational repo import candidates",
-  ),
-  "src/generator/typescript/emit/schema.ts#renderSchema": p1(
-    "drizzle `<enum>Values` consts — a column typed by a sibling enum names an undeclared const (verify; re-classify standing if the column already imports the sibling's const)",
-  ),
-  "src/generator/typescript/extern-builder.ts#buildExternSubclassFile": p1(
-    "extern subclass import candidates",
-  ),
-  "src/generator/typescript/repository-port-builder.ts#renderRepositoryPortsFile": p1(
-    "repository-port import candidates",
-  ),
-  "src/platform/hono/v4/explicit-handlers-builder.ts#renderExternHandlerImpl": p1(
-    "extern handler import candidates",
-  ),
-  "src/platform/hono/v4/projection-builder.ts#buildProjectionsFile": p1(
-    "projection `<E>Schema` z.enum decls",
-  ),
-  "src/platform/hono/v4/projection-builder.ts#buildProjectionsFile$2": p1(
-    "projection enum value imports",
-  ),
-  "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile": p1(
-    "query-projection enum name → values map",
-  ),
-  "src/platform/hono/v4/workflow-builder.ts#buildWorkflowsFile": p1("workflow import candidates"),
-  "src/platform/hono/v4/workflow-builder.ts#collectUsedEnums": p1("workflow used-enum collection"),
-  "src/platform/hono/v4/workflow-builder.ts#defaultLiteralFor": p1(
-    "workflow state default literal (first value)",
-  ),
-  "src/platform/hono/v4/workflow-eventsourced-builder.ts#initialValueFor": p1(
-    "event-sourced workflow initial value",
-  ),
 
   // =========================================================================
   // DEFERRED — fleet packet P2 (python) drains these.
