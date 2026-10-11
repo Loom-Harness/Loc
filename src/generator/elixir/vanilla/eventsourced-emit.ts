@@ -71,20 +71,19 @@ export function isEventSourced(agg: AggregateIR): boolean {
  *  to an `ensure/2` with-clause, so any of them drives whether the context module emits the private `ensure/2` helper
  *  (emitting it unused would fail `mix compile --warnings-as-errors`). */
 export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
-  return ctx.aggregates
-    .filter(isEventSourced)
-    .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
-    .some(
-      (op) =>
-        op.when !== undefined ||
-        op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
-    ) ||
+  return (
+    ctx.aggregates
+      .filter(isEventSourced)
+      .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
+      .some(
+        (op) =>
+          op.when !== undefined ||
+          op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
+      ) ||
     ctx.aggregates.some(
-      (agg) =>
-        isEventSourced(agg) &&
-        esHasCommands(agg) &&
-        esEnforcedInvariants(agg).length > 0,
-    );
+      (agg) => isEventSourced(agg) && esHasCommands(agg) && esEnforcedInvariants(agg).length > 0,
+    )
+  );
 }
 
 /** True when the ES aggregate has a command runner the invariants ride: a
