@@ -52,6 +52,21 @@ const WHOLE_TABLE_AGGREGATIONS: ReadonlySet<string> = new Set([
   "max",
 ]);
 
+/** A `select` written as an aggregation call the lowering could not recognise
+ *  because of its ARITY — `count(o.flag)` (count takes no column) or
+ *  `sum()` / `sum(a, b)` (the others take exactly one) — else `null`.  Such a
+ *  select is neither an aggregate nor a resolvable per-row expression, so
+ *  without this pre-check it would draw two contradictory diagnostics (an
+ *  unresolved name AND, under `group by`, a per-row select not grouped); it
+ *  gets exactly one, `loom.projection-aggregate-arity`. */
+function misAritiedAggregation(e: ExprIR): { op: string; argCount: number } | null {
+  if (e.kind !== "call" || e.callKind !== "free" || !WHOLE_TABLE_AGGREGATIONS.has(e.name)) {
+    return null;
+  }
+  const ok = e.name === "count" ? e.args.length === 0 : e.args.length === 1;
+  return ok ? null : { op: e.name, argCount: e.args.length };
+}
+
 /** First unresolved NAME anywhere in a `select` expression, or `null` when
  *  every name resolves.  Two shapes, because the aggregation vocabulary lowers
  *  to both: a bare `count` becomes `refKind: "unknown"`, while `sum(o.total)`
@@ -396,12 +411,36 @@ function validateQueryComprehension(
       checkAggregateDeclaredType(ctx, proj, s, diags);
       continue;
     }
+    const misAritied = misAritiedAggregation(s.expr);
+    if (misAritied) {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-aggregate-arity",
+        message:
+          misAritied.op === "count"
+            ? diagMessage("loom.projection-aggregate-arity#count", {
+                name: proj.name,
+                field: s.field,
+              })
+            : diagMessage("loom.projection-aggregate-arity#column", {
+                name: proj.name,
+                field: s.field,
+                op: misAritied.op,
+                argCount: misAritied.argCount,
+              }),
+        source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
+      });
+      continue;
+    }
     const unresolved = firstUnresolvedRefName(s.expr);
     if (!unresolved) continue;
-    const hint = WHOLE_TABLE_AGGREGATIONS.has(unresolved)
-      ? ` (a whole-table '${unresolved}' needs the aggregated column — write ` +
-        `'${unresolved}(<alias>.<field>)', or bare 'count' to count rows)`
-      : "";
+    const hint = !WHOLE_TABLE_AGGREGATIONS.has(unresolved)
+      ? ""
+      : unresolved === "count"
+        ? ` ('count' / 'count()' counts the rows)`
+        : ` (a whole-table '${unresolved}' needs the aggregated column — write ` +
+          `'${unresolved}(<alias>.<field>)')`;
     diags.push({
       severity: "error",
       code: "loom.projection-select-unresolved",
@@ -591,7 +630,8 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
   // key matches, transform included: `select day = o.placedAt` against
   // `group by o.placedAt.startOfDay()` is per-row, not per-group.
   for (const s of selects) {
-    if (s.aggregate) continue;
+    // A mis-aritied aggregation call is reported once, as such, above.
+    if (s.aggregate || misAritiedAggregation(s.expr)) continue;
     const key = groupKeyOf(s.expr);
     if (key === null || !keys.some((k) => sameGroupKey(k, key))) {
       diags.push({

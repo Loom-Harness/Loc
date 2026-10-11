@@ -1517,6 +1517,23 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // Declared names differ only in case, so the namespace gate above passes —
+  // but both derive the table `sweeps`.
+  // `count` takes no column; the grouped select passes one.
+  "loom.projection-aggregate-arity":
+    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
+    repository Tickets for Ticket { }
+    projection ByQueue { queue: string  breached: int
+      from Ticket as t
+      group by t.queue
+      select queue = t.queue, breached = count(t.breached) }`),
+  // A single-row find on `number`, which no `unique (number)` covers.
+  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
+    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
+  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
+    repository Sweeps for Sweep { }
+    event Tick { sweep: Sweep id }
+    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
   // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
   // it neither way: `oid` does not name-match `orderId`, and the body never
   // assigns `orderId := oid` either — so the body would render against an
