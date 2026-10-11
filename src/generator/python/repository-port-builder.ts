@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 
@@ -104,7 +105,7 @@ export function renderRepositoryPortsFile(
   const idNames = [...new Set(scan.match(/\b[A-Z][A-Za-z0-9]*Id\b/g) ?? [])]
     .filter((n) => declaredIdNames.has(n))
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const aggNames = nonEmpty

@@ -23,7 +23,7 @@ import {
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
@@ -210,7 +210,10 @@ export function renderPyAggregate(
   // stripped, the TS emitter's trick) for VO / enum / id-factory needs.
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(scan);
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refersTo)
     .sort();
   const ownIdNames = [agg.name, ...agg.parts.map((p) => p.name)];

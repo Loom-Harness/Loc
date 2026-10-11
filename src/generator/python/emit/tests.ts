@@ -11,7 +11,11 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import {
   coerceMatcherExpected,
@@ -123,7 +127,10 @@ function renderPySubjectTests(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refs)
     .sort();
   // Every aggregate + part in the context yields an id class in

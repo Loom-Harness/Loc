@@ -152,10 +152,6 @@ const p1 = (what: string): Waiver => ({
   deferred: `D1 / P1 (typescript+hono): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
 });
-const p2 = (what: string): Waiver => ({
-  deferred: `D1 / P2 (python): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 const p4 = (what: string): Waiver => ({
   deferred: `D1 / P4 (frontends): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
@@ -235,62 +231,6 @@ const WAIVERS: Record<string, Waiver> = {
   ),
   "src/platform/hono/v4/workflow-eventsourced-builder.ts#initialValueFor": p1(
     "event-sourced workflow initial value",
-  ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P2 (python) drains these.
-  // =========================================================================
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile": p2(
-    "dispatch (post-processing) import candidates",
-  ),
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile$2": p2(
-    "dispatch import candidates",
-  ),
-  "src/generator/python/emit/aggregate.ts#renderPyAggregate": p2(
-    "domain import candidates (mypy name-defined)",
-  ),
-  "src/generator/python/emit/http-models.ts#renderPyWireModels": p2("wire-model import candidates"),
-  "src/generator/python/emit/integration-tests.ts#renderPyContextIntegrationTest": p2(
-    "integration-test import candidates",
-  ),
-  "src/generator/python/emit/seed.ts#buildPySeedFile": p2("seed import candidates"),
-  "src/generator/python/emit/tests.ts#renderPySubjectTests": p2("unit-test import candidates"),
-  "src/generator/python/explicit-handlers-emit.ts#pyDomainImportLines": p2(
-    "explicit-handler domain imports",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderHandlerModule": p2(
-    "handler-module import candidates",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderPagedRunHandlerModule": p2(
-    "paged handler import candidates",
-  ),
-  "src/generator/python/projections-builder.ts#buildPyProjectionsFile": p2(
-    "projection import candidates",
-  ),
-  "src/generator/python/query-projections-builder.ts#buildPyQueryProjectionsFile": p2(
-    "query-projection import candidates",
-  ),
-  "src/generator/python/repository-builder.ts#buildPyRepositoryFile": p2(
-    "repository import candidates",
-  ),
-  "src/generator/python/repository-document-builder.ts#buildPyDocumentRepositoryFile": p2(
-    "document repo import candidates",
-  ),
-  "src/generator/python/repository-embedded-builder.ts#buildPyEmbeddedRepositoryFile": p2(
-    "embedded repo import candidates",
-  ),
-  "src/generator/python/repository-eventsourced-builder.ts#buildPyEventSourcedRepositoryFile": p2(
-    "event-sourced repo import candidates",
-  ),
-  "src/generator/python/repository-port-builder.ts#renderRepositoryPortsFile": p2(
-    "repository-port import candidates",
-  ),
-  "src/generator/python/routes-builder.ts#buildPyRoutesFile": p2("routes import candidates"),
-  "src/generator/python/workflow-eventsourced-emit.ts#esZeroFor": p2(
-    "event-sourced workflow zero value",
-  ),
-  "src/generator/python/workflows-builder.ts#buildPyWorkflowsFile": p2(
-    "workflows import candidates",
   ),
 
   // =========================================================================
