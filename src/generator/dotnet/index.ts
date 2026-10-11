@@ -1136,6 +1136,7 @@ function emitProjectFromContexts(
     );
   }
   emitProject(merged, ns, out, {
+    nativePort: system?.deployable.port,
     timers: hasTimers ? ownedTimers : [],
     hasChannels,
     hasChannelConsumers,
@@ -1909,6 +1910,8 @@ function emitProject(
   ns: string,
   out: Map<string, string>,
   options?: {
+    /** The deployable's declared port — what a bare `dotnet run` listens on. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
@@ -2016,6 +2019,7 @@ function emitProject(
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
+      nativePort: options?.nativePort,
       schemaIdOverrides,
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],

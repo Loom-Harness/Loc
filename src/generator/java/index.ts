@@ -1528,7 +1528,10 @@ function emitProjectFromContexts(
     }),
   );
   out.set("settings.gradle.kts", renderGradleSettings(slug));
-  out.set("src/main/resources/application.yml", renderApplicationYml(slug));
+  out.set(
+    "src/main/resources/application.yml",
+    renderApplicationYml(slug, system?.deployable.port ?? 8080),
+  );
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
