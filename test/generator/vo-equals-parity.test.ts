@@ -85,6 +85,8 @@ describe("<vo>.equals(other) renders value equality on every backend", () => {
     expect(dock).not.toContain("this._berth === ");
     const tests = filesMatching(files, /\.test\.ts$/);
     expect(tests).toContain('a.equals(new Berth("A", 3))');
+    // The body constructs a `Berth`, so the test file imports it (TS2304 without).
+    expect(tests).toContain('import { Berth } from "../domain/value-objects";');
   });
 
   it("python: renders `==` (frozen-dataclass __eq__), never a `.equals` attribute", async () => {
@@ -155,18 +157,26 @@ describe("<vo>.equals call shape is validated like a scalar intrinsic", () => {
   });
 
   it("rejects an argument of another type", async () => {
-    expect(await errorsFor("berth.equals(pier)")).toContain("loom.intrinsic-arg-type");
+    expect(await errorsFor("berth.equals(pier)")).toEqual(
+      expect.arrayContaining(["loom.intrinsic-arg-type"]),
+    );
   });
 
   it("rejects the wrong arity", async () => {
-    expect(await errorsFor("berth.equals()")).toContain("loom.intrinsic-arity");
+    expect(await errorsFor("berth.equals()")).toEqual(
+      expect.arrayContaining(["loom.intrinsic-arity"]),
+    );
   });
 
   it("rejects the bare member form", async () => {
-    expect(await errorsFor("berth.equals")).toContain("loom.intrinsic-bare");
+    expect(await errorsFor("berth.equals")).toEqual(
+      expect.arrayContaining(["loom.intrinsic-bare"]),
+    );
   });
 
   it("still rejects a genuinely absent member", async () => {
-    expect(await errorsFor("berth.sameAs(berth)")).toContain("loom.unknown-member");
+    expect(await errorsFor("berth.sameAs(berth)")).toEqual(
+      expect.arrayContaining(["loom.unknown-member"]),
+    );
   });
 });
