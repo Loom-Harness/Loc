@@ -1156,6 +1156,30 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
 // ---------------------------------------------------------------------------
 
 const ACCOUNT_V1 = "aggregate Account with crudish {";
+
+/** Remove one column from the committed baseline snapshot under `tree` — the
+ *  "this database predates the column" half of a catch-up scenario (the other
+ *  half is dropping it from the database itself). */
+function dropBaselineColumn(tree: string, table: string, column: string): void {
+  const snapDir = path.join(tree, ".loom", "snapshots");
+  let dropped = 0;
+  for (const f of fs.readdirSync(snapDir).filter((n) => n.endsWith(".snapshot.json"))) {
+    const p = path.join(snapDir, f);
+    const snap = JSON.parse(fs.readFileSync(p, "utf8")) as {
+      tables?: { name: string; columns?: { name: string }[] }[];
+    };
+    for (const t of snap.tables ?? []) {
+      if (t.name !== table || !t.columns) continue;
+      const before = t.columns.length;
+      t.columns = t.columns.filter((c) => c.name !== column);
+      dropped += before - t.columns.length;
+    }
+    fs.writeFileSync(p, JSON.stringify(snap, null, 2));
+  }
+  if (dropped !== 1) {
+    throw new Error(`expected one ${table}.${column} in the baseline snapshot, dropped ${dropped}`);
+  }
+}
 const ACCOUNT_SOFT = "aggregate Account with softDeletable, crudish {";
 
 export async function runUniqueIndexEvolutionGate(driver: BackendDriver): Promise<void> {
@@ -1246,7 +1270,8 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
 
     // TPH: one index on the shared table, mapped to 409 on every concrete route.
     expect(indexDef(server, "machines_serial_uq"), "TPH: shared-table index").toMatch(/\(serial\)/);
-    expect(await post(v1.base, "lathes", { serial: "S-1", spindles: 2, model: "L-1" })).toBe(201);
+    const lathe = await postFor(v1.base, "lathes", { serial: "S-1", spindles: 2, model: "L-1" });
+    expect(lathe.status).toBe(201);
     expect(
       await post(v1.base, "lathes", { serial: "S-1", spindles: 3, model: "L-2" }),
       "TPH: duplicate through the same concrete",
@@ -1273,10 +1298,45 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
     v1.stop();
     await settle();
 
+    // --- between v1 and v2: a POPULATED TPH table from before `versioned` --
+    // Every aggregate is versioned by default (M-T3.4), so no `.ddd` can spell
+    // "v1 without `versioned`" any more — but a database created before that
+    // has a populated TPH shared table with no `version` column, and the next
+    // generation must add it.  Recreate exactly that state, the way the
+    // money-bounds catch-up gate recreates a pre-#2575 one: drop the column
+    // from the database AND from the committed baseline snapshot.  The v2
+    // diff then adds `version` to a table holding rows.  It applies with no
+    // flag, and the column must end `NOT NULL DEFAULT 1` like every other
+    // versioned table.  The TPH shared table used to miss that default (the
+    // add then went through the field-default backfill path, which drops the
+    // default again), so a migrated TPH table disagreed with a plain one.
+    psql(server, DB, `ALTER TABLE ledger.machines DROP COLUMN version`);
+    dropBaselineColumn(tree, "machines", "version");
+
     // --- v2: + softDeletable → partial ------------------------------------
     generate(v2Src, driver.platform, tree);
     driver.rebuild?.(appDir);
     const v2 = await boot(pg);
+    // `versioned` re-added to the populated TPH table: applied with no flag,
+    // every pre-existing row seeded at version 1, and the row still reads 200.
+    expect(
+      psql(
+        server,
+        DB,
+        `SELECT coalesce(column_default, '<none>') || ' ' || is_nullable FROM information_schema.columns
+          WHERE table_schema = 'ledger' AND table_name = 'machines' AND column_name = 'version'`,
+      ),
+      "v2: the TPH shared table's version column is NOT NULL DEFAULT 1",
+    ).toBe("1 NO");
+    expect(
+      psql(server, DB, `SELECT string_agg(DISTINCT version::text, ',') FROM ledger.machines`),
+      "v2: every pre-existing TPH row is at version 1",
+    ).toBe("1");
+    const latheRead = await fetch(`${v2.base}/api/lathes/${lathe.id}`);
+    expect(latheRead.status, `v2: the v1 Lathe survives: ${await latheRead.clone().text()}`).toBe(
+      200,
+    );
+    await latheRead.text();
     expect(indexDef(server, "accounts_number_uq"), "v2: rebuilt partial").toMatch(
       /WHERE \(?is_deleted = false\)?$/,
     );

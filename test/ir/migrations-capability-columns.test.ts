@@ -171,3 +171,37 @@ describe("a TPH concrete's own `unique (…)`", () => {
     expect(out).toContain('unique_constraint(:model, name: "machines_lathe_model_uq")');
   });
 });
+
+// `versioned`'s `DEFAULT 1` used to be applied only by `tableForAggregate`, so
+// the TPH shared table carried `version INTEGER NOT NULL` with no default —
+// unlike a plain or TPC table.  Adding `version` to a populated TPH table (a
+// database from before default versioning, M-T3.4) was NOT refused — the
+// field's `.ddd` default `= 1` already rode the add-WITH-DEFAULT path — but
+// that path then DROPPED the default, so the migrated table still disagreed
+// with every other versioned table.  TPC concretes go through
+// `tableForAggregate` and always had it.
+describe("versioned on every table layout", () => {
+  it("the TPH shared table's `version` is NOT NULL DEFAULT 1, like a plain or TPC table", async () => {
+    const snap = await snapshotOf(tph(false));
+    const version = snap.tables
+      .find((t) => t.name === "machines")!
+      .columns.find((c) => c.name === "version")!;
+    expect(version).toMatchObject({ nullable: false, default: "1", capability: "versioned" });
+  });
+
+  it("adding `version` to a populated TPH table keeps DEFAULT 1 (no transient-default drop)", async () => {
+    const base = await snapshotOf(tph(false));
+    const machines = base.tables.find((t) => t.name === "machines")!;
+    machines.columns = machines.columns.filter((c) => c.name !== "version");
+    const loom = await buildLoomModel(tph(false));
+    const steps = buildMigrations(loom.systems[0]!, memorySnapshotStore({ Floor: base }), {
+      allowDestructive: false,
+    })[0]!.steps;
+    const add = steps.find((s) => s.op === "addColumn" && s.column.name === "version");
+    expect(add).toMatchObject({ table: "machines", column: { nullable: false, default: "1" } });
+    expect(
+      steps.some((s) => s.op === "alterColumnDefault" && s.name === "version"),
+      "the DEFAULT 1 is the column's own, not a transient backfill default",
+    ).toBe(false);
+  });
+});

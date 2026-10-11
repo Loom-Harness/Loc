@@ -66,7 +66,6 @@ import {
   type ValueCollectionIR,
   valueCollectionsFor,
 } from "../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../ir/util/versioned-capability.js";
 import {
   AUDIT_RECORD_COLUMNS,
   AUDIT_RECORD_INDEXES,
@@ -2762,7 +2761,7 @@ const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
  *      tenant), so the gate keeps refusing and says so;
  *    - `auditable`'s stamps — the true creation time and author of an old row
  *      are unknown, and `created_by` has no defensible placeholder;
- *    - `versioned.version` — already a real `DEFAULT 1` column (below), so the
+ *    - `versioned.version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
  *      add is never blocking;
  *    - the nullable ones (`deleted_at`, `data_key`) — a nullable add needs none.
  *  Rides `addColumnDefault`, the M-T2.16 path: added WITH the default, which
@@ -2772,15 +2771,32 @@ const CAPABILITY_BACKFILL: Readonly<Record<string, string>> = {
   "softDeletable.is_deleted": "false",
 };
 
+/** A REAL column DEFAULT a capability column carries in every `CREATE` (not
+ *  just the add-time backfill above).  `versioned`'s counter seeds new rows at
+ *  1, so `version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
+ *  capability to a populated table non-destructive (a NOT NULL add WITH a
+ *  default never trips `isBlockingNotNullAdd`).  sql-pg renders it; the Ecto
+ *  emitter reads the same `default` off MigrationsIR. */
+const CAPABILITY_DB_DEFAULT: Readonly<Record<string, string>> = {
+  "versioned.version": "1",
+};
+
 /** Stamp the columns a built-in capability contributed to `columns` (see
- *  `ColumnShape.capability`), and lend the unambiguous ones their backfill.
- *  An author-declared field default (`addColumnDefault` already set) wins. */
+ *  `ColumnShape.capability`), give them their DB default, and lend the
+ *  unambiguous ones their backfill.  An author-declared field default
+ *  (`addColumnDefault` already set) wins.  Called for a plain / TPC table AND
+ *  for the TPH shared table (with the base's capabilities), so every table
+ *  layout gets the same treatment — the TPH table used to miss `versioned`'s
+ *  `DEFAULT 1`, which made adding `versioned` to a populated TPH table
+ *  destructive. */
 function stampCapabilityColumns(agg: AggregateIR, columns: ColumnShape[]): void {
   for (const cap of agg.capabilities ?? []) {
     for (const name of CAPABILITY_COLUMNS[cap] ?? []) {
       const col = columns.find((c) => c.name === name);
       if (!col) continue;
       col.capability = cap;
+      const dbDefault = CAPABILITY_DB_DEFAULT[`${cap}.${name}`];
+      if (dbDefault !== undefined) col.default = dbDefault;
       const fill = CAPABILITY_BACKFILL[`${cap}.${name}`];
       if (fill !== undefined && col.addColumnDefault === undefined && !col.nullable) {
         col.addColumnDefault = fill;
@@ -2880,18 +2896,9 @@ function tableForAggregate(
     }
   }
 
-  // Optimistic concurrency (`with versioned`): the capability contributes a
-  // `version: int token` field, which the field loop above already emitted as
-  // a `version` column (int, NOT NULL, no default).  Stamp it `DEFAULT 1` so
-  // new rows seed at version 1 and — as an ADD COLUMN on an existing table —
-  // the change stays non-destructive (a NOT NULL add WITH a default doesn't
-  // trip `isBlockingNotNullAdd`).  sql-pg renders it `... NOT NULL DEFAULT 1`;
-  // the Ecto emitter reads the same `default` off MigrationsIR.  Gated so
-  // non-versioned aggregates are byte-identical.
-  if (aggregateIsVersioned(agg)) {
-    const versionCol = columns.find((c) => c.name === "version");
-    if (versionCol) versionCol.default = "1";
-  }
+  // Capability columns: `versioned`'s `DEFAULT 1`, `softDeletable`'s add-time
+  // backfill, and the stamp the destructive gate explains (see
+  // `stampCapabilityColumns` — shared with the TPH shared table).
   stampCapabilityColumns(agg, columns);
 
   return {
