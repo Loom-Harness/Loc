@@ -2,7 +2,7 @@
 
 Wave C3 ([`wave-c3.md`](wave-c3.md), closed 2026-10-06) was test-only by design: every runtime defect its packets found was handed off with a repro, not fixed. C3F fixes them. One Opus agent per packet, each in an isolated worktree on a local `claude/c3f-<packet>` branch, fenced by tree so no two packets edit the same emitter files. The coordinator folds packets onto the wave branch and lands them in batches through the merge queue.
 
-## Status: **launched 2026-10-06** — eight packets building; landing order and PR batches below.
+## Status: **re-run in flight (2026-10-11)** — the first run's work was lost with its container (nothing had been pushed). Packets are re-run with ≤ 4 agents active, and each fold is pushed at once to the wave's draft PR as a checkpoint.
 
 ## Rules every packet follows
 
@@ -45,3 +45,5 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
 ## Fold notes
 
 - **Launched** (2026-10-06): this log, plus the `CLAUDE.md` CI-surface refresh, rides the C3 close-out PR #3189 as the fleet's claim. Eight agents launched on `main` @ `d3f226765`.
+- **First run lost** (2026-10-06 → 2026-10-11). All eight packets ran. F2, F1 and F8 handed back and were folded locally; F3–F7 stopped mid-task on the session's weekly usage limit. The idle container was then reclaimed, and with it every unpushed packet branch and the local fold. Lesson for a coordinator: an unpushed fold is not a checkpoint. Push each fold to the wave PR as soon as it is gated, as a draft until the full suite has run. The re-run (2026-10-11) restarts the packets from the hand-back recipes.
+- **F2 folded** (2026-10-11; `claude/c3f-f2` @ `e9cbe64da`). **D8** fixed: an id named like an implicit-using type (`EventId`) gets a `global using EventId = <ns>.Domain.Ids.EventId;` alias, and CA1716 joins the csproj `NoWarn`. EF and Dapper build with 0 warnings / 0 errors in the .NET SDK container. **D5** is covered by open draft #3204 (verified at runtime: duplicate → 409, persists across restart). **D12** is covered by open #3185. Hand-off: `handoffs/wave-c3f-f2.md`.
