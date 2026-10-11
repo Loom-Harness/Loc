@@ -137,6 +137,15 @@ consumer-side idempotency key (a redelivered envelope is a no-op).
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 
+**Reactor failures:** a local reactor that throws on the request path never
+fails the command that raised its event. It is isolated and logged
+`reactor_failed` ([workflow.md § Reactor failures](workflow.md#reactor-failures)),
+and it is not retried there. Retry is the durable tier's job: a `work`/`log`
+event's reactors run from the relay or the consumer, both of which keep the
+raising dispatcher, so a failure is redelivered and finally dead-lettered.
+Pick `retention: work` for a reaction that must eventually happen, such as
+sending a CSAT survey mail.
+
 ## Per-broker topology
 
 Addresses are derived, never configured: channel address
@@ -152,7 +161,20 @@ get distinct groups.
 | dead-letter | — | DLX `loom.dlx` → `loom.dlq.<address>` queue | v1 = log + park onto `<address>.dlq` (the partition keeps moving, never a hot loop) |
 
 Kafka's per-deployable groups realise broadcast ACROSS deployables and
-competition WITHIN one — the same two knobs, one mechanism. Every park emits
+competition WITHIN one — the same two knobs, one mechanism.
+
+**New-group start offset** ([D-KAFKA-START-OFFSET](decisions.md#d-kafka-start-offset--a-new-kafka-group-starts-at-earliest-on-a-work-queue-latest-on-a-log)).
+A consumer group with committed offsets always resumes from them. Only a
+group's FIRST join (a fresh deployable, or a rejoin after the broker expired
+its offsets) picks a start point, and that pick follows the channel:
+
+| channel | new group starts at | per backend |
+|---|---|---|
+| `delivery: queue` / `retention: work` | **earliest** — an event published before the consuming deployable first booted is still delivered (envelope-id idempotency makes the replay safe) | node `fromBeginning: true` · java `auto.offset.reset=earliest` · dotnet `AutoOffsetReset.Earliest` · python `auto_offset_reset="earliest"` · elixir `begin_offset: :earliest` |
+| `delivery: broadcast` / `retention: log` | **latest** — a fresh deployable does not replay the whole log (arbitrary-offset replay is the unshipped replay cursor, below) | the `latest` twin of each |
+
+The choice is one predicate, `kafkaStartsAtEarliest` in
+`src/generator/_channels/bindings.ts`, carried on each generated binding row. Every park emits
 the `channel_dead_lettered` obs event (catalog: `channel_published`,
 `channel_consumed`, `channel_consume_failed`, `channel_dead_lettered`).
 

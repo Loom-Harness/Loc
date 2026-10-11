@@ -278,6 +278,67 @@ supplied:
 Bare `transactional` emits the no-arg form on every backend so the
 connection-default behaviour is preserved.
 
+## Reactor failures
+
+An event-triggered `create(e: Event) by …` starter or `on(e: Event)` reactor
+runs **after the command whose event it reacts to has committed**. Its failure
+never changes that command's answer. The command keeps its 2xx and its write,
+the failed reaction leaves **no effects** of its own, and the backend logs one
+`reactor_failed` line (`handler`, `event_type`, `event_id`, `error`):
+
+```ddd
+aggregate Ticket with crudish {
+  email: string
+  status: string
+  operation resolve() {
+    precondition status == "Open"
+    status := "Resolved"
+    emit TicketResolved { ticket: id, email: email }
+  }
+}
+workflow AskForRating {
+  ticket: Ticket id
+  create(e: TicketResolved) by e.ticket {
+    precondition e.email != "boom@example.test"
+    let s = Survey.create({ ticket: e.ticket, email: e.email })
+  }
+}
+```
+
+```text
+POST /api/tickets/{id}/resolve      → 204   (status = Resolved, committed)
+{"level":"error","event":"reactor_failed","handler":"askForRatingStartTicketResolved",
+ "event_type":"TicketResolved","event_id":"d68c…","error":"Precondition failed: …"}
+GET  /api/workflows/ask_for_rating/instances/{id} → 404   (no saga row, no Survey)
+```
+
+Before H-28, the same model answered 500 after the commit (node, elixir) or 422
+after the commit (.NET), so a client retry then hit the `precondition`. On
+java and python it answered 422 and the reactor rolled the command back.
+
+How each backend gets there:
+
+| backend | when the reaction runs | isolation |
+|---|---|---|
+| node | after the repository's transaction commits | `createInProcessDispatcher(db, { isolateReactorFailures: true })` on the request path; each handler is caught on its own |
+| .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged |
+| elixir | after the op's `Repo.update` | the request path calls `<Ctx>.Dispatcher.AfterCommit` (rescue + catch); each handler runs in `Repo.transaction`, so its saga row rolls back with it |
+| java | `@TransactionalEventListener(AFTER_COMMIT)` | `<Ctx>Dispatcher.ReactorListener` runs each handler in its own `REQUIRES_NEW` transaction |
+| python | inside the request transaction, before it commits | each reaction runs in a SAVEPOINT (`session.begin_nested()`) |
+
+**No inline retry.** A reaction's side effects, such as an email already sent,
+are not idempotent, so the request path does not re-run it. When a reaction
+must happen eventually, carry its event on a **durable** channel
+(`retention: work | log`, [channels.md](channels.md)). The event is then
+recorded in `__loom_outbox` in the command's own transaction, and the relay
+delivers it at-least-once: it retries a failing reactor up to `maxAttempts`
+times, then logs `event_dead_lettered` and keeps the row. The relay, broker
+consumers, and the node timer scheduler deliberately use the **raising**
+dispatcher, because their retry and redelivery depend on the throw. On .NET
+the timer resolves the request-path dispatcher, so a failing tick reaction is
+logged rather than retried.
+
+
 ## Generated code
 
 ### .NET (ASP.NET Core + Mediator)
