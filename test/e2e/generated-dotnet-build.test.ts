@@ -213,7 +213,7 @@ describe.skipIf(!ENABLED)(
     // exception type (fails only at run time), and a MailKit advisory the test
     // csproj does not suppress (NU1902).  The exact count pins that the tests
     // RAN: `dotnet test` on a project with no tests exits 0.
-    it("system emitted xUnit project — `create({…})` omissions + VO `toThrow()` compile and pass", () => {
+    it("system emitted xUnit project — `create({…})` omissions, VO `toThrow()`, mailer audit — compile and pass", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-unit-"));
       try {
         execSync(
