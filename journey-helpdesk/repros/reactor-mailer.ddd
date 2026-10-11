@@ -1,0 +1,26 @@
+// Repro: a resource call (mailer) inside an EVENT-triggered workflow starter.
+// `ddd parse` is clean; `generate system` throws on java and elixir.
+system R {
+  subdomain S {
+    context C {
+      event Done { thing: Thing id }
+      aggregate Thing with crudish {
+        email: string
+        operation finish() { emit Done { thing: id } }
+      }
+      repository Things for Thing { }
+      workflow notify {
+        thing: Thing id
+        create(e: Done) by e.thing {
+          let t = Things.getById(e.thing)
+          mail.send(t.email, "Done", "Thing finished")
+        }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  storage mailServer { type: smtp, config: { from: "no-reply@r.test" } }
+  resource st { for: C, kind: state, use: pg }
+  resource mail { for: C, kind: mailer, use: mailServer }
+  deployable api { platform: PLATFORM, contexts: [C], dataSources: [st, mail], port: 3000 }
+}
