@@ -129,10 +129,9 @@ describe("toThrow(<kind>) — no grammar ambiguity", () => {
     const { reports, results } = parseCapturingAmbiguity([ALL_TOTHROW_FORMS]);
     const [r] = results;
     expect([...r.lexerErrors, ...r.parserErrors].map((e) => e.message)).toEqual([]);
-    expect(
-      reports,
-      "the ALL(*) lookahead logged an ambiguity — see this file's header",
-    ).toEqual([]);
+    expect(reports, "the ALL(*) lookahead logged an ambiguity — see this file's header").toEqual(
+      [],
+    );
     // And each form landed in the slot it always did: the kind words in
     // `throwKind`, never as a `CallArg`; the status as one arg; bare as none.
     expect(toThrowSuffixes(r.value)).toEqual([
