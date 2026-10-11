@@ -447,6 +447,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.unique-tpc-not-hierarchy-wide":
+    "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

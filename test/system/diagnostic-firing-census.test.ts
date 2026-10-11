@@ -492,6 +492,19 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
   // branch text ("items") is dropped.  The warning says so where it happens.

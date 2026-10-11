@@ -405,6 +405,11 @@ export interface InvariantIR {
 export interface UniqueKeyIR {
   columns: string[];
   source: string;
+  /** Set on a key a TPC (`ownTable`) concrete inherits from an abstract
+   *  ancestor (enrichment): the ancestor that declared it.  The concrete's
+   *  table carries the index; per-aggregate validators leave the diagnosis to
+   *  the declaring base so one declaration reports once. */
+  inheritedFrom?: string;
 }
 
 /** A pure helper over its parameters (domain-services.md).  The body is a
