@@ -45,7 +45,7 @@ import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
-import { auditRecordCall, createAuditMeta, destroyAuditMeta, wireSnapshot } from "./audit-emit.js";
+import { auditRecordCall, createAuditMeta, destroyAuditMeta } from "./audit-emit.js";
 import {
   aggregateServesHistoryRoute,
   renderVanillaHistoryAction,
@@ -844,43 +844,13 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
   // same route (the first was the PATCH-vs-POST path above), and the same
   // reason applies for why nothing caught it: `conformance-parity` diffs the
   // emitted specs, which agreed.
-  // An AUDITED `update` (aggregate-wide `audited`, or `operation update(…)
-  // audited`) records its row here: the generic action calls the field-update
-  // context fn, not the op body that stages audit for every other operation, so
-  // without this the update — the most common audited write — left no trail.
-  // The row and the save share one transaction, as on every other audit path.
-  const updateOp = agg.operations.find((o) => o.name === "update");
-  const updateCall = `${ctxModule}.update_${aggSnake}(record, attrs${updateActor}${versionCallArg})`;
-  const updateStep = updateOp?.audited
-    ? `{:ok, _updated} <-
-           ${appModule}.Repo.transaction(fn ->
-             case ${updateCall} do
-               {:ok, updated} ->
-${auditRecordCall({
-  appModule,
-  operationId: `update${aggPascal}`,
-  action: "update",
-  targetType: aggPascal,
-  targetId: "updated.id",
-  before: wireSnapshot("record", false, appModule),
-  after: wireSnapshot("updated", false, appModule),
-  indent: "                 ",
-})}
-
-                 updated
-
-               {:error, reason} ->
-                 ${appModule}.Repo.rollback(reason)
-             end
-           end)`
-    : `{:ok, _updated} <- ${updateCall}`;
   const updateAction = !hasUpdateOp
     ? ""
     : `  def update(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${cuBind}${updateCuBind}${versionBind}
     with {:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
-         ${updateStep} do
+         {:ok, _updated} <- ${ctxModule}.update_${aggSnake}(record, attrs${updateActor}${versionCallArg}) do
       send_resp(conn, 204, "")
     else
       {:error, :not_found} ->
