@@ -80,8 +80,8 @@ describe("dev-stub claim mapper carries a declared string[] claim", () => {
     const src = stubSource(await filesFor("java"), /DevStubUserVerifier\.java$/);
     expect(src).toContain('devClaimStringList(claims, "permissions"');
     // Element-checked: a mixed array must fall back, not half-fill the list.
-    expect(src).toContain("if (!e.isTextual()) return fallback;");
-    expect(src).toContain('claims.get("id").isTextual()');
+    expect(src).toContain("if (!e.isString()) return fallback;");
+    expect(src).toContain('claims.get("id").isString()');
     expect(src).not.toContain('"seat"');
   });
 

@@ -6,7 +6,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { pythonIdent, snake, upperFirst } from "../../util/naming.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { renderPyExpr } from "./render-expr.js";
 import { fromData, toData } from "./repository-eventsourced-builder.js";
@@ -178,13 +178,13 @@ export function esWorkflowFoldBlock(
   const required = fields.filter((f) => !(f.optional || f.type.kind === "optional"));
   const optional = fields.filter((f) => f.optional || f.type.kind === "optional");
   const initParams = [
-    ...required.map((f) => `${snake(f.name)}: ${pyStateType(f.type)}`),
-    ...optional.map((f) => `${snake(f.name)}: ${pyStateType(f.type)} = None`),
+    ...required.map((f) => `${pythonIdent(f.name)}: ${pyStateType(f.type)}`),
+    ...optional.map((f) => `${pythonIdent(f.name)}: ${pyStateType(f.type)} = None`),
   ].join(", ");
   const classBlock = lines(
     `class ${T}:`,
     `    def __init__(self, *, ${initParams}) -> None:`,
-    ...fields.map((f) => `        self.${snake(f.name)} = ${snake(f.name)}`),
+    ...fields.map((f) => `        self.${pythonIdent(f.name)} = ${pythonIdent(f.name)}`),
   );
 
   // Per-applier fold functions (param named after the applier binding, so the
@@ -210,7 +210,7 @@ export function esWorkflowFoldBlock(
     `${snake(corr)}=${corrId}(key)`,
     ...required
       .filter((f) => f.name !== corr)
-      .map((f) => `${snake(f.name)}=${esZeroFor(f.type, ctx)}`),
+      .map((f) => `${pythonIdent(f.name)}=${esZeroFor(f.type, ctx)}`),
   ].join(", ");
   const foldFn = lines(
     `def ${fns.fold}(key: str, events: list[DomainEvent]) -> ${T}:`,
@@ -282,7 +282,7 @@ export function esWorkflowFoldBlock(
     "    data = cast(dict[str, object], row.data)",
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
-      `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromData(f.name, f.type)}`).join(", ")})`,
+      `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`).join(", ")})`,
     ]),
     `    raise ValueError(f"unknown ${wf.name} event type: {row.type}")`,
   );
@@ -290,7 +290,7 @@ export function esWorkflowFoldBlock(
     `def _${snake(wf.name)}_event_to_data(ev: DomainEvent) -> dict[str, object]:`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} isinstance(ev, ${ev.name}):`,
-      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+      `        return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
     ]),
     `    raise ValueError(f"unknown event: {type(ev).__name__}")`,
   );

@@ -13,7 +13,12 @@ import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel, ExecTestRef, TestOutcome } from "../ir/types/loom-ir.js";
-import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
+import {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+  validateLoomModel,
+} from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -75,6 +80,7 @@ import {
   runI18nSync,
 } from "./i18n/index.js";
 import {
+  cliInvocation,
   DESIGN_PACKS,
   type DesignPack,
   designPacksForFormat,
@@ -293,6 +299,38 @@ function printAstDiagnostics(result: {
   return { errors: result.errorCount, warnings: result.warningCount };
 }
 
+/** The `path:line:col ` prefix for a phase-⑦ diagnostic that carries an
+ *  `origin` (eval item 28) — the same shape the AST-phase lines lead with, so
+ *  an editor / terminal link jumps to the construct the diagnostic is about.
+ *  Empty when the check attached no origin (a system-level construct) or the
+ *  source text is unavailable.  Texts come from the loaded documents; a path
+ *  outside that map is read from disk once and cached. */
+function irDiagnosticLocator(
+  sourceTexts: ReadonlyMap<string, string> | undefined,
+): (d: LoomDiagnostic) => string {
+  const cache = new Map<string, string | undefined>(sourceTexts ?? []);
+  const textOf = (p: string): string | undefined => {
+    if (!cache.has(p)) {
+      let text: string | undefined;
+      try {
+        text = fs.readFileSync(p, "utf8");
+      } catch {
+        text = undefined;
+      }
+      cache.set(p, text);
+    }
+    return cache.get(p);
+  };
+  return (d) => {
+    const ref = irDiagnosticSourceRef(d);
+    if (!ref) return "";
+    const text = textOf(ref.path);
+    if (text === undefined) return `${ref.path} `;
+    const pos = offsetToPosition(text, ref.span.start);
+    return `${ref.path}:${pos.line + 1}:${pos.character + 1} `;
+  };
+}
+
 /** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
  *  `generate system`.
  *
@@ -312,13 +350,17 @@ function printAstDiagnostics(result: {
  *
  *  Returns the split so the caller can tally it and decide about exit codes
  *  (errors gate; warnings and suggestions never do). */
-function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
+function printIrDiagnostics(
+  diagnostics: readonly LoomDiagnostic[],
+  sourceTexts?: ReadonlyMap<string, string>,
+): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
   hints: LoomDiagnostic[];
 } {
+  const at = irDiagnosticLocator(sourceTexts);
   const errors = diagnostics.filter((d) => d.severity === "error");
-  for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
+  for (const d of errors) console.error(`${at(d)}${d.code} ${d.source}: ${d.message}`);
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
@@ -328,7 +370,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   // here: with a literal, the second advisory code to arrive silently came out
   // labelled `warning` and inflated the count.)
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
-  for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
+  for (const d of warnings) console.error(`${at(d)}${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // and the update-gate lint (audit D3) keep their own footer and never fail
@@ -336,7 +378,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);
-    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
+    for (const d of hints) console.error(`  ${at(d)}${d.source}: ${d.message}`);
   }
   return { errors, warnings, hints };
 }
@@ -387,7 +429,10 @@ async function runParse(file: string) {
   // filtered down to the single allow-listed `loom.index-suggestion`.  The
   // shared printer is now the only thing that decides what a phase-⑦
   // diagnostic looks like on either command's stderr.
-  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(irDiagnostics);
+  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(
+    irDiagnostics,
+    result.sourceTexts,
+  );
   // Both phases have run — ONE footer, counting both.  It has to come after
   // the IR phase, or it is a verdict on half the file (M-T9.60).
   printSummary(ast, { errors: irErrors.length, warnings: irWarnings.length });
@@ -682,7 +727,7 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -1281,7 +1326,8 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   }
 
   // --- render + soundness check (guards against template drift) ---
-  const source = renderStarter({ name, template, platform, design });
+  const invocation = cliInvocation(process.argv);
+  const source = renderStarter({ name, template, platform, design, invocation });
   const report = await validate(source, { path: "main.ddd" });
   if (!report.ok) {
     console.error("ddd new: the generated starter failed validation (please report this):");
@@ -1294,7 +1340,7 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   // --- write the starter files ---
   const files = new Map<string, string>([
     ["main.ddd", source],
-    ["README.md", renderReadme({ name, platform, design })],
+    ["README.md", renderReadme({ name, platform, design, invocation })],
     [".loomignore", renderLoomignore()],
     // The MIT grant over the generated output (docs/license-faq.md).  Written
     // HERE, once, at scaffold time — `ddd generate` no longer drops it into
@@ -1317,10 +1363,12 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
       "  platform: node (default) — also: dotnet, elixir, java, python (re-run with --platform <p>)",
     );
   }
-  // `npx ddd`, not a bare `ddd`: a clone's `npm install` links no global
-  // binary, so the bare form is the one command in this output that does not
-  // work when copied (finding F-001).
-  console.log(`  next: cd ${where} && npx ddd generate system main.ddd -o . && docker compose up`);
+  // The invocation that actually ran, not a bare `ddd` (a clone's `npm
+  // install` links no global binary — F-001) and not `npx ddd` (outside the
+  // clone that resolves an unrelated npm package — ruling D11, item 37).
+  console.log(
+    `  next: cd ${where} && ${invocation} generate system main.ddd -o . && docker compose up`,
+  );
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`

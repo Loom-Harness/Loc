@@ -502,6 +502,18 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
+  // domain code, where every backend renders the hole as its bare value — the
+  // branch text ("items") is dropped.  The warning says so where it happens.
+  "loom.interp-format-dropped-in-domain": `
+system IcuDrop {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      qty: int
+      derived label: string = \`{qty, plural, one {# item} other {# items}}\`
+    }
+  } }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
@@ -1612,6 +1624,22 @@ system S {
     command C { region: string }
     workflow W {
       create(c: C) { let xs = Orders.run(retrieval { where: this.region == c.region }) }
+    }
+  } }
+}`,
+
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
+  "loom.paged-query-handler-shape": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion InRegion(rgn: string) of Order = region == rgn
+    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+    queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let r = Orders.run(ByRegion(rgn))
+      return r
     }
   } }
 }`,
@@ -3100,6 +3128,39 @@ system S {
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
   deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
+}`,
+
+  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
+  "loom.default-deny-list-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
+  "loom.policy-out-of-scope": `
+system S {
+  user { id: guid  role: string }
+  subdomain D {
+    context A {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate Foo { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+    context B {
+      aggregate Bar { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: A, kind: state, use: pg }
+  resource st2 { for: B, kind: state, use: pg }
+  deployable api { platform: node contexts: [A, B] dataSources: [st, st2] port: 3000 auth: required }
 }`,
 
   "loom.default-deny-by-id-ungated": `

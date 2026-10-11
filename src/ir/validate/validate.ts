@@ -92,6 +92,7 @@ import {
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
+  validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
   validateProvenancedStorage,
@@ -129,7 +130,11 @@ import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-che
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
 // importers of "./validate.js" are unaffected.
-export type { LoomDiagnostic } from "./checks/diagnostic.js";
+export {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+} from "./checks/diagnostic.js";
 export { firstNonQueryableNode } from "./checks/shared.js";
 
 // ---------------------------------------------------------------------------
@@ -248,6 +253,7 @@ export function validateLoomModel(
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
+    validatePagedQueryHandlerShape(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
     validateDefaultDeny(sys, diags);

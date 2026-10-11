@@ -206,7 +206,9 @@ export async function generate(source: string, opts: ToolkitOptions = {}): Promi
   }
 
   const loom = enrichLoomModel(mergeLoomModels([lowerModel(model)]));
-  const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map(irDiagnosticToJson);
+  const irJson = validateLoomModel(loom, { designPacks: opts.designPacks }).map((d) =>
+    irDiagnosticToJson(d, doc),
+  );
   const deployables = loom.systems.flatMap((sys) =>
     sys.deployables.map((d) => ({ name: d.name, platform: d.platform, port: d.port })),
   );

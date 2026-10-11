@@ -5,6 +5,7 @@ import { descriptorFor } from "../../platform/metadata.js";
 import { parseBuiltinDesignRef } from "../../util/builtin-formats.js";
 import type { DeployableIR, Platform, UiParamBindingIR } from "../types/loom-ir.js";
 import { qualifyDesign, qualifyPlatform } from "./lower-platform.js";
+import { originFor } from "./origin.js";
 
 export function lowerDeployable(d: Deployable): DeployableIR {
   const { family: platform, ref: platformRef } = qualifyPlatform(d.platform);
@@ -187,6 +188,7 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     uiBindings,
     favicon: d.favicon,
     ...designBaseDirFor(d, design),
+    origin: originFor(d),
   };
 }
 

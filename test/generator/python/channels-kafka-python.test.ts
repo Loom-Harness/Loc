@@ -121,12 +121,27 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("ship_api/app/channels.py") ?? "";
     expect(mod).toContain(
-      'await transport.subscribe(binding["address"], binding["group"], _consume_one)',
+      'binding["address"], binding["group"], _consume_one, offset_reset=binding["offset_reset"]',
     );
+    // `retention: log` keeps the latest offset for a NEW group (D3).
+    expect(mod).toContain('"offset_reset": "latest"}');
+    expect(mod).toContain("auto_offset_reset=offset_reset,");
     // The consumed log carries the loomkey (the e2e ordering probe reads it).
     expect(mod).toContain(
       '**({"key": cast(str, envelope["loomkey"])} if "loomkey" in envelope else {}),',
     );
+  });
+
+  it("starts a NEW group at earliest on a work-queue channel (D3, item 13)", async () => {
+    const files = await generateSystemFiles(
+      FIXTURE.replace("delivery: broadcast", "delivery: queue").replace(
+        "retention: log",
+        "retention: work",
+      ),
+    );
+    const mod = files.get("ship_api/app/channels.py") ?? "";
+    expect(mod).toContain('"offset_reset": "earliest"}');
+    expect(mod).not.toContain('"offset_reset": "latest"}');
   });
 
   it("keeps the rabbit (7a) shape byte-stable — no kafka artifacts leak", async () => {

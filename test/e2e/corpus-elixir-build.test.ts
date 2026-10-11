@@ -95,15 +95,30 @@ const HEX_CACHE = path.join(os.tmpdir(), "loom-corpus-elixir-hex");
 // (docs/audits/2026-10-04-tested-vs-shipped.md, family B).  So one Postgres
 // sidecar serves the whole file, and each project gets its own database.
 const PG_IMAGE = "postgres:18-alpine";
-const PG_PORT = Number(process.env.LOOM_CORPUS_ELIXIR_PG_PORT ?? "55432");
+// The host port defaults to one Docker picks: a fixed port (it was 55432)
+// collides when two cells of the matrix share a runner host —
+// `failed to bind host port 0.0.0.0:55432 … address already in use` killed
+// cells before any test ran.  LOOM_CORPUS_ELIXIR_PG_PORT still pins it.
+const PG_PORT_PIN = process.env.LOOM_CORPUS_ELIXIR_PG_PORT;
+let pgPort = Number(PG_PORT_PIN ?? 0);
 const PG_NAME = `loom-corpus-elixir-pg-${process.pid}`;
 
 function startPostgres(): void {
   execSync(`docker rm -f ${PG_NAME}`, { stdio: "ignore" });
+  const publish = PG_PORT_PIN ? `${PG_PORT_PIN}:5432` : "127.0.0.1::5432";
   execSync(
-    `docker run -d --rm --name ${PG_NAME} -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 ${PG_IMAGE}`,
+    `docker run -d --rm --name ${PG_NAME} -e POSTGRES_PASSWORD=postgres -p ${publish} ${PG_IMAGE}`,
     { stdio: "inherit", timeout: 300_000 },
   );
+  if (!PG_PORT_PIN) {
+    // `docker port` prints `127.0.0.1:49153`; take the port after the last colon.
+    const mapping = execSync(`docker port ${PG_NAME} 5432/tcp`, { encoding: "utf8" })
+      .trim()
+      .split("\n")[0];
+    pgPort = Number(mapping.slice(mapping.lastIndexOf(":") + 1));
+    if (!Number.isInteger(pgPort) || pgPort <= 0)
+      throw new Error(`could not read the sidecar's host port from "${mapping}"`);
+  }
   // pg_isready inside the container: the TCP port opens before initdb's
   // restart, so poll the server, not the socket.
   const deadline = Date.now() + 60_000;
@@ -142,7 +157,7 @@ function runMixCompileAndMigrate(projDir: string, db: string, mirror: HexMirror 
   // prod's config/runtime.exs raises without these two; the secret is never
   // used (no endpoint starts under ecto.migrate) but must be ≥ 64 bytes.
   const env =
-    `-e MIX_ENV=prod -e DATABASE_URL=ecto://postgres:postgres@127.0.0.1:${PG_PORT}/${db} ` +
+    `-e MIX_ENV=prod -e DATABASE_URL=ecto://postgres:postgres@127.0.0.1:${pgPort}/${db} ` +
     `-e SECRET_KEY_BASE=${"x".repeat(64)} `;
   execSync(
     `docker run --rm ${dockerArgs}-v ${projDir}:/app -v ${HEX_CACHE}:/root/.hex ` +
