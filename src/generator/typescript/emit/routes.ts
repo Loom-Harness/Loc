@@ -5,7 +5,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -465,7 +465,7 @@ export function renderHttpIndex(
           `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) {`,
           `      ${renderHonoBaseLogCall("disallowed", `message: (err as { constraint?: string }).constraint ?? (err as { cause?: { constraint?: string } }).cause?.constraint ?? "unique_violation", status: ${rootUniquenessStatus}`)}`,
           '      recordDomainFault("disallowed");',
-          `      return problem(${rootUniquenessStatus}, "Conflict", "A record with these values already exists.");`,
+          `      return problem(${rootUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
           "    }",
         ]
       : []),

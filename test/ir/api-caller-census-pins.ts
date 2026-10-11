@@ -698,6 +698,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.review.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  // The two `transactional` workflows the domain-service tiers orchestrate —
+  // the same not-lifted workflow-run class as the entries above.
+  "corpus/domain-services": [
+    "api.moveMoney.run (no such aggregate)",
+    "api.registerAccount.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",

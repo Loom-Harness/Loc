@@ -1,4 +1,6 @@
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { numericKindOf } from "../../../generator/_numeric/codec.js";
+import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
@@ -17,6 +19,7 @@ import {
   MIKRO_OUTBOX_ROW_CLASS,
   mikroWorkflowRowClass,
 } from "../../../generator/typescript/emit/mikroorm.js";
+import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
   RAW_INSTANT_FN,
   rawInstantFields,
@@ -54,7 +57,11 @@ import {
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
-import { problemTitle, UNPROCESSABLE_ENTITY } from "../../../ir/util/openapi-errors.js";
+import {
+  problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
+  UNPROCESSABLE_ENTITY,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opOperation,
@@ -429,7 +436,7 @@ export function buildWorkflowsFile(
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
       // v5 wraps the driver error), same as the aggregate router.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, "Conflict", "A record with these values already exists.");`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
   }
   if (wfNeedsConcurrency) {
@@ -594,6 +601,8 @@ export function buildWorkflowsFile(
   // them (byte-identical) and a mikro build with no state store drops them.
   if (/(?<!\.)\bEntityManager\b/.test(bodyStr))
     imports.push(`import { EntityManager } from "@mikro-orm/postgresql";`);
+  if (/(?<!\.)\bIsolationLevel\./.test(bodyStr))
+    imports.push(`import { IsolationLevel } from "@mikro-orm/core";`);
   const workflowRowsReferenced = ctx.workflows
     .filter((w) => !w.eventSourced && !!w.correlationField)
     .map(mikroWorkflowRowClass)
@@ -1033,8 +1042,17 @@ function emitWorkflowRoute(
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
-    const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
-    out.push(`${bi}await db.transaction(async (tx) => {${""}`);
+    // drizzle opens the transaction with `db.transaction(cb, { isolationLevel:
+    // "<sql level>" })`; a MikroORM EntityManager has no `transaction` at all —
+    // its spelling is `em.transactional(cb, { isolationLevel: IsolationLevel.X })`,
+    // whose enum values are the same SQL level strings.  The repositories
+    // fork with `keepTransactionContext`, so their saves join this transaction.
+    const txOpts = !wf.isolation
+      ? ``
+      : usingMikro
+        ? `, { isolationLevel: IsolationLevel.${pgIsolationLevel(wf.isolation).toUpperCase().replace(/ /g, "_")} }`
+        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`;
+    out.push(`${bi}await db.${usingMikro ? "transactional" : "transaction"}(async (tx) => {${""}`);
     for (const r of reposNeeded) {
       out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
     }
@@ -1626,6 +1644,8 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   const table = `schema.${lowerFirst(plural(wf.name))}`;
   const corr = wf.correlationField as string;
   const dbType = wfDbType(usingMikro);
+  const codec = stateNumericFields(wf);
+  if (codec.length > 0) return emitCodecStateHelpers(wf, codec, usingMikro);
   if (usingMikro) {
     // MikroORM store: the correlation Row IS the state type; load reads by the
     // correlation PK (`findOne`), save upserts on it (`em.upsert`).  The
@@ -1660,6 +1680,88 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   ];
 }
 
+/** A saga-state field whose PERSISTED form (a Postgres `numeric`, which both
+ *  adapters hand back as a STRING) differs from its DOMAIN form — a `money` is
+ *  a `Decimal`, a `decimal` a JS `number` (the same split the aggregate
+ *  repositories make).  The workflow body does arithmetic on the domain form
+ *  (`state.credit.minus(…)`), so a row reloaded raw breaks the first reactor
+ *  that touches it. */
+interface StateNumericField {
+  name: string;
+  kind: "money" | "decimal";
+  nullable: boolean;
+}
+
+function stateNumericFields(wf: WorkflowIR): StateNumericField[] {
+  const out: StateNumericField[] = [];
+  for (const f of wf.stateFields ?? []) {
+    if (f.name === wf.correlationField) continue;
+    const kind = numericKindOf(f.type);
+    if (kind !== "money" && kind !== "decimal") continue;
+    out.push({ name: f.name, kind, nullable: !!f.optional || f.type.kind === "optional" });
+  }
+  return out;
+}
+
+/** `loadX` / `saveX` for a saga row carrying `money` / `decimal` state: the
+ *  in-memory state holds the DOMAIN form, and the two helpers convert at the
+ *  persistence boundary — `numeric` text → `Decimal` / `number` on load, back
+ *  to text on save (money at its fixed wire scale).  Load builds a fresh
+ *  object rather than mutating the row: under MikroORM the row is the managed
+ *  entity, and a `Decimal` written into it would ride the identity map into
+ *  every later read of the instance. */
+function emitCodecStateHelpers(
+  wf: WorkflowIR,
+  codec: readonly StateNumericField[],
+  usingMikro: boolean,
+): string[] {
+  const T = upperFirst(wf.name);
+  const table = `schema.${lowerFirst(plural(wf.name))}`;
+  const corr = wf.correlationField as string;
+  const dbType = wfDbType(usingMikro);
+  const rowType = usingMikro ? mikroWorkflowRowClass(wf) : `typeof ${table}.$inferInsert`;
+  const domainType = (f: StateNumericField): string =>
+    `${f.kind === "money" ? "Decimal" : "number"}${f.nullable ? " | null" : ""}`;
+  const guard = (f: StateNumericField, v: string, conv: string): string =>
+    f.nullable ? `${v} == null ? null : ${conv}` : conv;
+  const toDomain = (f: StateNumericField, v: string): string =>
+    guard(f, v, numericEncode(TS_NUMERIC, f.kind, "repo-read", v));
+  const toRow = (f: StateNumericField, v: string): string =>
+    guard(
+      f,
+      v,
+      f.kind === "money" ? numericEncode(TS_NUMERIC, "money", "dto-map", v) : `String(${v})`,
+    );
+  const omitted = codec.map((f) => JSON.stringify(f.name)).join(" | ");
+  const loadEntries = codec.map((f) => `${f.name}: ${toDomain(f, `row.${f.name}`)}`).join(", ");
+  const saveEntries = codec.map((f) => `${f.name}: ${toRow(f, `state.${f.name}`)}`).join(", ");
+  const read = usingMikro
+    ? [`  const row = await db.findOne(${mikroWorkflowRowClass(wf)}, { ${corr}: key });`]
+    : [
+        `  const rows = await db.select().from(${table}).where(eq(${table}.${corr}, key)).limit(1);`,
+        `  const row = rows[0];`,
+      ];
+  const write = usingMikro
+    ? [`  await db.upsert(${mikroWorkflowRowClass(wf)}, row);`]
+    : [
+        `  await db.insert(${table}).values(row).onConflictDoUpdate({ target: ${table}.${corr}, set: row });`,
+      ];
+  return [
+    `type ${T}State = Omit<${rowType}, ${omitted}> & { ${codec.map((f) => `${f.name}: ${domainType(f)}`).join("; ")} };`,
+    `async function load${T}(`,
+    `  db: ${dbType},`,
+    `  key: string,`,
+    `): Promise<${T}State | undefined> {`,
+    ...read,
+    `  return row ? { ...row, ${loadEntries} } : undefined;`,
+    `}`,
+    `async function save${T}(db: ${dbType}, state: ${T}State): Promise<void> {`,
+    `  const row: ${rowType} = { ...state, ${saveEntries} };`,
+    ...write,
+    `}`,
+  ];
+}
+
 /** The object literal that allocates a fresh workflow instance: the correlation
  *  key plus a typed default for each required (non-optional) non-key saga state
  *  field, so the literal satisfies the row's insert type.  Optional fields are
@@ -1687,10 +1789,10 @@ function allocateLiteral(
   return `{ ${parts.join(", ")} }`;
 }
 
-/** A backend-zero literal for a required saga-state column, matching the
- *  Drizzle insert type: numeric integers → `0`, precise-decimals (numeric
- *  columns) → the string `"0"`, bool → `false`, datetime → `new Date()`, json →
- *  `{}`, everything textual (string / guid / id) → `""`, arrays → `[]`.
+/** A backend-zero literal for a required saga-state field, matching the
+ *  in-memory state type: numeric integers and `decimal` → `0`, money → a zero
+ *  `Decimal`, bool → `false`, datetime → `new Date()`, json → `{}`, everything
+ *  textual (string / guid / id) → `""`, arrays → `[]`.
  *
  *  An ENUM column is the one case `""` gets wrong.  Drizzle types a pg enum as
  *  the literal union of its members, so `""` is not assignable to it and the
@@ -1707,9 +1809,11 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
       case "int":
       case "long":
         return "0";
+      // The saga state holds the DOMAIN form (`emitCodecStateHelpers`).
       case "decimal":
+        return "0";
       case "money":
-        return `"0"`;
+        return numericEncode(TS_NUMERIC, "money", "repo-read", `"0"`);
       case "bool":
         return "false";
       case "datetime":
