@@ -149,3 +149,41 @@ open PR covers it. **PLANNED M-x** = a `docs/new-plan` mission tracks it.
 3. **API ergonomics (A1, A2 in flight, A3 planned, A6).**
 4. **Scaffold UX (U1–U5, U7).** Column selection and order, derived fields, pages for declared finds, role-aware Home and buttons.
 5. **Docs and diagnostics (D1–D4, E1, E6).**
+
+---
+
+## Proposed fixes — aligned with Loom's rules
+
+Filters applied to every finding:
+
+- **Owner directive:** gaps and bugs outrank architectural improvements, which outrank new surface.
+- **Silent beats honest, inverted:** a silent gap (valid `.ddd` in, broken output out) is fixed or turned into a `loom.*` refusal; it is never left silent.
+- **Derive, don't stamp; macros emit final AST.**
+- **Decisions that settle some findings:** D-ENVELOPE (every list is `Paged<T>`), D-AUTH-OIDC (dev login is the bundled Keycloak, not a stub), D-MIG-DSL-STEPS (no generated file is ever user-edited; data steps live in the `migration` block), D-MIG-NO-DOWN, D-WHEN-GATE-DOMAIN, D-WRITE-TX.
+
+### Re-classified after the alignment pass
+
+| # | Ruling |
+|---|---|
+| S4 | **Not a code gap.** Per D-AUTH-OIDC, the dev path with `oidc` is the bundled Keycloak in compose, not an accept-all stub. Fix the *docs*: the generated README's "one deployable at a time" recipe must say how to run the IdP, or say that `oidc` needs compose. → H7 |
+| M3 | The fix is **not** "hand-edit the SQL" (D-MIG-DSL-STEPS). A collection column gets its empty value as the derived backfill, so `--allow-destructive` never emits a TODO that is certain to fail. → H3 |
+| M4 | Discarding an unapplied migration is new CLI surface over the disposable output tree. → plan mission (H8) |
+| M6 | Moving data between tables: the raw `sql` step is the documented pressure valve (D-MIG-DSL-STEPS non-goal). → won't fix; docs mention it (H7) |
+| A4 | **A bug, not ergonomics.** D-ENVELOPE says every list read is `Paged<T>`, so gating `find all` must not change the shape. → H4 |
+| A7 | **As designed.** D-WHEN-GATE-DOMAIN runs the `when` gate inside the domain method on every caller, so a workflow calling a gated op on a row that fails it is refused. The model was wrong (the criterion did not imply the gate). → docs note (H7), plus a suggestion-level lint candidate in H8 |
+| G3 | The C#-member-hides-type collision is a target-escaping matter, in flight in #3155/#3185. → verify only (H1) |
+| S1, G1, A2, M1-warning, M2, E5 | In flight (#3109, #3183/#3187, #3140, #3141, #3248, #3243). → excluded |
+| S3, S5, S6, A5, A6, E2, E3 | New surface or open design questions (element-level visibility, create-time params/stamps, system-only ops, server-side list filters, sequences, queryable derived fields, timers without a correlation aggregate). → `docs/new-plan` missions with the helpdesk evidence (H8) |
+
+### Fleet slices (each tree-fenced, one agent each)
+
+| Slice | Findings | Fence |
+|---|---|---|
+| **H1** validator/generator correctness | G2 (table-name collision across workflow/aggregate/projection, case-insensitive) · A9 (unique-key find with no matching `unique`) · E6 (projection `count(x)` diagnostic) · E1 (an enum-subject `match` gets a pointer to the predicate form; `duration` named as expression-only) · E4 (bodyless `create(...)`) · G3 verify | `src/ir/validate/checks/`, `src/language/validators/`, `src/diagnostics/messages.ts`, grammar (E4) |
+| **H2** role-branching row filter | S2: a `currentUser`-only comparison is admitted in a capability `filter` / criterion as a bound parameter on all five backends, so "agents see all, customers see theirs" covers by-id reads too; the by-id warning names `filter` as the fix | queryable-subset check + each backend's filter renderer |
+| **H3** migrations | M3 (collection add backfills to empty) · M5 (`duration` in a backfill renders as an interval) · M1 log half (`migration_failed` carries the driver's detail) · M7 (consumed `migration` blocks get an advisory) | `src/system/migrations-builder.ts`, `src/generator/sql-pg*`, backend migrate runners |
+| **H4** HTTP edge | A1 (zero-arg op accepts no body / no content-type) · A4 (declared `find all` keeps `Paged<T>`) · A10 (a malformed id gets a human message, not the regex) · A8 (409 names the failed `when` predicate's message) | route/request emitters, five backends |
+| **H5** scaffold macros | U1 (sane default list columns: natural key first, no raw id column, cap) · U2 (derived fields on detail/list) · U3 (pages for user-declared list finds) · U4 (Home cards respect page `requires`) · U5/U7 (op buttons and workflow forms honour `currentUser`-only gates) | `src/macros/stdlib/scaffold/` |
+| **H6** design-pack visuals | U1 badge truncation · U8 sign-out overlay — every pack that shows it | `designs/` |
+| **H7** docs and diagnostics | D1 · D2 · D3 (storage `config:` hint) · D4 (diagnostics without `file:line`) · D5 (repeated default-deny warnings summarised) · S4/M6/A7 docs | `docs/`, CLI reporter, `messages.ts` (wording only) |
+| **H8** plan missions | S3, S5, S6, A5, A6, E2, E3, M4 and the A7 lint go into `docs/new-plan` tracks, de-duplicated against existing missions (M-T3.16, M-T3.19, M-T5.31) | `docs/new-plan/` only |
