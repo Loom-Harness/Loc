@@ -287,7 +287,7 @@ describe("dotnet — explicit handler repo-delete (destroy)", () => {
     expect(h).toContain("return Unit.Value;");
     // Route binds DELETE.
     const ctrl = fileEndingWith(files, "Api/SalesApiRoutesController.cs");
-    expect(ctrl).toContain('[HttpDelete("/orders/{orderId}")]');
+    expect(ctrl).toContain('[HttpDelete("/api/orders/{orderId}")]');
     expect(ctrl).toContain("await _mediator.Send(new DestroyOrderCommand(new OrderId(orderId)));");
   });
 });

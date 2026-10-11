@@ -75,9 +75,9 @@ export function mergeContexts(contexts: EnrichedBoundedContextIR[]): EnrichedBou
       ?.structuralErrorStatuses,
     errorStatusOverrides: mergeErrorStatusOverrides(contexts),
     // Explicit-route slots are a set: a deployable spanning subdomains serves
-    // every member's apis, so it yields the union.  Absent when no member has
-    // any, keeping the merged context byte-comparable with an unmerged one.
-    ...mergeExplicitRouteSlots(contexts),
+    // every member's apis, so it yields the union.  Undefined when no member has
+    // any, like `errorStatusOverrides`.
+    explicitRouteSlots: mergeExplicitRouteSlots(contexts),
     // Sibling-context value objects (the cross-context lookup pool).  The merge
     // already unions every member's OWN `valueObjects` above, so a VO that was a
     // "sibling" to one member but is declared by another member is now local and
@@ -141,11 +141,9 @@ function mergeSiblingEnums(contexts: EnrichedBoundedContextIR[]): EnumIR[] | und
  *  rather than becoming an empty object — `resolveErrorStatus` treats the two
  *  identically, but an absent field keeps the merged context byte-comparable
  *  with an unmerged one. */
-function mergeExplicitRouteSlots(contexts: EnrichedBoundedContextIR[]): {
-  explicitRouteSlots?: string[];
-} {
+function mergeExplicitRouteSlots(contexts: EnrichedBoundedContextIR[]): string[] | undefined {
   const slots = [...new Set(contexts.flatMap((c) => c.explicitRouteSlots ?? []))];
-  return slots.length > 0 ? { explicitRouteSlots: slots } : {};
+  return slots.length > 0 ? slots : undefined;
 }
 
 function mergeErrorStatusOverrides(
