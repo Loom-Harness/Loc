@@ -23,6 +23,7 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
@@ -951,7 +952,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `        try {`,
   `            if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) {`,
   // Numeric coercions route through the java numeric codec seam (M-T9.36).
-  `                return ${JAVA_NUMERIC.long["find-param"]("v")};`,
+  `                return ${numericEncode(JAVA_NUMERIC, "long", "find-param", "v")};`,
   `            }`,
   `            return v instanceof String s ? Long.valueOf(s.trim()) : null;`,
   `        } catch (NumberFormatException e) {`,
@@ -966,7 +967,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   ``,
   `    private static BigDecimal asDecimal(Object v) {`,
   `        try {`,
-  `            return v instanceof Number || v instanceof String ? ${JAVA_NUMERIC.decimal["find-param"]("v")} : null;`,
+  `            return v instanceof Number || v instanceof String ? ${numericEncode(JAVA_NUMERIC, "decimal", "find-param", "v")} : null;`,
   `        } catch (NumberFormatException e) {`,
   `            return null;`,
   `        }`,
