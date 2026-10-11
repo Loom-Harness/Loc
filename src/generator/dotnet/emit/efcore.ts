@@ -26,7 +26,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
-import { BCL_COLLIDING_TYPE_NAMES } from "../bcl-collision.js";
+import { BCL_COLLIDING_TYPE_NAMES, collidingNamesOfAggregate } from "../bcl-collision.js";
 import { projectionRowClass, projectionRowDbSet } from "../projection-state-emit.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -358,6 +358,10 @@ export function renderDbContext(
           ]
         : ["    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }"]),
       "",
+      ...renderHandleForkMembers(
+        anyPrincipalFilter,
+        new Set(ctx.aggregates.flatMap((a) => collidingNamesOfAggregate(a))),
+      ),
       // Hoisted self-scope registry ids (see principalFilterLines) — private
       // funcletizable members the query filters compare `x.Id` against.
       ...(principalFilterMembers.length > 0 ? [...principalFilterMembers, ""] : []),
@@ -388,6 +392,110 @@ export function renderDbContext(
       "}",
     ) + "\n"
   );
+}
+
+/** Independent aggregate handles (M-T6.90).  Two repository loads of one row
+ *  are two handles, each carrying the `version` it read — the node reference
+ *  semantics, which a `transactional` workflow's stale-handle conflict rests on
+ *  (`transactional-workflow-event-rollback`'s `debitTwice`).  EF's identity map
+ *  hands a second `FirstOrDefaultAsync` of a tracked row the SAME instance, so
+ *  both handles were one object, the second save had nothing to write, and no
+ *  version guard could fail.  A relational `GetByIdAsync` of a row this context
+ *  already tracks therefore loads into a FORK: a sibling context on the same
+ *  connection (and transaction) with its own change tracker.  The handle stays
+ *  a fully tracked graph there — owned containments included, so child adds and
+ *  removes persist exactly as on the primary context — and `SaveAsync` writes it
+ *  through that fork, version-guarded like any tracked update.  The repository
+ *  still stages its outbox / provenance / join rows on THIS context, so
+ *  `SaveChangesWithAsync` commits the fork's write and those rows as one
+ *  transaction. */
+function renderHandleForkMembers(
+  withCurrentUser: boolean,
+  domainNames: ReadonlySet<string>,
+): string[] {
+  const ctorArgs = withCurrentUser ? "__options, _currentUser" : "__options";
+  // A BCL name the context's domain also declares is spelled fully qualified
+  // (the domain wins it through the file's aggregate usings / aliases); every
+  // other name stays bare, so a non-colliding model's output carries no
+  // qualification.
+  const bcl = (name: string, ns: string): string =>
+    domainNames.has(name) ? `global::${ns}.${name}` : name;
+  const list = bcl("List", "System.Collections.Generic");
+  const task = bcl("Task", "System.Threading.Tasks");
+  const valueTask = bcl("ValueTask", "System.Threading.Tasks");
+  const ct = bcl("CancellationToken", "System.Threading");
+  return [
+    `    private ${list}<AppDbContext>? _forks;`,
+    "",
+    "    /// <summary>A sibling context on this context's connection and transaction — the change",
+    "    /// tracker for a second handle on a row this context already tracks.</summary>",
+    "    public AppDbContext Fork()",
+    "    {",
+    "        var __options = (DbContextOptions<AppDbContext>)global::Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions",
+    "            .GetService<global::Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptions>(this);",
+    `        var fork = new AppDbContext(${ctorArgs});`,
+    "        fork.Database.SetDbConnection(Database.GetDbConnection());",
+    "        if (Database.CurrentTransaction is { } __tx)",
+    "            fork.Database.UseTransaction(global::Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(__tx));",
+    "        (_forks ??= new()).Add(fork);",
+    "        return fork;",
+    "    }",
+    "",
+    '    /// <summary>The context tracking <paramref name="entity"/>: the fork that loaded it, else this one.</summary>',
+    "    public AppDbContext TrackerOf(object entity)",
+    "    {",
+    "        if (_forks != null)",
+    "            foreach (var __f in _forks)",
+    "                if (__f.Entry(entity).State != EntityState.Detached) return __f;",
+    "        return this;",
+    "    }",
+    "",
+    '    /// <summary>Saves <paramref name="tracker"/>\'s changes (a fork, or this context) together',
+    "    /// with the rows staged on this context, as one transaction.</summary>",
+    `    public async ${task} SaveChangesWithAsync(AppDbContext tracker, ${ct} cancellationToken)`,
+    "    {",
+    "        if (ReferenceEquals(tracker, this))",
+    "        {",
+    "            await SaveChangesAsync(cancellationToken);",
+    "            return;",
+    "        }",
+    "        var __owned = Database.CurrentTransaction == null ? await Database.BeginTransactionAsync(cancellationToken) : null;",
+    "        try",
+    "        {",
+    "            var __tx = global::Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(Database.CurrentTransaction!);",
+    "            var __forkTx = tracker.Database.CurrentTransaction;",
+    "            if (__forkTx == null || global::Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(__forkTx) != __tx)",
+    "            {",
+    "                if (__forkTx != null) tracker.Database.UseTransaction(null);",
+    "                tracker.Database.UseTransaction(__tx);",
+    "            }",
+    "            await tracker.SaveChangesAsync(cancellationToken);",
+    "            await SaveChangesAsync(cancellationToken);",
+    "            if (__owned != null) await __owned.CommitAsync(cancellationToken);",
+    "        }",
+    "        finally",
+    "        {",
+    "            if (__owned != null)",
+    "            {",
+    "                tracker.Database.UseTransaction(null);",
+    "                await __owned.DisposeAsync();",
+    "            }",
+    "        }",
+    "    }",
+    "",
+    "    public override void Dispose()",
+    "    {",
+    "        if (_forks != null) foreach (var __f in _forks) __f.Dispose();",
+    "        base.Dispose();",
+    "    }",
+    "",
+    `    public override async ${valueTask} DisposeAsync()`,
+    "    {",
+    "        if (_forks != null) foreach (var __f in _forks) await __f.DisposeAsync();",
+    "        await base.DisposeAsync();",
+    "    }",
+    "",
+  ];
 }
 
 export function renderConfiguration(
