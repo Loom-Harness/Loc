@@ -20,20 +20,10 @@
 // are ONE tracked entity so `debitTwice` never conflicts, and the Dapper 409's
 // `detail` sentence differs from node's golden.
 
-import { NodeFileSystem } from "langium/node";
-import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
-import { createDddServices } from "../../../src/language/ddd-module.js";
-import type { Model } from "../../../src/language/generated/ast.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
-async function generate(source: string): Promise<Map<string, string>> {
-  const services = createDddServices(NodeFileSystem);
-  const doc = await parseHelper(services.Ddd)(source, { validation: true });
-  const syntax = doc.parseResult?.parserErrors ?? [];
-  if (syntax.length) throw new Error(`fixture syntax error: ${syntax[0]?.message}`);
-  return generateSystems(doc.parseResult?.value as Model).files;
-}
+const generate = (source: string): Promise<Map<string, string>> => generateSystemFiles(source);
 
 /** Every persistence shape a workflow can drive, plus a correlated saga (the
  *  saga-state store) and the workflow under test. */
