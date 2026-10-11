@@ -747,6 +747,62 @@
         "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-39",
+      "title": "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
+      "trigger": "`wire-ingress.ddd`: `reprice` with `\"1.2.3\"`, `\"twelve\"` and `\"12,50\"`; `restock` with ±3000000000",
+      "observable": "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "wave C3 packet 3d D22 / D23; fixed by wave C3F packet F4 — `INTEGER_RANGE_MESSAGE` in src/util/numeric-range.ts, .NET `WireFormatException.IsMoneyGrammar` + `Int32RangeJsonConverter`, java's `integerOverflowPointer` arm, python's `_int32`",
+        "the witness is test/fixtures/corpus/wire-ingress.ddd (golden test/behavioral/wire-golden/wire-ingress.json), green on all seven wire-gated legs; seams pinned per backend in test/conformance/numeric-ingress-parity.test.ts"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-40",
+      "title": "A message-less rule's 422 carries node's sentence on every backend",
+      "trigger": "`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: \"abc\")` against a regex precondition) and `intrinsics.ddd`'s blank-name create against `invariant name.trim().length > 0`",
+      "observable": "the wire `errors[].message` is node's: `singleFieldMessage` for a single-field shape (\"Amount must be at least 1\", \"Code is not in the expected format\"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python"
+      ],
+      "targets": [
+        "elixir"
+      ],
+      "provenance": [
+        "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
+        "seams pinned in test/conformance/message-less-rule-message.test.ts (node's sentence set derived from its emitted routes)"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-41",
+      "title": "A string intrinsic counts and cases the same on every backend",
+      "trigger": "`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`'s derived `middle` / `shout` fields over `\"a😀bc\"` and `\"straße\"`",
+      "observable": "`\"a😀bc\".substring(1, 2)` is `\"😀b\"` and `.substring(2)` is `\"bc\"` (code points, the unit of `.length`); `\"straße\".toUpper()` is `\"STRASSE\"`",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "wave C3 packet 3d D10 / D11 (the value table's two named divergences); fixed by wave C3F packet F4 — one snippet per language in src/generator/_expr/code-point.ts",
+        "rows `string_substring_astral`, `string_substring_astral_from`, `string_upper_eszett` of test/generator/_expr/expr-value-table.ts, run through each backend's real renderer; golden test/behavioral/wire-golden/intrinsics.json"
+      ],
+      "tier": "static"
     }
   ]
 }
