@@ -25,6 +25,7 @@ import {
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -949,7 +950,8 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `    private static Long asLong(Object v) {`,
   `        try {`,
   `            if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) {`,
-  `                return ((Number) v).longValue();`,
+  // Numeric coercions route through the java numeric codec seam (M-T9.36).
+  `                return ${JAVA_NUMERIC.long["find-param"]("v")};`,
   `            }`,
   `            return v instanceof String s ? Long.valueOf(s.trim()) : null;`,
   `        } catch (NumberFormatException e) {`,
@@ -964,7 +966,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   ``,
   `    private static BigDecimal asDecimal(Object v) {`,
   `        try {`,
-  `            return v instanceof Number || v instanceof String ? new BigDecimal(String.valueOf(v).trim()) : null;`,
+  `            return v instanceof Number || v instanceof String ? ${JAVA_NUMERIC.decimal["find-param"]("v")} : null;`,
   `        } catch (NumberFormatException e) {`,
   `            return null;`,
   `        }`,
