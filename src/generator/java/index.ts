@@ -135,6 +135,7 @@ import { renderJavaDispatcher } from "./emit/dispatch.js";
 import { renderJavaDocumentRepositoryImpl } from "./emit/document-store.js";
 import { renderJavaDomainServices } from "./emit/domain-service.js";
 import { renderDtoFiles, renderReadModelVoResponseDtos } from "./emit/dto.js";
+import { renderEmptyJsonBodyFilter } from "./emit/empty-body-filter.js";
 import { type OpFragment, renderJavaAbstractBaseEntity, renderJavaEntity } from "./emit/entity.js";
 import { renderJavaEnum, renderJavaValueObject } from "./emit/enums-vos.js";
 import { renderJavaEventSourcedRepositoryImpl } from "./emit/event-store.js";
@@ -583,6 +584,8 @@ function emitProjectFromContexts(
   place("CatalogLog.java", "config", renderCatalogLogger(basePkg));
   place("LifecycleCatalog.java", "config", renderLifecycleCatalog(basePkg));
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
+  // RS-43 — an empty request body reads as `{}`.
+  place("EmptyJsonBodyFilter.java", "config", renderEmptyJsonBodyFilter(basePkg));
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));

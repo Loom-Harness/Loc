@@ -82,6 +82,10 @@ export const PROBLEM_SCHEMA = "ProblemDetails";
  *  found from this table by grep. */
 export const UNSUPPORTED_MEDIA_TYPE = 415;
 
+/** The `detail` every backend sends with that 415 (RS-43) — one sentence, so
+ *  the refusal reads the same whichever framework layer raised it. */
+export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
+
 /** The wire-validation tier every route that PARSES a request part answers on
  *  a parse failure — a malformed `{id}`, an out-of-range `?page=`, a body field
  *  of the wrong type.  Named for the same reason `UNSUPPORTED_MEDIA_TYPE` is:

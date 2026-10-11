@@ -99,6 +99,7 @@ import {
   relativeOpPath,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
   callerGates,
@@ -2017,7 +2018,10 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-43 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2192,7 +2196,10 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-43 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the tagged success arms; the error arms are intercepted
