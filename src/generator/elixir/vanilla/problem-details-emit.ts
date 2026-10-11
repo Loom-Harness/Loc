@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
@@ -364,7 +364,7 @@ export function renderVanillaProblemDetailsModule(
         conn,
         ${uniquenessStatus},
         ${JSON.stringify(problemTitle(uniquenessStatus))},
-        "A record with these values already exists."
+        ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)}
       )
     else
       validation_failed_response(conn, changeset)

@@ -54,7 +54,11 @@ import {
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
-import { problemTitle, UNPROCESSABLE_ENTITY } from "../../../ir/util/openapi-errors.js";
+import {
+  problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
+  UNPROCESSABLE_ENTITY,
+} from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opOperation,
@@ -429,7 +433,7 @@ export function buildWorkflowsFile(
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
       // v5 wraps the driver error), same as the aggregate router.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, "Conflict", "A record with these values already exists.");`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
   }
   if (wfNeedsConcurrency) {

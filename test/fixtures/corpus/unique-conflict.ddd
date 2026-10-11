@@ -1,0 +1,73 @@
+// A `unique (...)` natural-key invariant, enforced by the database on every
+// leg: a duplicate write answers 409 with one RFC 7807 body, never a 201 and
+// never a 500.
+//
+// PROMOTED (M-T9.42) from the per-backend `unique-conflict.test.ts` string
+// copies, which pinned each emitter's SPELLING of the 23505 mapping — what
+// they could not see is whether the unique index EXISTS at run time.  On the
+// two persistence adapters that build their schema from ORM metadata rather
+// than the migration files (Dapper's `DbSchema.cs`, MikroORM's `EntitySchema`)
+// it did not, and a duplicate answered 201.  So this fixture asserts the
+// enforcement itself, and the golden pins the one 409 body every leg serves:
+//
+//   - a single-column key: a second create with the same email is refused;
+//   - a compound key: a repeated (sku, region) PAIR is refused, while a pair
+//     that repeats only one half is accepted;
+//   - an update INTO a taken key is refused, and leaves the row unchanged;
+//   - a key freed by a destroy can be taken again.
+system UniqueConflictSystem {
+  subdomain Directory {
+    context Directory {
+      aggregate Member with crudish {
+        email: string
+        name: string
+        unique (email)
+      }
+      aggregate Listing with crudish {
+        sku: string
+        region: string
+        title: string
+        unique (sku, region)
+      }
+      repository Members for Member {}
+      repository Listings for Listing {}
+    }
+  }
+  api DirectoryApi from Directory
+  storage primary { type: postgres }
+  resource directoryState { for: Directory, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Directory]
+    dataSources: [directoryState]
+    serves: DirectoryApi
+    port: 4000
+  }
+
+  test e2e "a unique key is enforced by the database on every write" against d {
+    // ── single-column key ───────────────────────────────────────────────────
+    let ada = api.members.create({ email: "ada@example.com", name: "Ada" })
+    let bob = api.members.create({ email: "bob@example.com", name: "Bob" })
+    expect(api.members.create({ email: "ada@example.com", name: "Imposter" })).toThrow(409)
+    expect(api.members.all().total).toBe(2)
+
+    // An update into a taken key is refused and changes nothing.
+    expect(api.members.update(bob, { email: "ada@example.com", name: "Bob" })).toThrow(409)
+    expect(api.members.getById(bob).email).toBe("bob@example.com")
+
+    // A key freed by a destroy can be taken again.
+    api.members.destroy(ada)
+    let again = api.members.create({ email: "ada@example.com", name: "Ada again" })
+    expect(api.members.getById(again).name).toBe("Ada again")
+
+    // ── compound key: the PAIR is unique, not each half ─────────────────────
+    let eu = api.listings.create({ sku: "A-1", region: "eu", title: "Lamp" })
+    let us = api.listings.create({ sku: "A-1", region: "us", title: "Lamp" })
+    let other = api.listings.create({ sku: "B-2", region: "eu", title: "Desk" })
+    expect(api.listings.create({ sku: "A-1", region: "eu", title: "Clone" })).toThrow(409)
+    expect(api.listings.all().total).toBe(3)
+    expect(api.listings.getById(eu).title).toBe("Lamp")
+    expect(api.listings.getById(us).region).toBe("us")
+    expect(api.listings.getById(other).sku).toBe("B-2")
+  }
+}

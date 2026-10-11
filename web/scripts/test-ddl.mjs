@@ -122,6 +122,75 @@ check("emits an unqualified CREATE TABLE in public", () => {
   assert.match(plain, /CREATE TABLE IF NOT EXISTS "products"/);
 });
 
+console.log("# synthDDL — a `unique (...)` key's uniqueIndex");
+
+// A Drizzle `sql` template's shape: string chunks carry `value: string[]`.
+const sqlChunk = (text) => ({ queryChunks: [{ value: [text] }] });
+
+const uniq = synthDDL(
+  {
+    members: fakeTable({
+      name: "members",
+      schema: "directory",
+      columns: [col("id", "PgUUID", { notNull: true, primary: true })],
+      indexes: [
+        { config: { name: "members_email_uq", columns: [{ name: "email" }], unique: true } },
+        {
+          config: {
+            name: "members_handle_uq",
+            columns: [{ name: "handle" }],
+            unique: true,
+            where: sqlChunk("is_deleted = false"),
+          },
+        },
+        { config: { name: "members_name_idx", columns: [{ name: "name" }] } },
+      ],
+    }),
+  },
+  helpers,
+);
+
+check("keeps a uniqueIndex UNIQUE (the key's only enforcement)", () => {
+  assert.match(
+    uniq,
+    /CREATE UNIQUE INDEX IF NOT EXISTS "members_email_uq" ON "directory"\."members" \("email"\);/,
+  );
+});
+check("keeps a partial uniqueIndex's predicate", () => {
+  assert.match(
+    uniq,
+    /CREATE UNIQUE INDEX IF NOT EXISTS "members_handle_uq" ON "directory"\."members" \("handle"\) WHERE is_deleted = false;/,
+  );
+});
+check("leaves a plain index non-unique", () => {
+  assert.match(uniq, /CREATE INDEX IF NOT EXISTS "members_name_idx"/);
+});
+check("refuses a predicate it cannot render rather than dropping it", () => {
+  assert.throws(
+    () =>
+      synthDDL(
+        {
+          t: fakeTable({
+            name: "t",
+            columns: [col("id", "PgUUID", { notNull: true, primary: true })],
+            indexes: [
+              {
+                config: {
+                  name: "t_x_uq",
+                  columns: [{ name: "x" }],
+                  unique: true,
+                  where: { queryChunks: [{ value: 1 }] },
+                },
+              },
+            ],
+          }),
+        },
+        helpers,
+      ),
+    /cannot render/,
+  );
+});
+
 const self = path.basename(fileURLToPath(import.meta.url));
 if (failures > 0) {
   console.error(`\n# ${self}: ${failures} assertion(s) failed`);

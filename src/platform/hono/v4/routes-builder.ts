@@ -110,6 +110,7 @@ import {
 import {
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
 import {
@@ -1558,7 +1559,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, "Conflict", \`A ${agg.name} with these values already exists.\`);`,
+      `      return problem(${uniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
     lines.push(`    }`);
   }

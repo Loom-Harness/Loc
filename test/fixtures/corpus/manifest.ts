@@ -679,6 +679,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
   },
   {
+    id: "unique-conflict",
+    title:
+      "a `unique (...)` key (single-column and compound) is enforced by the database: a duplicate create or an update into a taken key answers 409 with one RFC 7807 body; a key freed by a destroy can be taken again",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the five `unique-conflict.test.ts` string copies, which pinned the 23505 → 409 spelling but not whether the unique index exists at run time — on the Dapper and MikroORM adapters it did not, and a duplicate answered 201.",
+  },
+  {
     id: "wire-ingress",
     title:
       "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
