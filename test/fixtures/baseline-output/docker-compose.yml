@@ -38,6 +38,7 @@ services:
 
   api:
     build: ./api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -46,7 +47,6 @@ services:
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
-      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "8080:8080"
@@ -58,6 +58,7 @@ services:
 
   catalog_web:
     build: ./catalog_web
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -66,7 +67,6 @@ services:
     environment:
       DATABASE_URL: "postgres://postgres:postgres@db:5432/catalog_web"
       LOG_LEVEL: "info"
-      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "3000:3000"
@@ -78,6 +78,7 @@ services:
 
   catalog_api:
     build: ./catalog_api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -86,7 +87,6 @@ services:
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=catalog_api;Username=postgres;Password=postgres"
       LOG_LEVEL: "info"
-      LOOM_TEST_RESET: "1"
       CORS_ORIGIN: "http://localhost:3001"
     ports:
       - "8081:8080"
@@ -98,6 +98,7 @@ services:
 
   web_app:
     build: ./web_app
+    restart: unless-stopped
     environment:
       VITE_API_BASE_URL: "http://localhost:8080/api"
       VITE_API_PROXY_TARGET: "http://api:8080"
