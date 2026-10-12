@@ -9,9 +9,10 @@ import type {
   TestIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
+import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { disallowedMessage, guardErrorModule } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
@@ -153,7 +154,7 @@ export function renderAggregatePureCore(
     "  end",
   ];
   for (const op of agg.operations) {
-    out.push("", ...renderPureOp(appModule, ctxModule, ctx, op));
+    out.push("", ...renderPureOp(appModule, ctxModule, ctx, agg.name, op));
   }
   // Aggregate `function` members (§11b) — pure helpers the op bodies above may
   // call (`precondition passed()` / a bare `passed()` statement).  The pure core
@@ -270,6 +271,7 @@ function renderPureOp(
   appModule: string,
   ctxModule: string,
   ctx: BoundedContextIR,
+  aggName: string,
   op: OperationIR,
 ): string[] {
   const opSnake = snake(op.name);
@@ -284,12 +286,28 @@ function renderPureOp(
   // state — strip it so the core stays pure / Repo-free.  Lets it depends on
   // survive (only the broadcast statement is dropped).
   const stmts = op.statements.filter((s) => s.kind !== "emit");
-  const usedParams = op.params.filter((p) => stmts.some((s) => stmtUsesParam(s, p.name)));
+  const usedParams = op.params.filter(
+    (p) => exprUsesParam(op.when, p.name) || stmts.some((s) => stmtUsesParam(s, p.name)),
+  );
   const paramsArg = usedParams.length > 0 ? "params" : "_params";
   const guard = usedParams.length > 0 ? " when is_map(params)" : "";
   const paramBinds = usedParams.map(
     (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
+  // The `when` STATE GATE, ahead of the body exactly as the persisting
+  // `<op>_<agg>` checks it first (`ensure(<when>, {:disallowed, …})`).  The
+  // pure core used to skip it, so an op refused in the current state ran its
+  // body anyway and `expect(t.close()).toThrow()` on a closed ticket failed
+  // where every other backend raises (claims D17).  It raises the same typed
+  // `GuardError` the body's guards do, with the gate's own `:disallowed` kind
+  // and the detail every backend's 409 carries.
+  const whenGate = op.when
+    ? [
+        `    if not (${renderExpr(op.when, rc)}), do: raise(${guardErrorModule(appModule)}, kind: :disallowed, message: ${elixirString(
+          disallowedMessage(aggName, op.name),
+        )})`,
+      ]
+    : [];
   const bodyLines = stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
   // A void op returns the mutated struct; a value-returning op's `return`
   // statement is already the body's tail value (renderReturningStmt emits it).
@@ -303,6 +321,7 @@ function renderPureOp(
     `  @doc "Pure domain core of \`${op.name}\` — preconditions + in-memory mutation (no persistence)."`,
     `  def ${opSnake}(%__MODULE__{} = record, ${paramsArg}${actorArg})${guard} do`,
     ...paramBinds,
+    ...whenGate,
     ...bodyLines,
     ...tail,
     "  end",
