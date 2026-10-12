@@ -16,8 +16,9 @@
 
 import type { BoundedContextIR, EnrichedAggregateIR, RetrievalIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor, refsCurrentUser } from "./criteria-emit.js";
+import { csLocalNamer } from "./local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   collectCsExprUsings,
@@ -88,11 +89,14 @@ function renderSpec(
   // never hits this — `canEmitToExpressionFor` excludes principal criteria, so
   // they fall to the inline path here, where the binding lives.
   const refsPrincipal = !reified && refsCurrentUser(r.where);
+  // The predicate lambda's parameter yields to a same-named retrieval param,
+  // which the predicate reads (`x => x.Name == x` would compare the row to itself).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
   const wherePredicate = reified
     ? `new ${upperFirst(r.criterionRef!.name)}Criterion(${r
         .criterionRef!.args.map((a) => renderCsExpr(a, { thisName: "x", agg }))
         .join(", ")}).ToExpression()`
-    : `x => ${renderCsExpr(r.where, { thisName: "x", agg, currentUserExpr: refsPrincipal ? AMBIENT_CURRENT_USER : undefined })}`;
+    : `${x} => ${renderCsExpr(r.where, { thisName: x, agg, currentUserExpr: refsPrincipal ? AMBIENT_CURRENT_USER : undefined })}`;
 
   const usings = new Set<string>([
     "Ardalis.Specification",
@@ -106,7 +110,9 @@ function renderSpec(
   if (refsPrincipal) usings.add(`${ns}.Domain.Common`);
   collectCsExprUsings(r.where, usings, ns);
 
-  const ctorParams = r.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+  const ctorParams = r.params
+    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+    .join(", ");
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
