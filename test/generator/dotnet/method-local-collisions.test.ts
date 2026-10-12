@@ -59,7 +59,8 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     // DynamicParameters KEYS stay the declared names (= the `@p` placeholder).
     expect(src).toContain("RunRetPAsync(string p, string sql, string conn, string pg, string x,");
     expect(src).toContain(
-      "await using var __conn = await _db.OpenConnectionAsync(cancellationToken);",
+      // The unit-of-work lease (#3224) opens it; the local still moves.
+      "var __conn = __lease.Connection;",
     );
     expect(src).toContain("var __p = new DynamicParameters();");
     expect(src).toContain('__p.Add("p", p);');
