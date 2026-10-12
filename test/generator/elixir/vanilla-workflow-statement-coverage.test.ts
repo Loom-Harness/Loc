@@ -79,7 +79,7 @@ describe("vanilla for-each body — broader statement set", () => {
     // op-call becomes a fallible `<-` clause...
     expect(wf).toMatch(/\{:ok, loop_updated\} <- Context\.confirm_order\(x, %\{\}\)/);
     // ...the emit side-effect runs in the do-branch, then continue.
-    expect(wf).toMatch(/Phoenix\.PubSub\.broadcast\(.*Events\.Confirmed\{order: x\.id\}\)/);
+    expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: x\.id\}\)/);
     expect(wf).toContain("{:cont, {:ok, loop_updated}}");
     expect(wf).toContain("err -> {:halt, err}");
   });
@@ -119,7 +119,7 @@ describe("vanilla if-let branches — broader statement set", () => {
   it("lowers a then-branch op-call + emit and an else-branch factory-let", async () => {
     const wf = await fileEndingIn(SRC, "/workflows/find_and_confirm.ex");
     expect(wf).toMatch(/Context\.confirm_order\(o, %\{\}\)/);
-    expect(wf).toMatch(/Phoenix\.PubSub\.broadcast\(.*Events\.Confirmed\{order: o\.id\}\)/);
+    expect(wf).toMatch(/PostCommit\.broadcast\(.*Events\.Confirmed\{order: o\.id\}\)/);
     // The else-branch factory-let bind is unread, so it `_`-discards (an unused
     // real-named bind would trip `--warnings-as-errors`).
     expect(wf).toMatch(/\{:ok, _\} = Context\.create_order\(%\{[^}]*\}\)/);

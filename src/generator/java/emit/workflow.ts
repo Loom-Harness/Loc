@@ -1364,9 +1364,7 @@ export function renderJavaWorkflows(
       `@Service`,
       `@Transactional`,
       `public class ${serviceName} {`,
-      anyPublishes
-        ? `    private final ApplicationEventPublisher ${WORKFLOW_PUBLISHER};`
-        : null,
+      anyPublishes ? `    private final ApplicationEventPublisher ${WORKFLOW_PUBLISHER};` : null,
       ...repoFields.map((a) => `    private final ${a}Repository ${repoField(a)};`),
       ...sagaWorkflows.map(
         (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,

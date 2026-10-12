@@ -1785,7 +1785,7 @@ ${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requir
     # record their call-structure position.
     #
     # \`PostCommit.transaction\` holds every event this body announces — the
-    # context Dispatcher fan-out and the PubSub broadcast — until the
+    # reactor fan-out and the PubSub broadcast — until the
     # transaction commits, and drops them on a rollback (M-T4.3 item 6).
     ${appModule}.RequestContext.with_child_frame(fn ->
       ${appModule}.PostCommit.transaction(fn ->

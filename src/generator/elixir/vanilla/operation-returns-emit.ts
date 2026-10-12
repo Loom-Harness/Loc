@@ -565,9 +565,7 @@ function emitParts(
     out.push({
       bind: [`${indents.bind}${evVar} = ${struct}`, `${indents.bind}${logCall}`],
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],
-      broadcast: [
-        `${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`,
-      ],
+      broadcast: [`${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`],
       origin: s.origin,
     });
     i++;
