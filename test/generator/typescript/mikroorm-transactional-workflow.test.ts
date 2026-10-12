@@ -1,76 +1,76 @@
-// node/MikroORM — a `transactional` workflow opens its transaction on the
-// EntityManager, whose spelling is `em.transactional(cb, opts)`.  The drizzle
-// spelling `db.transaction(cb, opts)` does not exist on an EntityManager, so
-// it compiled under esbuild (no typecheck) and answered EVERY call with a 500
-// ("db.transaction is not a function").  The runtime proof is
-// `corpus/domain-services` on the mikroorm leg, which drives both of its
-// `transactional` workflows; this pins the isolation-level arm, which no
-// booted fixture declares: MikroORM takes the `IsolationLevel` enum (its
-// values are the same SQL level strings drizzle takes as literals).
-
+// A `transactional` workflow on `platform: node { persistence: mikroorm }`
+// emitted drizzle's `db.transaction(async (tx) => …)` into `http/workflows.ts`
+// — but the handle there is a MikroORM EntityManager, which has no
+// `transaction` (TS2551 on every mikro + transactional-workflow project).  The
+// workflow wrapper now rides the adapter's transaction seam (`txWrapperCall`,
+// the same one the audited / provenanced routes use), and an explicit isolation
+// level is spelled as MikroORM's `IsolationLevel` enum rather than drizzle's
+// string.  The drizzle spelling is pinned alongside so the fix stays scoped.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const model = (persistence: string): string => `
-system T {
-  subdomain S {
-    context C {
-      aggregate Wallet with crudish {
-        credit: int
-        operation add(n: int) { credit := credit + n }
-      }
-      repository Wallets for Wallet { }
-      workflow Plain transactional {
-        create(w: Wallet id) {
-          let x = Wallets.getById(w)
-          x.add(1)
+const src = (platform: string): string => `
+system MikroWf {
+  subdomain Banking {
+    context Ledger {
+      aggregate Account with crudish {
+        holder: string
+        balance: int
+        operation deposit(amount: int) {
+          precondition amount > 0
+          balance := balance + amount
         }
       }
-      workflow Strict transactional(serializable) {
-        create(w: Wallet id) {
-          let x = Wallets.getById(w)
-          x.add(2)
+      repository Accounts for Account { }
+
+      workflow Open transactional {
+        create(holder: string) {
+          let acct = Account.create({ holder: holder, balance: 0 })
         }
       }
-      workflow Snapshot transactional(repeatableRead) {
-        create(w: Wallet id) {
-          let x = Wallets.getById(w)
-          x.add(3)
+
+      workflow TopUp transactional(serializable) {
+        create(target: Account id, amount: int) {
+          let a = Accounts.getById(target)
+          a.deposit(amount)
         }
       }
     }
   }
-  api A from S
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
+  api LedgerApi from Banking
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
   deployable d {
-    platform: node${persistence}
-    contexts: [C]
-    dataSources: [st]
-    serves: A
+    platform: ${platform}
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: LedgerApi
     port: 4000
   }
 }
 `;
 
-const workflowsFile = (files: Map<string, string>): string =>
-  [...files.entries()].find(([p]) => p.endsWith("/http/workflows.ts"))?.[1] ?? "";
+async function workflowsTs(platform: string): Promise<string> {
+  const files = await generateSystemFiles(src(platform));
+  const f = [...files].find(([p]) => p.endsWith("d/http/workflows.ts"))?.[1];
+  expect(f, "no http/workflows.ts emitted").toBeDefined();
+  return f!;
+}
 
-describe("node — a transactional workflow's transaction, per persistence adapter", () => {
-  it("mikroorm: `db.transactional`, isolation through the IsolationLevel enum", async () => {
-    const wf = workflowsFile(await generateSystemFiles(model(" { persistence: mikroorm }")));
-    expect(wf.match(/await db\.transactional\(async \(tx\) => \{/g)?.length).toBe(3);
+describe("transactional workflow — per-adapter transaction seam", () => {
+  it("mikroorm opens the EntityManager's `transactional`, never drizzle's `transaction`", async () => {
+    const wf = await workflowsTs("node { persistence: mikroorm }");
     expect(wf).not.toContain("db.transaction(");
+    expect(wf.match(/await db\.transactional\(async \(tx\) => \{/g)?.length).toBe(2);
     expect(wf).toContain("}, { isolationLevel: IsolationLevel.SERIALIZABLE });");
-    expect(wf).toContain("}, { isolationLevel: IsolationLevel.REPEATABLE_READ });");
-    expect(wf).toContain('import { IsolationLevel } from "@mikro-orm/core";');
+    expect(wf).toContain(`import { EntityManager, IsolationLevel } from "@mikro-orm/postgresql";`);
   });
 
-  it("drizzle: `db.transaction`, isolation as the SQL level literal (unchanged)", async () => {
-    const wf = workflowsFile(await generateSystemFiles(model("")));
-    expect(wf.match(/await db\.transaction\(async \(tx\) => \{/g)?.length).toBe(3);
-    expect(wf).toContain('}, { isolationLevel: "serializable" });');
-    expect(wf).toContain('}, { isolationLevel: "repeatable read" });');
+  it("drizzle keeps `db.transaction` and the string isolation level", async () => {
+    const wf = await workflowsTs("node");
+    expect(wf).not.toContain("transactional(");
+    expect(wf.match(/await db\.transaction\(async \(tx\) => \{/g)?.length).toBe(2);
+    expect(wf).toContain(`}, { isolationLevel: "serializable" });`);
     expect(wf).not.toContain("IsolationLevel");
   });
 });

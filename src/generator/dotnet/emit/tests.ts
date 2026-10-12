@@ -215,7 +215,7 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
   const provided = objArg.fields.map((f) => {
     const t = typeByName.get(f.name);
     const rendered = renderCsExpr(f.value);
-    return `${f.name}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
+    return `${escapeCsharpIdent(f.name)}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
   });
   // Emit EXACTLY what the test author wrote.  Appending every omitted create
   // input from `createOmissionValue` makes the assertion vacuous:

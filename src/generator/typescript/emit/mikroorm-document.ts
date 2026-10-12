@@ -16,7 +16,7 @@ import {
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   docTypeAlias,
@@ -24,6 +24,7 @@ import {
   entityFromDocFn,
   entityToDocFn,
   findPredicate,
+  inMemoryPagedLocals,
   inMemoryPagedTailLines,
   PAGED_TAIL_PARAMS,
   pagedReturnType,
@@ -90,7 +91,7 @@ export function renderMikroDocumentRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     const pred = findPredicate(agg, f, ctx);
     const isArray = f.returnType.kind === "array";
@@ -134,11 +135,12 @@ export function renderMikroDocumentRepository(
     if (pagedReturn(f.returnType)) {
       const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
       const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+      const L = inMemoryPagedLocals(f.params);
       return lines(
         `  async ${f.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
         ...loadLines,
-        `    const matched = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-        ...inMemoryPagedTailLines(agg, "matched", f.name),
+        `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
+        ...inMemoryPagedTailLines(agg, L, f.name),
         `  }`,
       );
     }

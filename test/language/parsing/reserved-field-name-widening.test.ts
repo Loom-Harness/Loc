@@ -146,6 +146,21 @@ system S {
   deployable web { platform: react, targets: api, ui: Web, port: 3001 }
 }`;
 
+/** Batch 4's sample: the declaration heads of the words that were held hard
+ *  only because a generated backend broke on them — `import`, `system`,
+ *  `enum`, `abstract aggregate … extends`, `repository … for`, and the
+ *  `platform: static` value. */
+const DECL_SYNTAX = `import "./other.ddd"
+context C {
+  enum Kind { a, b }
+  abstract aggregate Base { kind: Kind }
+  aggregate Order extends Base { code: string }
+  repository Orders for Order { }
+}
+system S {
+  deployable site { platform: static, port: 3002 }
+}`;
+
 const WORDS: Word[] = [
   {
     word: "deny",
@@ -393,6 +408,18 @@ ui U {
   { word: "platform", promoted: true, hard: SYSTEM_SYNTAX },
   { word: "api", promoted: true, hard: SYSTEM_SYNTAX },
   { word: "ui", promoted: true, hard: SYSTEM_SYNTAX },
+  // ---- Batch 4.  Held hard by the sweep because a generated backend broke on
+  // a field / param named this way (TS / Python / Java reserved words, a C#
+  // `System` property shadowing `System.*`, Java service locals named
+  // `repository` / `aggregate`).  Softened once every backend escaped or
+  // renamed them (D-TARGET-RESERVED-NAMES).
+  { word: "import", promoted: true, hard: DECL_SYNTAX },
+  { word: "system", promoted: true, hard: DECL_SYNTAX },
+  { word: "enum", promoted: true, hard: DECL_SYNTAX },
+  { word: "extends", promoted: true, hard: DECL_SYNTAX },
+  { word: "aggregate", promoted: true, hard: DECL_SYNTAX },
+  { word: "repository", promoted: true, hard: DECL_SYNTAX },
+  { word: "static", promoted: true, hard: DECL_SYNTAX },
 ];
 
 const PROMOTED = WORDS.filter((w) => w.promoted);

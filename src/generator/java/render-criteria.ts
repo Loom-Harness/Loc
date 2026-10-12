@@ -39,6 +39,10 @@ export interface CriteriaCtx {
   voLookup: ReadonlyMap<string, readonly FieldIR[]>;
   /** Imports collected for the emitted file. */
   imports: Set<string>;
+  /** The Java parameter a criterion param is declared under, when the factory
+   *  moved it off a name its `(root, query, cb) ->` lambda binds
+   *  (`javaLocals`); `undefined` → the default `jid` spelling. */
+  paramExpr?: (name: string) => string | undefined;
 }
 
 export function renderCriteriaPredicate(e: ExprIR, ctx: CriteriaCtx): string {
@@ -81,7 +85,9 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
       if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") {
         return `cb.isTrue(${path([e.name], ctx)})`;
       }
-      if (e.refKind === "param") return `cb.isTrue(cb.literal(${e.name}))`;
+      if (e.refKind === "param") {
+        return `cb.isTrue(cb.literal(${ctx.paramExpr?.(e.name) ?? jid(e.name)}))`;
+      }
       throw unsupported(`ref '${e.refKind}'`);
     case "member":
     case "this": {
@@ -386,7 +392,10 @@ function value(e: ExprIR, ctx: CriteriaCtx): string {
     return `(currentUser == null ? null : currentUser.${e.member}())`;
   }
   collectJavaExprImports(e, ctx.imports);
-  return renderJavaExpr(e, { thisName: "root" });
+  return renderJavaExpr(
+    e,
+    ctx.paramExpr ? { thisName: "root", paramExpr: ctx.paramExpr } : { thisName: "root" },
+  );
 }
 
 /** The `deep` read-level sentinel as a JPA Criteria predicate.  `dataKey` /

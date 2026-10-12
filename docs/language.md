@@ -656,12 +656,67 @@ per-member and identical across create/update/destroy, while the update still
 writes every field.
 
 The compiler will not decide this for you — a field with no modifier is
-*declared* `editable`, and there are legitimate models where the author really
-does want it writable both ways. It does point the case out: an aggregate whose
-`crudish` update mass-assigns a field that a `requires`-gated operation also
-writes earns the advisory `loom.update-gate-suggestion` (a `Suggestions:` hint
-from `ddd parse`, never an error). See also [`auth.md`](auth.md) → "Guarded
-state transitions".
+*declared* `editable`, and it never silently makes one non-editable. It does
+flag the case: an aggregate whose `crudish` update mass-assigns a field that a
+**gated** operation also writes raises the warning `loom.update-gate-suggestion`
+(counted among `ddd parse`'s warnings; never an error, never an exit code). An
+operation gates the field when it carries a `requires`, a `when` state gate, or
+a `precondition` that reads that same field and no operation parameter (a pure
+state predicate — what a `when` could say) — so the plain state machine with
+no auth at all is caught too:
+
+```ddd
+aggregate Ticket with crudish {
+  status: TicketStatus = New          // ⚠ loom.update-gate-suggestion
+  operation resolve() when status == Open { status := Resolved }
+  operation close() when status == Resolved { status := Closed }
+}
+```
+
+```
+loom.update-gate-suggestion Core/Ticket warning: 'Ticket.status' is assigned by 'resolve', which is gated by its 'when' state gate, but 'crudish' also exposes the field on its generic 'update' — a caller can set it there and skip that gate. Mark it 'immutable' …
+```
+
+A field only the generic update writes (`title` above) is ordinary data and
+never fires, nor does a `precondition` over *other* fields only or one comparing
+the field with an argument (`precondition stockLevel >= qty` validates the
+call's inputs, it does not gate the field's state).
+
+**`immutable` closes the update half; `managed` closes create too.** Every
+update-writable field is also on the create input, so with `immutable` a client
+can still `POST /tickets {"status":"Closed"}` and start an instance in any
+state. When the field has a default and every instance must start there, mark
+it `managed` instead — off both inputs, initialised from the default, and still
+assignable by `resolve()`/`close()`:
+
+```ddd
+  status: TicketStatus managed = New
+```
+
+```ts
+// generated: api/domain/ticket.ts (node)
+public resolve(): void {
+  if (!(this._status === TicketStatus.Open)) throw new DisallowedError("operation 'resolve' is not allowed in the current state of Ticket.");
+  this._status = TicketStatus.Resolved;      // the gated operation still moves it …
+  this._assertInvariants();
+}
+public update(title: string): void {         // … `status` is off the update input …
+  this._title = title;
+  this._assertInvariants();
+}
+static create(input: { title: string }): Ticket {
+  return new Ticket({
+    id: Ids.newTicketId(),
+    title: input.title,
+    status: TicketStatus.New,                // … and off create: it starts at the default
+    version: 1,
+  });
+}
+```
+
+The warning says which applies (the `managed` hint appears for `when` /
+`precondition` gates, where the initial state is the point). See also
+[`auth.md`](auth.md) → "Guarded state transitions".
 
 Examples:
 

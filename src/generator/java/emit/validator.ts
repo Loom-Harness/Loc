@@ -23,7 +23,7 @@ import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
 import { singleFieldMessage } from "../../zod-refine.js";
-import { jid } from "../java-ident.js";
+import { javaLocals, jid, localOf } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaRegexLiterals,
@@ -87,6 +87,35 @@ interface CommandSpec {
    *  carries its own invariant.  Each nest-invokes a `<VO>Validator` over the
    *  wire request field (before the service constructs the throwing domain VO). */
   voFields: { field: string; voClass: string; each: boolean }[];
+}
+
+/** Names the generated `validate(Object target, Errors errors)` method spells
+ *  itself.  A command field whose parse-local would land on one of them (a
+ *  field named `request` → `var request = request.request();`) binds to a
+ *  `_`-suffixed local instead (`javaLocals`); the `rejectValue` path and the
+ *  `request.<field>()` accessor keep the record-component name. */
+const VALIDATOR_METHOD_NAMES: ReadonlySet<string> = new Set(["target", "errors", "request"]);
+
+/** The parse-local each command field binds to (collision-safe). */
+function validatorLocals(spec: CommandSpec): ReadonlyMap<string, string> {
+  return javaLocals(
+    spec.params.map((p) => p.name),
+    VALIDATOR_METHOD_NAMES,
+  );
+}
+
+/** Render context for an invariant predicate over the parse-locals: `bareProps`
+ *  renders `this.x` as the local, routed through the collision-safe map. */
+function localRenderCtx(spec: CommandSpec, regexFields: Map<string, string>) {
+  const locals = validatorLocals(spec);
+  const lookup = (n: string): string | undefined => locals.get(n);
+  return {
+    thisName: "this",
+    bareProps: true,
+    regexFields,
+    propExpr: lookup,
+    paramExpr: lookup,
+  } as const;
 }
 
 function eff(t: TypeIR, optional: boolean): TypeIR {
@@ -315,12 +344,13 @@ function renderValidatorClass(spec: CommandSpec, pkg: string, basePkg: string): 
   // The checks render through `renderJavaExpr`, which spells a keyword-named
   // param with its MANGLED host identifier (`do` → `do_`), so the reference
   // probe has to look for the same spelling — `\bdo\b` never matches `do_`.
+  const locals = validatorLocals(spec);
   const referenced = spec.params.filter((p) =>
-    new RegExp(`\\b${jid(p.name)}\\b`).test(checks.join("\n")),
+    new RegExp(`\\b${localOf(locals, p.name)}\\b`).test(checks.join("\n")),
   );
   const lets = referenced.map((p) => {
     collectWireToDomainImports(eff(p.type, !!p.optional), imports, basePkg);
-    return `        var ${jid(p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`)};`;
+    return `        var ${localOf(locals, p.name)} = ${validatorLocal(eff(p.type, !!p.optional), `request.${jid(p.name)}()`)};`;
   });
 
   const patternFields = [...regexFields].map(
@@ -420,6 +450,7 @@ function buildChecks(
           inv.message ? message : singleFieldMessage(single.field, single.pattern),
           code,
           regexFields,
+          localOf(validatorLocals(spec), single.field),
         ),
       );
       continue;
@@ -448,7 +479,7 @@ function buildChecks(
     for (const p of literals) {
       if (!regexFields.has(p)) regexFields.set(p, `MATCHES_PATTERN_${regexFields.size}`);
     }
-    const renderOpts = { thisName: "this", bareProps: true, regexFields } as const;
+    const renderOpts = localRenderCtx(spec, regexFields);
     const body = renderJavaExpr(inv.expr, renderOpts);
     // #2857 (F19): a guarded invariant crosses the wire WITH its guard; C0.2a
     // (F31): a nullable operand skips the bound rather than dereferencing null.
@@ -490,6 +521,7 @@ function nullSkipRefs(
 ): string {
   if (mentionsNullLiteral(inv.expr) || (inv.guard && mentionsNullLiteral(inv.guard)))
     return predicate;
+  const locals = validatorLocals(spec);
   const guards = new Map<number, Set<string>>();
   const add = (depth: number, g: string): void => {
     const at = guards.get(depth) ?? new Set<string>();
@@ -497,8 +529,8 @@ function nullSkipRefs(
     guards.set(depth, at);
   };
   for (const p of spec.params) {
-    if (p.nullable && new RegExp(`\\b${jid(p.name)}\\b`).test(predicate))
-      add(0, `${jid(p.name)} == null`);
+    const local = localOf(locals, p.name);
+    if (p.nullable && new RegExp(`\\b${local}\\b`).test(predicate)) add(0, `${local} == null`);
   }
   // …and every MEMBER STEP along a chain rooted at one of those params.
   // `balance == null` alone still left `balance.amount()` returning null into
@@ -507,8 +539,7 @@ function nullSkipRefs(
   //   NullPointerException: … because the return value of
   //   "MoneyRequest.amount()" is null
   // — the nested `@NotNull` was about to answer 422 with `/balance/amount`.
-  const render = (e: ExprIR): string =>
-    renderJavaExpr(e, { thisName: "this", bareProps: true, regexFields });
+  const render = (e: ExprIR): string => renderJavaExpr(e, localRenderCtx(spec, regexFields));
   // The guard (`invariant … when <guard>`, #2857) is rendered into the same
   // predicate, so its chains need the same skips.
   for (const root of [inv.expr, inv.guard]) {
@@ -579,10 +610,10 @@ function patternCheck(
   message: string,
   code: string,
   regexFields: Map<string, string>,
+  local: string = jid(field),
 ): string[] {
   const moneyLike =
     type?.kind === "primitive" && (type.name === "money" || type.name === "decimal");
-  const local = jid(field);
   const cmp = (op: string, n: number): string =>
     moneyLike
       ? `${local}.compareTo(new java.math.BigDecimal("${n}")) ${op} 0`
