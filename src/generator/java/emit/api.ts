@@ -13,6 +13,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
   UNPROCESSABLE_ENTITY,
@@ -31,7 +32,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
-import { jid, requestParam } from "../java-ident.js";
+import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
 import {
   collectJavaExprImports,
   javaValueTypeForId,
@@ -77,6 +78,23 @@ export interface ControllerCtx {
    *  SPA owns the un-prefixed route space).  Empty for standalone. */
   routePrefix?: string;
 }
+
+/** Names a declared-find ROUTE method spells itself: the injected `service`
+ *  (and the `currentUserAccessor` a gated find reads), the `r` / `response` /
+ *  `result` / `problem` locals, and the gate's `currentUser`.  A find param
+ *  landing here binds under a `_`-suffixed Java name (`javaLocals`).  The paged
+ *  `page`/`pageSize`/`sort`/`dir` query params are deliberately NOT here: a
+ *  find param of that name collides on the WIRE (two values for one query
+ *  key), which a Java-local rename would only hide. */
+const FIND_ROUTE_METHOD_NAMES: ReadonlySet<string> = new Set([
+  "service",
+  "currentUserAccessor",
+  "currentUser",
+  "r",
+  "response",
+  "result",
+  "problem",
+]);
 
 export function renderJavaController(
   agg: EnrichedAggregateIR,
@@ -167,13 +185,19 @@ export function renderJavaController(
   for (const f of gatedFinds) collectJavaExprImports(f.requires!, imports);
   /** Gate lines for one find action: bind the principal (when the predicate
    *  reads it) then a 403 on failure. */
-  const findGateLines = (f: (typeof gatedFinds)[number]): string[] => {
+  const findGateLines = (
+    f: (typeof gatedFinds)[number],
+    locals?: ReadonlyMap<string, string>,
+  ): string[] => {
     const gl: string[] = [];
     if (exprUsesCurrentUser(f.requires)) {
       gl.push(`        var currentUser = currentUserAccessor.user();`);
     }
+    const ctx = locals
+      ? { thisName: "this", paramExpr: (n: string) => locals.get(n) }
+      : { thisName: "this" };
     gl.push(
-      `        if (!(${renderJavaExpr(f.requires!, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+      `        if (!(${renderJavaExpr(f.requires!, ctx)})) throw new ForbiddenException(${JSON.stringify(
         `Forbidden: find ${f.name}`,
       )});`,
     );
@@ -336,16 +360,27 @@ export function renderJavaController(
       // explicitly (`@RequestParam("case") String case_`); Spring would
       // otherwise publish `?case_=` on java alone.  `requestParam` is the
       // bare `@RequestParam` for every other name, so output is unmoved.
-      const declared = f.params.map((p) =>
-        p.type.kind === "id"
-          ? `${requestParam(p.name)} ${javaValueTypeForId(p.type.valueType)} ${jid(p.name)}`
-          : `${requestParam(p.name)} ${renderJavaType(p.type)} ${jid(p.name)}`,
+      // A find param named like a name the route method spells itself (the
+      // injected `service`, the `r`/`response`/`result`/`problem` locals, the
+      // gate's `currentUser`) binds under a `_`-suffixed Java parameter
+      // (`javaLocals`), its query key named explicitly by `requestParam` — the
+      // same split as the keyword mangle above.  Unmoved for every other name.
+      const locals = javaLocals(
+        f.params.map((p) => p.name),
+        FIND_ROUTE_METHOD_NAMES,
       );
+      const declared = f.params.map((p) => {
+        const local = localOf(locals, p.name);
+        return p.type.kind === "id"
+          ? `${requestParam(p.name, local)} ${javaValueTypeForId(p.type.valueType)} ${local}`
+          : `${requestParam(p.name, local)} ${renderJavaType(p.type)} ${local}`;
+      });
       const params = declared.join(", ");
       const args = f.params
-        .map((p) =>
-          p.type.kind === "id" ? `new ${p.type.targetName}Id(${jid(p.name)})` : jid(p.name),
-        )
+        .map((p) => {
+          const local = localOf(locals, p.name);
+          return p.type.kind === "id" ? `new ${p.type.targetName}Id(${local})` : local;
+        })
         .join(", ");
       // Union find (`Order or NotFound` / `Order option`): the service returns
       // the success variant's `<Agg>Response` (or null).  Per exception-less.md
@@ -388,7 +423,7 @@ export function renderJavaController(
         return [
           `    @GetMapping("${relativeOpPath(entry)}")`,
           `    public ResponseEntity<?> ${f.name}${agg.name}(${params}) {`,
-          ...(f.requires ? findGateLines(f) : []),
+          ...(f.requires ? findGateLines(f, locals) : []),
           `        var r = service.${jid(f.name)}(${args});`,
           `        if (r == null) {`,
           ...absent,
@@ -411,7 +446,7 @@ export function renderJavaController(
         return [
           `    @GetMapping("${relativeOpPath(entry)}")`,
           `    public ${agg.name}Paged ${f.name}${agg.name}(${pagedParams}) {`,
-          ...(f.requires ? findGateLines(f) : []),
+          ...(f.requires ? findGateLines(f, locals) : []),
           `        var result = service.${jid(f.name)}(${pagedArgs});`,
           `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
           `    }`,
@@ -424,7 +459,7 @@ export function renderJavaController(
       return [
         `    @GetMapping("${relativeOpPath(entry)}")`,
         `    public ${retType} ${f.name}${agg.name}(${params}) {`,
-        ...(f.requires ? findGateLines(f) : []),
+        ...(f.requires ? findGateLines(f, locals) : []),
         single
           ? `        var response = service.${jid(f.name)}(${args});`
           : `        return service.${jid(f.name)}(${args});`,
@@ -1128,10 +1163,13 @@ export function renderApiExceptionAdvice(
       `        // client's If-Match expected version was stale (think-time CAS) or the`,
       `        // load→save window lost a race (the repository's guarded version bump`,
       `        // matched zero rows — write-time CAS).`,
-      `        // Return a friendly 409 instead of leaking a 500.`,
-      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", "The resource was modified by another request; reload and retry.", "status", ${concurrencyStatus});`,
+      `        // Return a friendly 409 instead of leaking a 500.  RS-39: the detail`,
+      `        // names the aggregate and the row — every raise site passes`,
+      `        // (<Aggregate>.class, id.value()).`,
+      `        String detail = (e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier() + ${JSON.stringify(` ${CONCURRENCY_CONFLICT_SUFFIX}`)};`,
+      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", detail, "status", ${concurrencyStatus});`,
       `        httpMetrics.recordDomainFault("conflict");`,
-      `        return respond(problem(${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry.", request), ${concurrencyStatus});`,
+      `        return respond(problem(${concurrencyStatus}, "Conflict", detail, request), ${concurrencyStatus});`,
       `    }`,
       ``,
     ],

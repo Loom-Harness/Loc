@@ -15,6 +15,7 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { readE2eCallOptions } from "../ir/util/e2e-call-options.js";
 import {
   E2E_WORKFLOW_VERBS,
   findWorkflowBySlug,
@@ -33,7 +34,7 @@ import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
-import { lowerFirst, plural, snake } from "../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../util/naming.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import {
   TEST_RESET_ENV,
@@ -466,7 +467,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
     if (!ctx.usedLetNames.has(s.name)) {
       return `${renderE2EExpr(s.expr, ctx)};`;
     }
-    return `const ${s.name} = ${renderE2EExpr(s.expr, ctx)};`;
+    return `const ${escapeTsIdent(s.name)} = ${renderE2EExpr(s.expr, ctx)};`;
   }
   if (s.kind === "expression") {
     return `${renderE2EExpr(s.expr, ctx)};`;
@@ -497,7 +498,9 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "ref":
-      return e.name;
+      // Escaped exactly like the `let` binding (and lambda param) it names —
+      // `let class = …` binds `class_`, so every reference must read `class_`.
+      return escapeTsIdent(e.name);
     case "this":
       return "this";
     case "id":
@@ -519,8 +522,8 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
       // form — so assert and render.  If a future change introduces a
       // block lambda in test bodies, this branch needs the `block`
       // alternative.
-      if (e.body) return `(${e.param}) => ${renderE2EExpr(e.body, ctx)}`;
-      return `(${e.param}) => { /* block-body lambdas not supported in e2e tests */ }`;
+      if (e.body) return `(${escapeTsIdent(e.param)}) => ${renderE2EExpr(e.body, ctx)}`;
+      return `(${escapeTsIdent(e.param)}) => { /* block-body lambdas not supported in e2e tests */ }`;
     case "member": {
       const recv = parenAwaited(renderE2EExpr(e.receiver, ctx));
       // Property-style collection ops (`lines.count`, `lines.distinct`) lower to
@@ -979,7 +982,18 @@ function renderOperationCall(
   const body = args.length >= 2 ? renderE2EExpr(args[1], ctx) : "{}";
   const opSnake = snake(op.name);
   const prefix = ctx.apiBasePath;
-  return `await __post(\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\`, ${body})`;
+  const url = `\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\``;
+  // The optional third argument (validated as `loom.e2e-call-options`).
+  const options = readE2eCallOptions(args[2]);
+  if (options === "malformed") {
+    throw new Error(
+      `e2e: api.${slug}.${op.name}(id, body, options) — options must be { ifMatch: <version> }`,
+    );
+  }
+  if (options) {
+    return `await __postIfMatch(${url}, ${body}, ${renderE2EExpr(options.ifMatch, ctx)})`;
+  }
+  return `await __post(${url}, ${body})`;
 }
 
 function renderFindCall(find: FindIR, slug: string, args: ExprIR[], ctx: RenderCtx): string {
@@ -1146,6 +1160,28 @@ function serviceSlug(name: string): string {
  *  need: they are lexicographically ordered by construction, so `<` is already
  *  correct for them and coercing would produce NaN. */
 const E2E_WIRE_HELPERS: ReadonlyArray<{ name: string; src: string }> = [
+  {
+    // `api.<aggs>.update(id, body, { ifMatch: v })` (e2e-call-options.ts) — the
+    // operation POST with the optimistic-concurrency precondition.  The version
+    // is sent as a quoted entity-tag, the form every backend's If-Match parser
+    // accepts (it is what the API's own ETag hands a client).  On demand, so a
+    // suite without the option carries no dead helper.
+    name: "__postIfMatch",
+    src: `async function __postIfMatch(url: string, body: unknown, version: unknown): Promise<__WireBody> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "if-match": \`"\${String(version)}"\`, ...__authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`POST \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(\`POST \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
+  }
+}`,
+  },
   {
     name: "__cmpKey",
     src: `// Ordering key for a wire value — see \`sortBy\`/\`min\`/\`max\` below.  Money and

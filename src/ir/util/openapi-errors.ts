@@ -280,6 +280,14 @@ export function errorStatuses(
  *  the server's `lc_messages`. */
 export const DANGLING_REFERENCE_DETAIL = "The request references a record that does not exist.";
 
+/** RS-39 — the optimistic-concurrency 409 `detail` is the sentence
+ *  `"<Aggregate> <id> was modified by another request"` on every backend (node's
+ *  wording, M-T6.91).  Each backend interpolates the aggregate's PascalCase name
+ *  and the conflicting row's id in front of this suffix at the point where both
+ *  are known; the suffix is shared so the five spellings cannot drift apart
+ *  again. */
+export const CONCURRENCY_CONFLICT_SUFFIX = "was modified by another request";
+
 export function problemTitle(status: number): string {
   switch (status) {
     case 400:

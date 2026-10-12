@@ -18,6 +18,7 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -1510,7 +1511,7 @@ function saveMethod(
     out.push("        )");
     out.push("        if _guarded.first() is None:");
     out.push(
-      `            raise ConcurrencyError(f"${agg.name} {${aggVar}.id} was modified concurrently")`,
+      `            raise ConcurrencyError(f"${agg.name} {${aggVar}.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push("        await self._session.execute(");

@@ -267,7 +267,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "the DbUpdateConcurrencyException arm of the global exception filter",
       file: "Api/DomainExceptionFilter.cs",
-      at: /is Microsoft\.EntityFrameworkCore\.DbUpdateConcurrencyException\)[\s\S]{0,700}?Problem\(context, (\d+),/,
+      at: /is Microsoft\.EntityFrameworkCore\.DbUpdateConcurrencyException\)[\s\S]{0,2000}?Problem\(context, (\d+),/,
     },
     {
       rung: "ReferencedInUse",
@@ -322,7 +322,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "the optimistic-lock @ExceptionHandler",
       file: "api/ApiExceptionAdvice.java",
-      at: /problem\((\d+), "[^"]*", "The resource was modified by another request/,
+      at: /problem\((\d+), "Conflict", detail, request\)/,
     },
     {
       rung: "ReferencedInUse",
@@ -372,7 +372,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "ConcurrencyConflict",
       what: "the ConcurrencyError handler",
       file: "http/problem.py",
-      at: /request, (\d+), "[^"]*", "The resource was modified by another request/,
+      at: /request, (\d+), "Conflict", str\(err\)\)/,
     },
     {
       rung: "ReferencedInUse",
@@ -415,9 +415,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "ConcurrencyConflict",
-      what: "`conflict_response/1`, the shared optimistic-lock responder",
+      what: "`conflict_response/3`, the shared optimistic-lock responder",
       file: "api_web/problem_details.ex",
-      at: /def conflict_response\(conn\) do[\s\S]{0,1200}?send_resp\((\d+), body\)/,
+      at: /def conflict_response\(conn, kind, id\) do[\s\S]{0,1200}?send_resp\((\d+), body\)/,
     },
     {
       rung: "ReferencedInUse",
