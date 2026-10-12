@@ -93,18 +93,6 @@ const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "pytho
  *  the python wire-model emitter returns the key. */
 const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
 
-/** The backends that compile a hosted `X id[]` whose target aggregate lives in a
- *  sibling context the deployable does NOT host (claims eval D18's list position).
- *
- *  `vanilla` (elixir) is absent, and this is the NAME of that exclusion: the
- *  schema emits `many_to_many :others, <App>.<HostCtx>.Pol, join_through: …` —
- *  an Ecto association to a schema module that exists in no context of this
- *  deployable, so `mix compile --warnings-as-errors` fails with "invalid
- *  association … associated schema … does not exist".  The join-table migration
- *  itself is fine (no FK).  The elixir key returns the day its id-list emitter
- *  stops modelling a NON-hosted target as an Ecto association. */
-const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
-
 /** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
  *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
  *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
@@ -354,11 +342,11 @@ export const CORPUS: readonly CorpusFeature[] = [
     id: "foreign-id-field",
     title: "an `X id` on a hosted declaration whose aggregate lives in a sibling context the deployable does NOT host",
     doc: "language",
-    backends: FOREIGN_ID_LIST,
+    backends: ALL,
     // Two services on purpose — the defect is only reachable on the deployable
     // that does not host the id's target aggregate.
     deployables: ["policies", "desk"],
-    note: "D18 of eval-claims/FIX-PLAN.md — `pol: Pol id` (field / optional / list / op param / event field / find param) on a deployable hosting only `Claims`: the ids module declared hosted aggregates' brands plus foreign event / workflow / claim ids, so `PolId` was referenced and declared nowhere (node TS2694, python name-defined, .NET CS0246 x52, javac cannot find symbol).  The hosted declaration surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+    note: "D18 of eval-claims/FIX-PLAN.md — `pol: Pol id` (field / optional / list / op param / event field / find param) on a deployable hosting only `Claims`: the ids module declared hosted aggregates' brands plus foreign event / workflow / claim ids, so `PolId` was referenced and declared nowhere (node TS2694, python name-defined, .NET CS0246 x52, javac cannot find symbol).  The hosted declaration surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.  On elixir the list position also emitted `many_to_many :others, Desk.Claims.Pol, …` — an association to a schema module that does not exist (`invalid association`); a foreign-target `X id[]` is now a `has_many` onto a join-row schema holding the raw ids (`ref-collection-emit.ts` `isForeignRefColl`).",
   },
   {
     id: "auth-id-claim-foreign",
