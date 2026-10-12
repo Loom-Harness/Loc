@@ -1,0 +1,81 @@
+// Frontend money comparisons, booted (#3263, follow-up to #3227).
+//
+// Money is NOT a host number on any frontend, so the host operators are wrong
+// in ways no compiler reports:
+//
+//   react/vue/svelte/angular  a decimal.js `Decimal`: `===` compares REFERENCES
+//                             (`10` vs `10.00`, even `10` vs `10`, unequal) and
+//                             `<`/`>` order `valueOf()` STRINGS ("9" < "10" is
+//                             false); an absent `money?` coerces to 0.
+//   feliz                     an F# `decimal`, right by value, but a `money?` is
+//                             a `decimal option`: comparing it with a `decimal`
+//                             is a type error, and option ORDER puts `None` below
+//                             every value (`absent < x` held).
+//   flutter                   the wire's digit STRING: `LoomMoney.compare` read an
+//                             absent value as zero (`absent < 10` held).
+//
+// The page renders one `name=yes|no` token per comparison; the behavioural UI
+// runners (`run-ui.mjs`, `run-ui-flutter.mjs`) open `/money-compare` on the
+// BUILT app and require every expected token (and none of the wrong ones) in the
+// rendered text — the DOM on the JS/Feliz frontends, Flutter's accessibility
+// tree there.  `__FRONTEND__` is swapped per case (test/behavioral/corpus.json →
+// `frontend`).  Kept out of `systems/`, which every BACKEND leg iterates.
+system MoneyCompareUi {
+  subdomain Billing {
+    context Billing {
+      aggregate Invoice with crudish {
+        subtotal: money
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+  api BillingApi from Billing
+
+  ui WebApp {
+    page MoneyCompare {
+      route: "/money-compare"
+      state {
+        ten: money = money("10")
+        tenScaled: money = money("10.00")
+        nine: money = money("9")
+        absent: money? = null
+        alsoAbsent: money? = null
+        present: money? = money("10.0")
+      }
+      body: Stack {
+        Heading { "Money comparisons" },
+        // Equality by VALUE: 10 == 10.00.
+        Text { ten == tenScaled ? "money-eq=yes" : "money-eq=no", testid: "money-eq" },
+        Text { ten != tenScaled ? "money-ne=yes" : "money-ne=no", testid: "money-ne" },
+        // Ordering by VALUE: 9 < 10 (the `valueOf()` strings say no).
+        Text { nine < ten ? "money-lt=yes" : "money-lt=no", testid: "money-lt" },
+        Text { ten >= nine ? "money-ge=yes" : "money-ge=no", testid: "money-ge" },
+        // A present `money?` against a plain `money`.
+        Text { present == ten ? "money-opt-eq=yes" : "money-opt-eq=no", testid: "money-opt-eq" },
+        Text { present > nine ? "money-opt-gt=yes" : "money-opt-gt=no", testid: "money-opt-gt" },
+        // An ABSENT `money?`: unequal, and every ordering is false.
+        Text { absent == ten ? "money-absent-eq=yes" : "money-absent-eq=no", testid: "money-absent-eq" },
+        Text { absent < ten ? "money-absent-lt=yes" : "money-absent-lt=no", testid: "money-absent-lt" },
+        Text { absent >= nine ? "money-absent-ge=yes" : "money-absent-ge=no", testid: "money-absent-ge" },
+        // Both absent: equal (the null-safe equality every backend uses).
+        Text { absent == alsoAbsent ? "money-both-absent=yes" : "money-both-absent=no", testid: "money-both-absent" }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable api {
+    platform: node
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 3000
+  }
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp
+    port: 3001
+  }
+}
