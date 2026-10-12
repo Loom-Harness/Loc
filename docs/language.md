@@ -1361,7 +1361,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1424,6 +1424,60 @@ third lowering.  Most targets spell both the same way (`in` in Python,
 crashes the generated suite rather than returning a wrong answer.  The dispatch
 therefore reads the subject's resolved type off the IR.
 
+
+##### What a bare `toThrow()` accepts
+
+A bare `toThrow()` in a unit `test` asserts that the **domain** refused the call: a
+`precondition`, an aggregate / part / value-object `invariant`, or an operation's
+`when` state gate.  It does **not** accept an arbitrary error.  A
+`ReferenceError`, `TypeError` or `NameError` out of the code under test is a defect,
+not a rejection, so the test fails on it.  Before this rule, node lowered the bare
+form to vitest `.toThrow()` and python to `pytest.raises(Exception)`.  A negative
+test then passed when codegen had emitted an undefined name: the test said
+"rejected" and the code had simply crashed.
+
+```ddd
+test "a title must be longer than two characters" {
+    expect(Claim.create({ title: "x", status: Draft })).toThrow()
+}
+```
+
+```ts
+// generated (node): a file-local helper; any other error is rethrown, so it fails the test
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+function expectDomainRejection(call: () => unknown): void {
+  try {
+    call();
+  } catch (err) {
+    if (err instanceof DisallowedError || err instanceof DomainError || err instanceof ForbiddenError) return;
+    throw err;
+  }
+  expect.fail("expected the call to be rejected by the domain, but it returned");
+}
+// …
+expectDomainRejection(() => { Claim.create({ title: "x", status: ClaimStatus.Draft }); });
+```
+
+```python
+# generated (python)
+with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
+    Claim.create(title="x", status=ClaimStatus.Draft)
+```
+
+On both, `DomainError` covers preconditions and invariants; a value object's
+`ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
+and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
+assert `DomainException` (a value-object construction asserts
+`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
+`{:error, _}` result.  All of these are domain classes, so a crash fails the test
+there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
+`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
+`when`-refused operation therefore fails on those two backends today.  Pin such a
+test on node / python / elixir, or assert the state instead.
+
+The context-level integration `test` (the `for <Context>` rung) is not covered by
+this.  It still accepts any rejection, because a repository read can also refuse
+with not-found or a concurrency conflict.
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
