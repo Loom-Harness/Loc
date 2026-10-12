@@ -9,6 +9,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findGateUsesCurrentUser, findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { findGateDetail } from "../../../ir/util/read-gates.js";
 import { upperFirst } from "../../../util/naming.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
 import {
@@ -323,7 +324,7 @@ function buildFindHandlerBody(
   if (find.requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
     gate += `        if (!(${renderCsExpr(find.requires)})) throw new ForbiddenException(${JSON.stringify(
-      `Forbidden: find ${find.name}`,
+      findGateDetail(find),
     )});\n`;
   }
   const baseArgs = find.params.map((p) => `query.${upperFirst(p.name)}`);

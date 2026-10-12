@@ -18,7 +18,7 @@ import {
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { listReadFind } from "../../../ir/util/read-gates.js";
+import { findGateDetail, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -200,9 +200,7 @@ export function renderJavaController(
       ? { thisName: "this", paramExpr: (n: string) => locals.get(n) }
       : { thisName: "this" };
     gl.push(
-      `        if (!(${renderJavaExpr(f.requires!, ctx)})) throw new ForbiddenException(${JSON.stringify(
-        `Forbidden: find ${f.name}`,
-      )});`,
+      `        if (!(${renderJavaExpr(f.requires!, ctx)})) throw new ForbiddenException(${JSON.stringify(findGateDetail(f))});`,
     );
     return gl;
   };

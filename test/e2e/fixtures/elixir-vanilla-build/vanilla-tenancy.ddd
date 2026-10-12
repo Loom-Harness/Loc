@@ -39,7 +39,8 @@ system TenancyShop {
         find byMinBalance(min: int): Account[] where this.balance >= min
       }
 
-      // A retrieval (workflow-internal; fail-closed when no actor is threaded).
+      // A retrieval — served as GET /accounts/rich_accounts; the controller
+      // threads the actor into `run`'s `current_user:` opt.
       retrieval RichAccounts(min: int) of Account { where: balance >= min  sort: [balance desc] }
     }
   }

@@ -59,7 +59,7 @@ import {
   opOperation,
 } from "../../ir/util/openapi-ids.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
-import { listReadFind } from "../../ir/util/read-gates.js";
+import { findGateDetail, listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
@@ -1464,7 +1464,7 @@ function findRoute(
         // `x not in y` rather than `not (x in y)` (ruff E713) — the same helper
         // the operation/workflow/projection `requires` guards use.
         `    if ${renderPyNegatedGuard(find.requires)}:`,
-        `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)})`,
+        `        raise ForbiddenError(${JSON.stringify(findGateDetail(find))})`,
       ]
     : null;
   const params = find.params.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx)));

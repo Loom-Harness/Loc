@@ -16,6 +16,7 @@ import { variantTag } from "../../../ir/stdlib/unions.js";
 import type { AggregateIR, BoundedContextIR, FindIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
+import { findGateDetail } from "../../../ir/util/read-gates.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -270,7 +271,7 @@ ${cuLine}${innerBody}
 ${cuLine}    if not (${gate}) do
       ${denialResponse(
         "forbidden",
-        JSON.stringify(`Forbidden: find ${f.name}`),
+        JSON.stringify(findGateDetail(f)),
         denialOverrides(ctx),
         `${webModule}.ProblemDetails`,
       )}

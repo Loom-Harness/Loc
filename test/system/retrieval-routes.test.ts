@@ -124,30 +124,30 @@ describe("retrieval route — `requires` gates it with a 403 before the read", (
       p.endsWith("http/thing.routes.ts"),
     );
     expect(route).toMatch(
-      /throw new ForbiddenError\("Forbidden: find myThings"\);\n\s+const result = await repo\.runMyThings/,
+      /throw new ForbiddenError\("Forbidden: retrieval MyThings"\);\n\s+const result = await repo\.runMyThings/,
     );
   });
   it("dotnet", async () => {
     const src = allSrc(await generateSystemFiles(system("dotnet", GATE)));
     expect(src).toMatch(
-      /throw new ForbiddenException\("Forbidden: find myThings"\);\n\s+var domain = await _repo\.RunMyThingsAsync/,
+      /throw new ForbiddenException\("Forbidden: retrieval MyThings"\);\n\s+var domain = await _repo\.RunMyThingsAsync/,
     );
   });
   it("python", async () => {
     const src = allSrc(await generateSystemFiles(system("python", GATE)));
     expect(src).toMatch(
-      /raise ForbiddenError\("Forbidden: find myThings"\)\n\s+repo = _repo\(session\)\n\s+return \[repo\.to_wire\(r\) for r in await repo\.run_my_things/,
+      /raise ForbiddenError\("Forbidden: retrieval MyThings"\)\n\s+repo = _repo\(session\)\n\s+return \[repo\.to_wire\(r\) for r in await repo\.run_my_things/,
     );
   });
   it("java", async () => {
     const src = allSrc(await generateSystemFiles(system("java", GATE)));
     expect(src).toMatch(
-      /throw new ForbiddenException\("Forbidden: find myThings"\);\n\s+return service\.myThings\(o, offset, limit\);/,
+      /throw new ForbiddenException\("Forbidden: retrieval MyThings"\);\n\s+return service\.myThings\(o, offset, limit\);/,
     );
   });
   it("elixir", async () => {
     const src = allSrc(await generateSystemFiles(system("elixir", GATE)));
-    expect(src).toContain('"Forbidden: find myThings"');
+    expect(src).toContain('"Forbidden: retrieval MyThings"');
     expect(src).toMatch(/if not \(.*\) do[\s\S]*?else\n\s+with \{:ok, offset_arg\}/);
   });
 });

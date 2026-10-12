@@ -130,6 +130,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { findGateDetail } from "../../../ir/util/read-gates.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -2352,12 +2353,12 @@ function emitFindRoute(
   // (evaluated against the in-scope currentUser) fails, BEFORE the query runs.
   // ForbiddenError is mapped to a 403 ProblemDetails by the file's onError
   // filter — the read-side analogue of an operation `requires` gate.  The 403
-  // `detail` carries the source label (`Forbidden: find <name>`) exactly as the
+  // `detail` carries the source label (`findGateDetail`: `Forbidden: find <name>` / `Forbidden: retrieval <Name>`) exactly as the
   // operation gates and the other four backends do; dropping it makes node's
   // read gates the lone bare-`Forbidden` outlier across all five backends.
   if (find.requires) {
     out.push(
-      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(findGateDetail(find))});`,
     );
   }
   const baseArgs = find.params.map((p) => wireToDomainExpr(`params.${p.name}`, p.type, ctx));
