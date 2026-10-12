@@ -43,7 +43,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
   derivedRouteSlots,
@@ -244,7 +244,7 @@ function handlerDestructure(
     const key = snake(name);
     if (seen.has(key)) return;
     seen.add(key);
-    entries.push({ key, var: key });
+    entries.push({ key, var: escapeElixirIdent(key) });
   };
   for (const p of h.params) {
     const rec = requestRecordFor(p.type, ctx);
