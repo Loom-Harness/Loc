@@ -15,6 +15,19 @@
 // ones that are already reference types (`decimal`, `datetime`, `string`, an
 // enum), an OPTIONAL one (which must NOT gain a required annotation), and a
 // value object (nested record — the descend-into case).
+//
+// RUNTIME + COMPILE (wave C3 packet 3a, M-T9.13).  The register entry that kept
+// this compile-only said "the behavioural runner cannot yet address a
+// workflow's create surface" — stale since the workflow accessor
+// (`api.<wf>.run(…)`, M-T5.36 F5).  What the block at the bottom proves is the
+// PRESENT-value half: every param kind above crosses the wire, is coerced,
+// and reaches the body, which writes three of them into a row read back
+// verbatim (a boxed `Integer` that unboxed to 0, or a `Boolean` that bound
+// false, reads back wrong).  The ABSENT-value half — the 422 a missing
+// required key must answer — is still not expressible from a `test e2e` body
+// (a workflow call is type-checked against its declared params, so an omitted
+// required field does not parse); that half stays with the java generator
+// suite's `@NotNull` pin and the Schemathesis legs.
 system WfPrimSys {
   subdomain Core {
     context Wallet {
@@ -53,5 +66,39 @@ system WfPrimSys {
     dataSources: [walletState]
     serves: WalletApi
     port: 4000
+  }
+
+  test e2e "every primitive workflow param crosses the wire and reaches the body" against d {
+    api.topUp.run({ holder: "Ada", qty: 7, serial: 9000000001, flag: true, ratio: 0.5, at: "2026-03-01T10:00:00Z", tier: "Silver", amount: { amount: 12.5, currency: "EUR" }, memo: "first" })
+    // The OPTIONAL param omitted, and the falsy values a scalar default would
+    // also produce — `flag: false` and `qty: 0` must arrive as SENT, which is
+    // only distinguishable from "defaulted" because the first call sent the
+    // opposite values through the same record.
+    api.topUp.run({ holder: "Bo", qty: 0, serial: 1, flag: false, ratio: 2, at: "2026-03-02T10:00:00Z", tier: "Gold", amount: { amount: 1, currency: "USD" } })
+
+    // The canonical create beside the workflow's — the same row shape the
+    // workflow body builds, written straight through the aggregate route.
+    let cy = api.accounts.create({ holder: "Cy", balance: 1, active: true, tier: "Gold" })
+
+    let accounts = api.accounts.all({ sort: "holder", dir: "asc" })
+    expect(accounts.total).toBe(3)
+    let ada = accounts.items.first()
+    expect(ada.holder).toBe("Ada")
+    expect(ada.balance).toBe(7)
+    expect(ada.active).toBe(true)
+    expect(ada.tier).toBe("Silver")
+    let bo = accounts.items.where(a => a.holder == "Bo").first()
+    expect(bo.balance).toBe(0)
+    expect(bo.active).toBe(false)
+    expect(bo.tier).toBe("Gold")
+
+    // The crudish routes, so every derived route has a caller.
+    expect(api.accounts.getById(ada).holder).toBe("Ada")
+    api.accounts.update(bo, { holder: "Bo", balance: 3, active: true, tier: "Gold" })
+    expect(api.accounts.getById(bo).balance).toBe(3)
+    api.accounts.destroy(ada)
+    api.accounts.destroy(bo)
+    api.accounts.destroy(cy)
+    expect(api.accounts.all().total).toBe(0)
   }
 }

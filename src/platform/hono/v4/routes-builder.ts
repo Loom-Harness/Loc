@@ -44,6 +44,7 @@ import {
   chainSingleFieldNative,
   openapiLengthMeta,
   orderSingleFieldPatterns,
+  type RefineDecimalMode,
   refineClauseFor,
   takeSingleFieldChain,
 } from "../../../generator/zod-refine.js";
@@ -126,6 +127,7 @@ import {
   collectReachableTypes,
   enumPool,
   findValueObjectInScope,
+  orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
@@ -195,8 +197,9 @@ const NOT_IMPLEMENTED_STATUS = 501;
  *  `db.transaction`; mikroorm: the EntityManager's `db.transactional` (which
  *  opens a real DB transaction and threads its async context to the forked
  *  repo em — see the mikro repos' `keepTransactionContext` fork).  The callback
- *  var stays `tx` on both, so the repo construction + close line are shared. */
-function txWrapperCall(usingMikro: boolean): string {
+ *  var stays `tx` on both, so the repo construction + close line are shared.
+ *  Also the transactional-workflow wrapper (`workflow-builder`). */
+export function txWrapperCall(usingMikro: boolean): string {
   return usingMikro ? `db.transactional(async (tx) => {` : `db.transaction(async (tx) => {`;
 }
 
@@ -660,6 +663,7 @@ export function buildRoutesFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        "exact",
       ),
     );
   }
@@ -773,6 +777,7 @@ export function buildRoutesFile(
         // not here.  Passing the create-input set drops those refines so
         // the schema never references an absent field.
         new Set(requiredFields.map((f) => f.name)),
+        "exact",
       ),
     );
     lines.push(
@@ -815,6 +820,7 @@ export function buildRoutesFile(
         // the wire (422) instead of reaching the domain floor.
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
+        "exact",
       ),
     );
   }
@@ -1509,8 +1515,10 @@ export function buildRoutesFile(
     `      ${renderHonoLogCall("forbidden", `aggregate: "${agg.name}", message: err.message, status: ${forbiddenStatus}`)}`,
   );
   lines.push(`      recordDomainFault("forbidden");`);
+  // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
+  // the gate's source text; the body echoes it only under the dev-stub verifier.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.message);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail);`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
@@ -2908,7 +2916,12 @@ function collectUsedValueObjects(
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order, not pool order: each VO becomes a `const <Vo>Schema` in
+  // one module, and the pool lists context-local VOs before the root-level
+  // (shared-kernel) ones folded in at enrichment.  A local VO that wraps a
+  // root VO must come after it, or its initialiser reads the root schema in
+  // its temporal dead zone (TS2448/TS2454) and the module throws on load.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(
@@ -2963,12 +2976,18 @@ export function emitWireSchema(
   fields: { name: string; base: string; default?: string; optional?: boolean }[],
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
+  // How a cross-field refine computes `decimal` arithmetic (RS-37).  "exact"
+  // renders it through decimal.js — only for a file whose `decimal.js` import
+  // follows its body (this router's deferred import, the workflow router's
+  // body scan); a caller without that stays "server-only" and leaves the rule
+  // to the domain's exact check.
+  decimal: RefineDecimalMode = "server-only",
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
   const remaining: InvariantIR[] = [];
   for (const inv of invariants) {
-    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx);
+    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx, decimal);
     if (taken) {
       const list = chainByField.get(taken.field) ?? [];
       list.push(taken.pattern);
@@ -2978,7 +2997,7 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx))
+    .map((inv) => refineClauseFor(inv, ctx, decimal))
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];

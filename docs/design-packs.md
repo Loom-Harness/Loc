@@ -923,6 +923,18 @@ the svelte packs `shadcnSvelte` and `flowbite`, and the angular pack
 The current bareword defaults live in `BUILTIN_PACK_LATEST` in
 `src/util/builtin-formats.ts`.
 
+**The two self-hosting frontends take no pack.** Feliz and Flutter render
+procedurally rather than through `.hbs` templates, so neither reads a pack
+family from `design:`:
+
+- **Feliz** repurposes the slot for a daisyUI *theme* (`design: "dracula"`),
+  validated against `DAISYUI_THEMES` — an unknown theme is
+  `loom.design-theme-unknown`.
+- **Flutter** has no `design:` axis at all. It emits Material 3 widgets
+  (`src/generator/flutter/pack.ts`) and lowering drops the value, so the
+  generated project is identical with `design: mantine`, with `design: shadcn`,
+  and with no `design:` line. Writing one warns (`loom.design-pack-ignored`).
+
 The loader (`src/generator/_packs/loader-fs.ts:resolvePackDir`)
 resolves identifiers in this order:
 

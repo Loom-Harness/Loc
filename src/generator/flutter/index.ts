@@ -38,6 +38,7 @@ import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/p
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -58,6 +59,7 @@ import {
   emittableComponentParams,
   renderComponentsFile,
 } from "./component-emit.js";
+import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
 import {
@@ -67,6 +69,7 @@ import {
   collectPageWorkflowForms,
   formsUseFilePicker,
   renderFormsFile,
+  renderGatesFile,
 } from "./forms-emit.js";
 import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
@@ -84,6 +87,11 @@ import {
   REALTIME_SOURCE_WEB_DART,
   renderFlutterRealtime,
 } from "./realtime.js";
+import {
+  FLUTTER_REF_LABEL_MARKER,
+  FLUTTER_REF_LABEL_PATH,
+  renderFlutterRefLabel,
+} from "./ref-label-runtime.js";
 import { hasRiverpodState, renderRiverpod, stateCtx } from "./riverpod-emit.js";
 import { renderFlutterStores } from "./store-builder.js";
 import { storeProviderName } from "./store-names.js";
@@ -122,7 +130,7 @@ export function generateFlutterForContexts(
   deployable: DeployableIR,
   options: GenerateFlutterOptions = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/flutter/index");
 
   // Not `snake(name)` directly — a deployable named `web` (or any other package
   // in the app's own dependency graph) would make `flutter pub get` fail before
@@ -140,7 +148,7 @@ export function generateFlutterForContexts(
   // shape — the same three-way conjunction every other frontend's `authUi` is.
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
-  // The api-call credential (M-T4.12 item 1, D-FLUTTER-BEARER).  ONE predicate,
+  // The api-call credential (D-FLUTTER-BEARER).  ONE predicate,
   // shared with the realtime stream: `realtimeStreamCredential` is the gate
   // RULE 2 states, and it answers `cookie-web-bearer-native` for a
   // `platform: flutter` deployable because an HttpOnly cookie cannot exist on
@@ -231,12 +239,12 @@ export function generateFlutterForContexts(
     out.set("lib/realtime_source_web.dart", REALTIME_SOURCE_WEB_DART);
   }
 
-  // i18n (M-T1.11 Flutter runtime): when this ui has extractable user-visible
+  // i18n (Flutter runtime): when this ui has extractable user-visible
   // strings, every literal text slot in a page/component body emits
   // `t("<key>", "<default>")` (keyed identically to the catalog via the SHARED
   // walker seam) and the app ships `lib/i18n.dart` — the Dart-language sibling
   // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no file, the walks
-  // pass no prefix, and every emitted widget is byte-identical to pre-i18n.
+  // pass no prefix, and every literal renders raw.
   const i18nEnabled = ui ? flutterI18nEnabled(ui) : false;
   if (ui && i18nEnabled) {
     out.set("lib/i18n.dart", renderFlutterI18nModule(ui));
@@ -244,6 +252,11 @@ export function generateFlutterForContexts(
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
   }
+  const gates = renderGatesFile(
+    contexts.flatMap((c) => c.aggregates),
+    credentialed,
+  );
+  if (gates) out.set("lib/gates.dart", gates);
 
   // The aggregates reachable through this deployable — used for the fallback
   // home page when the ui declares no pages of its own.
@@ -285,9 +298,9 @@ export function generateFlutterForContexts(
   // Page name → the route `main.dart` will register for it, derived by the
   // SAME rule the router uses (`page.route ?? '/' + pageFileBase(...)`), so a
   // `navigate(<Page>)` in a body or an action body pushes a key the routes map
-  // actually holds.  Flutter used to pass an empty map here, leaving the shared
-  // resolver on its `/<page-snake>` fallback — which is the router's key only
-  // by coincidence, and never for a `route: "/products/:id"` page.
+  // actually holds.  An empty map would leave the shared resolver on its
+  // `/<page-snake>` fallback — which is the router's key only by coincidence,
+  // and never for a `route: "/products/:id"` page.
   const pageRoutes = new Map<string, string>(
     pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
   );
@@ -374,9 +387,22 @@ export function generateFlutterForContexts(
   // `Action(<instance>.<op>)` buttons (which POST inline via `apiUri(`).  Emit it
   // when any of the three is present, so no page's import dangles.
   const usesActionHttp = rendered.some((r) => r.source.includes("apiUri("));
+  // The `IdLink` reference-label widget (`flutter/ref-label-runtime.ts`) — a
+  // page or a pooled component calling it; it reads through `apiUri` too.
+  const usesRefLabel =
+    rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
+    (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(credentialed));
   // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
   // sign-out redirects are both built with `apiUri`.
-  if (reads.length > 0 || forms.length > 0 || usesActionHttp || authUi || hasRealtime) {
+  if (
+    reads.length > 0 ||
+    forms.length > 0 ||
+    usesActionHttp ||
+    usesRefLabel ||
+    authUi ||
+    hasRealtime
+  ) {
     out.set("lib/config.dart", renderAppConfig());
   }
   // The controlled-Modal bridge — emitted only when a page opens one, matched to
@@ -403,7 +429,7 @@ export function generateFlutterForContexts(
     navigatorKey:
       rendered.some((r) => r.source.includes(FLUTTER_NAV_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_NAV_MARKER)),
-    // Same scan, same reason, for the toast bridge's key (M-T1.32).
+    // Same scan, same reason, for the toast bridge's key.
     scaffoldMessengerKey:
       rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
@@ -469,19 +495,19 @@ export function generateFlutterForContexts(
   // Runs under the same `flutter test` step (whole `test/` dir) as the smoke.
   out.set("test/a11y_test.dart", renderA11yTest(pkg, rendered));
 
-  // The money runtime (M-T1.21).  Same use-driven rule as the modal bridge and
+  // The money runtime.  Same use-driven rule as the modal bridge and
   // the chart painter above, but the scan is over EVERY emitted file and it
   // runs LAST — `LoomMoney.` lands in the PAGES (written below those two), in
   // `components.dart` (a component body doing money arithmetic) and in
   // `stores.dart` (a store action doing the same).  Scanning before the pages
-  // were written emitted the per-page `import '../money.dart';` with no file
-  // behind it: `uri_does_not_exist` + `Undefined name 'LoomMoney'`, caught by
-  // `flutter analyze` on the generated showcase.
+  // are written would emit the per-page `import '../money.dart';` with no file
+  // behind it: `uri_does_not_exist` + `Undefined name 'LoomMoney'` under
+  // `flutter analyze`.
   if ([...out.values()].some((content) => usesMoney(content))) {
     out.set("lib/money.dart", renderFlutterMoneyRuntime());
   }
 
-  // The out-of-tree navigation bridge (ledger row F2-CFE-1) — same use-driven
+  // The out-of-tree navigation bridge — same use-driven
   // rule and same last-position scan as the money runtime above, and for the
   // same reason: `navigateTo(` lands in a PAGE's Notifier, in `stores.dart` (a
   // store action navigating) and in `components.dart` (a stateful component's
@@ -490,7 +516,7 @@ export function generateFlutterForContexts(
     out.set("lib/nav.dart", renderFlutterNavRuntime());
   }
 
-  // The out-of-tree toast bridge (M-T1.32) — the nav bridge's twin, emitted
+  // The out-of-tree toast bridge — the nav bridge's twin, emitted
   // under the same last-position scan and for the same reason: `showToast(`
   // lands in a page's Notifier, in `stores.dart` and in `components.dart`.
   if ([...out.values()].some((content) => content.includes(FLUTTER_TOAST_MARKER))) {
@@ -533,18 +559,17 @@ interface DerivedBind {
  *  construct itself), or an enum value.
  *
  *  A `<Store>.<field>` read counts too: the store binding is hoisted from the
- *  page's `usedStores`, which this pass now CONTRIBUTES to — a derived that
+ *  page's `usedStores`, which this pass CONTRIBUTES to — a derived that
  *  reads a store no body slot mentions still gets its `ref.watch(...)` local,
- *  bound above the derived `final`s (F9 of the 2026-09-03 audit: the derived
- *  used to be dropped whole, and its body read fell through to the
- *  walker's give-up comment, tagged with the ref name).
+ *  bound above the derived `final`s (otherwise the derived is dropped whole
+ *  and its body read falls through to the walker's give-up comment).
  *
  *  Everything else is bound CONDITIONALLY or not at all: the magic route `id`
  *  only when the body keys a read by it, and `currentUser` / a resource handle
  *  never.  A `final` naming one of those is `Undefined name` Dart, so such a
- *  derived keeps its pre-existing behaviour (no local; the body read stays the
- *  `ref: <name>` give-up comment) rather than turning a silent drop into a
- *  build break.  This is the PAGE twin of `component-emit.ts`'s
+ *  derived gets no local (the body read stays the `ref: <name>` give-up
+ *  comment) rather than turning a silent drop into a build break.  This is the
+ *  PAGE twin of `component-emit.ts`'s
  *  `derivedNeedsShell`. */
 function derivedResolvableOnPage(
   e: ExprIR,
@@ -695,9 +720,9 @@ function renderPage(
     workflowsByName: ReadonlyMap<string, WorkflowIR>;
     bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>;
     componentParams: ReadonlyMap<string, readonly ParamIR[]>;
-    /** True when the ui has extractable user-visible strings (M-T1.11) — the
+    /** True when the ui has extractable user-visible strings — the
      *  walk then keys every literal text slot to the catalog and emits `t(…)`.
-     *  False → no prefix, and the page is byte-identical to pre-i18n. */
+     *  False → no prefix, and every literal renders raw. */
     i18nEnabled: boolean;
     /** Per-store field / action name split, for the shell's store bindings. */
     storeMembers: ReadonlyMap<
@@ -828,7 +853,7 @@ function renderPage(
       }
     }
   }
-  const derivedLines = derivedBinds.map((d) => `    final ${d.name} = ${d.dart};`);
+  const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
 
   // A page becomes a Riverpod `ConsumerWidget` (bound to `ref`) when it either
   // projects reactive state / actions (Track D) OR issues a QueryView read
@@ -900,7 +925,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
   const out = ["    final routeArgs = ModalRoute.of(context)?.settings.arguments;"];
   for (const n of names) {
     out.push(
-      `    final ${n} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
+      `    final ${dartMember(n)} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
         `: (routeArgs as String? ?? '');`,
     );
   }
@@ -960,8 +985,10 @@ function storeBindings(
       const local = storeMemberLocal(storeName, member, reserved);
       out.push(
         fields.has(member)
-          ? `    final ${local} = ref.watch(${provider}.select((s) => s.${member}));`
-          : `    final ${local} = ref.read(${provider}.notifier).${member};`,
+          ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
+          : // A store action's method is spelled `dartMember` (`store-builder.ts`),
+            // and the body's call site spells the local the same way.
+            `    final ${dartMember(local)} = ref.read(${provider}.notifier).${dartMember(member)};`,
       );
     }
   }
@@ -977,7 +1004,7 @@ function storeBindings(
  *  `../forms.dart` and, when a form carries the route id (op / destroy), binds
  *  `id` from the route arguments in `build`. */
 /** True when a rendered Dart fragment calls the generated translation runtime
- *  (M-T1.11) — the walker emits a bare `t("<key>", "<default>")`, so the page
+ *  — the walker emits a bare `t("<key>", "<default>")`, so the page
  *  file needs `import '../i18n.dart';`.  The lookbehind keeps `Text(` /
  *  `DefaultTextStyle.merge(` and any other identifier ending in `t` from
  *  matching; only a standalone `t(` counts. */
@@ -1007,12 +1034,19 @@ function renderStatelessPage(
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
+  // (this page has no `ref` of its own).
+  if (bodyWidget.includes("Consumer(builder:")) {
+    imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
+  }
   if (opts.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
   // (an unused Dart import is an analyzer warning, and `flutter analyze` is a
   // per-PR gate).  Same content-sniff as `apiUri(` below.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
   if (opts.usesComponent) imports.push("import '../components.dart';");
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
@@ -1025,7 +1059,7 @@ function renderStatelessPage(
   // `dart:math` exactly as it would inline.
   const scan = [...opts.derivedLines, bodyWidget].join("\n");
   if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
-  // The generated translation runtime (M-T1.11) — imported only when a text slot
+  // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
   if (usesI18n(scan)) imports.push("import '../i18n.dart';");
   // `min`/`max`/`round` scalar intrinsics route through `math.*` (`dart-expr.ts`).
@@ -1162,10 +1196,13 @@ function renderConsumerPage(
       for (const a of [...b.usedActions].sort()) {
         // An async-effect action's method takes the route id; bind it as an
         // id-capturing closure so the button's `<a>()` call stays unchanged.
+        // Spelled `dartMember` (a Dart-reserved action name: `class` → `class_`),
+        // matching the Notifier method and every body call site.
+        const m = dartMember(a);
         bindings.push(
           asyncEffectActions.has(a)
-            ? `    final ${a} = () => notifier.${a}(id);`
-            : `    final ${a} = notifier.${a};`,
+            ? `    final ${m} = () => notifier.${m}(id);`
+            : `    final ${m} = notifier.${m};`,
         );
       }
       for (const { setter } of boundSetters) {
@@ -1189,6 +1226,7 @@ function renderConsumerPage(
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");
   if (b.usedStores.size > 0) imports.push("import '../stores.dart';");
   // The controlled-Modal bridge (the state-bearing page path — its stateless
@@ -1196,6 +1234,7 @@ function renderConsumerPage(
   // page WITH state, so this is the branch that actually fires.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   // Content scan over BOTH the Notifier projection AND the rendered body: a
   // `match await` method (projSource) decodes JSON + reifies wire models, and a
   // `FileUpload` (bodyWidget) does the same inline plus references `FileRef` in
@@ -1230,7 +1269,7 @@ function renderConsumerPage(
   // same `scan` (view body + Notifier source) the other content sniffs above use.
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
   // `navigate(<Page>)` in an ACTION body — the Notifier has no `BuildContext`,
-  // so it pushes through the `lib/nav.dart` bridge (F2-CFE-1).  The view-body
+  // so it pushes through the `lib/nav.dart` bridge.  The view-body
   // form stays `Navigator.pushNamed(context, …)` and needs no import.
   if (scan.includes(FLUTTER_NAV_MARKER)) imports.push("import '../nav.dart';");
   // `toast(<expr>)` in an ACTION body — same story, same bridge shape
@@ -1297,7 +1336,7 @@ const NO_BOOT: AppBoot = {
   scaffoldMessengerKey: false,
 };
 
-/** M-T1.8 — global error boundary + failure sink, the flutter arm.  Built on
+/** Global error boundary + failure sink, the flutter arm.  Built on
  *  Flutter's OWN hooks, not a wrapper widget (Flutter has no
  *  `componentDidCatch` equivalent to subclass):
  *
@@ -1313,7 +1352,7 @@ const NO_BOOT: AppBoot = {
  *    framework: an unhandled exception from a bare `async` callback with no
  *    `try`/`catch` and no `.catchError`, which neither hook above would ever
  *    see.  The mobile analogue of the JS frontends' unhandled-promise-
- *    rejection terminus ("Unhandled-`await` terminus", M-T1.8).
+ *    rejection terminus ("Unhandled-`await` terminus").
  *
  *  All three log through `debugPrint` — the same sink the framework's own
  *  default error reporting uses, so output still reaches `flutter run`'s
@@ -1427,8 +1466,8 @@ function renderMainWithRoutes(
 ): string {
   const home = pages[0];
   return `${lines(
-    // `dart:async` is `runZonedGuarded` (M-T1.8's failure-sink half) —
-    // needed unconditionally now, unlike `material.dart`'s other imports.
+    // `dart:async` is `runZonedGuarded` (the failure-sink half) —
+    // needed unconditionally, unlike `material.dart`'s other imports.
     "import 'dart:async';",
     "",
     "import 'package:flutter/material.dart';",
@@ -1862,8 +1901,8 @@ CMD ["nginx", "-g", "daemon off;"]
 
 function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
   return `${lines(
-    // `dart:async` is `runZonedGuarded` (M-T1.8's failure-sink half) —
-    // needed unconditionally now, unlike `material.dart`'s other imports.
+    // `dart:async` is `runZonedGuarded` (the failure-sink half) —
+    // needed unconditionally, unlike `material.dart`'s other imports.
     "import 'dart:async';",
     "",
     "import 'package:flutter/material.dart';",
@@ -1936,4 +1975,10 @@ function indentContinuation(widget: string, spaces: number): string {
   const [first, ...rest] = widget.split("\n");
   if (rest.length === 0) return first;
   return [first, ...rest.map((line) => (line ? pad + line : line))].join("\n");
+}
+
+/** Whether a page body watches a `can_<op>` probe (`gates.dart`) — the same
+ *  content-sniff the page shells use for every on-demand import. */
+function usesGateProbe(bodyWidget: string): boolean {
+  return /\bcan[A-Z]\w*Provider\(/.test(bodyWidget);
 }

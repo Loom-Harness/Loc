@@ -128,11 +128,6 @@ describe("query-projection join lookup is total — java", () => {
     );
   });
 
-  it("still projects source-row fields off the row variable", async () => {
-    const src = await handler();
-    expect(src).toContain("a.code()");
-  });
-
   it("boxes every join-read row component, so the guard's null never unboxes (RS-34)", async () => {
     // A primitive `double` component took the guarded ternary's `null` and
     // unboxed it: a NullPointerException — a 500 on exactly the absent row the

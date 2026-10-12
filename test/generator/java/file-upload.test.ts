@@ -94,7 +94,7 @@ describe("java File upload (slice 2c)", () => {
       "public static void docFilesPutBytes(String key, byte[] body, String contentType)",
     );
     expect(disk).toContain("public static ObjectBytes docFilesGetBytes(String key)");
-    expect(disk).toContain("public static void docFilesPut(String key, String body)");
+    expect(disk).toContain("public static void docFilesPut(String key, Object body)");
   });
 
   it("adds raw-bytes verbs to the s3 resource class", async () => {

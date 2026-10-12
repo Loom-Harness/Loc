@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import type { UiIR } from "../../ir/types/loom-ir.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { chromeMergedWhenEnabled } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 
@@ -88,7 +89,7 @@ export function renderTranslatedCatalogs(
   translations: TranslationCatalogs | undefined,
   packChrome: Record<string, string> = {},
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/_frontend/i18n-runtime");
   if (!translations || translations.size === 0) return out;
   const keys = Object.keys(buildUiCatalog(ui, packChrome));
   if (keys.length === 0) return out;

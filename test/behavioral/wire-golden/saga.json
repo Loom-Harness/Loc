@@ -44,13 +44,23 @@
     },
     {
       "seq": 4,
+      "method": "GET",
+      "path": "/api/workflows/order_fulfillment/instances/{id}",
+      "status": 200,
+      "body": {
+        "attempts": 3,
+        "orderId": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 5,
+      "seq": 6,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -62,7 +72,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -82,7 +92,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "GET",
       "path": "/api/shipments",
       "status": 200,
@@ -102,14 +112,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "POST",
       "path": "/api/shipments/{id}/mark_tracked",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "GET",
       "path": "/api/shipments/{id}",
       "status": 200,
@@ -121,7 +131,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "POST",
       "path": "/api/orders",
       "status": 201,
@@ -130,14 +140,14 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -150,7 +160,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 14,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -170,7 +180,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -183,7 +193,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -196,7 +206,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -205,6 +215,19 @@
         "instance": "/api/orders",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/workflows/order_fulfillment/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "OrderFulfillment {id} not found",
+        "instance": "/api/workflows/order_fulfillment/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
         "type": "about:blank"
       }
     }

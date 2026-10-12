@@ -32,7 +32,7 @@
 system ClaimReview {
   subdomain Claims {
     context Review {
-      enum ClaimState { Filed, UnderReview, Approved }
+      enum ClaimState { UnderReview, Filed, Approved }
 
       // Declared first, and enum-free — the "first aggregate in the context"
       // the broken frontend import resolution aimed at.
@@ -43,6 +43,9 @@ system ClaimReview {
 
       aggregate Claim with crudish {
         reference: string
+        operation file() {
+          emit ClaimFiled { claim: id, at: now() }
+        }
       }
       repository Claims for Claim { }
 
@@ -71,5 +74,24 @@ system ClaimReview {
     dataSources: [reviewState]
     serves: ReviewApi
     port: 4000
+  }
+
+  test e2e "an enum-typed saga state is persisted as its member name" against d {
+    let agency = api.agencies.create({ name: "Lloyd" })
+    let rec = api.claims.create({ reference: "CLM-1" })
+    expect(api.review.instances().count()).toBe(0)
+    api.claims.file(rec)
+    let review = api.review.instance(rec)
+    expect(review.claimState).toBe("Filed")
+    expect(api.review.instances().count()).toBe(1)
+    expect(api.claims.getById(rec).reference).toBe("CLM-1")
+    api.claims.update(rec, { reference: "CLM-2" })
+    expect(api.claims.all().total).toBe(1)
+    expect(api.agencies.getById(agency).name).toBe("Lloyd")
+    api.agencies.update(agency, { name: "Lloyd's" })
+    expect(api.agencies.all().total).toBe(1)
+    api.agencies.destroy(agency)
+    api.claims.destroy(rec)
+    expect(api.claims.getById(rec)).toThrow(404)
   }
 }

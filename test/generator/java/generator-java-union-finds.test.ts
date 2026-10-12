@@ -25,9 +25,9 @@ async function files(): Promise<Map<string, string>> {
 }
 
 describe("java generator — union finds", () => {
-  it("passes validation (java joined SUPPORTED_UNION_BACKENDS)", async () => {
+  it("passes validation", async () => {
     const loom = await buildLoomModel(SRC);
-    const errors = validateLoomModel(loom).filter((d) => d.code === "loom.union-unsupported");
+    const errors = validateLoomModel(loom).filter((d) => d.severity === "error");
     expect(errors).toEqual([]);
   });
 

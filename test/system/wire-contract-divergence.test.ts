@@ -78,6 +78,13 @@ const BASELINE: Record<string, Divergence> = {
   // `tenancy-hierarchy`'s does, so its capability-injected `parent`/`dataKey`
   // reach the wire and not the record.  Drains with the A1 class fix.
   "org-context.ddd Books.Org": "missing-in-record",
+  // Two more NEW-fixture witnesses of A1 (M-T9.42, wave C3 3d), not
+  // regressions: audit-history's `Memo with softDeletable` carries the
+  // injected `deletedAt`, and stamps-principal's `Ticket implements owned`
+  // carries the capability's `createdAt`/`createdBy` — both reach the wire and
+  // not the record.  Drain with the A1 class fix.
+  "audit-history.ddd Ordering.Memo": "missing-in-record",
+  "stamps-principal.ddd Desk.Ticket": "missing-in-record",
   // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
   // carries the `softDeletable` mixin — one more instance of THIS class, not
   // a new divergence.
@@ -94,6 +101,11 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
+  // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
+  // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
+  "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
+  "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
 
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context

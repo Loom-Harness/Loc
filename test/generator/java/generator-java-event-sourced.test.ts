@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java backend — event sourcing (`persistedAs: eventLog`, appliers A2;
-// java joined EVENT_SOURCING_BACKENDS).  No state table and no Spring
+// java joined the event-sourcing backends).  No state table and no Spring
 // Data interface: the entity is a plain domain class (no JPA bindings)
 // folded from the stream via `_fromEvents` / `_apply`; the repository
 // impl appends to the single per-context `<ctx>_events` log (stream_type,
@@ -30,7 +30,7 @@ async function files(): Promise<Map<string, string>> {
 }
 
 describe("java generator — event sourcing", () => {
-  it("passes validation (java joined EVENT_SOURCING_BACKENDS)", async () => {
+  it("passes validation", async () => {
     const loom = await buildLoomModel(SRC);
     const errors = validateLoomModel(loom).filter(
       (d) => d.code === "loom.event-sourced-unsupported" || d.severity === "error",

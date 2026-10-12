@@ -46,6 +46,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { gateSites, type VariantId } from "../ir/authz-emitted-census.js";
 
 /** One aggregate with BOTH an operation `requires` gate and a declared-find
  *  `requires` gate, under `auth: required`, so all three authz arms are emitted:
@@ -372,6 +373,69 @@ describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way
       java: expected,
       python: expected,
       elixir: expected,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RATCHETING WAIVER — the AUDIT-HISTORY read gate's 403 detail (wave C3 3c).
+//
+// Found by the emitted-source gate sweep (`test/ir/authz-emitted-census.ts`,
+// sweep G, M-T9.41): an `audited` aggregate's history read inherits its `find
+// all` gate (`docs/audit.md`), and all five backends APPLY it — but they spell
+// the 403 detail three ways, so the problem+json body of one refusal differs
+// across the stack while every other gate's detail agrees five-way (#2541).
+// No golden records it (no ladder arm addresses a history route), so this
+// source-level pin is the only witness.  HANDED OFF (a src fix, outside a
+// test-only wave).  Closing it fails this block — delete it and move the site
+// into a positive five-way assertion.
+// ---------------------------------------------------------------------------
+
+const HISTORY_SOURCE = (platform: string) => `
+system Census {
+  user { id: string  level: int }
+  subdomain S {
+    context S {
+      aggregate Item audited with crudish {
+        name: string
+      }
+      repository Items for Item {
+        find all(): Item[] requires currentUser.level > 2
+      }
+    }
+  }
+  api A from S
+  storage pg { type: postgres }
+  resource st { for: S, kind: state, use: pg }
+  deployable api {
+    platform: ${platform}
+    contexts: [S]
+    dataSources: [st]
+    serves: A
+    port: 8080
+    auth: required
+  }
+}
+`;
+
+describe("RATCHET — the audit-history 403 detail diverges across the five backends (handed off)", () => {
+  it("each backend's history-gate detail is still the divergent spelling recorded here", async () => {
+    const got: Record<string, string[]> = {};
+    for (const platform of PLATFORMS) {
+      const files = await generateSystemFiles(HISTORY_SOURCE(platform));
+      got[platform] = gateSites(platform as VariantId, files)
+        .filter((s) => s.context.includes("history"))
+        .map((s) => s.detail);
+    }
+    expect(
+      got,
+      "the history 403 detail changed — if it now AGREES five-way, delete this waiver",
+    ).toEqual({
+      node: ["Forbidden"],
+      dotnet: ["Forbidden: find history"],
+      java: ["Forbidden: find history"],
+      python: ["Forbidden"],
+      elixir: ["Forbidden: history Item"],
     });
   });
 });

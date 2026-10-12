@@ -1,5 +1,6 @@
 // M-T4.8 slice 4d — the Phoenix/Elixir typed in-system api client, the last of
-// the five.  With this `REMOTE_API_OP_UNSUPPORTED` is empty.
+// the five.  With this every backend emits a typed client (the honest-gap
+// validator that guarded the feature has since been deleted).
 //
 // Beyond the shared contract, this pins the Elixir-specific decisions and the
 // two defects generation surfaced — one of which no compiler could ever catch:

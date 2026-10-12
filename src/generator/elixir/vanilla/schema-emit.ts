@@ -36,7 +36,7 @@ import {
 import { partConstraintLines } from "./changeset-validators.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocSchema } from "./document-emit.js";
-import { renderAggregatePureCore } from "./domain-core-emit.js";
+import { needsPureDomainCore, renderAggregatePureCore } from "./domain-core-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import {
   isTpcBase,
@@ -359,8 +359,16 @@ function renderSchema(
         .join("\n")
     : "";
   // The bundled Ecto `timestamps()` (→ `inserted_at`/`updated_at`) is dropped
-  // when an explicit `updated_at` audit field is present (it would collide).
-  const timestampsLine = hasUpdatedAt ? "" : "    timestamps(type: :utc_datetime)";
+  // when an explicit `updated_at` audit field is present (it would collide) —
+  // and likewise when a DECLARED field already owns one of those columns
+  // (`inserted_at` / `insertedAt` / `updated_at`): Ecto would define the field
+  // twice ("field/association :inserted_at already exists on schema").  The
+  // declared field keeps its wire key and its column; the migration drops its
+  // `timestamps()` by the same column test (`migrations-emit.ts`).
+  const timestampsLine =
+    hasUpdatedAt || ownsEctoTimestampColumn(agg.fields)
+      ? ""
+      : "    timestamps(type: :utc_datetime)";
   const refCollBlock = refCollLines.join("\n");
   const schemaBody = [
     kindLine,
@@ -375,10 +383,11 @@ function renderSchema(
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
 
   // Pure domain core (`create/1` + `<op>/2`) — emitted only for an aggregate
-  // that declares `test "..."` blocks, so the generated ExUnit suite can run
-  // the domain logic in memory (no DB).  See `domain-core-emit.ts`.
+  // a unit test reaches (its own `test "..."` blocks, or a sibling's test body
+  // that constructs it), so the generated ExUnit suite can run the domain
+  // logic in memory (no DB).  See `domain-core-emit.ts`.
   const pureCore =
-    ctx && agg.tests.length > 0 ? renderAggregatePureCore(appModule, ctx, agg, sys) : [];
+    ctx && needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [];
   const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
 
   return `# Auto-generated.
@@ -394,6 +403,19 @@ ${schemaBody}
   end
 ${pureCoreBlock}end
 `;
+}
+
+/** The two columns Ecto's bundled `timestamps()` macro defines. */
+const ECTO_TIMESTAMP_COLUMNS: ReadonlySet<string> = new Set(["inserted_at", "updated_at"]);
+
+/** Does a declared field already own one of the `timestamps()` columns?  The
+ *  camelCase `createdAt`/`updatedAt` audit names are NOT counted — they keep
+ *  their own explicit-field handling (`auditTsLines` / `renderFieldLine`). */
+export function ownsEctoTimestampColumn(fields: readonly { name: string }[]): boolean {
+  return fields.some(
+    (f) =>
+      f.name !== "createdAt" && f.name !== "updatedAt" && ECTO_TIMESTAMP_COLUMNS.has(snake(f.name)),
+  );
 }
 
 interface AggField {

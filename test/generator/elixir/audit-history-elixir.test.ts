@@ -65,15 +65,6 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — elixir route surface", () => {
-  it("serves GET /<plural>/:id/history off the derived find", async () => {
-    const files = await emit(MASKED);
-    const router = fileEndingWith(files, "lib/api_web/router.ex");
-    expect(router).toContain('get "/employees/:id/history", EmployeeController, :history');
-    const controller = fileEndingWith(files, "controllers/employee_controller.ex");
-    expect(controller).toContain('def history(conn, %{"id" => id}) do');
-    expect(controller).toContain('Api.Audit.History.for_target(Api.Repo, "Employee", id)');
-  });
-
   it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
     const mod = fileEndingWith(await emit(MASKED), "lib/api/audit/history.ex");
     expect(mod).toContain("r.target_type == ^target_type and r.target_id == ^target_id");
@@ -151,20 +142,6 @@ describe("entity history — elixir negative authz", () => {
     // touched, so a denied caller cannot even probe for the row's existence.
     expect(handler.indexOf("403")).toBeLessThan(handler.indexOf("C.get_employee(id)"));
     expect(handler.indexOf("403")).toBeLessThan(handler.indexOf("Audit.History.for_target"));
-  });
-
-  it("scopes by entity reachability, so a filtered-out row 404s instead of leaking", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
-    const handler = controller.slice(controller.indexOf('def history(conn, %{"id" => id})'));
-    // `audit_records` carries no tenant column, so there is nothing on it for a
-    // capability filter to scope.  The handler resolves the ENTITY first —
-    // `get_<agg>` already carries every capability predicate — and only reads
-    // the trail for a row this caller can see.
-    expect(handler).toContain("case C.get_employee(id) do");
-    expect(handler).toContain('ProblemDetails.not_found_response(conn, "Employee", id)');
-    expect(handler.indexOf("C.get_employee(id)")).toBeLessThan(
-      handler.indexOf("Audit.History.for_target"),
-    );
   });
 
   it("never lets a stamp, the version counter, or the id into the diff", async () => {

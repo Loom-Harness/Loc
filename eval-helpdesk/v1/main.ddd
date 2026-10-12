@@ -1,0 +1,107 @@
+// Helpdesk v1 — MVP: customers open tickets, agents work them.
+system Helpdesk {
+
+  subdomain Support {
+    context Desk {
+
+      enum TicketStatus { New, Open, Pending, Resolved, Closed }
+      enum Priority { Low, Normal, High, Urgent }
+
+      aggregate Customer with crudish {
+        name: string
+        email: string
+        company: string?
+        invariant name.length > 0
+        invariant email.contains("@") message "Email must contain @"
+        derived display: string = name
+      }
+
+      aggregate Agent with crudish {
+        name: string
+        email: string
+        active: bool = true
+        derived display: string = name
+      }
+
+      aggregate Ticket with crudish {
+        subject: string
+        description: string
+        status: TicketStatus = New
+        priority: Priority = Normal
+        requester: Customer id
+        assignee: Agent id?
+        openedAt: datetime
+        resolvedAt: datetime?
+        contains comments: Comment[]
+
+        invariant subject.length > 0
+        derived display: string = subject
+        derived commentCount: int = comments.count
+
+        entity Comment {
+          body: string
+          author: string
+          internal: bool
+          postedAt: datetime
+        }
+
+        operation assign(agent: Agent id) when status != Closed {
+          assignee := agent
+          if status == New {
+            status := Open
+          }
+        }
+
+        operation addComment(body: string, author: string, internal: bool) when status != Closed {
+          precondition body.length > 0 message "Comment cannot be empty"
+          comments += Comment { body: body, author: author, internal: internal, postedAt: now() }
+        }
+
+        operation resolve() when status == Open || status == Pending {
+          status := Resolved
+          resolvedAt := now()
+        }
+
+        operation reopen() when status == Resolved {
+          status := Open
+          resolvedAt := null
+        }
+
+        operation close() when status == Resolved {
+          status := Closed
+        }
+      }
+
+      repository Customers for Customer { }
+      repository Agents for Agent { }
+      repository Tickets for Ticket { }
+
+      criterion ByStatus(s: TicketStatus) of Ticket = status == s
+      criterion AssignedTo(a: Agent id) of Ticket = assignee == a
+      retrieval OpenQueue of Ticket {
+        where: status == New || status == Open
+        sort: [priority desc, openedAt asc]
+      }
+    }
+  }
+
+  ui Web with scaffold(subdomains: [Support]) { }
+
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Desk],
+    dataSources: [deskState],
+    port: 3000
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: Web,
+    port: 3001,
+    design: mantine
+  }
+}

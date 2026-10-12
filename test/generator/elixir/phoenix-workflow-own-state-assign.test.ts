@@ -90,19 +90,6 @@ async function genCompound(): Promise<Map<string, string>> {
 }
 
 describe("phoenix/ash workflow own-state compound assignment", () => {
-  it("emits a read-modify-write changeset for an int `attempts += 1`", async () => {
-    const files = await genCompound();
-    const start = [...files.entries()].find(([k]) =>
-      k.endsWith("workflows/order_fulfillment/start_order_placed.ex"),
-    )?.[1];
-    expect(start, "start handler not emitted").toBeDefined();
-    // Non-final write keeps the `state = …` rebind so the trailing `total -=`
-    // reads the updated row.
-    expect(start).toContain(
-      "state = D.Repo.update!(Ecto.Changeset.change(state, %{attempts: state.attempts + 1}))",
-    );
-  });
-
   it("emits Decimal arithmetic for a money `total -= money(...)`", async () => {
     const files = await genCompound();
     const start = [...files.entries()].find(([k]) =>

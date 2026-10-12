@@ -60,6 +60,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
   buildDenyFilter,
@@ -76,6 +77,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -247,7 +249,10 @@ function enrichSystem(
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
     // always-false carve-out dominates any widened allow scope on the same target.
-    .map((m) => applyPolicyDenies(m));
+    .map((m) => applyPolicyDenies(m))
+    // The bundled dev Keycloak's demo tenant gets a first-boot registry row
+    // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
+    .map((m) => applyDemoTenantSeed(m, sys));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.
@@ -1158,15 +1163,12 @@ function synthesizePagedQueryHandlerFinds(
   const crits = criteria ?? [];
   const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const h of handlers) {
-    // The returned value must be a plain `let`-ref bound to a
+    // The returned value must be a plain `let`-ref bound to a top-level
     // `Repo.run(<Criterion>)` (synthCriterion) statement — the only paged-run
-    // body shape v1 emits.  Any other shape is left un-synthesized (the Hono
-    // emitter declines the paged branch and the non-Hono gate rejects it).
-    const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-    const run = flattenHandlerStmts(h.statements).find(
-      (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-        s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-    );
+    // body shape the five backends emit (`pagedRunStmt`).  Any other shape is
+    // left un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
+    // before any emitter runs.
+    const run = pagedRunStmt(h);
     if (!run?.synthCriterion) continue;
     const crit = crits.find((c) => c.name === run.synthCriterion!.name);
     if (!crit) continue;

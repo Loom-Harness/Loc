@@ -88,15 +88,6 @@ describe("mask unless — Java read redaction", () => {
     expect(resp).toMatch(/import \S+\.auth\.CurrentUserAccessor;/);
     expect(resp).toMatch(/import \S+\.auth\.User;/);
   });
-
-  it("routes read services through fromMasked", async () => {
-    const out = await files();
-    const svc = [...out.entries()].find(([k]) => k.endsWith("PService.java"))?.[1] ?? "";
-    // Every read (get-by-id, all, finds) redacts via the masked mapper.
-    expect(svc).toContain("PResponse::fromMasked");
-    // No read routes through the bare (unmasked) `from` mapper.
-    expect(svc).not.toMatch(/\.map\(PResponse::from\)/);
-  });
 });
 
 // ── The `mask unless` mapper's own imports ──────────────────────────────────

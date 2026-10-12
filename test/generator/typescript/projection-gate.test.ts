@@ -75,8 +75,10 @@ describe("node/Hono projection `requires` gate emission", () => {
 
   it("ForbiddenError maps to a 403 problem response", async () => {
     const r = await routes();
-    expect(r).toContain(
-      'if (err instanceof ForbiddenError) return problem(403, "Forbidden", err.message);',
+    // The gate text goes to the `forbidden` log line; the body carries
+    // `err.detail` (echoed only under the dev-stub verifier — ruling D4, #20).
+    expect(r).toMatch(
+      /if \(err instanceof ForbiddenError\) \{ c\.get\("log"\)\.warn\(\{ event: "forbidden", message: err\.message, status: 403 \}\); return problem\(403, "Forbidden", err\.detail\); \}/,
     );
   });
 });

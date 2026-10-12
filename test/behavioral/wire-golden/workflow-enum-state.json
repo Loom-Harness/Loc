@@ -1,0 +1,213 @@
+{
+  "case": "workflow-enum-state",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/agencies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/claims",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/workflows/review/instances",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/workflows/review/instances/{id}",
+      "status": 200,
+      "body": {
+        "claim": "<uuid>",
+        "claimState": "Filed"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/workflows/review/instances",
+      "status": 200,
+      "body": [
+        {
+          "claim": "<uuid>",
+          "claimState": "Filed"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "reference": "CLM-1",
+        "version": 2
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/claims/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/claims",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "reference": "CLM-2",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/agencies/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "Lloyd",
+        "version": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/agencies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/agencies",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "Lloyd's",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/agencies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Claim {id} not found",
+        "instance": "/api/claims/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "PATCH",
+      "path": "/api/agencies",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/agencies",
+        "instance": "/api/agencies",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/agencies",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/agencies",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/workflows/review/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Review {id} not found",
+        "instance": "/api/workflows/review/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

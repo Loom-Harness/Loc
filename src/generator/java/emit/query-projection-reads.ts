@@ -31,7 +31,14 @@ import {
   type FilterBypass,
   promotedCapabilities,
 } from "../capability-filter.js";
-import { jid, jsonProp } from "../java-ident.js";
+import {
+  javaLocals,
+  jid,
+  jsonProp,
+  localOf,
+  movedLocalOrUndefined,
+  requestParam,
+} from "../java-ident.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
 import {
   collectJavaExprImports,
@@ -75,9 +82,8 @@ import { workflowStateClass } from "./workflow-state.js";
 // One `<Ctx>QueryProjections` @Service + a `<Ctx>QueryProjectionsController`
 // exposing `GET /projections/<slug>` per projection (sibling of the folded
 // `<Ctx>ProjectionsController` at the same prefix; distinct projection names ⇒
-// distinct slugs ⇒ no route collision).  Only backends in
-// `PROJECTION_QT_SUPPORTED` are permitted a query-time projection by the IR
-// validator; java joins node/python/elixir here.
+// distinct slugs ⇒ no route collision).  Every backend emits query-time
+// projections; java joined after node/python/elixir.
 // ---------------------------------------------------------------------------
 
 /** Query-time projections sourced from `agg`, as synthesized parameterless
@@ -122,7 +128,7 @@ export interface QueryProjectionCtx {
    *  projection reads the `<Wf>StateRepository`, and a `from <Projection>`-sourced
    *  projection reads the source folded projection's `<Src>RowRepository`. */
   stateRepoPkg: string;
-  /** M-T4.2 — for a `shape: document` aggregate, its `(id, data, version)`
+  /** For a `shape: document` aggregate, its `(id, data, version)`
    *  TABLE, schema-qualified; `undefined` for a relationally-mapped one.
    *
    *  A document aggregate has NO JPA `@Entity` (it round-trips one jsonb column
@@ -266,6 +272,31 @@ function wrapAggregationBypass(caps: readonly string[], bodyLines: string[]): st
   ];
 }
 
+/** The names a query-time projection's SERVICE read method spells itself,
+ *  per arm (see `renderJavaQueryProjections`): the injected repository field(s)
+ *  it dereferences, its row lambda parameter (`a` / `x` / `r`), and its own
+ *  locals (`rows`, the `<agg>ById` join maps, `__a`).  A projection param bound
+ *  under one of these is moved off it (`javaLocals`). */
+function queryProjectionReadNames(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): Set<string> {
+  const source = proj.query!.source!;
+  if (groupedAggregates(proj)) return new Set(["rows", "r", "entityManager"]);
+  if (wholeTableAggregates(proj)) return new Set(["r", "entityManager"]);
+  if (proj.query!.sourceKind === "workflow") {
+    const wf = ctx.workflows.find((w) => w.name === source);
+    return new Set(["x", ...(wf ? [stateRepoField(wf)] : [])]);
+  }
+  if (proj.query!.sourceKind === "projection") {
+    const src = ctx.projections.find((p) => p.name === source);
+    return new Set(["x", ...(src ? [projectionRepoField(src)] : [])]);
+  }
+  return new Set([
+    "a",
+    "__a",
+    repoField(source),
+    ...proj.query!.joins.flatMap((j) => [repoField(j.aggregate), `${lowerFirst(j.aggregate)}ById`]),
+  ]);
+}
+
 export function renderJavaQueryProjections(
   ctx: EnrichedBoundedContextIR,
   qpctx: QueryProjectionCtx,
@@ -311,13 +342,39 @@ export function renderJavaQueryProjections(
     // interface binds them into the JPQL (`@Param`, from the synthesised find).
     // `javaValueTypeForId` mirrors api.ts's find-param rule: an `X id` binds as
     // its underlying value type, because Spring cannot bind a wrapper record.
-    const projParamDecls = proj.params.map((p) =>
+    const paramDecl = (p: (typeof proj.params)[number], local: string): string =>
       p.type.kind === "id"
-        ? `${javaValueTypeForId(p.type.valueType)} ${p.name}`
-        : `${renderJavaType(p.type)} ${p.name}`,
+        ? `${javaValueTypeForId(p.type.valueType)} ${local}`
+        : `${renderJavaType(p.type)} ${local}`;
+    // Each layer's params are locals of a method that spells names of its own
+    // — the service read: the injected repository fields it dereferences and
+    // its `a` / `x` / `r` lambda params and `rows` / join-map locals; the
+    // controller action: the injected `queryProjections` service and the gate's
+    // principal.  A param named like one shadowed or redeclared it
+    // (`ordersRepository.inReg(ordersRepository, …)` on a String).  Only a
+    // colliding name moves; the query key stays the `.ddd` spelling
+    // (`requestParam`), and the JPQL `@Param` binding is positional.
+    const svcLocals = javaLocals(
+      proj.params.map((p) => p.name),
+      queryProjectionReadNames(proj, ctx),
     );
-    const projRequestParams = projParamDecls.map((d) => `@RequestParam ${d}`);
-    const projArgNames = proj.params.map((p) => p.name);
+    const gateUsesUser = !!proj.query!.requires && exprUsesCurrentUser(proj.query!.requires);
+    const routeLocals = javaLocals(
+      proj.params.map((p) => p.name),
+      new Set([
+        "queryProjections",
+        ...(gateUsesUser ? ["currentUser", "currentUserAccessor"] : []),
+      ]),
+    );
+    const projParamDecls = proj.params.map((p) => paramDecl(p, localOf(svcLocals, p.name)));
+    const projRequestParams = proj.params.map((p) => {
+      const local = localOf(routeLocals, p.name);
+      return `${requestParam(p.name, local)} ${paramDecl(p, local)}`;
+    });
+    const projArgNames = proj.params.map((p) => localOf(svcLocals, p.name));
+    const routeArgNames = proj.params.map((p) => localOf(routeLocals, p.name));
+    // In-memory filters (workflow- / projection-sourced) read the params too.
+    const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);
     const rowName = `${upperFirst(proj.name)}Row`;
     const shape = proj.wireShape ?? [];
 
@@ -358,7 +415,7 @@ export function renderJavaQueryProjections(
     const grouped = groupedAggregates(proj);
     const aggregates = wholeTableAggregates(proj);
     if (grouped) {
-      // GROUPED AGGREGATION (M-T4.2) — ONE JPQL query, one row per distinct
+      // GROUPED AGGREGATION — ONE JPQL query, one row per distinct
       // grouping-key combination: `select <keys>, <aggs> … group by <cols>
       // order by <cols>`.  The ORDER BY over exactly the grouping columns is
       // REQUIRED — it is what makes the list read deterministic across
@@ -370,7 +427,7 @@ export function renderJavaQueryProjections(
       imports.add("jakarta.persistence.PersistenceContext");
       // ONE renderer for all three key positions (select / group by / order by)
       // so they cannot disagree — Postgres matches a grouped select against the
-      // GROUP BY expression syntactically.  A COMPUTED key (M-T4.2 date bucket)
+      // GROUP BY expression syntactically.  A COMPUTED key (a date bucket)
       // reuses the SAME `JPQL_INTRINSIC_SQL` entry the `where` position emits.
       const keyCol = (e: ExprIR): string => {
         const key = groupKeyOf(e);
@@ -450,7 +507,7 @@ export function renderJavaQueryProjections(
       // NO `continue` — fall through to the shared `requires`-gate + list-route
       // block below, exactly like the per-row arms.
     } else if (aggregates) {
-      // WHOLE-TABLE AGGREGATION (M-T1.3) — ONE JPQL query with
+      // WHOLE-TABLE AGGREGATION — ONE JPQL query with
       // `count`/`sum`/`avg`/`min`/`max`, no rows materialised.  The shape exists
       // precisely to avoid the naive read: a `findAll()` stream over the whole
       // table with every row hydrated into an entity to produce one integer.
@@ -462,7 +519,7 @@ export function renderJavaQueryProjections(
       usesEntityManager = true;
       imports.add("jakarta.persistence.EntityManager");
       imports.add("jakarta.persistence.PersistenceContext");
-      // M-T4.2 — a `shape: document` source has no JPA entity to name, so the
+      // A `shape: document` source has no JPA entity to name, so the
       // SAME query runs NATIVE over its `(id, data, version)` table.
       const docTable = qpctx.documentTableOf(source);
       const cols = aggregates
@@ -511,14 +568,18 @@ export function renderJavaQueryProjections(
         collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
-          renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
+          renderJavaExpr(sel.expr, {
+            thisName: "x",
+            accessorProps: true,
+            paramExpr: svcParamExpr,
+          }),
         );
       });
       const filter = proj.query!.filter;
       const filterLine = filter
         ? (() => {
             collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
+            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
           })()
         : undefined;
       methods.push(
@@ -547,14 +608,18 @@ export function renderJavaQueryProjections(
         collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
-          renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
+          renderJavaExpr(sel.expr, {
+            thisName: "x",
+            accessorProps: true,
+            paramExpr: svcParamExpr,
+          }),
         );
       });
       const filter = proj.query!.filter;
       const filterLine = filter
         ? (() => {
             collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
+            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
           })()
         : undefined;
       methods.push(
@@ -637,7 +702,7 @@ export function renderJavaQueryProjections(
         gateLines.push(`        var currentUser = currentUserAccessor.user();`);
       }
       gateLines.push(
-        `        if (!(${renderJavaExpr(gate, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderJavaExpr(gate, { thisName: "this", paramExpr: (n) => movedLocalOrUndefined(routeLocals, n) })})) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: projection ${proj.name}`,
         )});`,
       );
@@ -650,7 +715,7 @@ export function renderJavaQueryProjections(
       `    @GetMapping("/${snake(proj.name)}")`,
       `    public ${routeType} ${findName}(${projRequestParams.join(", ")}) {`,
       ...gateLines,
-      `        return queryProjections.${findName}(${projArgNames.join(", ")});`,
+      `        return queryProjections.${findName}(${routeArgNames.join(", ")});`,
       `    }`,
       ``,
     );
@@ -726,7 +791,7 @@ export function renderJavaQueryProjections(
       `    }`,
       ``,
       ...methods,
-      // The grouping-key normaliser (M-T4.2 computed date key).  HQL's
+      // The grouping-key normaliser (computed date key).  HQL's
       // `function('date_trunc', …)` escape carries no static return type, so
       // Hibernate hands back whatever the JDBC driver produced.  Normalising
       // to `Instant` here is what keeps this backend's `2026-08-03T00:00:00Z`
@@ -794,7 +859,7 @@ function jpqlAggregate(
   native = false,
 ): string {
   // `count(e)` counts the ENTITY; native SQL has no entity to name, so the
-  // row count is `count(*)` there (M-T4.2 document arm).
+  // row count is `count(*)` there (document arm).
   if (agg.op === "count" || !agg.arg) return native ? "count(*)" : "count(e)";
   const col = aggregateArgColumn(agg.arg, src, ctx);
   // A VALUE OBJECT is `@Embedded` with one `@AttributeOverride` per leaf, so in
@@ -822,15 +887,15 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
   if (c.isCount) {
     // Through the seam, not a hand-written `.intValue()`: `count(…)` is a
     // bigint in SQL, so a row count declared `int` needs the SAME exact
-    // narrowing every other integral read got (M-T5.23) — spelled once in
+    // narrowing every other integral read gets — spelled once in
     // `JAVA_NUMERIC.int["projection-read"]`.
     const asLong = inner.kind === "primitive" && inner.name === "long";
     return numericEncode(JAVA_NUMERIC, asLong ? "long" : "int", "projection-read", read);
   }
   // money pins the FIXED wire scale (RS-12) instead of echoing the aggregate's
   // own: `sum`/`max`/`min` come back at the scale the rows were STORED at, so a
-  // `money("10.00")` write read back through a projection shipped `"40.00"`
-  // where `domainToWire` sends `"40.0000"` for the same declared field (#2549).
+  // `money("10.00")` write read back through a projection would ship `"40.00"`
+  // where `domainToWire` sends `"40.0000"` for the same declared field.
   // Via `new BigDecimal(toString())` because JPQL types an aggregate result by
   // provider choice — a `BigDecimal` for one, a `Double` for another.
   if (c.isMoney) {
@@ -845,13 +910,13 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
       : `${read} == null ? "0" : ${read}.toString()`;
   }
   if (inner.kind === "primitive" && inner.name === "decimal") {
-    // decimal → the row's `double` component (RS-24 / M-T6.46).  The provider
+    // decimal → the row's `double` component (RS-24).  The provider
     // types an aggregate result by its own choice — `BigDecimal` for a `sum`
     // over a numeric column, `Double` for an `avg` — so the read goes through
     // `Number` rather than a cast, and lands on the SAME double every other
-    // backend ships.  Before this, only `avg` was double-parity, and only by
-    // the provider's accident; `sum`/`min`/`max` re-wrapped into a
-    // `BigDecimal` and serialized the stored column's full precision.
+    // backend ships.  Relying on the provider would give double parity for
+    // `avg` alone, by accident; `sum`/`min`/`max` would re-wrap into a
+    // `BigDecimal` and serialize the stored column's full precision.
     const decoded = numericEncode(JAVA_NUMERIC, "decimal", "projection-read", read);
     return c.optional
       ? `${read} == null ? null : ${decoded}`
@@ -894,7 +959,7 @@ function groupKeyCoerce(
       case "long":
         return numericEncode(JAVA_NUMERIC, "long", "projection-read", read);
       case "decimal":
-        // decimal → the row's `double` component (RS-24 / M-T6.46), the same
+        // decimal → the row's `double` component (RS-24), the same
         // narrowing `domainToWire` applies on a per-row read.  A key column
         // comes back as the entity's own mapped `BigDecimal`, so it still goes
         // through `Number` rather than a cast — but it lands on a double, not

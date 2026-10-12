@@ -26,11 +26,9 @@ async function files(): Promise<Map<string, string>> {
 }
 
 describe("java generator — exception-less operation returns", () => {
-  it("passes validation (java joined SUPPORTED_RETURN_BACKENDS)", async () => {
+  it("passes validation", async () => {
     const loom = await buildLoomModel(SRC);
-    const errors = validateLoomModel(loom).filter(
-      (d) => d.code === "loom.operation-return-unsupported",
-    );
+    const errors = validateLoomModel(loom).filter((d) => d.severity === "error");
     expect(errors).toEqual([]);
   });
 

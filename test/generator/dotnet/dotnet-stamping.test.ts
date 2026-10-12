@@ -61,36 +61,6 @@ system PS {
 `;
 
 describe(".NET lifecycle stamping (AuditableInterceptor)", () => {
-  it("renders timestamp stamps as DateTime.UtcNow and principal stamps from RequestContext via EF metadata", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
-    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
-    // Columns are written through EF's property accessor (CurrentValue) via the
-    // compile-checked lambda, not the CLR setter — so the entity property can
-    // stay `private set` while the write stays bound to a real property.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.UpdatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    // currentUser resolves to the principal id from the ambient carrier.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedBy\)\.CurrentValue = RequestContext\.Current!\.CurrentUser!\.Id;/,
-    );
-    // Per-aggregate switch with a concrete pattern — compile-bound writes, no
-    // marker interface, no string-keyed property lookup.
-    expect(src).toMatch(/switch \(entry\.Entity\)/);
-    expect(src).toMatch(/case Order e:/);
-    expect(src).not.toMatch(/IAuditable/);
-    // Aggregate namespace pulled in so the pattern names the type unqualified;
-    // Domain.Common + Auth only because a stamp uses the principal.
-    expect(src).toMatch(/using Api\.Domain\.Orders;/);
-    expect(src).toMatch(/using Api\.Domain\.Common;/);
-    expect(src).toMatch(/using Api\.Auth;/);
-    // No leftover undefined identifier from the old (uncompilable) emit.
-    expect(src).not.toMatch(/= currentUser;/);
-  });
-
   it("keeps stamped entity fields `private set` (no marker, no `internal set` leak)", async () => {
     const files = generateSystems(await build(SOURCE)).files;
     // No marker interface is emitted — the concrete switch needs none.

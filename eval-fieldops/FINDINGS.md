@@ -142,6 +142,15 @@ is not.
 ---
 
 ### F-005 — `ignoring tenantOwned` is a one-word cross-tenant read bypass, unflagged under the DEFAULT auth mode
+
+> **Status 2026-09-29 (eval-closure review G8-05):** the "LANGUAGE DEFAULT" annotation below is
+> out of date. Since M-T3.1 (2026-09-28) the default is `enforcement: denyByDefault`
+> (`DEFAULT_ENFORCEMENT` in `src/ir/lower/lower-auth.ts`), so this ungated projection is refused
+> with `loom.default-deny-ungated` unless the model spells `enforcement: opt`. The repro as written
+> (explicit `opt`) now also draws the `loom.tenancy-filter-bypass` warning, so the bypass is no longer
+> unflagged; it is still a warning, not a refusal, and `ignoring tenantOwned` + `requires true`
+> still compiles to an unscoped cross-tenant read (re-verified on `main` 2026-09-29).
+
 Severity: **S2** (major — headline security property is opt-in, not default)
 Class: **SILENT** under `enforcement: opt`; **HONEST** under `enforcement: denyByDefault`
 Area: multi-tenancy / authorization / projections
@@ -151,7 +160,7 @@ instead of an incident."
 
 Repro: `eval-fieldops/repro/C4-ignoring-ungated.ddd`
 ```ddd
-auth { enforcement: opt  … }          // ← the LANGUAGE DEFAULT
+auth { enforcement: opt  … }          // ← the LANGUAGE DEFAULT at evaluation time (denyByDefault since M-T3.1)
 tenancy by user.orgId of Org
 aggregate WorkOrder with tenantOwned { ref: string  amount: money }
 projection PlatformRevenue {          // ← no `requires` gate

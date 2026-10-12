@@ -26,7 +26,7 @@ import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -225,6 +225,24 @@ export function renderAggregate(
   );
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `_assertInvariants` unless the entity already binds that member: every
+ *  field / part keeps its state in a private `_<name>` backing field, so a
+ *  member `assertInvariants` declared a field with the method's own name
+ *  (esbuild: `Duplicate member "_assertInvariants"`).  On a collision the
+ *  helper steps aside with trailing underscores (eval item 6, ruling D2);
+ *  every other entity keeps the unchanged name. */
+function invariantHelperName(e: EntityShape): string {
+  const taken = new Set<string>([
+    ...e.fields.map((f) => `_${f.name}`),
+    ...e.fields.filter((f) => f.provenanced).map((f) => `_${f.name}_provenance`),
+    ...e.contains.map((c) => `_${c.name}`),
+  ]);
+  let name = "_assertInvariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 function rootShape(a: AggregateIR): EntityShape {
   return {
     name: a.name,
@@ -315,6 +333,7 @@ function renderEntity(
   emitTrace = false,
   opFragments?: OpFragment[],
 ): string {
+  const assertName = invariantHelperName(e);
   const containsType = (c: ContainmentIR): string =>
     `${c.partName}${c.collection ? "[]" : " | null"}`;
   const containsGetterType = (c: ContainmentIR): string =>
@@ -473,7 +492,7 @@ function renderEntity(
   // in-operation evaluations.
   ctorAssignments.push(
     "    if (!trustStore) {",
-    emitTrace ? `      this._assertInvariants("<init>");` : "      this._assertInvariants();",
+    emitTrace ? `      this.${assertName}("<init>");` : `      this.${assertName}();`,
     "    }",
   );
 
@@ -510,7 +529,9 @@ function renderEntity(
   }
 
   const fns = e.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     // PUBLIC, like the operations below.  A `function` is not an internal
     // helper the class keeps to itself: the generated code calls it from
     // OUTSIDE the class in three places the model itself asks for — the
@@ -570,7 +591,9 @@ function renderEntity(
     // The authorization gate is the CALLER's job — the handler evaluates it
     // post-load, before this method is entered (op-gates.ts).
     const opBody = operationBody(op);
-    const baseParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const baseParams = op.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const userParam = usesUser ? "currentUser: User" : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -580,7 +603,10 @@ function renderEntity(
       // `protected abstract <op>Extern(...)` the scaffold-once subclass fills.
       const checkName = `check${op.name[0]!.toUpperCase()}${op.name.slice(1)}`;
       const hookName = `${lowerFirst(op.name)}Extern`;
-      const callArgs = [op.params.map((p) => p.name).join(", "), usesUser ? "currentUser" : ""]
+      const callArgs = [
+        op.params.map((p) => escapeTsIdent(p.name)).join(", "),
+        usesUser ? "currentUser" : "",
+      ]
         .filter(Boolean)
         .join(", ");
       const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
@@ -605,9 +631,7 @@ function renderEntity(
         ops.push(`    return this.${hookName}(${callArgs});`);
       } else {
         ops.push(`    this.${hookName}(${callArgs});`);
-        ops.push(
-          emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-        );
+        ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
       }
       ops.push("  }");
       ops.push("");
@@ -666,9 +690,7 @@ function renderEntity(
     }
     if (body.length > 0) ops.push(body);
     if (!op.returnType) {
-      ops.push(
-        emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-      );
+      ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
     }
     ops.push("  }");
     ops.push("");
@@ -821,13 +843,13 @@ function renderEntity(
           `    const inst = ${newSelf(`{ id: Ids.new${e.name}Id() } as unknown as ${stateLiteral}, true`)};`,
           `    inst._init(${esCreate.params.map((p) => `input.${p.name}`).join(", ")});`,
           emitTrace
-            ? `    inst._assertInvariants(${JSON.stringify(esCreate.name)});`
-            : `    inst._assertInvariants();`,
+            ? `    inst.${assertName}(${JSON.stringify(esCreate.name)});`
+            : `    inst.${assertName}();`,
           `    return inst;`,
           `  }`,
           "",
           `  private _init(${esCreate.params
-            .map((p) => `${p.name}: ${renderTsType(p.type)}`)
+            .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
             .join(", ")}): void {`,
           renderTsStatements(esCreate.statements, emitProvenance, {
             emitTrace,
@@ -920,7 +942,7 @@ function renderEntity(
               eventSourced: true,
             });
             return [
-              `  private _apply${ap.event}(${ap.param}: Events.${ap.event}): void {`,
+              `  private _apply${ap.event}(${escapeTsIdent(ap.param)}: Events.${ap.event}): void {`,
               ...(body.length > 0 ? [body] : []),
               "  }",
               "",
@@ -968,8 +990,8 @@ function renderEntity(
     // wrapper → "extern") so the invariant_evaluated trace line carries
     // op context.  Trace off: byte-identical no-arg signature.
     emitTrace
-      ? "  private _assertInvariants(__op: string): void {"
-      : "  private _assertInvariants(): void {",
+      ? `  private ${assertName}(__op: string): void {`
+      : `  private ${assertName}(): void {`,
     ...invariants,
     "  }",
     "",

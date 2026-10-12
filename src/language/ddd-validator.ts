@@ -83,6 +83,7 @@ import {
   checkTemplateHoles,
   checkTenancyDecls,
   checkTernaryExprs,
+  checkTestBodyCallArgs,
   checkTestPlacement,
   checkTheme,
   checkThemeContrast,
@@ -195,10 +196,11 @@ export class DddValidator {
     // Unit-test placement: a hoisted `test` (context/root) must name its home
     // aggregate with `for`; a nested one must not restate it (test-placement.md).
     guard("test-placement", model, () => checkTestPlacement(model, accept));
-    // Statement PLACEMENT (M-T5.28): the effect form of `match` is frontend-only,
+    // Statement PLACEMENT: the effect form of `match` is frontend-only,
     // and `for` / `if let` lower only inside a workflow / handler body.  Outside
-    // those homes the first THREW at emission on all five backends and the other
-    // two lowered to a `<unknown>` call sentinel — both after `0 error(s)`.
+    // those homes, without this gate, the first throws at emission on all five
+    // backends and the other two lower to a `<unknown>` call sentinel — both
+    // after `0 error(s)`.
     guard("stmt-placement", model, () => checkStatementPlacement(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
@@ -224,7 +226,7 @@ export class DddValidator {
     // create-input field but whose value type mismatches (`Order.create({ qty:
     // "abc" })` where `qty: int`) — the factory analogue of construction-field-type.
     guard("factory-create-field-types", model, () => checkFactoryCreateFieldTypes(model, accept));
-    // M-T6.18 gap #3 — per-argument TYPE checks at the predicate-bearing
+    // Per-argument TYPE checks at the predicate-bearing
     // expression slots the statement/expression walk never reaches: find
     // `where`/`requires`, retrieval `where:`, criterion / policy-fn bodies, and
     // operation `requires`/`when` gates.  (Predicate arity is already model-wide.)
@@ -232,6 +234,9 @@ export class DddValidator {
     // Store-action calls (`Cart.add(42)`) in page/component/store action bodies —
     // never walked by the aggregate statement checker, so arity + arg types went
     // unchecked. Resolve `<store>.<action>` and check both invocation forms.
+    // Operation-call arguments inside unit / integration `test` bodies — not an
+    // aggregate operation, so the statement walk above never reached them.
+    guard("test-body-call-args", model, () => checkTestBodyCallArgs(model, accept));
     guard("store-action-args", model, () => checkStoreActionCallArgs(model, accept));
     // User-component prop passing (`Panel(amount: "x")` / `Panel { amount: "x" }`) —
     // check each provided prop value against the component's declared param type.
@@ -241,12 +246,9 @@ export class DddValidator {
     guard("bindable-input-args", model, () => checkBindableInputArgs(model, accept));
     guard("file-upload-binding", model, () => checkFileUploadBinding(model, accept));
     // i18n: string `+` in a user-visible page slot won't translate — reject and
-    // nudge toward template interpolation (i18n-strings.md).  ERROR, not warning:
-    // the comment here said "warning until the template→ICU runtime makes
-    // interpolation first-class" long after that runtime landed (M-T1.11 item 8,
-    // which is what let the ban flip), and `checkUserVisibleConcat` has raised
-    // "error" since.  Found by the phase-④ drain (#2558), where 9 of the 53
-    // fixtures were tripping a rule the comment beside it said was advisory.
+    // nudge toward template interpolation (i18n-strings.md).  ERROR, not
+    // warning: the template→ICU runtime makes interpolation first-class, so
+    // there is always a translatable spelling to move to.
     guard("user-visible-concat", model, () => checkUserVisibleConcat(model, accept));
     // Accessibility: an `Image`/`Avatar` rendering an image needs a text
     // alternative (`alt:` or `decorative: true`).  Alt text is human content
@@ -322,10 +324,10 @@ export class DddValidator {
     // Seed datasets (database-seeding.md): a seed may only populate
     // aggregates of its own context, and a record may not repeat a field.
     guard("seeds", model, () => checkSeeds(model, accept));
-    // Migration blocks (M-T2.1): structural rename-intent checks — unique block
+    // Migration blocks: structural rename-intent checks — unique block
     // names, no self-rename, no duplicate rename source/target per aggregate.
     guard("migrations", model, () => checkMigrations(model, accept));
-    // `slot` is a UI-only param marker (PR #632) — reject anywhere
+    // `slot` is a UI-only param marker — reject anywhere
     // outside a component's parameter list with a clear error rather
     // than letting the backend emitter throw at generate time.
     guard("slot-type-position", model, () => checkSlotTypePosition(model, accept));
@@ -368,7 +370,7 @@ export class DddValidator {
     guard("duration-constructors", model, () => checkDurationConstructors(model, accept));
     // An integer literal the `INT` terminal could not hold exactly — the
     // written digits are already lost by the time any emitter runs
-    // (loom.integer-literal-imprecise, M-T5.23).
+    // (loom.integer-literal-imprecise).
     guard("integer-literal-precision", model, () => checkIntegerLiteralPrecision(model, accept));
     // A6 string-interpolation hole types (loom.interp-hole-type).
     guard("template-holes", model, () => checkTemplateHoles(model, accept));
@@ -407,14 +409,14 @@ export class DddValidator {
     // transport compatibility matrix (channels.md).
     guard("channels", model, () => checkChannels(model, accept));
     // TimerSource cadence: exactly-one-of cron/every, cron range-check, every
-    // floor + cron-expressibility (scheduling.md, M-T4.1).
+    // floor + cron-expressibility (scheduling.md).
     guard("timers", model, () => checkTimers(model, accept));
     // `ignoring` capability-filter bypass written where nothing reads it back
-    // (M-T5.25) — the clause rides `PostfixExpr`, so it parses on ANY
+    // — the clause rides `PostfixExpr`, so it parses on ANY
     // expression (`group by o.status ignoring softDeletable`) and is then
     // silently dropped.  See `validators/bypass-placement.ts`.
     guard("bypass-placement", model, () => checkBypassPlacement(model, accept));
-    // The callable legality table (M-T5.21): the grammar's callable fragments
+    // The callable legality table: the grammar's callable fragments
     // accept the whole modifier/clause surface at every site, so an excluded
     // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an
     // unexplained parse error.  See `validators/callable-sites.ts`.

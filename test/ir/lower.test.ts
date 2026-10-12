@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AggregateIR, ExprIR } from "../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
-import { buildLoomModel } from "../_helpers/index.js";
+import { buildLoomModel, buildLoomModelUnchecked } from "../_helpers/index.js";
 
 // The lowering layer's job is to fully resolve names so backends never
 // re-resolve.  These tests assert that contract directly on the IR:
@@ -245,7 +245,12 @@ const DATETIME_OPT = { kind: "optional", inner: { kind: "primitive", name: "date
 
 describe("lowering — A4 reduction (min/max) result types", () => {
   async function reductionRecvType(name: string): Promise<unknown> {
-    const loom = await buildLoomModel(MINMAX_SRC);
+    const loom = await buildLoomModelUnchecked(
+      MINMAX_SRC,
+      "the `.p` probe member exists only to make the derived expression a `member` " +
+        "node whose receiverType this test reads; loom.unknown-primitive-member " +
+        "correctly refuses it, and the reduction's result type is the subject",
+    );
     const order = allAggregates(loom).find((a) => a.name === "Order")!;
     const d = order.derived.find((x) => x.name === name)!;
     expect(d, name).toBeDefined();

@@ -39,6 +39,7 @@ import {
   storeHookName,
   upperFirstName,
 } from "../../_walker/js-target-helpers.js";
+import { addImport } from "../../_walker/render-primitive.js";
 import type {
   ApiCallSite,
   RenderPosition,
@@ -209,6 +210,16 @@ export const tsxTarget: WalkerTarget = {
 
   renderDataGridChild(spec, ctx) {
     return renderReactDataGridChild(spec, ctx);
+  },
+
+  /** `<LoomRefLabel>` from `src/lib/ref-label.tsx` (`react/ref-label-runtime.ts`)
+   *  — the pack's `IdValue` becomes its children, i.e. the fallback. */
+  renderRefLabelWrap(spec, ctx) {
+    addImport(ctx, "../lib/ref-label", "LoomRefLabel");
+    return {
+      open: `<LoomRefLabel path=${JSON.stringify(spec.apiPath)} id={ ${spec.idExpr} }>`,
+      close: "</LoomRefLabel>",
+    };
   },
 
   // --- API binding seam ---------------------------------------------------

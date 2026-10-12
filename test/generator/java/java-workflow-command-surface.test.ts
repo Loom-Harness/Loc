@@ -74,7 +74,7 @@ describe("java workflow command-surface rule", () => {
     // from a direct operation's.
     expect(svc).toContain(".config.RequestContext;");
     expect(svc).toMatch(
-      /public void renameCustomer\(RenameCustomerRequest request\) \{\n\s*try \(var __frame = RequestContext\.openChild\(\)\) \{/,
+      /public void renameCustomer\(RenameCustomerRequest request\) \{\n\s*try \(var _ = RequestContext\.openChild\(\)\) \{/,
     );
   });
 });

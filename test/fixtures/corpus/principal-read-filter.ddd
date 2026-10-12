@@ -39,13 +39,18 @@
 // exact reason the defect survived.  A find with no principal in its predicate
 // sits beside it so the threading stays scoped to the finds that need it.
 //
-// COMPILE-TIER fixture on purpose: no `test e2e` block (signed in
-// E2E_LESS_CORPUS_FIXTURES).  The defect is a compile error in the emitted
-// project, so the five corpus compile legs are the oracle; a behavioural block
-// would need the harness principal's id to MATCH a seeded row's
-// `technicianUserId`, which the dev-claim surface cannot express (it carries
-// `string` / `string[]` claims against a generated row id), so every assertion
-// would read the empty fail-closed result and prove nothing about the filter.
+// RUNTIME + COMPILE (wave C3 packet 3a, M-T9.13).  This header used to say a
+// behavioural block was impossible because the dev-claim surface cannot SET a
+// `guid` principal id.  True, and beside the point: it does not need to.  The
+// claim is not a generated ROW id — it is `user.id: guid`, and every backend's
+// dev-stub principal carries the SAME built-in value for it, the zero guid
+// (`src/generator/_auth/dev-stub-id.ts`, and each stub table's `guid` arm).  So
+// a row whose `technicianUserId` is the zero guid is the caller's own, and a
+// row with any other guid is somebody else's — which is all a "my records"
+// filter needs.  The block at the bottom seeds both and reads the COUNTS: a
+// backend that drops the author-written predicate answers every row, one that
+// binds the principal to null answers none.  (The `retrieval` is not a route —
+// it is consumed server-side — so its half stays with the compile tier.)
 system FieldOps {
   user { id: guid  role: string }
   subdomain Field {
@@ -82,5 +87,34 @@ system FieldOps {
     serves: WorkApi
     port: 4000
     auth: required
+  }
+
+  test e2e "an author-written currentUser predicate returns the caller's own rows" against d {
+    // The dev-stub principal's id — the zero guid on all five backends.
+    let own = api.work_orders.create({ technicianUserId: "00000000-0000-0000-0000-000000000000", title: "Boiler", done: false })
+    let ownDone = api.work_orders.create({ technicianUserId: "00000000-0000-0000-0000-000000000000", title: "Pump", done: true })
+    let other = api.work_orders.create({ technicianUserId: "7b0c1c7e-0000-4000-8000-000000000001", title: "Boiler", done: false })
+
+    // THE SUBJECT: two of three rows are the caller's.
+    let mine = api.work_orders.mine()
+    expect(mine.count()).toBe(2)
+    // …crossed with a declared parameter.
+    let openMine = api.work_orders.mineByState({ d: false })
+    expect(openMine.count()).toBe(1)
+    expect(openMine.first().title).toBe("Boiler")
+    expect(api.work_orders.mineByState({ d: true }).first().title).toBe("Pump")
+    // The principal-free find beside it sees BOTH "Boiler" rows.
+    expect(api.work_orders.byTitle({ t: "Boiler" }).count()).toBe(2)
+
+    // Hand the other technician's row to the caller: the filter follows.
+    api.work_orders.update(other, { technicianUserId: "00000000-0000-0000-0000-000000000000", title: "Boiler", done: false })
+    expect(api.work_orders.mine().count()).toBe(3)
+    expect(api.work_orders.getById(other).title).toBe("Boiler")
+    expect(api.work_orders.all().total).toBe(3)
+    api.work_orders.destroy(ownDone)
+    expect(api.work_orders.mineByState({ d: true }).count()).toBe(0)
+    api.work_orders.destroy(own)
+    api.work_orders.destroy(other)
+    expect(api.work_orders.getById(own)).toThrow(404)
   }
 }

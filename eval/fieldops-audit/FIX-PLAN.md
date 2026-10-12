@@ -8,8 +8,13 @@ cross-checked against the ~30 open PRs for an existing claim. Nothing here is pl
 the evaluation; a finding that no longer reproduces is marked FIXED and dropped.
 
 > **Status: planned in full; wave 0 implemented.** Ten agents re-verified and root-caused in
-> parallel, one per subsystem; their per-cluster plans are in [`eval/fix-plans/`](fix-plans/).
-> §0 records what has actually landed and how each fix was proved. Waves 1–5 are still plans.
+> parallel, one per subsystem; their per-cluster plans are in [`eval/fieldops-audit/fix-plans/`](fix-plans/).
+> §0 records what has actually landed and how each fix was proved.
+>
+> **Status 2026-09-29 (eval-closure review G8-08a):** "waves 1–5 are still plans" is no longer true —
+> waves 0–5 were executed on this evaluation's branch and merged as **#2911** (`b383852a2` wave 4,
+> `ad92e91b2` / `b22b1d80d` wave 5, which measured F-041 and F-038 and deliberately did not land them).
+> The open residue of §5 is filed as missions in `docs/new-plan/` (see `coverage.md`).
 
 ---
 
@@ -134,7 +139,7 @@ Node 24 container and it fails (F-033). That gap is mine to close.
 PRs for a claim, and wrote a plan with a named diagnostic (or a reasoned "no new code"), a test, a
 **mutation proof**, and a blast radius. **Nothing in this repository or the Loom tree was modified, and
 no pull request was opened** — per the evaluation contract. Per-cluster reports, with full command
-transcripts, are in [`eval/fix-plans/`](fix-plans/).
+transcripts, are in [`eval/fieldops-audit/fix-plans/`](fix-plans/).
 
 | Agent | Cluster | Report |
 |---|---|---|

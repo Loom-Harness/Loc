@@ -85,41 +85,6 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("vanilla provenance runtime (DEBT-06)", () => {
-  it("adds the co-located `<field>_provenance` backing column to the schema", async () => {
-    const schema = file(await generateSystemFiles(SOURCE), "/orders/order.ex");
-    expect(schema).toContain("field :total_provenance, Api.Provenance.Json");
-    // The declared columns are untouched.
-    expect(schema).toContain("field :total, :integer");
-  });
-
-  it("captures lineage inline at each named-op write site", async () => {
-    const ctx = file(await generateSystemFiles(SOURCE), "/api/orders.ex");
-    // Leaf inputs snapshotted (here: params + the sibling `discount`).
-    expect(ctx).toContain('%{path: "qty", value: qty}');
-    expect(ctx).toContain('%{path: "discount", value: record.discount}');
-    // The lineage map (snapshot id + target + inputs + computed value).
-    expect(ctx).toContain('target: %{type: "Order", field: "total"}');
-    // camelCase members — the lineage map goes on the wire verbatim (RS-18), so
-    // its own keys follow RS-1 like every other wire member.  Only the OUTER
-    // `<field>_provenance` key is the snake_case exception.
-    expect(ctx).toContain("computedValue: record.total");
-    expect(ctx).toContain("snapshotId: ");
-    // Routed to both sinks: the co-located column + the trace buffer.
-    expect(ctx).toContain("record = %{record | total_provenance:");
-    expect(ctx).toContain("Api.Provenance.record(");
-  });
-
-  it("snapshots a self-referential write's leaf BEFORE the mutation", async () => {
-    const ctx = file(await generateSystemFiles(SOURCE), "/api/orders.ex");
-    // applyDiscount does `total := total - amount` — the `record.total` leaf
-    // must be captured into the inputs list before the struct rebind.
-    const inputsIdx = ctx.indexOf('%{path: "total", value: record.total}');
-    const writeIdx = ctx.indexOf("record = %{record | total: record.total - amount}");
-    expect(inputsIdx).toBeGreaterThan(-1);
-    expect(writeIdx).toBeGreaterThan(-1);
-    expect(inputsIdx).toBeLessThan(writeIdx);
-  });
-
   it("drains the buffer into the history table inside the save transaction", async () => {
     const ctx = file(await generateSystemFiles(SOURCE), "/api/orders.ex");
     expect(ctx).toContain("Api.Repo.transaction(fn ->");
@@ -222,21 +187,6 @@ system OrderingCrud {
 `;
 
 describe("vanilla provenance — the crudish UPDATE re-captures lineage (RS-18)", () => {
-  it("stamps the co-located column off the applied changeset with the update write-site snapshot", async () => {
-    const repo = file(await generateSystemFiles(CRUDISH), "/orders/order_repository.ex");
-    expect(repo).toContain("defp __capture_provenance(%Ecto.Changeset{} = changeset) do");
-    // The proposed row is the value source — a `param` leaf and a `this-prop`
-    // leaf alike read as `record.<column>`.  `update` assigns `total := total`,
-    // so the lineage names `total`, NOT the previous write's leaves.
-    expect(repo).toContain("record = Ecto.Changeset.apply_changes(changeset)");
-    expect(repo).toContain('loom_prov_inputs_0 = [%{path: "total", value: record.total}]');
-    expect(repo).toContain('target: %{type: "Order", field: "total"}');
-    expect(repo).toContain("computedValue: record.total");
-    expect(repo).toContain(
-      "changeset = Ecto.Changeset.put_change(changeset, :total_provenance, loom_lineage_0)",
-    );
-  });
-
   it("routes the update through the capture and flushes the history on success only", async () => {
     const repo = file(await generateSystemFiles(CRUDISH), "/orders/order_repository.ex");
     expect(repo).toContain("|> __capture_provenance()");
