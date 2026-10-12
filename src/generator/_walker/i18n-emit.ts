@@ -514,7 +514,8 @@ export function localizedPageChromeValue(
 export function localizedPageChromeValueUnbound(ctx: WalkContext, name: string): string {
   const english = chromeMessage(name);
   if (ctx.i18nPrefix) return translateExpr(ctx, chromeKey(name), english);
-  return JSON.stringify(english);
+  // The F#/Dart targets spell their own string literal; JSON is the JS rule.
+  return ctx.target.renderStringLiteral?.(english) ?? JSON.stringify(english);
 }
 
 /** Substitute ICU `{hole}`s with their rendered values — the i18n-OFF spelling,
