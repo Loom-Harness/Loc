@@ -596,9 +596,47 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporal = renderTemporalBinary(left, right, e);
     if (temporal !== null) return temporal;
   }
+  // B-13: datetime equality.  A `datetime` is a JS `Date` on this backend, so
+  // native `===` is REFERENCE equality — `a.startOfDay() == b.startOfDay()`
+  // was `new Date(…) === new Date(…)`, always false.  Compare the instants.
+  if (e.op === "==" || e.op === "!=") {
+    const temporalEq = renderTemporalEquality(left, right, e);
+    if (temporalEq !== null) return temporalEq;
+  }
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
   return `${left} ${opPrint} ${right}`;
+}
+
+/** `datetime ==/!= datetime` by instant (B-13), or null to fall through.
+ *  Ordering (`<`/`>`) needs no arm — `Date#valueOf` already coerces.  A side
+ *  that is the `null` literal keeps the native null check (`x == null`).  A
+ *  nullable operand compares through `?.getTime()`: both absent → equal, one
+ *  absent → unequal, both present → same instant. */
+function renderTemporalEquality(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (isNullLiteral(e.left) || isNullLiteral(e.right)) return null;
+  const lt = temporalOperand(e.leftType);
+  const rt = temporalOperand(e.rightType);
+  if (lt === null || rt === null) return null;
+  const opPrint = e.op === "==" ? "===" : "!==";
+  return `(${left})${lt}.getTime() ${opPrint} (${right})${rt}.getTime()`;
+}
+
+/** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null
+ *  for anything else. */
+function temporalOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "datetime") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "datetime")
+    return "?";
+  return null;
+}
+
+function isNullLiteral(e: ExprIR): boolean {
+  return e.kind === "literal" && e.lit === "null";
 }
 
 /** The datetime-involving `+`/`-` arms (A5 temporal), or null to fall

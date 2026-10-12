@@ -194,6 +194,8 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
   const usesIds = /\bIds\./.test(bodyStr);
+  // A money literal or a money-typed matcher renders `new Decimal(…)`.
+  const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
   // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read).  A workflow-free context has nothing
@@ -203,6 +205,7 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
+  if (usesDecimal) lines.push(`import Decimal from "decimal.js";`);
   lines.push(`import { Pool } from "pg";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(`import { migrate } from "drizzle-orm/node-postgres/migrator";`);
