@@ -26,9 +26,11 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { constructionSeededFields } from "../../construction-default.js";
+import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  csDomainLog,
   declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
@@ -228,6 +230,27 @@ export function csClaimStampsFor(
     .map((a) => ({ field: a.field, value: a.value }));
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `AssertInvariants` unless a member already takes that C# name — a field
+ *  `assertInvariants` is the property `AssertInvariants`, and a class cannot
+ *  declare both (CS0102).  On a collision the helper steps aside with
+ *  trailing underscores (eval item 6, ruling D2); every other entity keeps the
+ *  unchanged name. */
+function invariantHelperName(entity: EnrichedAggregateIR | EnrichedEntityPartIR): string {
+  const ops = "operations" in entity ? entity.operations : [];
+  const taken = new Set<string>([
+    ...entity.fields.map((f) => upperFirst(f.name)),
+    ...entity.fields.map((f) => `${upperFirst(f.name)}Provenance`),
+    ...entity.contains.map((c) => upperFirst(c.name)),
+    ...entity.derived.map((d) => upperFirst(d.name)),
+    ...entity.functions.map((fn) => upperFirst(fn.name)),
+    ...ops.flatMap((op) => [upperFirst(op.name), `${upperFirst(op.name)}Core`]),
+  ]);
+  let name = "AssertInvariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 export function renderEntity(
   entity: EnrichedAggregateIR | EnrichedEntityPartIR,
   isRoot: boolean,
@@ -276,6 +299,7 @@ export function renderEntity(
    *  passes it (entity parts carry no operations). */
   sourceTexts?: ReadonlyMap<string, string>,
 ): string {
+  const assertName = invariantHelperName(entity);
   // `operations` is the discriminator between EnrichedAggregateIR and
   // EnrichedEntityPartIR — wrapped in a type predicate so the union
   // narrows in every downstream consumer without per-site casts.
@@ -352,6 +376,10 @@ export function renderEntity(
     // parts don't have associations, but typing as the union keeps
     // the ctx shape stable across the two callers.
     agg: isAgg(entity) ? entity : undefined,
+    // The class's own + inherited member names: one spelled like a static
+    // receiver (`Math`, `Regex`, `DomainLog`, the `System` root, …) shadows it
+    // here, so that receiver renders `global::`-qualified (bcl-collision.ts).
+    memberScope: csMemberScope(typeMemberNames(entity, superType?.fieldNames), ns),
   };
 
   const propLines: string[] = [];
@@ -467,10 +495,11 @@ export function renderEntity(
   if (isRoot && entity.derived.some((d) => d.name === "inspect")) {
     derivedLines.push("    public override string ToString() => Inspect;");
   }
+  // A param spelled like a member of this class (`Guid` beside a `Guid`
+  // field) is renamed so it cannot hide the member (bcl-collision.ts).
+  const paramIdent = (name: string): string => csParamIdent(name, renderCtx.memberScope);
   const fnLines = entity.functions.flatMap((fn) => {
-    const params = fn.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
-      .join(", ");
+    const params = fn.params.map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`).join(", ");
     // PUBLIC, like the operations below — see the matching note in the node
     // emitter.  The generated code calls a `function` from outside the class
     // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
@@ -517,7 +546,7 @@ export function renderEntity(
     const opBody = operationBody(op);
     const userParam = usesUser ? "User currentUser" : "";
     const baseParams = op.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
       .join(", ");
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -535,7 +564,7 @@ export function renderEntity(
       // (`renderExternHookImpl`).
       const hookName = `${upperFirst(op.name)}Core`;
       const callArgs = [
-        ...op.params.map((p) => escapeCsharpIdent(p.name)),
+        ...op.params.map((p) => paramIdent(p.name)),
         ...(usesUser ? ["currentUser"] : []),
       ].join(", ");
       const retType = op.returnType ? renderCsType(op.returnType) : "void";
@@ -559,11 +588,20 @@ export function renderEntity(
       } else {
         opLines.push(`        ${hookName}(${callArgs});`);
         opLines.push(
-          emitTrace ? `        AssertInvariants("${op.name}");` : "        AssertInvariants();",
+          emitTrace ? `        ${assertName}("${op.name}");` : `        ${assertName}();`,
         );
       }
       opLines.push("    }");
-      partialHookLines.push(`    private partial ${retType} ${hookName}(${params});`);
+      // The partial DECLARATION keeps the declared parameter spelling: it must
+      // match the scaffold-once implementation (extern.ts `hookParams`) — a
+      // differing name is CS8826 — and, body-less, it hides nothing.
+      const hookParams = [
+        op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`).join(", "),
+        userParam,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      partialHookLines.push(`    private partial ${retType} ${hookName}(${hookParams});`);
       opLines.push("");
       continue;
     }
@@ -617,9 +655,7 @@ export function renderEntity(
     if (body.length > 0) opLines.push(body);
     if (woven?.wove) opLines.push("#line default");
     if (!op.returnType) {
-      opLines.push(
-        emitTrace ? `        AssertInvariants("${op.name}");` : "        AssertInvariants();",
-      );
+      opLines.push(emitTrace ? `        ${assertName}("${op.name}");` : `        ${assertName}();`);
     }
     opLines.push("    }");
     opLines.push("");
@@ -652,7 +688,7 @@ export function renderEntity(
   const applierLines: string[] = [];
   if (isRoot && eventSourced && appliers.length > 0) {
     for (const ap of appliers) {
-      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${ap.param})`);
+      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${paramIdent(ap.param)})`);
       applierLines.push("    {");
       const body = renderCsStatements(ap.statements, renderCtx, {
         emitTrace,
@@ -682,7 +718,7 @@ export function renderEntity(
     applierLines.push("        e.Id = id;");
     applierLines.push("        foreach (var ev in events) e._Apply(ev);");
     applierLines.push(
-      emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+      emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
     );
     applierLines.push("        return e;");
     applierLines.push("    }");
@@ -702,13 +738,13 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
           "        return e;",
           "    }",
           "",
           `    private void _Init(${esCreate.params
-            .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+            .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
             .join(", ")})`,
           "    {",
           renderCsStatements(esCreate.statements, renderCtx, {
@@ -748,7 +784,7 @@ export function renderEntity(
       return [`        ${check} ${thrown};`];
     }
     const ok = `__inv_${i}_ok`;
-    const traceCall = `DomainLog.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
+    const traceCall = `${csDomainLog(renderCtx)}.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
     if (inv.guard) {
       return [
         `        if (${renderCsExpr(inv.guard, renderCtx)})`,
@@ -833,7 +869,7 @@ export function renderEntity(
   // `"<init>"` so the invariant_evaluated lines for ctor / hydration
   // runs are distinguishable from in-operation evaluations.
   createInternalLines.push(
-    emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+    emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
   );
   createInternalLines.push("        return e;");
   createInternalLines.push("    }");
@@ -905,11 +941,11 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
-          emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+          emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
           "        return e;",
           "    }",
         ]
@@ -944,7 +980,7 @@ export function renderEntity(
           "    /// matching the interceptor's null-safe behaviour.</summary>",
           "    internal void _StampOnCreate()",
           "    {",
-          "        var currentUser = RequestContext.Current?.CurrentUser;",
+          `        var currentUser = ${csProjectType("RequestContext", "Domain.Common", renderCtx.memberScope)}.Current?.CurrentUser;`,
           "        if (currentUser == null) return;",
           ...docCreateStamps.map(
             (st) => `        ${upperFirst(st.field)} = ${renderCsExpr(st.value, renderCtx)};`,
@@ -999,7 +1035,7 @@ export function renderEntity(
       }
     }
     snapshotLines.push(
-      emitTrace ? `        e.AssertInvariants("<init>");` : "        e.AssertInvariants();",
+      emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
       "        return e;",
       "    }",
     );
@@ -1044,7 +1080,7 @@ export function renderEntity(
       ...partialHookLines,
       "",
       ...pullEventsLines,
-      `    private void AssertInvariants(${emitTrace ? 'string __op = "<init>"' : ""})`,
+      `    private void ${assertName}(${emitTrace ? 'string __op = "<init>"' : ""})`,
       "    {",
       // When no invariants are declared the body is empty, which trips CA1822
       // ("can be marked as static").  AssertInvariants is intentionally kept
@@ -1093,9 +1129,10 @@ export function renderAbstractBaseEntity(
   // TPC bases own no typed `Id` (each concrete carries its own strongly-typed
   // id); a base derived body that reads `id` must go through the boxed accessor
   // the concretes override (`IdBoxed`).  TPH bases own the shared typed `Id`.
+  const memberScope = csMemberScope(typeMemberNames(base), ns);
   const renderCtx = options.tph
-    ? { thisName: "this", agg: base }
-    : { thisName: "this", agg: base, idAccessor: "IdBoxed" };
+    ? { thisName: "this", agg: base, memberScope }
+    : { thisName: "this", agg: base, idAccessor: "IdBoxed", memberScope };
   const usings = new Set<string>();
   for (const d of base.derived) collectCsExprUsings(d.expr, usings, ns);
   // A `File` field's type is the shared `FileRef` record in Domain.Common (M-T1.2)
