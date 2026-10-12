@@ -186,10 +186,22 @@ function csClaimRead(f: FieldIR, auth: AuthIR): CsClaimRead {
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return plain(`ClaimStringList(payload, ${path})`);
   }
+  const rejectUnless = (read: string, typed: boolean): CsClaimRead => {
+    const local = `claim${param}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [`if (${read} is not { } ${local})`, `{`, `    return Rejected(${reason});`, `}`],
+      arg: `${param}: ${local}`,
+      typed,
+    };
+  };
   if (t.kind === "primitive" && t.name === "string") {
-    return plain(
-      optional ? `ClaimString(payload, ${path})` : `ClaimString(payload, ${path}) ?? string.Empty`,
-    );
+    // A REQUIRED string claim absent from the token rejects it, exactly like a
+    // required typed claim below (node's `REQUIRED_CLAIMS`).  It used to read
+    // `?? string.Empty`, so a token without `team` authenticated as a
+    // principal whose team was "" — a value no IdP ever minted.
+    const read = `ClaimString(payload, ${path})`;
+    return optional ? plain(read) : rejectUnless(read, false);
   }
   // D16: every other declared claim type used to be `default!` — an id /
   // guid / int / bool / datetime claim was null (or zero) for EVERY token, so
@@ -211,13 +223,7 @@ function csClaimRead(f: FieldIR, auth: AuthIR): CsClaimRead {
     // is non-null, and `requires currentUser.x != null` would pass for every
     // token.
     if (optional) return { pre: [], arg: `${param}: ${read}`, typed: true };
-    const local = `claim${param}`;
-    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
-    return {
-      pre: [`if (${read} is not { } ${local})`, `{`, `    return Rejected(${reason});`, `}`],
-      arg: `${param}: ${local}`,
-      typed: true,
-    };
+    return rejectUnless(read, true);
   }
   // A declared NON-OPTIONAL array claim absent from the token is the EMPTY
   // SET, not `null`: a NULL `List<T>` on a non-nullable record property made

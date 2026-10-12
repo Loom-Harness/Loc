@@ -87,3 +87,19 @@ interface ClaimMapping {
   readonly field: string;
   readonly path: string;
 }
+
+/** The claim paths of every REQUIRED scalar `user { … }` field — a verified
+ *  token missing one of these does not describe a principal and is rejected
+ *  (→ 401).  Node's `REQUIRED_CLAIMS`; python and elixir check the same list.
+ *  .NET / java reject per field at the decode site (a typed claim must also
+ *  DECODE there), over the same required/optional split: a field is optional
+ *  when `T?` was written (the type carries the `optional` wrapper) and a list
+ *  is never required — an absent list claim is the empty set. */
+export function requiredClaimPaths(
+  fields: readonly FieldIR[],
+  auth: { claims: ReadonlyArray<ClaimMapping> },
+): string[] {
+  return fields
+    .filter((f) => !f.optional && f.type.kind !== "optional" && f.type.kind !== "array")
+    .map((f) => claimPathFor(f.name, auth));
+}

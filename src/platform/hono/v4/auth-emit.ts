@@ -1,4 +1,8 @@
-import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import {
+  claimPathFor,
+  claimsReferenceIds,
+  requiredClaimPaths,
+} from "../../../generator/_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -665,9 +669,7 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
       ? `    ${f.name}: (${read} ?? null) as ${t},`
       : `    ${f.name}: ${read} as ${t},`;
   });
-  const requiredClaimPaths = user.fields
-    .filter((f) => !f.optional && f.type.kind !== "array")
-    .map((f) => JSON.stringify(claimPathFor(f.name, auth)));
+  const requiredClaims = requiredClaimPaths(user.fields, auth).map((p) => JSON.stringify(p));
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
 ${idsImport(user).join("\n")}import { requestLog } from "../obs/als";
@@ -746,7 +748,7 @@ function claim(payload: JWTPayload, path: string): unknown {
 
 /** The claim paths of every REQUIRED scalar field — a verified token missing
  *  one of these does not describe a principal, so it is rejected (→ 401). */
-const REQUIRED_CLAIMS: readonly string[] = [${requiredClaimPaths.join(", ")}];
+const REQUIRED_CLAIMS: readonly string[] = [${requiredClaims.join(", ")}];
 
 /** Project verified claims onto the typed claim shape, or null when a required
  *  claim is absent.  An absent OPTIONAL claim is \`null\`, never \`undefined\`:
