@@ -82,9 +82,7 @@ describe("M-T6.93 — JPA loads a second handle of a managed row detached", () =
     expect(load).toContain("return __fork.find(Cart.class, id);");
     const managed = method(repo, "private boolean _isManaged(CartId id) {");
     expect(managed).toContain("isActualTransactionActive()");
-    expect(managed).toContain(
-      "__s.getPersistenceContextInternal().containsEntity(__s.generateEntityKey(id, __p))",
-    );
+    expect(managed).toContain("getManagedEntities(Cart.class).stream()");
   });
 
   it("save writes a second handle through a child Session — never merged onto the managed first one — after the version CAS", async () => {

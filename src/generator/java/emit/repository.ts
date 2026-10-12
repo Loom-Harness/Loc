@@ -1088,16 +1088,16 @@ export function renderJavaRepositoryImpl(
 function independentHandleLines(aggName: string, idClass: string): string[] {
   return [
     ``,
-    // The key is built off the entity's persister, so it is the hierarchy-root
-    // key — a TPH/TPC subtype row managed under a subtype class still matches.
-    // (Session.contains(String, Object) is the public spelling, but it is
-    // deprecated for removal in Hibernate 7 and the build runs -Werror.)
+    // `getManagedEntities(Class)` matches by instance, so a TPH/TPC subtype row
+    // managed under a subtype class still matches.  (`Session.contains(String,
+    // Object)` is deprecated for removal in Hibernate 7, and the SPI
+    // `EntityKey` route trips a javac classfile warning — both fatal under the
+    // -Werror build.)
     `    /** True when this transaction's persistence context already manages the row. */`,
     `    private boolean _isManaged(${idClass} id) {`,
     `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
-    `        var __s = em.unwrap(org.hibernate.engine.spi.SessionImplementor.class);`,
-    `        var __p = __s.getFactory().getMappingMetamodel().getEntityDescriptor(${aggName}.class);`,
-    `        return __s.getPersistenceContextInternal().containsEntity(__s.generateEntityKey(id, __p));`,
+    `        return em.unwrap(org.hibernate.Session.class).getManagedEntities(${aggName}.class).stream()`,
+    `            .anyMatch(__e -> __e.id().equals(id));`,
     `    }`,
     ``,
     `    /** A handle that is not the managed instance of a row another handle holds. */`,
