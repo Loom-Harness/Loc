@@ -81,6 +81,7 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
+import { clashFreeRootNamespace } from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -306,7 +307,7 @@ export function generateDotnetForContexts(
     // Single project containing all the given contexts under one namespace.
     emitProjectFromContexts(
       contexts,
-      namespace,
+      clashFreeRootNamespace(namespace, contexts),
       out,
       system,
       emitTrace,
@@ -315,7 +316,7 @@ export function generateDotnetForContexts(
     );
   } else {
     for (const ctx of contexts) {
-      emitContext(ctx, ctx.name, out, emitTrace);
+      emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);
     }
   }
   return out;
