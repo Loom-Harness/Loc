@@ -13,7 +13,7 @@ import { lambdaArg, namedArgValue, positionalArgs } from "../shared/args.js";
 import { cellRowAggregate, extendRowScope } from "../shared/row-field-type.js";
 import type { ChildSlot } from "../target.js";
 import type { WalkContext } from "../walker-core.js";
-import { emitExpr, propagateChildFlags, walk } from "../walker-core.js";
+import { emitExpr, propagateChildFlags, targetIdent, walk } from "../walker-core.js";
 
 /** `For { each: <coll>, empty?: <markup>, <item> => <markup> }`.
  *
@@ -79,8 +79,11 @@ export function emitFor(
   }
 
   const collExpr = emitExpr(collArg, ctx);
-  const itemVar = itemLam.param;
-  const indexVar = `${itemVar}Idx`;
+  // The loop binder is spelled through `escapeIdent` (a Dart-reserved /
+  // F#-keyword name); the synthesised index derives from the SOURCE name, so it
+  // is never itself a keyword (`classIdx`, not `class_Idx` / ``class``Idx).
+  const itemVar = targetIdent(ctx, itemLam.param);
+  const indexVar = `${itemLam.param}Idx`;
 
   // Walk the per-item markup with the item param bound to the emitted
   // iteration variable (its own name — the target spells the loop
@@ -96,7 +99,7 @@ export function emitFor(
   // server-paged `rows.items` spellings, exactly as the cell path does.
   const bodyCtx: WalkContext = extendRowScope(
     ctx,
-    itemVar,
+    itemLam.param,
     itemVar,
     cellRowAggregate(collArg, ctx),
   );

@@ -64,6 +64,16 @@ system TypedLiterals {
         }
       }
       repository Widgets for Widget { }
+
+      // A CONTEXT-level test whose body reads no repository emits into
+      // `tests/test_fulfilment_integration.py`.  It must declare no
+      // `events` / `<agg>_repo` local (ruff F841) and take no `session`
+      // fixture, so `pytest` runs it without a Postgres.
+      valueobject Slot { code: string  capacity: int }
+      test "a slot holds its capacity" {
+        let s = Slot { code: "S1", capacity: 4 }
+        expect(s.capacity).toBe(4)
+      }
     }
   }
   api A from D
