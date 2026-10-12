@@ -422,7 +422,7 @@ function renderOperation(
   const multiContextReading =
     classifyDomainServiceTier(op) === "reading" && !readingIsSingleContext(op, ctx);
   const fnName = snake(op.name);
-  const paramNames = op.params.map((p) => snake(p.name));
+  const paramNames = op.params.map((p) => escapeElixirIdent(snake(p.name)));
 
   // @spec — each declared parameter's type, then the return type.  A union
   // (`Money or CouponExpired`) return is conveyed as a tagged tuple at
@@ -445,9 +445,9 @@ function renderOperation(
   // gets a `_ = <name>` discard rather than renaming the head (so call-site
   // arity and readable param names are preserved).
   const bodyText = op.body.map((s) => JSON.stringify(s)).join("");
-  const discards = paramNames
-    .filter((n) => !new RegExp(`"${n}"`).test(bodyText))
-    .map((n) => `    _ = ${n}`);
+  const discards = op.params
+    .filter((p) => !new RegExp(`"${snake(p.name)}"`).test(bodyText))
+    .map((p) => `    _ = ${escapeElixirIdent(snake(p.name))}`);
 
   if (multiContextReading) {
     // INTERNAL FLOOR.  This branch used to emit a `def` whose body was a

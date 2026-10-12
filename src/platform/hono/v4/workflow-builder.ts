@@ -76,8 +76,21 @@ import {
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
-import { emitWireSchema, wireToDomainExpr, zodFor, zodForResponse } from "./routes-builder.js";
+import {
+  escapeTsIdent,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+  workflowFnCamel,
+} from "../../../util/naming.js";
+import {
+  emitWireSchema,
+  txWrapperCall,
+  wireToDomainExpr,
+  zodFor,
+  zodForResponse,
+} from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
@@ -598,8 +611,14 @@ export function buildWorkflowsFile(
   // the EntityManager over the generated Row entities (db/entities.ts) instead
   // of Drizzle.  Both imports are body-scan-gated so a drizzle build never sees
   // them (byte-identical) and a mikro build with no state store drops them.
-  if (/(?<!\.)\bEntityManager\b/.test(bodyStr))
-    imports.push(`import { EntityManager } from "@mikro-orm/postgresql";`);
+  // `IsolationLevel` rides the same import when a transactional workflow pins
+  // an isolation level under mikroorm (see `mikroIsolationLevel`).
+  const mikroNames = [
+    /(?<!\.)\bEntityManager\b/.test(bodyStr) ? "EntityManager" : "",
+    /(?<!\.)\bIsolationLevel\./.test(bodyStr) ? "IsolationLevel" : "",
+  ].filter((n) => n !== "");
+  if (mikroNames.length > 0)
+    imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
   const workflowRowsReferenced = ctx.workflows
     .filter((w) => !w.eventSourced && !!w.correlationField)
     .map(mikroWorkflowRowClass)
@@ -790,7 +809,9 @@ function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean
 function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const name = workflowFnCamel(wf.name, fn.name);
     const head = `function ${name}(${params}): ${renderTsType(fn.returnType)}`;
     if ("expr" in fn.body) {
@@ -916,7 +937,7 @@ function emitWorkflowRoute(
   // Map param names to local consts at the top of the route handler.
   // Avoids re-computing brand conversions on every reference.
   for (const p of wf.params) {
-    out.push(`    const ${p.name} = ${paramExprs.get(p.name)};`);
+    out.push(`    const ${escapeTsIdent(p.name)} = ${paramExprs.get(p.name)};`);
   }
   // Bind the request-scoped current user when the workflow body
   // references `currentUser` (in a guard / precondition / expr).  The
@@ -1039,7 +1060,16 @@ function emitWorkflowRoute(
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
-    const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
+    // The adapter's transaction seam (shared with the audited / provenanced
+    // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
+    // EntityManager has no `transaction` (TS2551).  The isolation option is
+    // spelled per adapter too: drizzle takes the space-cased string, MikroORM
+    // its `IsolationLevel` enum (a bare string literal is not assignable).
+    const txOpts = wf.isolation
+      ? usingMikro
+        ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
+        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
+      : ``;
     // Aggregate events (an operation's `emit`) drain at each repository
     // `save()`, which here runs on the OUTER `tx` — its own
     // `this.db.transaction` is only a savepoint, so a per-save dispatch would
@@ -1050,7 +1080,7 @@ function emitWorkflowRoute(
     // delegated straight through, so the outbox row still commits with `tx`.
     const deferIt = reposNeeded.length > 0;
     if (deferIt) out.push(`${bi}const __deferred = deferredDispatcher(events);`);
-    out.push(`${bi}await db.transaction(async (tx) => {${""}`);
+    out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
       out.push(
         `${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
@@ -1065,7 +1095,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
@@ -1084,7 +1114,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
@@ -1868,7 +1898,8 @@ function emitHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   if (persisted && durable) {
@@ -1990,7 +2021,8 @@ function emitEventSourcedHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
@@ -2203,12 +2235,12 @@ export function honoWorkflowStmtTarget(
     },
     factoryLet: (st, indent) => {
       const fields = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`).join(", ");
-      return [`${indent}const ${st.name} = ${st.aggName}.create({ ${fields} });`];
+      return [`${indent}const ${escapeTsIdent(st.name)} = ${st.aggName}.create({ ${fields} });`];
     },
     repoLet: (st, indent) => {
       const args = st.args.map(renderArg).join(", ");
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
       ];
     },
     opCall: (st, indent) => {
@@ -2286,7 +2318,7 @@ export function honoWorkflowStmtTarget(
       // repo-let arm (`lowerFirst(repoName)`).
       return [`${indent}await ${lowerFirst(st.repoName)}.delete(${renderArg(st.entity)}.id);`];
     },
-    exprLet: (st, indent) => [`${indent}const ${st.name} = ${renderArg(st.expr)};`],
+    exprLet: (st, indent) => [`${indent}const ${escapeTsIdent(st.name)} = ${renderArg(st.expr)};`],
     // `field := value` — own-state mutation: write `value` onto the loaded
     // correlation-state row (`thisName` = `state` on the persisted-state path),
     // which `save<Wf>(db, state)` flushes at handler exit.
@@ -2304,7 +2336,7 @@ export function honoWorkflowStmtTarget(
         args.push(`{ ${parts.join(", ")} }`);
       }
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (st, indent, bodyLines) => {
@@ -2313,10 +2345,10 @@ export function honoWorkflowStmtTarget(
       // INSIDE the loop (aggregate events drain through the same save).
       const inner = `${indent}  `;
       const saveLines = st.savesPerIteration.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       return [
-        `${indent}for (const ${st.var} of ${renderArg(st.iterable)}) {`,
+        `${indent}for (const ${escapeTsIdent(st.var)} of ${renderArg(st.iterable)}) {`,
         ...bodyLines,
         ...saveLines,
         `${indent}}`,
@@ -2331,14 +2363,14 @@ export function honoWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("{ limit: 1 }");
       const thenSaves = st.savesInThen.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const elseSaves = st.savesInElse.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${st.var} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
-        `${indent}if (${st.var} !== null) {`,
+        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
       ];
@@ -2510,6 +2542,22 @@ export function collectReposForWorkflow(wf: {
 
 /** Drizzle-postgres `isolationLevel` enum values are space-cased
  *  lowercase strings.  Map DSL camelCase tokens onto them. */
+/** MikroORM's `IsolationLevel` enum member for an IR isolation level — the
+ *  mikroorm twin of `pgIsolationLevel` (`transactional`'s option is typed by
+ *  the enum, so the string spelling does not type-check). */
+function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+  switch (level) {
+    case "readUncommitted":
+      return "IsolationLevel.READ_UNCOMMITTED";
+    case "readCommitted":
+      return "IsolationLevel.READ_COMMITTED";
+    case "repeatableRead":
+      return "IsolationLevel.REPEATABLE_READ";
+    case "serializable":
+      return "IsolationLevel.SERIALIZABLE";
+  }
+}
+
 function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
   switch (level) {
     case "readUncommitted":

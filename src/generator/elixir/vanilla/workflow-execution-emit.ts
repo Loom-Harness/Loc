@@ -93,7 +93,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -416,7 +416,7 @@ function lowerStatement(
       // do-branch then referenced (`** (CompileError) undefined variable`).
       const expr = renderExpr(st.expr, renderCtx);
       const bind = bindUsedLater(st.name, rest, reads.trailing)
-        ? snake(st.name)
+        ? escapeElixirIdent(snake(st.name))
         : `_${snake(st.name)}`;
       return [
         {
@@ -497,9 +497,9 @@ function lowerStatement(
       // Renders INSIDE the with-chain's `do`-branch (`BodyLine.kind = "emit"`)
       // so a failed precondition / op short-circuits the chain and the
       // broadcast is skipped — listeners only see events for successful
-      // workflows.  Inside `Repo.transaction(fn -> ...)` the broadcast
-      // fires before commit; that matches the standard Phoenix pattern
-      // (there is no separate "after-commit" hook).
+      // workflows.  Inside a transactional workflow's `Repo.transaction` it
+      // routes through `<App>.PostCommit`, which holds it until the commit and
+      // drops it on a rollback (M-T4.3 item 6, D-WRITE-TX).
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
@@ -508,7 +508,7 @@ function lowerStatement(
       return [
         {
           kind: "emit",
-          text: `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`,
+          text: `${appModule}.PostCommit.broadcast(${struct})`,
         },
       ];
     }
@@ -640,7 +640,9 @@ function lowerStatement(
       // Underscore an unread loop var so `--warnings-as-errors` stays clean when
       // the body iterates for effect without naming the row (e.g. a nested
       // find/loop keyed off a workflow param rather than the element).
-      const loopVar = bindUsedLater(st.var, st.body) ? snake(st.var) : `_${snake(st.var)}`;
+      const loopVar = bindUsedLater(st.var, st.body)
+        ? escapeElixirIdent(snake(st.var))
+        : `_${snake(st.var)}`;
       const bodyLines = renderLoopBody(st.body, renderCtx, contextModule, ctx);
       // Multi-line clause: assembleBody indents the FIRST line at the
       // with-chain's column; subsequent lines keep their authored
@@ -669,7 +671,7 @@ function lowerStatement(
       // with-chain (a raised create/op rolls the transaction back).
       const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
       const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
-      const v = snake(st.var);
+      const v = escapeElixirIdent(snake(st.var));
       const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
@@ -700,12 +702,16 @@ function lowerStatement(
               const fields = inner.fields
                 .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
                 .join(", ");
-              const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
+              const bind = bindUsedLater(inner.name, rest)
+                ? escapeElixirIdent(snake(inner.name))
+                : "_";
               clauses.push(
                 `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
               );
             } else if (inner.kind === "expr-let") {
-              const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
+              const bind = bindUsedLater(inner.name, rest)
+                ? escapeElixirIdent(snake(inner.name))
+                : "_";
               clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
             } else if (NESTED_FLOW_KINDS.has(inner.kind)) {
               // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
@@ -776,7 +782,7 @@ function opCallSource(
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
-  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${snake(st.target)}, %{${argFields}}${actor})`;
+  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`;
 }
 
 /** Resolve a `mutating` `domain-service-call` to its inlined with-clauses
@@ -981,7 +987,7 @@ function renderLoopBody(
           .join(", ");
         // The new aggregate is the iteration result only when nothing reads it
         // later; otherwise keep the real name and thread it out.
-        lastBind = snake(inner.name);
+        lastBind = escapeElixirIdent(snake(inner.name));
         const bind = bindUsedLater(inner.name, rest) ? lastBind : "_";
         clauses.push(
           `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
@@ -1000,7 +1006,7 @@ function renderLoopBody(
         );
         break;
       case "expr-let": {
-        const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
+        const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
         clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
         break;
       }
@@ -1010,7 +1016,7 @@ function renderLoopBody(
           .join(", ");
         const appModule = contextModule.split(".")[0]!;
         doLines.push(
-          `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
+          `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
         );
         break;
       }
@@ -1127,7 +1133,7 @@ function tupleBind(
   rest: WorkflowStmtIR[],
   reads: ReadScope,
 ): { pattern: string; bindName: string | undefined } {
-  const bare = snake(name);
+  const bare = escapeElixirIdent(snake(name));
   if (!reads.discardableBind || bindUsedLater(name, rest, reads.trailing)) {
     return { pattern: bare, bindName: bare };
   }
@@ -1180,7 +1186,7 @@ function renderBranchStmt(
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
-      const bind = bindUsedLater(st.name, rest) ? snake(st.name) : "_";
+      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
       return [
         `{:ok, ${bind}} = ${contextModule}.${internalCreateFn(st.aggName, aggOf(ctx, st.aggName))}(%{${fields}})`,
       ];
@@ -1191,11 +1197,11 @@ function renderBranchStmt(
         .join(", ");
       const appModule = contextModule.split(".")[0]!;
       return [
-        `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
+        `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
       ];
     }
     case "expr-let": {
-      const bind = bindUsedLater(st.name, rest) ? snake(st.name) : "_";
+      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
       return [`${bind} = ${renderExpr(st.expr, renderCtx)}`];
     }
     case "resource-call":
@@ -1558,7 +1564,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => snake(p.name)).join(", ");
+      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
@@ -1691,7 +1697,7 @@ function renderWorkflowModule(
         ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
         : undefined;
     if (!payload) return [];
-    const v = snake(n);
+    const v = escapeElixirIdent(snake(n));
     const entries = payload.fields.map(
       (f) => `${snake(f.name)}: Map.get(${v}, ${JSON.stringify(f.name)})`,
     );
@@ -1699,7 +1705,7 @@ function renderWorkflowModule(
   });
   const paramDestructure =
     params.length > 0
-      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n${payloadRebinds.join("")}`
+      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}`
       : "";
   // That destructure is a BARE MATCH: a request missing one of these keys
   // raises `MatchError` rather than returning, so it never reaches the
@@ -1777,8 +1783,14 @@ ${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requir
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
+    #
+    # \`PostCommit.transaction\` holds every event this body announces — the
+    # reactor fan-out and the PubSub broadcast — until the
+    # transaction commits, and drops them on a rollback (M-T4.3 item 6).
     ${appModule}.RequestContext.with_child_frame(fn ->
-      Repo.transaction(fn ->${txnBody}end)
+      ${appModule}.PostCommit.transaction(fn ->
+        Repo.transaction(fn ->${txnBody}end)
+      end)
     end)
     |> report_result()
   end
