@@ -121,7 +121,8 @@ export const jsExprLeaves: ExprLeaves = {
 /** `""` for a `money` stamp, `"?"` for a `money?`, null for anything else. */
 function jsMoneyOperand(t: TypeIR | undefined): "" | "?" | null {
   if (t?.kind === "primitive" && t.name === "money") return "";
-  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money") return "?";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
+    return "?";
   return null;
 }
 

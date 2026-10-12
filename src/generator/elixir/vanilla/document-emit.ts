@@ -62,7 +62,7 @@ import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/reso
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -753,7 +753,7 @@ function renderDocFindFn(
     bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
   });
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
   const paged = pagedReturn(f.returnType) != null;
   const single = isDocSingleReturn(f.returnType);
   const rc: RenderCtx = {
@@ -764,7 +764,9 @@ function renderDocFindFn(
   const authored = f.filter
     ? renderExpr(f.filter, rc)
     : argNames.length > 0
-      ? argNames.map((n) => `record.${n} == ${n}`).join(" and ")
+      ? f.params
+          .map((p) => `record.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
+          .join(" and ")
       : "true";
   const predicate = cap ? `(${authored}) and (${cap})` : authored;
   // A predicate that doesn't read the embed (an unfiltered find → `true`) must
@@ -942,7 +944,9 @@ function docOpStructBody(
     .filter((c): c is string => c != null);
   const params = usedParams
     .filter((p) => !isDecimalParam(p.type))
-    .map((p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`);
+    .map(
+      (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+    );
   const guardClauses = [...paramGuards, ...collectOpGuardClauses(agg.name, op, rc)];
   const lastIdx = op.statements.length - 1;
   const bodyStmts = op.statements.filter(
