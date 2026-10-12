@@ -2,7 +2,7 @@
 // context the deployable does NOT host (D18 of `eval-claims/FIX-PLAN.md`).
 //
 // A cross-context id reference is legal and resolves at lowering, so
-// `claims` below — hosting `Claims`, not `Policies` — names `PolId` from its
+// `claimDesk` below — hosting `Claims`, not `Policies` — names `PolId` from its
 // domain class, schema, repository, routes and event.  The deployable's ids
 // module declared only its hosted aggregates' brands (plus foreign
 // event / workflow / user-claim ids), so `PolId` was referenced and declared
@@ -13,6 +13,10 @@
 // Every position kind the fix reads is exercised once: a field, an optional
 // field, a list field, an operation param, an event field and a find param.
 // `policies` is the control: it hosts `Pol`, so its brand was always declared.
+// The deployable is deliberately NOT named `claims`: on elixir a deployable
+// named like a context it hosts makes `alias Claims.Claims` shadow the app
+// module, so `Claims.GuardError` resolves to `Claims.Claims.GuardError` — a
+// separate, pre-existing defect this fixture does not gate.
 system Cover {
   subdomain Ops {
     context Policies {
@@ -48,7 +52,7 @@ system Cover {
     dataSources: [polState]
     port: 4000
   }
-  deployable claims {
+  deployable claimDesk {
     platform: __PLATFORM__
     contexts: [Claims]
     dataSources: [clmState]

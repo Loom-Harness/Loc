@@ -2,7 +2,7 @@
 // the deployable does NOT host declares its brand locally, on every typed
 // backend (D18 of `eval-claims/FIX-PLAN.md`).
 //
-// `claims` hosts `Claims` only, and names `PolId` from a field, an optional and
+// `claimDesk` hosts `Claims` only, and names `PolId` from a field, an optional and
 // a list field, an operation param, an event field and a find param.  The ids
 // module used to declare only the hosted aggregates' brands (plus foreign
 // event / workflow / user-claim ids), so every typed backend referenced a brand
@@ -15,10 +15,10 @@ import { generateSystemFiles } from "../_helpers/index.js";
 import type { Backend } from "../fixtures/corpus/backends.js";
 import { corpusSourceFor } from "../fixtures/corpus/harness.js";
 
-/** The `claims` deployable's files only (it hosts `Claims`, not `Policies`). */
+/** The `claimDesk` deployable's files only (it hosts `Claims`, not `Policies`). */
 async function emitClaims(backend: Backend): Promise<Map<string, string>> {
   const all = await generateSystemFiles(corpusSourceFor("foreign-id-field", backend));
-  return new Map([...all].filter(([p]) => p.startsWith("claims/")));
+  return new Map([...all].filter(([p]) => p.startsWith("claim_desk/")));
 }
 
 function file(files: Map<string, string>, suffix: string): string {
