@@ -138,6 +138,7 @@ import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
 import { primitiveFieldType } from "./primitive-fields.js";
 import { astProjectionReadShape } from "./projection-shape.js";
+import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
 import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
@@ -1172,6 +1173,12 @@ export class Elaborator {
     }
     if (!isMemberSuffix(first) || shadowed) return undefined;
     const ms = first;
+    // `Ctx.Policy(args)` across contexts: `bool`, so `loom.policy-out-of-scope`
+    // is the one error the call raises (see qualified-policy.ts).
+    if (ms.call && qualifiedOutOfScopePolicyCall(name, String(ms.member), node)) {
+      this.synthArgs(ms.args, scope);
+      return { t: Ty.prim("bool"), consumed: 1 };
+    }
     // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
     // generated test client (cutover family 3f).
     if (scope.frame.e2e && name === "api") {
