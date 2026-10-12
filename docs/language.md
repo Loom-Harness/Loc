@@ -923,6 +923,37 @@ Deliberately **not** narrowed — each is conservative, never unsound:
   intrinsic or a collection op does not narrow.  (A block-form `function`
   is gated pure by the IR validator, but is still excluded for now.)
 
+#### Comparing a nullable money or decimal
+
+A comparison does **not** need a null guard.  The type system admits `T?`
+against `T` for every operator (`comparable` unwraps the optional), so it gives
+the comparison an answer: an **equality** is null-safe (both absent are equal,
+one absent is unequal), and an **ordering** (`<` `<=` `>` `>=`) with an absent
+side is **false**, as in SQL's UNKNOWN and .NET's lifted operators.  For
+`money?` / `decimal?` (and a nullable `int?`/`long?` against a `decimal`) every
+backend and every frontend implements this rule.
+
+```ddd
+fee: money?
+derived feeOverFive: bool = fee > money("5")      // false when fee is absent
+derived feeAtMostFive: bool = fee <= money("5")   // also false when absent
+```
+
+```typescript
+// generated TS (Hono): an absent receiver short-circuits, an absent argument is NaN
+get feeOverFive(): boolean { return ((this._fee)?.gt(new Decimal("5")) ?? false); }
+```
+
+```java
+// generated Java: both sides are tested before compareTo
+return ((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR)
+    -> loomL != null && loomR != null && loomL.compareTo(loomR) > 0).test(this.fee, new BigDecimal("5"));
+```
+
+`!(fee > money("5"))` is therefore **true** when `fee` is absent.  Write the
+null test explicitly (`fee == null || fee <= money("5")`) when absent must mean
+something else.
+
 `slot` is a UI-only marker — valid **only** on a `component`'s parameter
 list, where the caller injects a JSX expression that the component body
 renders via a bare ref.  The validator rejects `slot` in any other
