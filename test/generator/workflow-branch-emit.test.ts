@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Claims-eval D4 — an `emit` nested in a workflow branch.
@@ -52,9 +51,7 @@ system R { subdomain S { context A {
 `;
 
 async function build(platform: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(SRC(platform));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+  return generateSystemFiles(SRC(platform));
 }
 
 /** The text from `start` up to (not including) the next `end` after it. */
