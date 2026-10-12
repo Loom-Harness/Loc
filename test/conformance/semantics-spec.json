@@ -762,7 +762,7 @@
       ],
       "provenance": [
         "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
-        "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first `{}` command of every case three ways on all seven wire-gated legs"
+        "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415) on all seven wire-gated legs"
       ],
       "tier": "behavioral"
     }

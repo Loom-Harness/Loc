@@ -176,6 +176,45 @@
     {
       "seq": 15,
       "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/tickets/{id}/close",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
       "path": "/api/tickets",
       "status": 201,
       "body": {
@@ -183,7 +222,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 19,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 401,
@@ -196,7 +235,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 20,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -209,14 +248,14 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 21,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 19,
+      "seq": 22,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 401,
@@ -229,7 +268,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 23,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 403,
@@ -242,7 +281,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 204,

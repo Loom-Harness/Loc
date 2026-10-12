@@ -314,6 +314,45 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 404,
+      "body": {
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/bump",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 404,
+      "body": {
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/bump",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/articles/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
     }
   ]
 }

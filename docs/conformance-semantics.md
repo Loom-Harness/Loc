@@ -1893,6 +1893,7 @@ nothing and the test passes vacuously.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden
   `__emptyCommandBodyProbes` (`test/behavioral/wire-differential.mjs`) replays
-  the first `{}` command each case issues with no body, with zero JSON bytes and
-  as `text/plain`, on all seven wire-gated legs; the emitted seams are pinned by
+  the first instance command each case POSTs `{}` to — against an absent id, so
+  the probe moves no state — with no body, with zero JSON bytes and as
+  `text/plain` (404, 404, 415), on all seven wire-gated legs; the emitted seams are pinned by
   `test/generator/empty-command-body.test.ts`.

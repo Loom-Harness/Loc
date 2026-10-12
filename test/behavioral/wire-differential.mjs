@@ -456,26 +456,33 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
 // backends answered that request four ways (415, 400, 422, a 2xx, and a 500
 // for a body the action never read) with every golden green.
 //
-// The target is the FIRST command the tier itself POSTed \`{}\` to and got a
-// 2xx — evidence the route is served and takes nothing — re-requested three
-// ways: with no body and no Content-Type, with \`Content-Type:
-// application/json\` and zero bytes, and with \`{}\` under a foreign media type.
-// The first two must be answered exactly as \`{}\` is (the re-run may now
-// meet a \`when\` gate the tier's own call closed — that answer is domain, and
-// identical on every backend); the third is the declared 415.
+// The target is the FIRST instance command (\`/api/<aggs>/<id>/<op>\`) the tier
+// itself POSTed \`{}\` to and got a 2xx — evidence the route is served and
+// takes nothing — re-requested three ways AGAINST AN ABSENT ID: with no body
+// and no Content-Type, with \`Content-Type: application/json\` and zero bytes,
+// and with \`{}\` under a foreign media type.  The body is judged before the row
+// is loaded, so the first two answer the 404 a \`{}\` earns for that id and the
+// third the declared 415.  The absent id keeps the probe free of side effects:
+// re-running the command on the tier's own row would move its state, and with
+// it every authorization-ladder read recorded after this.
 //
 // Derived from the CASE (the tier's request sequence is one emitted file), so
 // every leg fires the same probes and the recordings keep the same length.
-// Fired LAST, after every other probe, so it only appends trailing ordinals.
+// Fired LAST in this function, so it only appends trailing ordinals.
 const __emptyCommandBodyProbes = async (dispatch) => {
-  const idx = __wire.findIndex(
-    (e, i) => e.method === "POST" && e.status >= 200 && e.status < 300 && __bodies[i] === "{}",
-  );
-  if (idx < 0) return;
-  const url = __urls[idx];
-  await dispatch({ method: "POST", url, headers: { ...__authHeaders } });
-  await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "" });
-  await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "text/plain" }, body: "{}" });
+  for (let i = 0; i < __wire.length; i++) {
+    const e = __wire[i];
+    if (e.method !== "POST" || e.status < 200 || e.status >= 300 || __bodies[i] !== "{}") continue;
+    let u;
+    try { u = new URL(__urls[i]); } catch { continue; }
+    const m = /^(\\/api\\/[^/]+)\\/([^/]+)\\/([^/]+)$/.exec(u.pathname);
+    if (!m || m[1] === "/api/workflows" || m[1] === "/api/projections") continue;
+    const url = u.origin + m[1] + "/" + __absentKey(m[2]) + "/" + m[3];
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders } });
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "" });
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "text/plain" }, body: "{}" });
+    return;
+  }
 };
 
 
