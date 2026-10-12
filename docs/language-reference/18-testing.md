@@ -511,8 +511,8 @@ Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 == elixir
 ```elixir
-__thrown1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
-assert __thrown1.kind == :precondition
+rejected1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
+assert rejected1.kind == :precondition
 ```
 ::: end
 

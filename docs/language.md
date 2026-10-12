@@ -1509,8 +1509,8 @@ Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 
 ```elixir
 # generated (elixir)
-__thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
-assert __thrown1.kind == :precondition
+rejected1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
+assert rejected1.kind == :precondition
 ```
 
 The field is `DomainError.kind` (node, python), `DomainException.getKind()`
