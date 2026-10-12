@@ -429,7 +429,25 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     key: /^chrome\.goBack$/,
     reason:
       'FORM_CHROME: the op dialog\'s dismiss says "Go back" only for an operation itself ' +
-      "named cancel (`opDialogDismissChrome`), and the fixture has none",
+      "named cancel (`opDialogChrome`), and the fixture has none",
+  },
+  {
+    kind: "over-merge",
+    id: "O-close",
+    targets: ["mui", "chakra", "vuetify", ...SVELTE, ...NG, "flutter"],
+    menus: BOTH,
+    key: /^chrome\.close$/,
+    reason: "FORM_CHROME: this target's op dialog has no close icon to name",
+  },
+  {
+    kind: "over-merge",
+    id: "O-closeDialog",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    menus: BOTH,
+    key: /^chrome\.closeDialog$/,
+    reason:
+      'FORM_CHROME: a close icon says "Close dialog" only beside an operation itself ' +
+      "named close (`opDialogChrome`), and the fixture has none",
   },
   {
     kind: "over-merge",

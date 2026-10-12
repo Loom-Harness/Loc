@@ -1,15 +1,17 @@
-// An operation dialog never renders two buttons with the same accessible name.
+// No two controls in an operation dialog share an accessible name.
 //
-// `operation cancel(…)` is one of the commonest domain operations, and its
-// dialog's submit button is named after it ("Cancel") — so a dismiss button
-// that also says "Cancel" gives the dialog two identically-named controls with
-// opposite effects (a screen reader announces them the same).  The dismiss label
-// is derived once (`opDialogDismissChrome`) and every frontend reads it; this
-// test generates the scaffolded detail page on every frontend × design pack and
-// reads the button names straight out of the emitted op-dialog markup.
+// `operation cancel(…)` and `operation close(…)` are among the commonest domain
+// operations, and a dialog's submit button is named after its operation — so a
+// dismiss button that also says "Cancel", or a corner close icon that also says
+// "Close", gives the dialog two identically-named controls with opposite
+// effects (a screen reader announces them the same).  Both dismissing labels are
+// derived once (`opDialogChrome`) and every frontend reads them; this test
+// generates the scaffolded detail page on every frontend × design pack and reads
+// the button names AND the close icon's name straight out of the emitted
+// op-dialog markup.
 
 import { describe, expect, it } from "vitest";
-import { opDialogDismissChrome } from "../../../src/generator/_walker/i18n-chrome.js";
+import { opDialogChrome } from "../../../src/generator/_walker/i18n-chrome.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SYS = (platform: string, design: string | undefined) => {
@@ -55,9 +57,27 @@ const CASES: ReadonlyArray<{ platform: string; design?: string; family: Family }
   { platform: "elixir", design: "daisyui", family: "heex" },
 ];
 
-/** The emitted source of the op's dialog — from its form to the end of its
- *  footer — so the TRIGGER button on the page (also named after the op, and
- *  outside the dialog) is not counted. */
+/** The packs whose op dialog renders a corner close icon (a control with an
+ *  accessible name of its own).  The others dismiss through a footer button,
+ *  the overlay or Esc only — pinned here so a pack that silently drops (or
+ *  silently grows) an icon fails rather than passing on an empty list. */
+const CLOSE_ICON_PACKS = new Set(["mantine", "shadcn", "shadcnVue", "coreComponents", "daisyui"]);
+
+/** Where a JSX/markup op dialog OPENS — the last of these before the dialog's
+ *  form marker belongs to that dialog, and the page's TRIGGER button (also
+ *  named after the op) sits before it, so it is never counted. */
+const DIALOG_ANCHORS = [
+  "modals.open(",
+  "<DialogContent",
+  "<Dialog.Content",
+  "<ModalContent",
+  "<Dialog ",
+  "<v-dialog",
+  'role="dialog"',
+];
+
+/** The emitted source of the op's dialog — from where the dialog opens to the
+ *  end of its footer. */
 function dialogRegion(files: Map<string, string>, family: Family, op: string): string {
   const all = [...files].filter(([k]) => !k.includes(".loom/") && !/test|spec|e2e/i.test(k));
   const pick = (re: RegExp): string => {
@@ -82,18 +102,31 @@ function dialogRegion(files: Map<string, string>, family: Family, op: string): s
     return rest.slice(0, next?.index);
   }
   const src = pick(new RegExp(`orders-op-${op}-form`));
-  const start = src.indexOf(`orders-op-${op}-form`);
-  const submit = src.indexOf(`orders-op-${op}-submit`, start);
-  expect(submit, "op dialog has a submit button").toBeGreaterThan(start);
+  const marker = src.indexOf(`orders-op-${op}-form`);
+  const submit = src.indexOf(`orders-op-${op}-submit`, marker);
+  expect(submit, "op dialog has a submit button").toBeGreaterThan(marker);
   if (family === "feliz") {
-    // One line per page: stop at the submit button's own label.
+    // One line per page: from the form to the submit button's own label.
     const end = /prop\.text [^\]]*\]/.exec(src.slice(submit));
-    return src.slice(start, submit + (end ? end.index + end[0].length : 0));
+    return src.slice(marker, submit + (end ? end.index + end[0].length : 0));
   }
+  const start = Math.max(...DIALOG_ANCHORS.map((a) => src.lastIndexOf(a, marker)));
+  expect(start, "op dialog has an opening anchor").toBeGreaterThanOrEqual(0);
   // The footer: the submit button plus whatever sits beside it on the next
   // lines (the dismiss button renders after the submit on Angular).
   const tail = src.slice(submit).split("\n").slice(0, 3).join("\n");
   return src.slice(start, submit) + tail;
+}
+
+/** The close icon's accessible name, as the dialog binds it: Mantine's
+ *  `closeButtonProps["aria-label"]`, shadcn's `closeLabel` prop, shadcnVue's
+ *  `:close-label`, the HEEx `.modal`'s `close_label`. */
+function closeIconNames(region: string, family: Family): string[] {
+  const re =
+    family === "heex"
+      ? /close_label=(?:\{pgettext\("[^"]*",\s*"([^"]*)"\)\}|"([^"]*)")/g
+      : /(?:"aria-label":\s*|closeLabel=\{\s*|:close-label='|aria-label=\{\s*)(?:t\("[^"]*",\s*"([^"]*)"\)|"([^"]*)")/g;
+  return [...region.matchAll(re)].map((m) => m[1] ?? m[2]!);
 }
 
 /** Strip a `t("key", "Default")` / `pgettext(…)` binding down to its English. */
@@ -130,32 +163,53 @@ function buttonNames(region: string, family: Family): string[] {
   return names;
 }
 
-describe("op dialog: no two buttons share an accessible name", () => {
+describe("op dialog: no two controls share an accessible name", () => {
   for (const c of CASES) {
-    it(`${c.platform}${c.design ? `/${c.design}` : ""}: operation cancel(…)`, async () => {
-      const files = await generateSystemFiles(SYS(c.platform, c.design));
-      const names = buttonNames(dialogRegion(files, c.family, "cancel"), c.family);
-      expect(
-        names.some((n) => /^cancel\b/i.test(n)),
-        `the submit button names the action: ${JSON.stringify(names)}`,
-      ).toBe(true);
-      const lowered = names.map((n) => n.toLowerCase());
-      expect(new Set(lowered).size, `button names: ${JSON.stringify(names)}`).toBe(lowered.length);
-    });
+    for (const op of ["cancel", "close"]) {
+      it(`${c.platform}${c.design ? `/${c.design}` : ""}: operation ${op}(…)`, async () => {
+        const files = await generateSystemFiles(SYS(c.platform, c.design));
+        const region = dialogRegion(files, c.family, op);
+        const buttons = buttonNames(region, c.family);
+        const icons = closeIconNames(region, c.family);
+        expect(
+          buttons.some((n) => new RegExp(`^${op}\\b`, "i").test(n)),
+          `the submit button names the action: ${JSON.stringify(buttons)}`,
+        ).toBe(true);
+        expect(icons.length, `close icon names: ${JSON.stringify(icons)}`).toBe(
+          CLOSE_ICON_PACKS.has(c.design ?? "") ? 1 : 0,
+        );
+        const names = [...buttons, ...icons];
+        const lowered = names.map((n) => n.toLowerCase());
+        expect(new Set(lowered).size, `control names: ${JSON.stringify(names)}`).toBe(
+          lowered.length,
+        );
+      });
+    }
   }
 
-  it("keeps the conventional 'Cancel' dismiss beside any other operation", async () => {
+  it("keeps the conventional labels beside any other operation", async () => {
     const files = await generateSystemFiles(SYS("react", "mantine"));
-    const names = buttonNames(dialogRegion(files, "markup", "close"), "markup");
-    expect(names).toEqual(["Cancel", "Close"]);
+    const cancel = dialogRegion(files, "markup", "cancel");
+    expect([...buttonNames(cancel, "markup"), ...closeIconNames(cancel, "markup")]).toEqual([
+      "Go back",
+      "Cancel",
+      "Close",
+    ]);
+    const close = dialogRegion(files, "markup", "close");
+    expect([...buttonNames(close, "markup"), ...closeIconNames(close, "markup")]).toEqual([
+      "Cancel",
+      "Close",
+      "Close dialog",
+    ]);
   });
 });
 
-describe("opDialogDismissChrome", () => {
-  it("derives a dismiss label that never equals the submit label", () => {
-    expect(opDialogDismissChrome("Cancel")).toBe("goBack");
-    expect(opDialogDismissChrome(" cancel ")).toBe("goBack");
-    expect(opDialogDismissChrome("Cancel Booking")).toBe("cancel");
-    expect(opDialogDismissChrome("Close")).toBe("cancel");
+describe("opDialogChrome", () => {
+  it("derives dismiss and close labels that never equal the submit label or each other", () => {
+    expect(opDialogChrome("Cancel")).toEqual({ dismiss: "goBack", close: "close" });
+    expect(opDialogChrome(" cancel ")).toEqual({ dismiss: "goBack", close: "close" });
+    expect(opDialogChrome("Close")).toEqual({ dismiss: "cancel", close: "closeDialog" });
+    expect(opDialogChrome("close  dialog")).toEqual({ dismiss: "cancel", close: "close" });
+    expect(opDialogChrome("Cancel Booking")).toEqual({ dismiss: "cancel", close: "close" });
   });
 });

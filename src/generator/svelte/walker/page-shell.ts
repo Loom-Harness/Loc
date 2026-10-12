@@ -52,7 +52,7 @@ import { idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import { chromeMessage, opDialogDismissChrome } from "../../_walker/i18n-chrome.js";
+import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
 import { storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -276,12 +276,16 @@ function renderFormOpWiring(
     // which is what every pack hardcoded before the slot was honoured.  Two
     // spellings because packs render the title in both positions: markup text
     // (`<DialogTitle>`) and a JS prop (Mantine's `modals.open({ title })`).
-    // Pack chrome the TEMPLATE bakes in: the dialog's dismiss label, routed
-    // through the stable `chrome.cancel` / `chrome.goBack` key so the catalog
-    // entry the extraction pass records for a Modal is actually USED (an unused
-    // entry is the same dead-catalog bug as an unrendered slot, seen from the
-    // other side).  Never equal to `humanOp` — see `opDialogDismissChrome`.
-    cancelLabel: state.cancelLabel ?? chromeMessage(opDialogDismissChrome(humanize(op.name))),
+    // Pack chrome the TEMPLATE bakes in: the dialog's dismiss label and its
+    // close icon's name, routed through the `chrome.*` keys `opDialogChrome`
+    // picks so the catalog entries the extraction pass records for a Modal are
+    // actually USED (an unused entry is the same dead-catalog bug as an
+    // unrendered slot, seen from the other side).  Neither ever equals
+    // `humanOp`.
+    cancelLabel: state.cancelLabel ?? chromeMessage(opDialogChrome(humanize(op.name)).dismiss),
+    closeLabelExpr:
+      state.closeLabelExpr ??
+      JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
     modalTitle: state.modalTitle || humanize(op.name),
     modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
     slug: snake(plural(agg.name)),
