@@ -4629,6 +4629,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
+  "loom.workflow-unknown-name#projection-receiver": (p: {
+    name: unknown;
+    where: unknown;
+    kind: unknown;
+    projection: unknown;
+  }) =>
+    `workflow '${p.name}' ${p.where}: ${p.kind} reads projection '${p.projection}', but a workflow ` +
+    `can only load data through its own context's repositories — a projection is a read model ` +
+    `with no repository, so every backend would emit an unbound '${p.projection}' receiver. ` +
+    `Read the projection through its GET endpoint or a page instead.  To use that data inside ` +
+    `the workflow, keep a local replica aggregate (fed by a correlated ` +
+    `'create(e: <Event>) by …' starter) and read it with a let-bound repository call ` +
+    `('let r = <Replicas>.find(<Criterion>)').`,
   "loom.workflow-inline-repository-call": (p: {
     where: unknown;
     repoName: unknown;
