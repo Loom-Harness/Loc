@@ -22,7 +22,7 @@ import { rewrite } from "../../util/emission-sink.js";
 
 /** True iff `t` is, or structurally carries, a value object — the VO itself,
  *  an optional VO, a list of VOs, a generic carrier or union over one. */
-export function typeContainsValueObject(t: TypeIR | undefined): boolean {
+function typeContainsValueObject(t: TypeIR | undefined): boolean {
   if (!t) return false;
   switch (t.kind) {
     case "valueobject":
@@ -56,7 +56,7 @@ export function isValueObjectEquality(e: Extract<ExprIR, { kind: "binary" }>): b
 
 /** The name of the emitted structural-equality helper, on every runtime that
  *  needs one (the four JS frontends and Flutter). */
-export const VALUE_EQUALS_FN = "loomValueEquals";
+const VALUE_EQUALS_FN = "loomValueEquals";
 
 /** True when rendered source calls the helper — the use-driven trigger for
  *  emitting its definition (and, on Angular, the component member). */
@@ -117,7 +117,7 @@ export function jsValueEqualsHelper(indent = ""): string {
 
 /** Append the helper to a module-scoped script (`.tsx`, Angular `.ts`) that
  *  calls it.  A hoisted `function` declaration, so its position is free. */
-export function withJsValueEqualsAppended(source: string): string {
+function withJsValueEqualsAppended(source: string): string {
   if (!usesValueEquals(source) || definesValueEquals(source)) return source;
   return `${source.replace(/\n*$/, "\n")}\n${jsValueEqualsHelper()}\n`;
 }
@@ -125,7 +125,7 @@ export function withJsValueEqualsAppended(source: string): string {
 /** Insert the helper into the instance `<script …>` block of an SFC (Vue
  *  `<script setup lang="ts">`, Svelte `<script lang="ts">`) that calls it —
  *  both expose script-scoped bindings to their markup. */
-export function withJsValueEqualsInScript(file: string, openTag: string, indent: string): string {
+function withJsValueEqualsInScript(file: string, openTag: string, indent: string): string {
   if (!usesValueEquals(file) || definesValueEquals(file)) return file;
   const at = file.indexOf(openTag);
   if (at < 0) return file;
