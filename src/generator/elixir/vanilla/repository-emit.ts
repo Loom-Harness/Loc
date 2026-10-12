@@ -30,7 +30,7 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -569,7 +569,7 @@ function renderFindFn(
     }),
   );
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
   // A `paged` find (`find recent(): Order paged`) returns the cross-backend
   // paged WIRE ENVELOPE — `%{items, page, page_size, total, total_pages}` — not a
   // bare list.  It threads `page` / `page_size` (1-based, with the shared
@@ -657,7 +657,9 @@ function renderFindFn(
     // Convention-finds: per-param `record.<name> == ^<name>` predicate,
     // joined with `and`.  Matches the source-level convention (see
     // examples/sales.ddd's `find byCustomer(customerId: Customer id)`).
-    whereExpr = argNames.map((n) => `record.${n} == ^${n}`).join(" and ");
+    whereExpr = f.params
+      .map((p) => `record.${snake(p.name)} == ^${escapeElixirIdent(snake(p.name))}`)
+      .join(" and ");
   }
   // AND the aggregate's capability filter into the find's own predicate
   // (a find must honour the same soft-delete / scoping the CRUD reads do).
