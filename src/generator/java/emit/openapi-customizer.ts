@@ -25,6 +25,7 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
   errorStatuses,
   PROBLEM_JSON,
@@ -287,7 +288,7 @@ export function buildJavaOpenApiContract(
         for (const p of op.params) noteEnumRefs(p.type, p.name);
         const reqName = reqNameFor({ kind: "operation", aggregate: agg.name, operation: op.name });
         const opEntry = opEntryOf(op);
-        if (op.params.length === 0 && opEntry) {
+        if (commandBodyOptional(op.params) && opEntry) {
           emptyRequests.push({ path: pathOf(opEntry), schema: reqName });
           setRequired(reqName, []);
         } else {
@@ -472,9 +473,18 @@ export function buildJavaOpenApiContract(
         // backends (`registerProjectWorkflow`); springdoc derives the bare name.
         operationId: `${lowerFirst(wf.name)}Workflow`,
       });
-      // <Wf>Request — required = command params (same op-param rule).
+      // <Wf>Request — required = command params (same op-param rule).  A
+      // parameterless workflow binds a hidden optional body, so springdoc emits
+      // no request body; attach the named empty one the other backends publish.
       for (const p of wf.params) noteEnumRefs(p.type, p.name);
-      setRequired(reqNameFor({ kind: "workflow", workflow: wf.name }), requiredParams(wf.params));
+      const wfReqName = reqNameFor({ kind: "workflow", workflow: wf.name });
+      if (commandBodyOptional(wf.params)) {
+        emptyRequests.push({
+          path: `${routePrefix}/workflows/${snake(wf.name)}`,
+          schema: wfReqName,
+        });
+      }
+      setRequired(wfReqName, requiredParams(wf.params));
     }
 
     // <Payload>Response — the wire record a payload-typed workflow param

@@ -99,7 +99,9 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     const m = await files("python");
     const problem = fileEndingWith(m, "app/http/problem.py");
     expect(problem).toContain("class JsonBodyMiddleware:");
-    expect(problem).toContain(`UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}`);
+    expect(problem).toContain(
+      `UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}`,
+    );
     expect(fileEndingWith(m, "app/main.py")).toContain("app.add_middleware(JsonBodyMiddleware)");
 
     const routes = fileEndingWith(m, "app/http/order_routes.py");
@@ -146,6 +148,13 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     const workflows = [...m.entries()].find(([k]) => k.endsWith("WorkflowsController.java"))![1];
     expect(lineWith(workflows, "public void housekeeping(")).toContain(
       "@RequestBody(required = false)",
+    );
+    // The hidden body leaves springdoc with no request body to publish; the
+    // customizer attaches the named empty one the other four publish.
+    const customizer = fileEndingWith(m, "OpenApiContractCustomizer.java");
+    expect(customizer).toContain('new EmptyRequest("/api/orders/{id}/close", "CloseOrderRequest")');
+    expect(customizer).toContain(
+      'new EmptyRequest("/api/workflows/housekeeping", "HousekeepingRequest")',
     );
     expect(fileEndingWith(m, "ApiExceptionAdvice.java")).toContain(
       `case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,
