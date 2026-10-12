@@ -289,6 +289,19 @@ export function dartMoneyBinary(
         ? t.inner.name
         : undefined;
   if (prim(e.leftType) !== "money" && prim(e.rightType) !== "money") return null;
+  // A comparison with a `money?` side: `compare` reads an absent value as
+  // zero (`null < 10` held), so the null-aware runtime answers instead —
+  // ordering against an absent side is false, equality is null-safe.  The
+  // `null` literal itself (`x == null`) stays a plain null check.
+  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+  if (
+    (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") &&
+    !isNull(e.left) &&
+    !isNull(e.right) &&
+    ["<", "<=", ">", ">=", "==", "!="].includes(e.op)
+  ) {
+    return `LoomMoney.compareNullable(${left}, '${e.op}', ${right})`;
+  }
   switch (e.op) {
     case "+":
       return `LoomMoney.add(${left}, ${right})`;

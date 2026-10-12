@@ -2,7 +2,8 @@
 // `app/domain/numeric.py` — cross-backend numeric semantics for the Python
 // backend.
 //
-// TWO cross-backend divergences live here, both about INTEGER division:
+// THREE cross-backend divergences live here — two about INTEGER division, one
+// about ordering against an absent nullable money/decimal (`present_order`):
 //
 //   `%`         — Python's `%` is the only FLOORED modulo among Loom's five
 //                 backends (see below).
@@ -42,6 +43,7 @@
 import { rewrite } from "../../../util/emission-sink.js";
 export const NUMERIC_PY = `"""Numeric helpers with cross-backend semantics.  Auto-generated."""
 
+from decimal import Decimal
 from typing import TypeVar
 
 _N = TypeVar("_N", int, float)
@@ -72,6 +74,24 @@ def trunc_div(a: _N, b: _N) -> _N:
     if (a < 0) != (b < 0):
         return -(-a // b)
     return a // b
+
+
+def present_order(a: Decimal | float | None, op: str, b: Decimal | float | None) -> bool:
+    """An ordering over a nullable money/decimal: False when either side is absent.
+
+    Loom's ordering against an absent value answers false on every backend
+    (SQL's UNKNOWN, .NET's lifted operators); Python's native \`None > x\`
+    raises \`TypeError\` instead.
+    """
+    if a is None or b is None:
+        return False
+    if op == "<":
+        return a < b
+    if op == "<=":
+        return a <= b
+    if op == ">":
+        return a > b
+    return a >= b
 `;
 
 const HELPER_PATH = "app/domain/numeric.py";
@@ -82,6 +102,7 @@ const HELPER_PATH = "app/domain/numeric.py";
 const HELPERS: readonly { importLine: string; calls: RegExp }[] = [
   { importLine: "from app.domain.numeric import trunc_mod", calls: /\btrunc_mod\(/ },
   { importLine: "from app.domain.numeric import trunc_div", calls: /\btrunc_div\(/ },
+  { importLine: "from app.domain.numeric import present_order", calls: /\bpresent_order\(/ },
 ];
 
 /**
