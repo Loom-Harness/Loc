@@ -13,7 +13,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-const FIXTURE = readFileSync(join(__dirname, "..", "behavioral", "create-contract.ddd"), "utf8");
+const FIXTURE = readFileSync(
+  join(__dirname, "..", "fixtures", "corpus", "create-contract.ddd"),
+  "utf8",
+);
 const NOT_PARAMS = ["status", "notes", "room", "priority", "urgent", "tags"];
 
 const withPlatform = (p: string, ui = false) => {
@@ -53,7 +56,7 @@ function expectOnlyParams(schema: string, spell: (n: string) => string, label: s
 describe("the create request schema is the declared param list", () => {
   it("node — the zod request schema and the factory", async () => {
     const files = await generateSystemFiles(withPlatform("node"));
-    const routes = file(files, "api/http/appointment.routes.ts");
+    const routes = file(files, "d/http/appointment.routes.ts");
     expectOnlyParams(
       slice(
         routes,
@@ -63,7 +66,7 @@ describe("the create request schema is the declared param list", () => {
       (n) => `${n}:`,
       "zod",
     );
-    const domain = file(files, "api/domain/appointment.ts");
+    const domain = file(files, "d/domain/appointment.ts");
     expect(domain).toContain(
       "static create(input: { patient: string; minutes: number; fee: Fee }): Appointment {",
     );
@@ -124,7 +127,7 @@ describe("the create request schema is the declared param list", () => {
     // The `__default` arms cover every field the take drops.
     expect(cs).toContain("|> __default(:status, :Requested)");
     const repo = file(files, "scheduling/appointment_repository.ex");
-    expect(repo).toContain("attrs = Api.Scheduling.AppointmentChangeset.take_create_attrs(attrs)");
+    expect(repo).toContain("attrs = D.Scheduling.AppointmentChangeset.take_create_attrs(attrs)");
     const dom = file(files, "scheduling/appointment.ex");
     expect(dom).toContain("take_create_attrs(attrs)");
   });
