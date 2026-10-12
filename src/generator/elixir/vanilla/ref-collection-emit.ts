@@ -123,26 +123,9 @@ export function preloadList(agg: AggregateIR): string[] {
   return refCollFields(agg).map((rc) => `:${snake(rc.field.name)}`);
 }
 
-/** `Map.from_struct`-projection lines that replace each ref-collection
- *  relationship with its id array in the serialized wire map.  Returned as
- *  pipe segments appended after the `Map.drop`. */
-export function serializeRefCollLines(agg: AggregateIR): string[] {
-  return refCollFields(agg).map((rc) => {
-    const name = snake(rc.field.name);
-    return `    |> Map.put(:${name}, __ref_ids(record.${name}))`;
-  });
-}
-
 /** Does the aggregate have any reference-collection fields? */
 export function hasRefColls(agg: AggregateIR): boolean {
   return refCollFields(agg).length > 0;
-}
-
-/** A detected `this.<refColl>.contains(arg)` membership predicate inside a
- *  repository `find` `where` clause — the field name and the rendered Ecto pin
- *  for the argument.  `null` when the filter isn't this shape. */
-export interface ContainsFind {
-  fieldName: string;
 }
 
 /** If a find's filter is exactly `this.<refColl>.contains(arg)` over an

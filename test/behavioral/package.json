@@ -7,6 +7,7 @@
     "behavioral": "node run.mjs",
     "behavioral:ui": "node run-ui.mjs",
     "behavioral:ui-flutter": "node run-ui-flutter.mjs",
+    "behavioral:ui-auth": "node run-ui-auth.mjs",
     "behavioral:pagination": "node pagination.mjs",
     "behavioral:paged-ui": "node paged-ui.mjs"
   },

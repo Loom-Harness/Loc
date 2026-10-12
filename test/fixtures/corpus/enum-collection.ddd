@@ -65,4 +65,28 @@ system Crew {
     serves: DispatchApi
     port: 4000
   }
+
+  test e2e "an enum collection round-trips as member names, in order" against d {
+    let t = api.teches.create({ name: "Ada", grade: "Senior", skills: ["HVAC", "Electrical"], certifications: ["gas", "high-voltage"] })
+    let read = api.teches.getById(t)
+    expect(read.grade).toBe("Senior")
+    expect(read.skills.count()).toBe(2)
+    expect(read.skills.first()).toBe("HVAC")
+    expect(read.skillCount).toBe(2)
+    expect(read.certifications.first()).toBe("gas")
+    api.teches.retrain(t, { next: ["Plumbing", "HVAC", "Electrical"] })
+    let retrained = api.teches.getById(t)
+    expect(retrained.skills.count()).toBe(3)
+    expect(retrained.skills.first()).toBe("Plumbing")
+    expect(retrained.skillCount).toBe(3)
+    api.teches.update(t, { name: "Ada", grade: "Junior", skills: [], certifications: [] })
+    let cleared = api.teches.getById(t)
+    expect(cleared.grade).toBe("Junior")
+    expect(cleared.skills.count()).toBe(0)
+    expect(cleared.skillCount).toBe(0)
+    let listed = api.teches.all()
+    expect(listed.total).toBe(1)
+    api.teches.destroy(t)
+    expect(api.teches.getById(t)).toThrow(404)
+  }
 }

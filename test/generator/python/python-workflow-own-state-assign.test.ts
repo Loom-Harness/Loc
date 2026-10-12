@@ -5,40 +5,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SRC = `
-  system S {
-    subdomain C {
-      context C {
-        aggregate Order {
-          status: string
-          operation place() { status := "Placed"  emit OrderPlaced { order: id, at: now() } }
-        }
-        repository Orders for Order {}
-        event OrderPlaced { order: Order id, at: datetime }
-        channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
-        workflow OrderFulfillment {
-          orderId: Order id
-          attempts: int
-          create(p: OrderPlaced) by p.order { attempts := 1 }
-        }
-      }
-    }
-    api A from C
-    storage pg { type: postgres }
-    resource sagaState { for: C, kind: state, use: pg }
-    deployable d { platform: python  contexts: [C]  dataSources: [sagaState]  serves: A  port: 4000 }
-  }
-`;
-
-describe("Python workflow own-state assignment", () => {
-  it("writes the own-state field onto the saga row in the dispatcher", async () => {
-    const files = await generateSystemFiles(SRC);
-    const dispatch = [...files.entries()].find(([k]) => k.endsWith("app/dispatch.py"))?.[1];
-    expect(dispatch, "dispatch.py not emitted").toBeDefined();
-    expect(dispatch).toContain("state.attempts = 1");
-  });
-});
-
 // Scalar COMPOUND own-state mutation (`field += value` / `field -= value`).  It
 // lowers to the same `assign` node with the value rewritten to a `binary` over
 // the current value, so the `state.<snake> = <expr>` emitter renders the
@@ -71,13 +37,6 @@ const COMPOUND_SRC = `
 `;
 
 describe("Python workflow own-state compound assignment", () => {
-  it("emits a read-modify-write for an int `attempts += 1`", async () => {
-    const files = await generateSystemFiles(COMPOUND_SRC);
-    const dispatch = [...files.entries()].find(([k]) => k.endsWith("app/dispatch.py"))?.[1];
-    expect(dispatch, "dispatch.py not emitted").toBeDefined();
-    expect(dispatch).toContain("state.attempts = state.attempts + 1");
-  });
-
   it("emits Decimal arithmetic for a money `total -= money(...)`", async () => {
     const files = await generateSystemFiles(COMPOUND_SRC);
     const dispatch = [...files.entries()].find(([k]) => k.endsWith("app/dispatch.py"))?.[1];

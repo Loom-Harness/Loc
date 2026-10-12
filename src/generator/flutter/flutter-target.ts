@@ -39,9 +39,12 @@
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
+import { opGateFor } from "../_walker/op-gate.js";
+import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
@@ -57,7 +60,9 @@ import {
   renderDartCollectionOp,
   renderDartIntrinsic,
 } from "./dart-expr.js";
+import { dartComponentMember, dartMember } from "./dart-member.js";
 import {
+  canProbeProviderName,
   createFormWidgetName,
   destroyFormWidgetName,
   operationFormWidgetName,
@@ -95,6 +100,23 @@ function namedArg(call: ExprIR, name: string): ExprIR | undefined {
   return idx >= 0 ? call.args[idx] : undefined;
 }
 
+/** An `Action`'s `then:` effect as a Dart STATEMENT, run inside the button's
+ *  success branch (M-FT.5) — in the widget tree, so it has a `BuildContext`.
+ *  `toast(<msg>)` shows a snackbar with the author's message; anything else —
+ *  `navigate(<Page>)` included — goes through the walker's shared
+ *  `emitActionThen`, exactly what the JSX frontends run after the mutation. */
+function flutterActionThen(then: ExprIR, ctx: WalkContext): string {
+  if (then.kind === "call" && then.name === "toast" && then.args.length === 1) {
+    const arg = then.args[0]!;
+    const msg = emitExpr(arg, ctx);
+    // A string literal is already a `String`; anything else is interpolated,
+    // the coercion the JS frontends get for free.
+    const text = arg.kind === "literal" && arg.lit === "string" ? msg : `'\${${msg}}'`;
+    return `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${text})));`;
+  }
+  return `${emitActionThen(then, ctx)};`;
+}
+
 /** The aggregate a form primitive's `of:` arg refers to (a bare aggregate ref),
  *  resolved through the walker's `aggregatesByName`, or undefined. */
 function formOfAggregate(
@@ -125,7 +147,7 @@ function routeIdArg(ctx: WalkContext): string {
 function instanceOperation(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { agg: AggregateIR; op: AggregateIR["operations"][number]; idExpr: string } | undefined {
+): OpFormTarget | undefined {
   const argNames = call.argNames ?? [];
   const inst = (call.args ?? []).find((_, i) => !argNames[i]);
   if (inst?.kind !== "member" || inst.receiver.kind !== "ref") return undefined;
@@ -136,7 +158,31 @@ function instanceOperation(
   const idExpr = ctx.paramNames.has(inst.receiver.name)
     ? `${emitExpr(inst.receiver, ctx)}.id`
     : routeIdArg(ctx);
-  return { agg, op, idExpr };
+  // #27 — the instance IS the loaded record, so its `version` is the
+  // optimistic-concurrency precondition the widget sends as `If-Match` (the
+  // Dart twin of the JS clients' `ifMatch(loaded?.version)`).  The receiver
+  // renders through the walker's own scope (a QueryView `data:` binding maps to
+  // the unwrapped provider value), so it names the record in scope here.
+  const versionExpr = sendsIfMatchPrecondition(agg, op)
+    ? `${emitExpr(inst.receiver, ctx)}.version`
+    : undefined;
+  return { agg, op, idExpr, ...(versionExpr ? { versionExpr } : {}) };
+}
+
+/** A resolved op-form reference: the aggregate + op, the Dart expression for the
+ *  record id, and — for a `versioned` update — the loaded record's version. */
+interface OpFormTarget {
+  agg: AggregateIR;
+  op: AggregateIR["operations"][number];
+  idExpr: string;
+  versionExpr?: string;
+}
+
+/** The constructor call of an op-form widget: `UpdateNoteForm(id: id)`, plus
+ *  `expectedVersion:` when the call site holds the loaded record. */
+function opFormWidgetCall(r: OpFormTarget, extra = ""): string {
+  const version = r.versionExpr ? `, expectedVersion: ${r.versionExpr}` : "";
+  return `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr}${version}${extra})`;
 }
 
 /** The op-form widget reference for an instance-qualified `OperationForm`, or
@@ -146,7 +192,38 @@ function instanceOpFormWidget(
   ctx: WalkContext,
 ): string | undefined {
   const r = instanceOperation(call, ctx);
-  return r ? `${operationFormWidgetName(r.agg.name, r.op.name)}(id: ${r.idExpr})` : undefined;
+  return r ? gatedOpFormWidget(r, ctx) : undefined;
+}
+
+/** `<Op><Agg>Form(id: …)`, or — for a `when`-gated op — the same widget inside
+ *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
+ *  page may be a plain `StatelessWidget` with no `ref` of its own). */
+function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
+  if (!opGateFor(ctx, r.agg, r.op)) return opFormWidgetCall(r);
+  const provider = canProbeProviderName(r.agg.name, r.op.name);
+  return `Consumer(builder: (context, ref, _) => ${opFormWidgetCall(r, `, blocked: ref.watch(${provider}(${r.idExpr})).valueOrNull == false`)})`;
+}
+
+/** A `when`-gated op's dialog trigger: watches the `can_<op>` probe, disables
+ *  (with the reason as a tooltip) while it answers false, and re-queries it once
+ *  the dialog closes — the op form pops it on success. */
+function gatedOpTrigger(
+  agg: AggregateIR,
+  op: AggregateIR["operations"][number],
+  idExpr: string,
+  openDialog: string,
+  labelExpr: string,
+  ctx: WalkContext,
+): string | undefined {
+  const gate = opGateFor(ctx, agg, op);
+  if (!gate) return undefined;
+  const provider = canProbeProviderName(agg.name, op.name);
+  return (
+    `Consumer(builder: (context, ref, _) { ` +
+    `final opBlocked = ref.watch(${provider}(${idExpr})).valueOrNull == false; ` +
+    `final opButton = ElevatedButton(onPressed: opBlocked ? null : () async { await ${openDialog}; if (context.mounted) ref.invalidate(${provider}(${idExpr})); }, child: Text(${labelExpr})); ` +
+    `return opBlocked ? Tooltip(message: ${gate.reasonExpr}, child: opButton) : opButton; })`
+  );
 }
 
 /** A route template (`/products/:id`) → a Dart string with `:param` segments
@@ -241,12 +318,19 @@ export const flutterTarget: WalkerTarget = {
   // --- State seam — Riverpod projected-state reads + Notifier writes --------
   // Reads dereference the projected immutable state record the view holds
   // (`state.<field>`); the field keeps its source (camelCase) name.
-  renderStateRead: (ref: StateRef, _pos: RenderPosition) => `state.${ref.name}`,
+  renderStateRead: (ref: StateRef, _pos: RenderPosition) => `state.${dartMember(ref.name)}`,
   // A `derived` binding is NOT a member of the Riverpod state object — it is a
   // getter on the widget (component) / a hoisted local, computed from params +
   // state.  So it reads BARE; spelling it `state.<name>` (the pre-seam default)
   // named a field the `<X>State` data class never declares.
-  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => ref.name,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => dartMember(ref.name),
+  /** Dart spelling for a model-derived identifier — a page/component param, a
+   *  `let` binding, a lambda / `For` binder, an action payload param.  A Dart
+   *  reserved word (`default`, `class`, `new`, `var`, …) is illegal as ANY
+   *  identifier, and Dart has no escape syntax, so it takes the same `<name>_`
+   *  spelling `dartMember` gives a wire field; every other name falls through
+   *  `undefined` and is emitted unchanged. */
+  escapeIdent: (name: string) => (dartMember(name) !== name ? dartMember(name) : undefined),
   // A `state.<field> := <value>` write inside an event handler calls the
   // Notifier's generated `set<Field>` setter (emitted per state cell by
   // `riverpod-emit.ts`; the page shell binds `notifier`).
@@ -267,7 +351,7 @@ export const flutterTarget: WalkerTarget = {
   renderNestedStateWrite: (segments: readonly string[], valueJs: string) => {
     const [root, ...rest] = segments;
     if (!root) return `notifier.${setterName("")}(${valueJs})`;
-    return `notifier.${setterName(root)}(${copyWithChain(`state.${root}`, rest, valueJs)})`;
+    return `notifier.${setterName(root)}(${copyWithChain(`state.${dartMember(root)}`, rest, valueJs)})`;
   },
 
   // --- Store seam — a store is its own Riverpod provider (Stage 5) ---------
@@ -352,6 +436,14 @@ export const flutterTarget: WalkerTarget = {
   // fires on a paged read, so the handle always names the carrier here.)
   renderPagedEnvelopeMember: ({ member, handle }) => `${lowerFirst(handle)}.${member}`,
 
+  /** A wire field named after a Dart RESERVED word (`default`, `enum`,
+   *  `extends`, …) or an `Object` member (`toString`, `hashCode`, …) is the
+   *  `<name>_` member on the generated model (`dart-member.ts`), so
+   *  `row.default` — a parse error — reads `row.default_`.  Every other member
+   *  falls through `undefined` to the shared bare emit. */
+  renderMemberRead: ({ receiver, member }) =>
+    dartMember(member) !== member ? `${receiver}.${dartMember(member)}` : undefined,
+
   /** Dart NAMED RECORD for a find's query bag — `(page: 1, pageSize: 10, …)`.
    *  The shared default is a JavaScript object literal, whose bare `page:` keys
    *  are not Dart identifiers; emitting it verbatim is what made every
@@ -380,8 +472,8 @@ export const flutterTarget: WalkerTarget = {
    *  `InkWell` around text reads as undifferentiated tappable content. */
   renderSortableHeader(spec) {
     const { header, field } = spec;
-    const k = `state.${spec.sortKey.name}`;
-    const d = `state.${spec.sortDir.name}`;
+    const k = `state.${dartMember(spec.sortKey.name)}`;
+    const d = `state.${dartMember(spec.sortDir.name)}`;
     const setK = setterName(spec.sortKey.name);
     const setD = setterName(spec.sortDir.name);
     const q = dartString(field);
@@ -405,7 +497,7 @@ export const flutterTarget: WalkerTarget = {
    *  disables on page 1, Next on the last page — a disabled `TextButton` takes
    *  `onPressed: null`, which is also what greys it out. */
   renderPager(spec) {
-    const p = `state.${spec.page.name}`;
+    const p = `state.${dartMember(spec.page.name)}`;
     const setP = setterName(spec.page.name);
     const total = spec.totalPagesExpr;
     // `const Text('Prev')` only stays const while the label is a literal — a
@@ -435,8 +527,8 @@ export const flutterTarget: WalkerTarget = {
    *  String / num / DateTime, which is every sortable scalar the wire carries.
    *  Unknown key → the rows unchanged, matching the JS targets' `if (!key)`. */
   renderSortedRows(spec) {
-    const k = `state.${spec.sortKey.name}`;
-    const d = `state.${spec.sortDir.name}`;
+    const k = `state.${dartMember(spec.sortKey.name)}`;
+    const d = `state.${dartMember(spec.sortDir.name)}`;
     if (spec.columns.length === 0) return spec.rowsExpr;
     // A money column is a Dart `String` holding the wire's digits (M-T1.21), so
     // the `Comparable` arm below would order it as TEXT — `'10.0000'` before
@@ -446,8 +538,8 @@ export const flutterTarget: WalkerTarget = {
     const arms = spec.columns
       .map((f) =>
         money.has(f)
-          ? `${dartString(f)} => LoomMoney.compare(a.${f}, b.${f})`
-          : `${dartString(f)} => (a.${f} as Comparable).compareTo(b.${f} as Comparable)`,
+          ? `${dartString(f)} => LoomMoney.compare(a.${dartMember(f)}, b.${dartMember(f)})`
+          : `${dartString(f)} => (a.${dartMember(f)} as Comparable).compareTo(b.${dartMember(f)} as Comparable)`,
       )
       .join(", ");
     return (
@@ -506,8 +598,8 @@ export const flutterTarget: WalkerTarget = {
    *  the rows pass through untouched rather than filtering to nothing. */
   renderFilteredRows({ rowsExpr, filter, columns }) {
     if (columns.length === 0) return rowsExpr;
-    const q = `state.${filter.name}`;
-    const vals = columns.map((f) => `row.${f}`).join(", ");
+    const q = `state.${dartMember(filter.name)}`;
+    const vals = columns.map((f) => `row.${dartMember(f)}`).join(", ");
     return (
       `(${rowsExpr}).where((row) { final __q = ${q}.trim().toLowerCase(); ` +
       `return __q.isEmpty || <Object?>[${vals}].any((v) => v != null && ` +
@@ -619,7 +711,7 @@ export const flutterTarget: WalkerTarget = {
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
-    return `${operationFormWidgetName(agg.name, op.name)}(id: id)`;
+    return gatedOpFormWidget({ agg, op, idExpr: "id" }, ctx);
   },
   // `DestroyForm(of: <Agg>)` → `DeleteAggForm(id: id)` (a confirm→DELETE button).
   renderDestroyForm: (call, ctx) => {
@@ -669,12 +761,31 @@ export const flutterTarget: WalkerTarget = {
     // Feliz, and sidesteps the QueryView data-param rename (`p` → the provider var).
     ctx.usesRouteId = true;
     const label = humanize(op.name);
-    const button =
-      `ElevatedButton(onPressed: () async { ` +
+    // A `when`-gated op watches its `can_<op>` probe (`gates.dart`) through a
+    // `Consumer` — the page may have no `ref` of its own — disables while the
+    // probe answers false (reason as tooltip), and re-queries it after a
+    // successful POST.  The author's `then:` effect runs on success in place
+    // of the default "<Op> done" snackbar.
+    const gate = opGateFor(ctx, agg, op);
+    const provider = canProbeProviderName(agg.name, op.name);
+    const thenArg = namedArg(call, "then");
+    const onSuccess =
+      (gate ? `ref.invalidate(${provider}(id)); ` : "") +
+      (thenArg
+        ? flutterActionThen(thenArg, ctx)
+        : `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)})));`);
+    const press =
+      `() async { ` +
       `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
-      `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)}))); ` +
-      `} }, child: Text(${dartString(label)}))`;
+      `${onSuccess} ` +
+      `} }`;
+    const button = gate
+      ? `Consumer(builder: (context, ref, _) { ` +
+        `final opBlocked = ref.watch(${provider}(id)).valueOrNull == false; ` +
+        `final opButton = ElevatedButton(onPressed: opBlocked ? null : ${press}, child: Text(${dartString(label)})); ` +
+        `return opBlocked ? Tooltip(message: ${gate.reasonExpr}, child: opButton) : opButton; })`
+      : `ElevatedButton(onPressed: ${press}, child: Text(${dartString(label)}))`;
     if (ctx.authUi) {
       const gate = opActionGate(op);
       if (gate) {
@@ -738,7 +849,6 @@ export const flutterTarget: WalkerTarget = {
       );
     }
     const { agg, op } = resolved;
-    const widget = operationFormWidgetName(agg.name, op.name);
     // Trigger label — the Button's first positional string literal, else the op.
     const triggerNames = trigger.argNames ?? [];
     const firstPositional = (trigger.args ?? []).find((_, i) => !triggerNames[i]);
@@ -759,11 +869,13 @@ export const flutterTarget: WalkerTarget = {
     // Dart EXPRESSION either way, so it drops straight into `Text(…)`.
     const title =
       localizedNamedValue(call, ctx, "modalTitle", "title") ?? dartString(humanize(op.name));
-    return (
-      `ElevatedButton(onPressed: () => showDialog(context: context, ` +
+    const openDialog =
+      `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
-      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${widget}(id: ${resolved.idExpr}))))), ` +
-      `child: Text(${labelExpr}))`
+      `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)}))))`;
+    return (
+      gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
+      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`
     );
   },
 
@@ -942,7 +1054,10 @@ export const flutterTarget: WalkerTarget = {
         children.push(arg);
         continue;
       }
-      entries.push(`${paramName}: ${emitExpr(arg, ctx)}`);
+      // The named arg is the widget's constructor param, which
+      // `component-emit.ts` spells through `dartComponentMember` (`default` →
+      // `default_`, and a widget/`State` member such as `key` → `key_`).
+      entries.push(`${dartComponentMember(paramName)}: ${emitExpr(arg, ctx)}`);
     }
     if (children.length > 0) {
       // Children are MARKUP, so they walk (not `emitExpr`), in the CALLER's
@@ -1047,6 +1162,15 @@ export const flutterTarget: WalkerTarget = {
   // placeholder never varies.
   renderOptionalSplit: ({ value, bound, present }) =>
     `(switch (${value}) { final ${bound}? => ${present}, _ => const Text(${dartString("—")}) })`,
+  // `LoomRefLabel` (`lib/ref_label.dart`, `flutter/ref-label-runtime.ts`) — the
+  // pack's id `Text` becomes its `fallback`.  The page imports the library off
+  // this call (the `LoomChart(` marker discipline).
+  // The path INTERPOLATES the id (a `+` concat is a `prefer_interpolation_to_
+  // compose_strings` info on every wrapped cell).
+  renderRefLabelWrap: ({ apiPath, idExpr }) => ({
+    open: `LoomRefLabel(path: ${dartString(apiPath).slice(0, -1)}\${${idExpr}}', fallback: `,
+    close: ")",
+  }),
   // Flutter has no CSS `style` attribute — styling is per-widget.  Empty, like
   // Feliz.
   renderStyleAttr: () => "",
@@ -1114,4 +1238,20 @@ export const flutterTarget: WalkerTarget = {
   // JavaScript does, so the shared default is already right here — the seam
   // exists for Feliz's `fun p -> body`.
   renderCollectionOp: (spec) => renderDartCollectionOp(spec),
+};
+
+/** `flutterTarget` for a COMPONENT body / action / `derived` walk.  A
+ *  component compiles to a widget class plus (when stateful) a `State` class,
+ *  whose inherited members (`key`, `build`, `context`, `widget`, `mounted`,
+ *  `setState`, …) a same-named param, action, `let` or binder would clash with
+ *  or shadow.  Component scope therefore spells every model-derived identifier
+ *  through `dartComponentMember` — the declaration sites in `component-emit.ts`
+ *  and the caller's named argument (`renderUserComponent`) use the same
+ *  function, so they cannot disagree.  For any other name it is `dartMember`,
+ *  i.e. byte-identical to `flutterTarget`. */
+export const flutterComponentTarget: WalkerTarget = {
+  ...flutterTarget,
+  escapeIdent: (name: string) =>
+    dartComponentMember(name) !== name ? dartComponentMember(name) : undefined,
+  renderDerivedRead: (ref: StateRef, _pos: RenderPosition) => dartComponentMember(ref.name),
 };

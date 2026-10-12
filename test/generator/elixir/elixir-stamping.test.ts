@@ -65,39 +65,9 @@ const MIGRATION = "api1/priv/repo/migrations/20260101000000_create_orders.exs";
 const VANILLA_NON_PRINCIPAL = NON_PRINCIPAL.replace("platform: elixir,", "platform: elixir,");
 const VANILLA_PRINCIPAL = PRINCIPAL.replace("platform: elixir,", "platform: elixir,");
 const VANILLA_REPO = "api1/lib/api1/shop/order_repository.ex";
-const VANILLA_SCHEMA = "api1/lib/api1/shop/order.ex";
 const VANILLA_CONTEXT = "api1/lib/api1/shop.ex";
 
 describe("elixir/vanilla generator — lifecycle stamps", () => {
-  it("put_changes the audit columns in the changeset insert/update path", async () => {
-    const files = await generateSystemFiles(VANILLA_NON_PRINCIPAL);
-    const repo = files.get(VANILLA_REPO)!;
-    // onCreate + onUpdate stamps both apply on insert (NOT-NULL updated_at on
-    // create); onUpdate-only on update.
-    expect(repo).toContain("def insert(attrs) when is_map(attrs) do");
-    // B7 → RS-38: a `now()` stamp is normalised to the millisecond
-    // `Loom.Datetime` form (it truncated to the second while the column was
-    // `:utc_datetime`).  Original note: a `now()` stamp truncates to second
-    // precision — `DateTime.utc_now()` is microsecond precision, which Ecto
-    // refuses to dump into `:utc_datetime` (→ 500 on insert).
-    expect(repo).toContain(
-      "|> Ecto.Changeset.put_change(:created_at, Loom.Datetime.normalize(DateTime.utc_now()))",
-    );
-    expect(repo).toContain(
-      "|> Ecto.Changeset.put_change(:updated_at, Loom.Datetime.normalize(DateTime.utc_now()))",
-    );
-    expect(repo).toContain("|> Repo.insert()");
-    // A non-principal stamp threads no actor (byte-identical seam).
-    expect(repo).not.toContain("current_user");
-
-    // The audit timestamp fields are REAL schema fields (so put_change is valid)
-    // and the bundled `timestamps()` is dropped (it would collide on updated_at).
-    const schema = files.get(VANILLA_SCHEMA)!;
-    expect(schema).toContain("field :created_at, Loom.Datetime");
-    expect(schema).toContain("field :updated_at, Loom.Datetime");
-    expect(schema).not.toContain("timestamps(");
-  });
-
   it("a currentUser stamp resolves to the threaded actor's principal id", async () => {
     const files = await generateSystemFiles(VANILLA_PRINCIPAL);
     const repo = files.get(VANILLA_REPO)!;

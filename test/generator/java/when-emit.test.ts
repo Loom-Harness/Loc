@@ -1,6 +1,6 @@
 // The `when` canCommand state gate on the Java/Spring Boot backend
-// (criterion.md, use site 2) — the fifth and final backend to ship it, closing
-// `loom.when-unsupported`.
+// (criterion.md, use site 2) — the fifth and final backend to ship it (its
+// per-backend support gate has since been deleted).
 //
 // A `when`-gated operation loads the aggregate, evaluates the predicate over
 // its current state (enum values → `<Enum>.<Value>`, read through the entity's

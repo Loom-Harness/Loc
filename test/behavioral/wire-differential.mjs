@@ -332,7 +332,45 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
     await dispatch({ method: "PATCH", url: origin + collection.pathname, headers: json, body: "{}" });
   }
   await dispatch({ method: "GET", url: origin + "/__loom_no_such_path", headers: { ...__authHeaders } });
-  await dispatch({ method: "POST", url: origin + collection.pathname, headers: json, body: "{not json" });
+  // The malformed-body probe fires only where POST is actually SERVED on this
+  // collection — evidenced by the tier's own successful POST to it.
+  //
+  // Its subject is the BODY PARSER.  On a collection that serves no POST it
+  // cannot reach the parser at all: it measures whichever layer answers first,
+  // and the backends legitimately differ there — node routes before reading the
+  // body and answers 405, elixir parses at the endpoint (BodyParser is plugged
+  // in endpoint.ex, ahead of the router) and answers 400.  Both are RFC-legal,
+  // so a probe that lands on an unserved POST is measuring a DIFFERENT THING on
+  // each backend, which is not a test of its subject.  Measured on
+  // \`corpus/handler-triad\`, whose create-less \`Order\` serves no POST: it was
+  // the only one of 63 cases where this fired, and it cost that case its whole
+  // behavioural tier (M-T6.73).
+  //
+  // This is the same step-aside \`usedPatch\` above already makes, for the same
+  // reason, so it restores a convention rather than adding an exemption.
+  //
+  // The condition is derived from the CASE, never from the response: the tier's
+  // request sequence is one emitted file replayed against every backend, so
+  // every leg reaches the same verdict and the recordings keep the same LENGTH.
+  // Deciding per-response (drop it when the answer is 405) would have node skip
+  // the entry and elixir keep it, shifting every later ordinal — the probes are
+  // appended precisely so they never do that.
+  //
+  // \`__wire\` and \`__urls\` are pushed together, so they are index-aligned; the
+  // recorded path is templated, which is why the RAW url is what gets compared.
+  // A 2xx is required: a POST the tier made that was itself refused is no
+  // evidence the method is served.
+  const tierPostedHere = __wire.some((e, i) => {
+    if (e.method !== "POST" || e.status < 200 || e.status >= 300) return false;
+    try {
+      return new URL(__urls[i]).pathname === collection.pathname;
+    } catch {
+      return false;
+    }
+  });
+  if (tierPostedHere) {
+    await dispatch({ method: "POST", url: origin + collection.pathname, headers: json, body: "{not json" });
+  }
   await __absentReadProbes(dispatch);
   // The AUTH arm, which no recording ever reached: an emitted suite always
   // authenticates successfully, which is how all five backends came to answer
@@ -483,6 +521,37 @@ const __absentReadProbes = async (dispatch) => {
 // silently passed: under the dev stub there is no anonymous caller to express
 // (the emitted verifier accepts every request and falls back to its built-in
 // identity), so that rung is unavailable rather than green.
+// The refusal envelope a 401 / 403 must carry (M-T9.25).  Returns the list of
+// violations — empty when the response is a conforming problem document.
+// Header names arrive lower-cased (every runner builds the map with
+// Headers.forEach), so the lookups are too.
+const __refusalEnvelope = (res, status) => {
+  const out = [];
+  const headers = res?.headers ?? {};
+  const ct = String(headers["content-type"] ?? "");
+  if (!ct.toLowerCase().startsWith("application/problem+json")) {
+    out.push("content-type is " + JSON.stringify(ct) + ", not application/problem+json");
+  }
+  let body = null;
+  try { body = JSON.parse(res?.body ?? ""); } catch { out.push("body is not JSON: " + String(res?.body ?? "").slice(0, 120)); }
+  if (body !== null && typeof body === "object") {
+    const title = status === 401 ? "Unauthorized" : "Forbidden";
+    if (body.status !== status) out.push("status member " + JSON.stringify(body.status) + " != " + status);
+    if (body.title !== title) out.push("title " + JSON.stringify(body.title) + " != " + JSON.stringify(title));
+    if (typeof body.type !== "string" || body.type.length === 0) out.push("type member missing");
+    if (typeof body.detail !== "string" || body.detail.length === 0) out.push("detail member missing");
+  } else if (body !== null) {
+    out.push("body is not a JSON object");
+  }
+  if (status === 401) {
+    const challenge = String(headers["www-authenticate"] ?? "");
+    if (!challenge.trim().toLowerCase().startsWith("bearer")) {
+      out.push("WWW-Authenticate is " + JSON.stringify(challenge) + ", not a Bearer challenge");
+    }
+  }
+  return out;
+};
+
 const __authzLadder = async (spec, creds, dispatch) => {
   if (!spec || !dispatch) return [];
   const first = __urls.map((u) => { try { return new URL(u); } catch { return null; } }).find(Boolean);
@@ -510,30 +579,35 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // operation whose emitted event a folded read model needs) — they run in
   // order under the authorized principal, and the first id any of them returns
   // is the one \`{id}\` substitutes.
-  const seedSteps = Array.isArray(spec.seed) ? spec.seed : [spec.seed];
-  let id = null;
-  for (const step of seedSteps) {
-    const r = await dispatch({
-      method: step.method ?? "POST",
-      url: origin + step.path.replace("{id}", id ?? ""),
-      headers: json(authorized),
-      ...withBody(step.method ?? "POST", step.body),
-    });
-    const st = r?.response?.status;
-    if (!(st >= 200 && st < 300)) {
-      push("authz ladder: seed", "fail", \`seed \${step.method ?? "POST"} \${step.path} → \${st}: \${String(r?.response?.body ?? "").slice(0, 200)}\`);
-      return out;
+  // Run seed steps under the authorized principal; the first id any step
+  // returns is the one \`{id}\` substitutes.  Null (with a failed result pushed)
+  // when a step is refused or no step returns an id.
+  const seedRows = async (seed, label) => {
+    const seedSteps = Array.isArray(seed) ? seed : [seed];
+    let sid = null;
+    for (const step of seedSteps) {
+      const r = await dispatch({
+        method: step.method ?? "POST",
+        url: origin + step.path.replace("{id}", sid ?? ""),
+        headers: json(authorized),
+        ...withBody(step.method ?? "POST", step.body),
+      });
+      const st = r?.response?.status;
+      if (!(st >= 200 && st < 300)) {
+        push(label, "fail", \`seed \${step.method ?? "POST"} \${step.path} → \${st}: \${String(r?.response?.body ?? "").slice(0, 200)}\`);
+        return null;
+      }
+      if (sid === null) {
+        try {
+          sid = JSON.parse(r?.response?.body ?? "{}")?.id ?? null;
+        } catch { /* handled by the null check below */ }
+      }
     }
-    if (id === null) {
-      try {
-        id = JSON.parse(r?.response?.body ?? "{}")?.id ?? null;
-      } catch { /* handled by the null check below */ }
-    }
-  }
-  if (!id) {
-    push("authz ladder: seed", "fail", \`seed \${seedSteps[0].path}: no id in any seed response body\`);
-    return out;
-  }
+    if (!sid) push(label, "fail", \`seed \${seedSteps[0].path}: no id in any seed response body\`);
+    return sid;
+  };
+  const id = await seedRows(spec.seed, "authz ladder: seed");
+  if (!id) return out;
 
   // ONE spec may gate SEVERAL surfaces — the read side alone has three distinct
   // emission sites (gated list read, folded projection, query-time projection)
@@ -547,9 +621,17 @@ const __authzLadder = async (spec, creds, dispatch) => {
     body: g.body,
     label: g.label ?? null,
     arms: g.arms ?? spec.arms,
+    // A surface may SEED ITS OWN ROW (M-T9.28 residue): the spec-level seed
+    // carries ONE \`{id}\`, so a second aggregate's row — or a fresh row for a
+    // surface whose arms would otherwise act on one another's leftovers (a
+    // destroy after an update) — was unaddressable.  Run immediately before
+    // this surface's arms, under the authorized principal, like the spec seed.
+    seed: g.seed ?? null,
+    // Why a \`null\` arm on THIS surface is skipped (overrides anonymousNote).
+    note: g.note ?? null,
   }));
 
-  const arm = async (surface, rung, headers, expected, skipNote) => {
+  const arm = async (surface, rung, headers, expected, skipNote, sid) => {
     const where = surface.label ? \`\${surface.label} — \` : "";
     if (expected === null || expected === undefined) {
       push(\`authz ladder: \${where}\${rung} (skipped — \${skipNote ?? spec.anonymousNote ?? "not expressible"})\`, "skip");
@@ -557,7 +639,7 @@ const __authzLadder = async (spec, creds, dispatch) => {
     }
     const r = await dispatch({
       method: surface.method,
-      url: origin + surface.path.replace("{id}", id),
+      url: origin + surface.path.replace("{id}", sid),
       headers: json(headers),
       ...withBody(surface.method, surface.body),
     });
@@ -567,6 +649,22 @@ const __authzLadder = async (spec, creds, dispatch) => {
       got === expected ? "pass" : "fail",
       got === expected ? undefined : \`expected \${expected}, got \${got}: \${String(r?.response?.body ?? "").slice(0, 200)}\`,
     );
+    // M-T9.25 — the refusal's WIRE CONTRACT, on the booted app.  The status arm
+    // above says the gate refused; this says HOW, against the two RFCs rather
+    // than against any emitter: RFC 7807 (an application/problem+json body
+    // whose status member equals the HTTP status and whose title is the
+    // RFC 9110 reason phrase) and, on a 401, RFC 9110 §15.5.2 + RFC 6750 §3
+    // (a WWW-Authenticate Bearer challenge — a MUST).  The recorded golden pins
+    // the BODY five ways already (#2541); it records no HEADERS, so the
+    // content type and the challenge had no runtime witness at all.
+    if (got === expected && (got === 401 || got === 403)) {
+      const problems = __refusalEnvelope(r?.response, got);
+      push(
+        \`authz ladder: \${where}\${rung} → \${got} is an RFC 7807 problem\${got === 401 ? " with a Bearer challenge" : ""}\`,
+        problems.length === 0 ? "pass" : "fail",
+        problems.length === 0 ? undefined : problems.join("; "),
+      );
+    }
   };
 
   // Order matters: the two DENIED arms run first, so the surface is still in its
@@ -583,8 +681,13 @@ const __authzLadder = async (spec, creds, dispatch) => {
   // tenancy statement, and an undeclared arm skips (see \`arm\`) rather than
   // inventing an expectation.
   for (const s of surfaces) {
-    await arm(s, "unauthenticated", {}, s.arms.anonymous);
-    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized);
+    let sid = id;
+    if (s.seed) {
+      sid = await seedRows(s.seed, \`authz ladder: \${s.label ?? s.path} — seed\`);
+      if (!sid) continue;
+    }
+    await arm(s, "unauthenticated", {}, s.arms.anonymous, null, sid);
+    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized, s.note, sid);
     if (s.arms.otherTenant !== undefined) {
       await arm(
         s,
@@ -592,9 +695,10 @@ const __authzLadder = async (spec, creds, dispatch) => {
         otherTenant,
         otherTenant ? s.arms.otherTenant : null,
         "this system's auth flavour carries no tenancy claim to vary",
+        sid,
       );
     }
-    await arm(s, "authorized", authorized, s.arms.authorized);
+    await arm(s, "authorized", authorized, s.arms.authorized, s.note, sid);
   }
   return out;
 };`;

@@ -16,6 +16,11 @@ Model: 320 `.ddd` lines → 225 files (one backend + one frontend + notifier), o
 
 ## Headline
 
+> **Recount 2026-09-29 (eval-closure review G8-08d):** the findings table below has **23 rows**
+> (F-023 was added after this headline was written), so the counts are **23 findings, S1 ×11**.
+> The headline sentence is kept as written. Still open on `main`: F-008 (→ M-T8.28), F-009 (a
+> feature; mission-only), F-019 (README claims, eval-closure #47) and F-018's residue (→ M-T8.27).
+
 22 findings. **S1 ×10, S2 ×6, S3 ×6.** By class: **SILENT 12, HONEST 4,
 DOCUMENTED 3, docs-vs-reality 2, reconciliation 1.**
 
@@ -107,10 +112,10 @@ silently widening a PR. Recorded here so they are not lost:
 
 | What | Where | Why deferred |
 |---|---|---|
-| `with crudish, auditable` emits `createdBy: User id` against a `User` aggregate the model need not declare — the generated Java fails with `symbol: class UserId`. 12-line repro. | `crudish` + `auditable` interaction | Unrelated to any wave's brief; wants its own issue |
+| `with crudish, auditable` emits `createdBy: User id` against a `User` aggregate the model need not declare — the generated Java fails with `symbol: class UserId`. 12-line repro. | `crudish` + `auditable` interaction | Unrelated to any wave's brief; wants its own issue. **Fixed** by #2960 (re-verified 2026-09-29: `crudish, auditable` on java emits `String createdBy`) |
 | Other .NET entity members a field can collide with (`Create`, `AssertInvariants`, `Id`, …) — the same class as F-015, partly gated by `loom.dotnet-name-collision` | `dotnet/emit/entity.ts` | Separate defect class; F-015's fix is class-proof for the holder only |
 | A cross-context value object reached **only through a workflow** still degrades — `java/emit/workflow*.ts` and `elixir/**` still resolve against `ctx.valueObjects` | java + elixir workflow emitters | Those dirs were reserved to another wave; named as a known gap in #2925 |
-| `loom.workflow-foreach-unknown-binding` false-positives on a loop-body `factory-let` (pre-existing, reproduces identically on `main`) | `ir/validate/checks/workflow-checks.ts` | Pre-existing; fix location identified, not this wave's |
+| `loom.workflow-foreach-unknown-binding` false-positives on a loop-body `factory-let` (pre-existing, reproduces identically on `main`) | `ir/validate/checks/workflow-checks.ts` | Pre-existing; fix location identified, not this wave's. **Fixed** by b383852a (#2911) |
 | A domain `valueobject` named after a walker primitive **captured** the primitive in lowering, silently disabling every CallIR-keyed page validator | `lowerBuilderCall` | **Fixed** in #2925 via `Env.ui` — noted here because it is F-014's mirror image, from the lowering side rather than the validator side |
 
 ## Correction to F-001, recorded 2026-09-14

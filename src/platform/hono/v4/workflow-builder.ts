@@ -17,6 +17,12 @@ import {
   MIKRO_OUTBOX_ROW_CLASS,
   mikroWorkflowRowClass,
 } from "../../../generator/typescript/emit/mikroorm.js";
+import {
+  RAW_INSTANT_FN,
+  rawInstantFields,
+  rawRowWireExpr,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
@@ -57,13 +63,34 @@ import {
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
-import { emitWireSchema, wireToDomainExpr, zodFor, zodForResponse } from "./routes-builder.js";
+import {
+  escapeTsIdent,
+  lowerFirst,
+  plural,
+  snake,
+  upperFirst,
+  workflowFnCamel,
+} from "../../../util/naming.js";
+import {
+  emitWireSchema,
+  txWrapperCall,
+  wireToDomainExpr,
+  zodFor,
+  zodForResponse,
+} from "./routes-builder.js";
 
 /** The `db` handle's TS type in an emitted workflow function signature —
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
@@ -165,6 +192,8 @@ export function buildWorkflowsFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        // Exact decimal refines: this file's decimal.js import is body-scanned.
+        "exact",
       ),
     );
   }
@@ -388,7 +417,9 @@ export function buildWorkflowsFile(
     `    const problem = (status: ${wfProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   body.push(
-    `    if (err instanceof ForbiddenError) return problem(${wfForbiddenStatus}, ${JSON.stringify(problemTitle(wfForbiddenStatus))}, err.message);`,
+    // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
+    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(problemTitle(wfForbiddenStatus))}, err.detail); }`,
   );
   body.push(
     // The state-gate rung, ordered before `DomainError` as in the aggregate
@@ -574,8 +605,14 @@ export function buildWorkflowsFile(
   // the EntityManager over the generated Row entities (db/entities.ts) instead
   // of Drizzle.  Both imports are body-scan-gated so a drizzle build never sees
   // them (byte-identical) and a mikro build with no state store drops them.
-  if (/(?<!\.)\bEntityManager\b/.test(bodyStr))
-    imports.push(`import { EntityManager } from "@mikro-orm/postgresql";`);
+  // `IsolationLevel` rides the same import when a transactional workflow pins
+  // an isolation level under mikroorm (see `mikroIsolationLevel`).
+  const mikroNames = [
+    /(?<!\.)\bEntityManager\b/.test(bodyStr) ? "EntityManager" : "",
+    /(?<!\.)\bIsolationLevel\./.test(bodyStr) ? "IsolationLevel" : "",
+  ].filter((n) => n !== "");
+  if (mikroNames.length > 0)
+    imports.push(`import { ${mikroNames.join(", ")} } from "@mikro-orm/postgresql";`);
   const workflowRowsReferenced = ctx.workflows
     .filter((w) => !w.eventSourced && !!w.correlationField)
     .map(mikroWorkflowRowClass)
@@ -689,7 +726,11 @@ export function buildWorkflowsFile(
     );
   }
 
-  return [...imports, "", ...body].join("\n") + "\n";
+  // The raw-row canonical-instant helper the instance-read routes call — module
+  // level, and only when a route actually references it (an unused function is an
+  // error under the generated-project Biome config, like every import above).
+  const instantHelper = hasRef(RAW_INSTANT_FN) ? [...renderRawInstantHelper(), ""] : [];
+  return [...imports, "", ...instantHelper, ...body].join("\n") + "\n";
 }
 
 /** Every resource-op call in a workflow's statements (bare or let-bound). */
@@ -762,7 +803,9 @@ function hasAuditedOpCall(ctx: BoundedContextIR, sts: WorkflowStmtIR[]): boolean
 function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const name = workflowFnCamel(wf.name, fn.name);
     const head = `function ${name}(${params}): ${renderTsType(fn.returnType)}`;
     if ("expr" in fn.body) {
@@ -888,7 +931,7 @@ function emitWorkflowRoute(
   // Map param names to local consts at the top of the route handler.
   // Avoids re-computing brand conversions on every reference.
   for (const p of wf.params) {
-    out.push(`    const ${p.name} = ${paramExprs.get(p.name)};`);
+    out.push(`    const ${escapeTsIdent(p.name)} = ${paramExprs.get(p.name)};`);
   }
   // Bind the request-scoped current user when the workflow body
   // references `currentUser` (in a guard / precondition / expr).  The
@@ -1011,8 +1054,17 @@ function emitWorkflowRoute(
   const stateSave = (handle: string, ind: string): string[] =>
     corrParam ? [`${ind}await save${upperFirst(wf.name)}(${handle}, state);`] : [];
   if (wf.transactional) {
-    const txOpts = wf.isolation ? `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }` : ``;
-    out.push(`${bi}await db.transaction(async (tx) => {${""}`);
+    // The adapter's transaction seam (shared with the audited / provenanced
+    // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
+    // EntityManager has no `transaction` (TS2551).  The isolation option is
+    // spelled per adapter too: drizzle takes the space-cased string, MikroORM
+    // its `IsolationLevel` enum (a bare string literal is not assignable).
+    const txOpts = wf.isolation
+      ? usingMikro
+        ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
+        : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
+      : ``;
+    out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
       out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
     }
@@ -1025,7 +1077,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}  await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
@@ -1043,7 +1095,7 @@ function emitWorkflowRoute(
     out.push(...stmtChunks.flat());
     pushFragment(stmtChunks);
     for (const save of wf.savesAtExit) {
-      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+      out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
     }
     out.push(...stateSave("db", bi));
     out.push(...renderProvFlush(provSaves, bi, "db"));
@@ -1143,6 +1195,10 @@ function emitInstanceRoutes(
   const rowClass = mikroWorkflowRowClass(wf);
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
+  // The instance-row props whose value arrives as a JS `Date` (see
+  // `raw-row-wire.ts`) — off the same `instanceWireShape` the response DTO above
+  // is built from, so the two cannot disagree about which field is an instant.
+  const instants = rawInstantFields(wf.instanceWireShape);
   const out: string[] = [];
   // List.
   out.push(`app.openapi(`);
@@ -1167,8 +1223,14 @@ function emitInstanceRoutes(
   } else {
     out.push(`    const rows = await db.select().from(${table});`);
   }
+  // RS-4 — an instance row goes out RAW (no repository `toWire` on this path),
+  // so a `datetime` state column would serialise through `Date.prototype.toJSON`
+  // and ship the padded `.000` fraction no other backend ships.  A
+  // datetime-free workflow keeps the verbatim `rows` expression.
+  const rowsExpr =
+    instants.length === 0 ? "rows" : `rows.map((r) => (${rawRowWireExpr("r", instants)}))`;
   out.push(
-    `    return httpCtx.json(rows as unknown as z.infer<typeof ${T}InstanceListResponse>, 200);`,
+    `    return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>, 200);`,
   );
   out.push(`  },`);
   out.push(`);`);
@@ -1239,7 +1301,9 @@ function emitInstanceRoutes(
     out.push(`    const row = rows[0];`);
     out.push(`    if (!row) throw new AggregateNotFoundError(\`${T} \${id} not found\`);`);
   }
-  out.push(`    return httpCtx.json(row as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`);
+  out.push(
+    `    return httpCtx.json(${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`,
+  );
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -1815,7 +1879,8 @@ function emitHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   if (persisted && durable) {
@@ -1937,7 +2002,8 @@ function emitEventSourcedHandlerFn(
       });
     }
   }
-  for (const save of saves) out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${save.name});`);
+  for (const save of saves)
+    out.push(`${bi}await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   out.push(...renderProvFlush(provSaves, bi, "db"));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
@@ -1990,15 +2056,57 @@ function buildProducerOutboxFile(ctx: EnrichedBoundedContextIR, usingMikro = fal
 
 function emitDispatcherFactory(byEvent: Map<string, string[]>, usingMikro = false): string[] {
   const out: string[] = [];
+  // Reactor failure isolation (H-28, workflow.md § "Reactor failures").  The
+  // request path dispatches AFTER the command committed, so a reactor throw
+  // must not turn that committed command into an error the client then
+  // retries into the state gate.  `isolateReactorFailures` (set by `createApp`
+  // and the boot script's request-path instance) runs each handler on its
+  // own and logs its failure `reactor_failed` instead of rethrowing it.  No
+  // inline retry: a reactor's side effects (a sent mail) are not idempotent,
+  // and redelivery is what a DURABLE channel's outbox relay is for.  The
+  // DEFAULT stays throwing — the relay, broker consumers and the timer
+  // scheduler drive this same factory and need the throw for their own
+  // retry / redelivery / dead-letter bookkeeping.
+  const hasHandlers = byEvent.size > 0;
+  out.push(`export interface InProcessDispatchOptions {`);
+  out.push(`  /** Log + swallow a reactor's failure instead of rethrowing it. */`);
+  out.push(`  isolateReactorFailures?: boolean;`);
+  out.push(`}`);
+  out.push(``);
+  if (hasHandlers) {
+    out.push(`async function runReactor(`);
+    out.push(`  opts: InProcessDispatchOptions,`);
+    out.push(`  handler: string,`);
+    out.push(`  event: Events.DomainEvent,`);
+    out.push(`  run: () => Promise<void>,`);
+    out.push(`): Promise<void> {`);
+    out.push(`  if (!opts.isolateReactorFailures) return run();`);
+    out.push(`  try {`);
+    out.push(`    await run();`);
+    out.push(`  } catch (err) {`);
+    out.push(
+      `    const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
+    );
+    out.push(
+      `    ${renderHonoStoreLogCall("reactorFailed", "handler, event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)")}`,
+    );
+    out.push(`  }`);
+    out.push(`}`);
+    out.push(``);
+  }
   out.push(`export function createInProcessDispatcher(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
+  out.push(`  ${hasHandlers ? "opts" : "_opts"}: InProcessDispatchOptions = {},`);
   out.push(`): DomainEventDispatcher {`);
   out.push(`  const dispatcher: DomainEventDispatcher = {`);
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      switch (event.type) {`);
   for (const [event, fns] of byEvent) {
     out.push(`        case "${event}": {`);
-    for (const fn of fns) out.push(`          await ${fn}(db, dispatcher, event);`);
+    for (const fn of fns)
+      out.push(
+        `          await runReactor(opts, "${fn}", event, () => ${fn}(db, dispatcher, event));`,
+      );
     out.push(`          break;`);
     out.push(`        }`);
   }
@@ -2020,25 +2128,50 @@ function collectReposFromStmts(
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
   const seen = new Map<string, string>();
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete")
-        seen.set(st.repoName, st.aggName);
-      else if (st.kind === "for-each") {
-        for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-        walk(st.body);
-      } else if (st.kind === "if-let") {
-        seen.set(st.repoName, st.aggName);
-        for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-        for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(statements);
+  for (const root of statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
   for (const save of saves) seen.set(save.repoName, save.aggName);
   return [...seen.entries()].map(([repoName, aggName]) => ({ repoName, aggName }));
+}
+
+/** The repositories ONE workflow statement names directly — its own
+ *  `repoName`/`aggName` pair plus every save it stages.
+ *
+ *  Split out of the two collectors above/below so both ride
+ *  `walkWorkflowStmtsDeep` for the RECURSION (the `for-each` / `if-let` nesting
+ *  is the walker's business, not a per-collector hand-rolled copy — CLAUDE.md
+ *  "no hand-rolled IR walks") and share one per-kind rule.  `walkWorkflowStmtsDeep`
+ *  yields the roots too, so this is called on every reachable statement. */
+function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
+  switch (st.kind) {
+    case "repo-let":
+    case "repo-run":
+    case "repo-delete":
+      seen.set(st.repoName, st.aggName);
+      break;
+    case "for-each":
+      for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
+      break;
+    case "if-let":
+      seen.set(st.repoName, st.aggName);
+      for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
+      for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
+      break;
+    case "precondition":
+    case "requires":
+    case "expr-let":
+    case "assign":
+    case "emit":
+    case "factory-let":
+    case "op-call":
+    case "resource-call":
+    case "domain-service-call":
+      // Name no repository of their own.
+      break;
+    default: {
+      const _exhaustive: never = st;
+      void _exhaustive;
+    }
+  }
 }
 
 // The Hono leaf table for the shared workflow statement spine
@@ -2083,12 +2216,12 @@ export function honoWorkflowStmtTarget(
     },
     factoryLet: (st, indent) => {
       const fields = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`).join(", ");
-      return [`${indent}const ${st.name} = ${st.aggName}.create({ ${fields} });`];
+      return [`${indent}const ${escapeTsIdent(st.name)} = ${st.aggName}.create({ ${fields} });`];
     },
     repoLet: (st, indent) => {
       const args = st.args.map(renderArg).join(", ");
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
       ];
     },
     opCall: (st, indent) => {
@@ -2166,7 +2299,7 @@ export function honoWorkflowStmtTarget(
       // repo-let arm (`lowerFirst(repoName)`).
       return [`${indent}await ${lowerFirst(st.repoName)}.delete(${renderArg(st.entity)}.id);`];
     },
-    exprLet: (st, indent) => [`${indent}const ${st.name} = ${renderArg(st.expr)};`],
+    exprLet: (st, indent) => [`${indent}const ${escapeTsIdent(st.name)} = ${renderArg(st.expr)};`],
     // `field := value` — own-state mutation: write `value` onto the loaded
     // correlation-state row (`thisName` = `state` on the persisted-state path),
     // which `save<Wf>(db, state)` flushes at handler exit.
@@ -2184,7 +2317,7 @@ export function honoWorkflowStmtTarget(
         args.push(`{ ${parts.join(", ")} }`);
       }
       return [
-        `${indent}const ${st.name} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
+        `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")});`,
       ];
     },
     forEach: (st, indent, bodyLines) => {
@@ -2193,10 +2326,10 @@ export function honoWorkflowStmtTarget(
       // INSIDE the loop (aggregate events drain through the same save).
       const inner = `${indent}  `;
       const saveLines = st.savesPerIteration.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       return [
-        `${indent}for (const ${st.var} of ${renderArg(st.iterable)}) {`,
+        `${indent}for (const ${escapeTsIdent(st.var)} of ${renderArg(st.iterable)}) {`,
         ...bodyLines,
         ...saveLines,
         `${indent}}`,
@@ -2211,14 +2344,14 @@ export function honoWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("{ limit: 1 }");
       const thenSaves = st.savesInThen.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const elseSaves = st.savesInElse.map(
-        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${sv.name});`,
+        (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${st.var} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
-        `${indent}if (${st.var} !== null) {`,
+        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
       ];
@@ -2313,29 +2446,24 @@ function serviceReadPorts(
 ): ReadPort[] {
   const byRepo = new Map<string, ReadPort>();
   const visit = (e: ExprIR): void => {
-    if (e.kind === "call" && e.callKind === "domain-service" && e.serviceRef) {
-      const svc = ctx.domainServices.find((s) => s.name === e.serviceRef!.service);
-      const operation = svc?.operations.find((o) => o.name === e.serviceRef!.op);
-      if (operation) {
-        for (const p of readPortsForOperation(operation)) {
-          if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
-        }
-      }
-    }
-    for (const c of exprChildren(e)) visit(c);
-  };
-  const walkStmts = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      for (const e of workflowStmtExprs(st)) visit(e);
-      if (st.kind === "for-each") walkStmts(st.body);
-      else if (st.kind === "if-let") {
-        walkStmts(st.thenBody);
-        walkStmts(st.elseBody ?? []);
-      }
+    if (e.kind !== "call" || e.callKind !== "domain-service" || !e.serviceRef) return;
+    const svc = ctx.domainServices.find((s) => s.name === e.serviceRef?.service);
+    const operation = svc?.operations.find((o) => o.name === e.serviceRef?.op);
+    if (!operation) return;
+    for (const p of readPortsForOperation(operation)) {
+      if (!byRepo.has(p.repo)) byRepo.set(p.repo, p);
     }
   };
-  walkStmts(statements);
-  for (const e of extraExprs) visit(e);
+  // Ride the sanctioned walkers for BOTH levels (CLAUDE.md "no hand-rolled IR
+  // walks").  The two hand-rolled enumerations this replaced each had holes of
+  // the #2720/M-T6.50 class: the statement-level one carried no arm for
+  // `domain-service-call` / `assign` / `repo-delete` / `repo-run`, and the
+  // expression-level one none for `match` / `list` / `convert` / `duration` /
+  // `i18nFormat` / `authz-filter` / a block-bodied lambda's statements — so a
+  // `reading`-tier service call in any of those slots derived NO read port and
+  // the emitted handler was missing the repository it needs.
+  for (const st of statements) walkWorkflowStmtExprsDeep(st, visit);
+  for (const e of extraExprs) walkExprDeep(e, visit);
   return [...byRepo.values()];
 }
 
@@ -2377,59 +2505,6 @@ function mergeServiceReadPortRepos(
   return out;
 }
 
-/** The expressions a workflow statement directly carries (one level — the
- *  per-kind nesting is handled by `collectServiceReadPorts`'s spine walk). */
-function workflowStmtExprs(st: WorkflowStmtIR): ExprIR[] {
-  switch (st.kind) {
-    case "expr-let":
-      return [st.expr];
-    case "precondition":
-    case "requires":
-      return [st.expr];
-    case "resource-call":
-      return [st.call];
-    case "op-call":
-    case "repo-let":
-      return st.args;
-    case "factory-let":
-    case "emit":
-      return st.fields.map((f) => f.value);
-    case "for-each":
-      return [st.iterable];
-    case "if-let":
-      return st.retrievalArgs;
-    default:
-      return [];
-  }
-}
-
-/** Direct sub-expressions of an ExprIR (for the read-port call scan). */
-function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "member":
-      return [e.receiver];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "unary":
-      return [e.operand];
-    case "paren":
-      return [e.inner];
-    case "call":
-      return e.args;
-    case "new":
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "lambda":
-      return e.body ? [e.body] : [];
-    default:
-      return [];
-  }
-}
-
 export function collectReposForWorkflow(wf: {
   statements: WorkflowStmtIR[];
   savesAtExit: { name: string; aggName: string; repoName: string }[];
@@ -2438,23 +2513,7 @@ export function collectReposForWorkflow(wf: {
   aggName: string;
 }[] {
   const seen = new Map<string, string>();
-  const walk = (stmts: WorkflowStmtIR[]): void => {
-    for (const st of stmts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run" || st.kind === "repo-delete")
-        seen.set(st.repoName, st.aggName);
-      else if (st.kind === "for-each") {
-        for (const sv of st.savesPerIteration) seen.set(sv.repoName, sv.aggName);
-        walk(st.body);
-      } else if (st.kind === "if-let") {
-        seen.set(st.repoName, st.aggName);
-        for (const sv of st.savesInThen) seen.set(sv.repoName, sv.aggName);
-        for (const sv of st.savesInElse) seen.set(sv.repoName, sv.aggName);
-        walk(st.thenBody);
-        walk(st.elseBody ?? []);
-      }
-    }
-  };
-  walk(wf.statements);
+  for (const root of wf.statements) walkWorkflowStmtsDeep(root, (st) => collectRepoRefs(st, seen));
   for (const save of wf.savesAtExit) seen.set(save.repoName, save.aggName);
   return [...seen.entries()].map(([repoName, aggName]) => ({
     repoName,
@@ -2464,6 +2523,22 @@ export function collectReposForWorkflow(wf: {
 
 /** Drizzle-postgres `isolationLevel` enum values are space-cased
  *  lowercase strings.  Map DSL camelCase tokens onto them. */
+/** MikroORM's `IsolationLevel` enum member for an IR isolation level — the
+ *  mikroorm twin of `pgIsolationLevel` (`transactional`'s option is typed by
+ *  the enum, so the string spelling does not type-check). */
+function mikroIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
+  switch (level) {
+    case "readUncommitted":
+      return "IsolationLevel.READ_UNCOMMITTED";
+    case "readCommitted":
+      return "IsolationLevel.READ_COMMITTED";
+    case "repeatableRead":
+      return "IsolationLevel.REPEATABLE_READ";
+    case "serializable":
+      return "IsolationLevel.SERIALIZABLE";
+  }
+}
+
 function pgIsolationLevel(level: import("../../../ir/types/loom-ir.js").IsolationLevel): string {
   switch (level) {
     case "readUncommitted":
@@ -2539,7 +2614,8 @@ function* workflowSchemaSeeds(ctx: BoundedContextIR): Generator<TypeIR> {
 function collectUsedValueObjects(ctx: BoundedContextIR) {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(workflowSchemaSeeds(ctx), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(ctx: BoundedContextIR) {

@@ -13,6 +13,7 @@
 // orders them wrongly), which is why the predicate lives here rather than twice.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import { containmentRowKey, rowShapeByKey } from "../../_frontend/optional-member.js";
 import type { WalkContext } from "../walker-core.js";
 import { extendLambdaParams } from "../walker-core.js";
 
@@ -25,8 +26,8 @@ export function rowFieldPrimitive(
   ctx: WalkContext,
 ): string | undefined {
   if (!field || !rowAggregate) return undefined;
-  const agg = ctx.aggregatesByName.get(rowAggregate);
-  const t = agg?.fields.find((x) => x.name === field)?.type;
+  const shape = rowShapeByKey(rowAggregate, ctx);
+  const t = shape?.fields.find((x) => x.name === field)?.type;
   const base = t?.kind === "optional" ? t.inner : t;
   return base?.kind === "primitive" ? base.name : undefined;
 }
@@ -111,6 +112,14 @@ export function cellRowAggregate(
 ): string | undefined {
   if (!rowsArg) return undefined;
   if (rowsArg.kind === "ref") return ctx.listRowAggregates?.get(rowsArg.name);
+  // A CONTAINMENT read — `noteById.data.lines` on a detail page — yields rows
+  // of the contained PART, and is the third reason a list cell walked with an
+  // unknown row type (F-021).  Tried before the `rows.items` envelope shape
+  // below because that one keys off the RECEIVER's binding, which for a
+  // containment is the parent record and would answer with the parent
+  // aggregate — every cell then typed against the wrong shape, silently.
+  const contained = containmentRowKey(rowsArg, ctx);
+  if (contained) return contained;
   if (rowsArg.kind === "member" && rowsArg.receiver.kind === "ref") {
     return ctx.listRowAggregates?.get(rowsArg.receiver.name);
   }

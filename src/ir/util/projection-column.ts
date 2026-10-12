@@ -41,7 +41,8 @@
 //   node / mikroorm      `b."amount_amount"`            flattened, snake hops
 //   python / SQLAlchemy  `BillRow.amount_amount`        flattened, snake hops
 //   dotnet / EF Core     `o.Amount.Amount`              OWNED object path
-//   dotnet / dapper      `"amount_amount"`              flattened, snake hops
+//   dotnet / dapper      `("amount"->>'Amount')::numeric`   ONE jsonb column
+//                        (System.Text.Json, PascalCase keys) — an extraction
 //   java / JPA           `e.amount.amount`              EMBEDDED object path
 //   elixir / Ecto        the whole VO is ONE `:map` (jsonb) column, so the leaf
 //                        is a jsonb extraction, not a column at all

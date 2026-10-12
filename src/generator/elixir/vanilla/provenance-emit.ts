@@ -370,11 +370,33 @@ function leavesResolveToColumns(e: ExprIR, columns: ReadonlySet<string>): boolea
       return leavesResolveToColumns(e.operand, columns);
     case "binary":
       return leavesResolveToColumns(e.left, columns) && leavesResolveToColumns(e.right, columns);
-    default:
-      // member walks, method calls, derived getters, conversions, `currentUser`
-      // — none read cleanly off the applied struct; leave the site uncaptured
-      // rather than emit code that raises at runtime.
+    // Member walks, method calls, derived getters, conversions, `currentUser`
+    // — none read cleanly off the applied struct; leave the site uncaptured
+    // rather than emit code that raises at runtime.  `false` is the
+    // conservative answer (no provenance row, never a broken one).  Named
+    // rather than left to a `default:` so a new `ExprIR` kind is a decision.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 
@@ -395,8 +417,33 @@ function paramLeafNames(e: ExprIR, out: string[] = []): string[] {
       paramLeafNames(e.left, out);
       paramLeafNames(e.right, out);
       break;
-    default:
+    // Unreachable by construction, not merely harmless: the only caller runs
+    // this over `renderableUpdateProvSites`' statements, and that gate already
+    // required `leavesResolveToColumns`, whose admitted vocabulary is exactly
+    // `literal | ref | paren | unary | binary`.  The two switches must stay
+    // arm-for-arm aligned, which is what the `never` below enforces.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       break;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+    }
   }
   return out;
 }

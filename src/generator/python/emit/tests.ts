@@ -12,8 +12,9 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { escapePythonIdent, snake } from "../../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import {
+  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestLiteral,
   type TestLiteralTarget,
@@ -110,6 +111,18 @@ function renderPySubjectTests(
 
   const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
   const subjectNames = subjectImport ? subjectImport.symbols.filter(refs) : [];
+  // …and every OTHER aggregate in the context the body names.  A test body may
+  // legally reach for a sibling aggregate — the validator admits it, and it is
+  // the only way to exercise a value object holding a CROSS-aggregate reference
+  // (`Berth { ship: Ship id }` needs a `Ship` to get an id from).  Scoping the
+  // import to the subject alone emitted `Ship.create(...)` with no `Ship`
+  // bound: ruff `F821`, and a `NameError` when the test runs.  Each sibling
+  // has its own module, so this is one `from … import` each, narrowed by the
+  // same body scan as everything else here.  Freight audit D3 follow-up.
+  const siblingAggs = ctx.aggregates
+    .filter((a) => a.name !== describeName && refs(a.name))
+    .map((a) => a.name)
+    .sort();
   const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
     .filter(refs)
     .sort();
@@ -169,6 +182,9 @@ function renderPySubjectTests(
   if (usesActor) out.push("from app.auth.user import User");
   if (subjectImport && subjectNames.length > 0) {
     out.push(`from ${subjectImport.module} import ${subjectNames.join(", ")}`);
+  }
+  for (const name of siblingAggs) {
+    out.push(`from app.domain.${snake(name)} import ${name}`);
   }
   if (idNames.length > 0) {
     out.push(`from app.domain.ids import ${idNames.join(", ")}`);
@@ -247,7 +263,7 @@ export function renderTestExpr(
     const recv = renderTestExpr(e.receiver, ctx, lets);
     const rt = e.receiver.memberType;
     const inner = rt.kind === "optional" ? rt.inner : rt;
-    return `cast(${renderPyType(inner)}, ${recv}).${snake(e.member)}`;
+    return `cast(${renderPyType(inner)}, ${recv}).${pythonIdent(e.member)}`;
   }
   // Calls of currentUser-gated ops thread the synthetic actor as the
   // trailing argument (mirrors the TS test emitter).  The aggregate
@@ -280,7 +296,7 @@ export function renderTestExpr(
       // A currentUser-gated op's method signature carries a trailing
       // `current_user` parameter; thread the synthetic actor.
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
-      return `${recv}.${snake(e.member)}(${args.join(", ")})`;
+      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
     }
   }
   if (
@@ -317,7 +333,7 @@ export function renderCreateInput(
   return obj.fields
     .map((f) => {
       const t = declared.get(f.name);
-      return `${snake(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
+      return `${pythonIdent(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
     })
     .join(", ");
 }
@@ -401,7 +417,10 @@ export function renderExplicitMatcher(
       : `    assert ${expected} in ${actual}`;
   }
   if (!op) return null;
-  const cmp = `${actual} ${op} ${expected}`;
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as a `datetime`, so a value stored as the raw string fails.
+  const dt = coerceMatcherExpected(expr, expected, PY_TEST_LITERAL);
+  const cmp = `${actual} ${op} ${dt ?? expected}`;
   return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
 }
 

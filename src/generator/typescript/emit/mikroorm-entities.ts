@@ -368,10 +368,52 @@ function collectionFieldColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): Mikro
 function mikroPropertyLine(c: MikroColumn): string {
   const parts = [`type: "${c.mikroType}"`];
   if (c.primary) parts.push("primary: true");
-  if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
-  if (c.array) parts.push("array: true");
+  if (c.array) {
+    // `array: true` alone is inert on a SCALAR property: MikroORM 6 wraps a
+    // scalar in its `ArrayType` only for a `string[]`/`number[]`/`array` TYPE
+    // name (or an enum with `items`), so the value went through the element's
+    // scalar type instead — an `int[]` was bound as the JSON text `[7,2,9]`
+    // into `integer[]`, and a `text[]` hydrated as the raw `{a,b}` literal
+    // (wave C3 D1/D3).  The explicit `customType` marshals both directions, and
+    // the pinned `columnType` keeps the native element column.
+    parts.push(`columnType: "${c.columnType ?? mikroArrayColumnType(c.mikroType)}"`);
+    parts.push(`customType: new ArrayType(${mikroArrayToJs(c.mikroType)})`);
+  } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
   if (c.nullable) parts.push("nullable: true");
   return `    ${c.prop}: { ${parts.join(", ")} },`;
+}
+
+/** The Postgres array column for a scalar-collection element's mikro type
+ *  (a precise numeric element carries its own `columnType` already). */
+function mikroArrayColumnType(elementMikroType: string): string {
+  switch (elementMikroType) {
+    case "integer":
+    case "bigint":
+    case "boolean":
+    case "uuid":
+      return `${elementMikroType}[]`;
+    case "datetime":
+      return "timestamptz[]";
+    default:
+      return "text[]";
+  }
+}
+
+/** The per-element JS conversion `ArrayType` applies on read — the SAME value
+ *  the element's scalar mikro type would hydrate (`long` is a JS number, as
+ *  its scalar twin). An empty string is `ArrayType`'s identity default. */
+function mikroArrayToJs(elementMikroType: string): string {
+  switch (elementMikroType) {
+    case "integer":
+    case "bigint":
+      return "(i) => +i";
+    case "boolean":
+      return '(i) => i === true || i === "t" || i === "true"';
+    case "datetime":
+      return "(i) => (i instanceof Date ? i : new Date(i))";
+    default:
+      return "";
+  }
 }
 
 function renderPartRowEntity(
@@ -894,7 +936,9 @@ export function renderMikroEntities(
       "// MikroORM persistence model — Row entities mapped to the relational",
       "// tables.  Kept separate from the rich domain aggregates; the per-",
       "// aggregate repository maps between them.",
-      `import { EntitySchema } from "@mikro-orm/core";`,
+      blocks.some((b) => b.includes("new ArrayType("))
+        ? `import { ArrayType, EntitySchema } from "@mikro-orm/core";`
+        : `import { EntitySchema } from "@mikro-orm/core";`,
       "",
       ...blocks,
       `export const entities = [${schemaNames.join(", ")}];`,

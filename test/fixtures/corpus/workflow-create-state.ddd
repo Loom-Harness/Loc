@@ -68,16 +68,31 @@ system WorkflowCreateState {
         orderId: Order id
         status: string
         attempts: int
+        // A COMPOUND own-state write (`+=`), in the create AND in the reactor:
+        // a read-modify-write of the saga row that each backend spells
+        // differently (an EF property, an Ecto changeset, a JPA setter over an
+        // accessor).  The folded values in the e2e below are the claim (M-T9.42
+        // promotion of the int arms of the `*-workflow-own-state-assign.test.ts`
+        // string copies).  The MONEY arm (`credit -= money(…)`) is not carried
+        // here: promoting it found that the node oracle reloads a saga's money
+        // column as a string and 500s on `.minus` in the reactor, and that
+        // MikroORM serializes a saga money field without its scale ("9.5"
+        // where every other leg answers "9.5000") — both handed off,
+        // wave-c3-3d-promote D20/D21.
+        retries: int
 
         create(orderId: Order id) {
           status := "Pending"
           attempts := 0
+          retries := 0
+          retries += 1
         }
 
         // Routes by name-match onto the row the create above persisted.
         on(e: OrderShipped) {
           status := "Shipped"
           attempts := attempts + 1
+          retries += 1
         }
       }
 
@@ -144,6 +159,7 @@ system WorkflowCreateState {
     expect(started.orderId).toBe(ord.id)
     expect(started.status).toBe("Pending")
     expect(started.attempts).toBe(0)
+    expect(started.retries).toBe(1)
 
     // ④ The event. `ship()` flips the aggregate and emits OrderShipped, which
     // the in-process dispatcher routes to `on(e: OrderShipped)` — the reactor
@@ -152,6 +168,7 @@ system WorkflowCreateState {
     let shipped = api.fulfillment.instance(ord)
     expect(shipped.status).toBe("Shipped")
     expect(shipped.attempts).toBe(1)
+    expect(shipped.retries).toBe(2)
     let order = api.orders.getById(ord)
     expect(order.status).toBe("Shipped")
 

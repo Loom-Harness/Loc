@@ -1,0 +1,73 @@
+name: SAST over generated auth + tenancy
+
+# M-T3.14 — generated security code deserves generated-code security scanning.
+# The emitted OIDC PKCE / refresh flow and the tenant-isolation predicates get
+# the same correctness gates as any other emitter, and until this one no
+# SECURITY scan.  A small, targeted semgrep ruleset (test/sast/loom-auth-tenancy.yml
+# — not a general sweep) runs over the emitted source of the authorization /
+# tenancy corpus fixtures on all five backends:
+#
+#   forbidden — a hardcoded client secret, a logged OAuth token, a query-time
+#               aggregation missing the tenant floor (audit A1), an EF bypass
+#               lifting every filter incl. a `policy { deny }` carve-out
+#               (F2-ADP-1);
+#   required  — the OIDC callback binds `state` to its cookie; the token
+#               exchange sends the PKCE verifier.
+#
+# Every rule re-finds its own historical defect on every run (test/sast/
+# registers.ts SEEDS, applied to a copy of the emitted tree) — the ruleset's
+# standing mutation proof.  The static twin of the runtime deny legs (M-T3.13)
+# and a second mechanism beside the emitted-source authz census (M-T9.41).
+#
+# NOT per-PR: nightly, on demand via the `security` label, and manual dispatch.
+
+on:
+  schedule:
+    - cron: '23 3 * * *'     # 03:23 UTC nightly
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sast:
+    # Schedule / manual always; on a PR only when the `security` label is set.
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'security'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install semgrep
+        run: python -m pip install semgrep==1.178.0
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Build toolchain
+        run: npm run build
+
+      - name: Scan the generated auth + tenancy code
+        env:
+          LOOM_SAST: '1'
+        run: npx vitest run test/e2e/sast-generated.test.ts

@@ -597,7 +597,9 @@ describe("mikroorm capability gating (loom.mikroorm-unsupported)", () => {
     expect(errors.filter((e) => /persistence: mikroorm/.test(e))).toEqual([]);
     expect(files.size).toBeGreaterThan(0);
     const entities = files.get("api/db/entities.ts")!;
-    expect(entities).toContain('tags: { type: "string", array: true },');
+    expect(entities).toContain(
+      'tags: { type: "string", columnType: "text[]", customType: new ArrayType() },',
+    );
     // The same field on drizzle still generates (native Postgres array).
     const drizzle = await emit(sys("drizzle", "tags: string[]"));
     expect(drizzle.errors).toEqual([]);
@@ -1679,7 +1681,7 @@ describe("mikroorm — workflow (saga) correlation store is persistence-neutral"
     // pins the same fact (the cascade's dispatcher is the default); it just no
     // longer pins the ABSENCE of the tee.
     expect(httpIndex).toContain(
-      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db)),",
+      "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
     );
   });
 });

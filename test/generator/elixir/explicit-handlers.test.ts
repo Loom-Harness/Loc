@@ -3,10 +3,13 @@
 // `commandHandler` / `queryHandler` context members + `route <M> "<path>" ->
 // <Ctx>.<Handler>` api bindings emit `<App>.<Ctx>.Handlers.<Name>` `run/1`
 // modules (reusing the bespoke `with`-chain workflow engine) + one
-// `<Api>RoutesController` spliced into the router ROOT `scope "/"` (at the
-// route's absolute declared path, clear of the auto-CRUD `/api` routes).  The generated
-// project compiles clean under `mix compile --warnings-as-errors` (gated on
-// demand via LOOM_PHOENIX_VANILLA_BUILD).
+// `<Api>RoutesController` spliced into `scope "/api"` ahead of the derived
+// aggregate routes (M-T6.73 — an explicit route is a domain route and serves
+// under `API_BASE_PATH`; a route whose `/api` slot an auto-derived route already
+// holds keeps the historical root mounting, see the scaffold case at the bottom
+// of this file).  The generated project compiles clean under
+// `mix compile --warnings-as-errors` (gated on demand via
+// LOOM_PHOENIX_VANILLA_BUILD).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -94,27 +97,32 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
     expect(ctrl).toContain("def respond(conn, {:error, :not_found})");
   });
 
-  it("splices the explicit routes into the router ROOT scope, not /api (braces → :snake path params)", async () => {
-    // The explicit `route "<path>" -> ...` path is absolute, so it must serve at
-    // that path in the root `scope "/"` (controller carries the `ApiWeb.` prefix
-    // since the root scope has no module alias) — NOT nested under `scope "/api"`,
-    // where it would both mis-serve (`/api/orders/...`) and shadow the auto-CRUD
-    // routes (Phoenix ignores param names → `--warnings-as-errors` failure).
+  it('splices the explicit routes into `scope "/api"`, ahead of the derived routes (braces → :snake path params)', async () => {
+    // M-T6.73 — an explicit route is a DOMAIN route, so it serves under
+    // `API_BASE_PATH` like every other route class.  It used to land in the root
+    // `scope "/"`, where `POST /api/orders/.../cancellations` (the path every
+    // caller asks for, including the one `src/system/e2e-render.ts` emits) 404'd
+    // while the project compiled clean.
+    //
+    // Inside `scope "/api", ApiWeb` the controller is written in its BARE
+    // (aliased) form, and the routes lead the scope: Phoenix matches in
+    // declaration order and the explicit emitter runs after the per-aggregate
+    // one, so an appended route with a static segment where a derived route has
+    // a param would never match.
     const router = fileEndingWith(await files(), "lib/api_web/router.ex");
-    expect(router).toContain(
-      'post "/orders/:order_id/cancellations", ApiWeb.SalesApiRoutesController, :cancel_order',
+    const apiBlock = router.slice(router.indexOf('scope "/api"'));
+    expect(apiBlock).toContain(
+      'post "/orders/:order_id/cancellations", SalesApiRoutesController, :cancel_order',
     );
-    expect(router).toContain(
-      'get "/orders/:order_id/status", ApiWeb.SalesApiRoutesController, :get_status',
+    expect(apiBlock).toContain(
+      'get "/orders/:order_id/status", SalesApiRoutesController, :get_status',
     );
-    // The explicit routes live in the root scope, above `scope "/api"`.
-    const rootIdx = router.indexOf('scope "/" do');
-    const apiIdx = router.indexOf('scope "/api"');
-    expect(rootIdx).toBeGreaterThanOrEqual(0);
-    expect(router.indexOf("SalesApiRoutesController")).toBeGreaterThan(rootIdx);
-    expect(router.indexOf("SalesApiRoutesController")).toBeLessThan(apiIdx);
-    // …and NOT the bare (aliased) form that `scope "/api"` would emit.
-    expect(router).not.toContain('", SalesApiRoutesController, :cancel_order');
+    // Ahead of the derived aggregate routes.
+    expect(apiBlock.indexOf("SalesApiRoutesController")).toBeLessThan(
+      apiBlock.indexOf("OrderController"),
+    );
+    // …and NOT the `!root:`-spliced, Web-qualified form the root scope emits.
+    expect(router).not.toContain("ApiWeb.SalesApiRoutesController");
   });
 });
 

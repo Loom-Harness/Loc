@@ -157,7 +157,3 @@ const PG_RESERVED_IDENTS: ReadonlySet<string> = new Set([
 export function isReservedIdent(name: string): boolean {
   return PG_RESERVED_IDENTS.has(name);
 }
-
-/** The set itself, for tests that want to enumerate it. Emitters should use
- *  `isReservedIdent` (or their own quoting wrapper over it). */
-export const PG_RESERVED_IDENT_WORDS: ReadonlySet<string> = PG_RESERVED_IDENTS;

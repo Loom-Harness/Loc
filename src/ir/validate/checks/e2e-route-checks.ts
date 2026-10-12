@@ -36,6 +36,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import {
   buildCreateInput,
@@ -519,48 +520,6 @@ function checkApiVerb(
   return false;
 }
 
-/** The three workflow verbs against the two conditions the backends mount their
- *  workflow routes on.  An unknown verb is NOT diagnosed here — `test-checks.ts`
- *  already raised `loom.e2e-unknown-method#workflow` for it, and a second
- *  diagnostic for one call is noise (the same division the aggregate arms keep).
- */
-function checkWorkflowVerb(
-  call: MagicCall,
-  wf: WorkflowIR,
-  source: string,
-  diags: LoomDiagnostic[],
-): void {
-  if (call.verb === "run") {
-    // An EVENT-triggered facade is a reactor the in-process dispatcher starts;
-    // every backend's workflow emitter skips the POST for it, so calling
-    // `.run()` would emit a request nothing answers (405).
-    if (emitsCommandRoute(wf)) return;
-    diags.push({
-      severity: "error",
-      code: "loom.e2e-unrouted-verb",
-      source,
-      message: diagMessage("loom.e2e-unrouted-verb#workflow-run", {
-        slug: call.slug,
-        workflow: wf.name,
-      }),
-    });
-    return;
-  }
-  if (call.verb === "instances" || call.verb === "instance") {
-    if (emitsInstanceRoutes(wf)) return;
-    diags.push({
-      severity: "error",
-      code: "loom.e2e-unrouted-verb",
-      source,
-      message: diagMessage("loom.e2e-unrouted-verb#workflow-instance", {
-        slug: call.slug,
-        verb: call.verb,
-        workflow: wf.name,
-      }),
-    });
-  }
-}
-
 /** Does the route `renderApiCall` will emit for `verb` exist in the derivation?
  *  The arms are in the RENDERER's resolution order, not in a more charitable
  *  one — `create` is routed to `POST /<aggs>` before any operation lookup, so a
@@ -904,6 +863,7 @@ function checkBody(
             key: entry.name,
             workflow: site.workflow ?? "",
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       } else if (site.kind === "create") {
@@ -916,6 +876,7 @@ function checkBody(
             key: entry.name,
             aggregate: site.aggregate ?? "",
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       } else {
@@ -928,6 +889,7 @@ function checkBody(
             verb: call.verb,
             key: entry.name,
             known: contract.map((c) => c.name).join(", ") || "(none)",
+            suggestion: nearestName(entry.name, byName.keys()),
           }),
         });
       }
@@ -1180,6 +1142,7 @@ function checkWorkflowInstanceRead(
       slug: call.slug,
       workflow: wf.name,
       known: readable.join(", ") || "(none)",
+      suggestion: nearestName(field, readable),
     }),
   });
 }
@@ -1244,6 +1207,7 @@ function checkResponseFields(
         verb: call.verb,
         aggregate: resolved.agg.name,
         known: readable.join(", ") || "(none)",
+        suggestion: nearestName(e.member, readable),
       }),
     });
   };

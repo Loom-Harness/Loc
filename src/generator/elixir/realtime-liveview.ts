@@ -48,8 +48,37 @@ export function exprUsesBind(e: ExprIR, bind: string): boolean {
       return exprUsesBind(e.inner, bind);
     case "binary":
       return exprUsesBind(e.left, bind) || exprUsesBind(e.right, bind);
-    default:
+    // Outside the v1 toast subset, so unreachable rather than merely safe:
+    // this predicate mirrors `renderMessageExprElixir`'s supported vocabulary
+    // (literal / ref / member / paren / binary) arm for arm, and
+    // `loom.toast-message-unsupported`
+    // (`src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem`)
+    // refuses every kind below at phase ⑦ — the renderer would `throw` on one.
+    // Named rather than left to a `default:` so the three vocabularies (gate,
+    // renderer, this predicate) have to move together.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
+    case "unary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 

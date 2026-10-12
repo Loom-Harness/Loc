@@ -35,36 +35,35 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 
 /**
- * The measured baseline of 2026-09-10, applying
- * `max(10, ceil_to_5min(p95 x 1.5))`. Change a number here only alongside a
- * fresh `node test/behavioral/ci-budget-report.mjs` run, and update the table
- * in docs/ci-gating.md in the same commit.
+ * The measured baseline, applying `max(10, ceil_to_5min(p95 x 1.5))`. Change a
+ * number here only alongside a fresh `node test/behavioral/ci-budget-report.mjs`
+ * run, and update the table in docs/ci-gating.md in the same commit.
  */
 const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
   ["behavioral-e2e.yml", 10],
   ["behavioral-e2e-python.yml", 10],
   ["behavioral-e2e-java.yml", 30],
-  ["behavioral-e2e-dotnet.yml", 15],
-  ["behavioral-e2e-dapper.yml", 15],
-  ["behavioral-e2e-mikroorm.yml", 20],
+  ["behavioral-e2e-dotnet.yml", 25],
+  ["behavioral-e2e-dapper.yml", 20],
+  ["behavioral-e2e-mikroorm.yml", 25],
   ["behavioral-e2e-elixir.yml", 20],
 ];
 
 /**
- * The job-execution p95 each budget above was derived FROM, in seconds, as
- * measured on 2026-09-10 (n=40 for java, n=15 for the rest). Kept so the
+ * The job-execution p95 each budget above was derived FROM, in seconds (java
+ * measured 2026-09-10 at n=40; the rest 2026-10-05 at n=20). Kept so the
  * ratchet can re-run the rule rather than trusting the arithmetic was done
  * right once — the number in the workflow must be what the rule produces from
  * the number in the doc, not merely a number three files agree on.
  */
 const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
-  "behavioral-e2e.yml": 204, // 3m24s
-  "behavioral-e2e-python.yml": 277, // 4m37s
+  "behavioral-e2e.yml": 237, // 3m57s
+  "behavioral-e2e-python.yml": 385, // 6m25s
   "behavioral-e2e-java.yml": 1186, // 19m46s — censored, see docs/ci-gating.md
-  "behavioral-e2e-dotnet.yml": 499, // 8m19s
-  "behavioral-e2e-dapper.yml": 434, // 7m14s
-  "behavioral-e2e-mikroorm.yml": 635, // 10m35s
-  "behavioral-e2e-elixir.yml": 687, // 11m27s
+  "behavioral-e2e-dotnet.yml": 828, // 13m48s
+  "behavioral-e2e-dapper.yml": 782, // 13m02s
+  "behavioral-e2e-mikroorm.yml": 905, // 15m05s
+  "behavioral-e2e-elixir.yml": 730, // 12m10s
 };
 
 const read = (p: string) => readFileSync(path.join(repo, p), "utf8");

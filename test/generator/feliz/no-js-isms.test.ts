@@ -24,7 +24,13 @@ const JS_ISMS: ReadonlyArray<{ re: RegExp; why: string }> = [
     why: "JS `undefined` (F# uses None / ()) — the walker's unresolved-ref fallback",
   },
   { re: /mutateAsync|\.mutate\(/, why: "React-query mutation (the shared emitAction React path)" },
-  { re: /\buse(State|Navigate|Params|Form|Session|Memo|Effect)\b/, why: "a React hook" },
+  // A BARE hook is the JS leak; `React.useState` / `React.useEffect` is Feliz's
+  // own (valid F#) hook API, which a `[<ReactComponent>]` child legitimately
+  // calls — the `LoomRefLabel` reference-label child and the DataGrid child.
+  {
+    re: /(?<!React\.)\buse(State|Navigate|Params|Form|Session|Memo|Effect)\b/,
+    why: "a React hook",
+  },
   { re: /\/\*/, why: "a JS block comment (F# uses `(*`)" },
   { re: / => /, why: "a JS arrow (F# uses `->`)" },
   { re: /\$\{/, why: "a JS template-literal placeholder" },

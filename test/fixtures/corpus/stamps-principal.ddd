@@ -1,0 +1,83 @@
+// PRINCIPAL-valued lifecycle stamps (capabilities.md) — the half of
+// `stamps.ddd` that needs a caller.  `stamps.ddd` stamps two timestamps on an
+// auth-less deployable; the stamp every audit-shaped feature actually leans on
+// is WHO did it, and nothing booted ever read one back.
+//
+// PROMOTED (M-T9.42) from the per-backend `*-stamping.test.ts` string copies
+// (dotnet/elixir/hono/python), which each pinned how their emitter SPELLS the
+// principal read — EF's `RequestContext.Current!.CurrentUser!.Id` through
+// entry metadata, Ecto's `put_change` off the threaded actor, the node
+// helper's ambient read, python's `_stamp_on_create` off the threaded
+// principal.  What those spellings are FOR is the value in the row, so that is
+// what this fixture asserts, on every leg: a capability that stamps the bare
+// `currentUser` (the principal's id) crossed with a CLAIM-valued context stamp
+// (`ownerRole := currentUser.role`) — two contributors' create rules on one
+// aggregate, the shape where one emitter used to keep only the first
+// contributor's rules.
+//
+//   - the claim stamp carries the principal's CLAIM, not its id;
+//   - the bare `currentUser` stamp carries the principal's id;
+//   - create-only stamps are create-only: an update leaves them
+//     byte-identical, including the instant.
+//
+// Deliberately NOT the prelude `auditable`: its `updatedBy` is an onUpdate
+// stamp, and python leaves it "" on a fresh row where the other four write the
+// creator — a divergence handed off with its repro rather than hidden here
+// (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md).
+system StampsPrincipal {
+  user { id: string  role: string }
+  capability owned {
+    createdAt: datetime, createdBy: string
+    stamp onCreate {
+      createdAt := now()
+      createdBy := currentUser.id
+    }
+  }
+  subdomain Desk {
+    context Desk {
+      stamp onCreate { ownerRole := currentUser.role }
+      aggregate Ticket with crudish {
+        implements owned
+        title: string
+        ownerRole: string managed
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  api DeskApi from Desk
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "a principal stamp writes the caller, and a create stamp never moves" against d {
+    let t = api.tickets.create({ title: "Printer" })
+    let read = api.tickets.getById(t)
+    expect(read.title).toBe("Printer")
+    // The CLAIM-valued stamp: the dev-stub principal's `role` claim…
+    expect(read.ownerRole).toBe("agent")
+    // …and the bare principal stamp: its id, which is not the role.
+    expect(read.createdBy == read.ownerRole).toBe(false)
+
+    api.tickets.update(t, { title: "Printer 2" })
+    let updated = api.tickets.getById(t)
+    expect(updated.title).toBe("Printer 2")
+    // Create-only stamps do not move on update.
+    expect(updated.createdAt).toBe(read.createdAt)
+    expect(updated.createdBy).toBe(read.createdBy)
+    expect(updated.ownerRole).toBe("agent")
+
+    let listed = api.tickets.all()
+    expect(listed.total).toBe(1)
+    expect(listed.items.first().ownerRole).toBe("agent")
+
+    api.tickets.destroy(t)
+    expect(api.tickets.getById(t)).toThrow(404)
+  }
+}

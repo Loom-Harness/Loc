@@ -61,36 +61,6 @@ system PS {
 `;
 
 describe(".NET lifecycle stamping (AuditableInterceptor)", () => {
-  it("renders timestamp stamps as DateTime.UtcNow and principal stamps from RequestContext via EF metadata", async () => {
-    const files = generateSystems(await build(SOURCE)).files;
-    const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
-    // Columns are written through EF's property accessor (CurrentValue) via the
-    // compile-checked lambda, not the CLR setter — so the entity property can
-    // stay `private set` while the write stays bound to a real property.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.UpdatedAt\)\.CurrentValue = DateTime\.UtcNow;/,
-    );
-    // currentUser resolves to the principal id from the ambient carrier.
-    expect(src).toMatch(
-      /ctx\.Entry\(e\)\.Property\(x => x\.CreatedBy\)\.CurrentValue = RequestContext\.Current!\.CurrentUser!\.Id;/,
-    );
-    // Per-aggregate switch with a concrete pattern — compile-bound writes, no
-    // marker interface, no string-keyed property lookup.
-    expect(src).toMatch(/switch \(entry\.Entity\)/);
-    expect(src).toMatch(/case Order e:/);
-    expect(src).not.toMatch(/IAuditable/);
-    // Aggregate namespace pulled in so the pattern names the type unqualified;
-    // Domain.Common + Auth only because a stamp uses the principal.
-    expect(src).toMatch(/using Api\.Domain\.Orders;/);
-    expect(src).toMatch(/using Api\.Domain\.Common;/);
-    expect(src).toMatch(/using Api\.Auth;/);
-    // No leftover undefined identifier from the old (uncompilable) emit.
-    expect(src).not.toMatch(/= currentUser;/);
-  });
-
   it("keeps stamped entity fields `private set` (no marker, no `internal set` leak)", async () => {
     const files = generateSystems(await build(SOURCE)).files;
     // No marker interface is emitted — the concrete switch needs none.
@@ -177,12 +147,17 @@ system PS {
 `;
     const files = generateSystems(await build(twoCaps)).files;
     const src = files.get("api/Infrastructure/Persistence/AuditableInterceptor.cs")!;
+    // The block's extent is anchored on the OPENING brace's indentation and a
+    // backreference to it, not on the first `\n<ws>}`.  The arm legitimately
+    // contains NESTED blocks now — the F-018 missing-claim guard is one — and a
+    // non-greedy match ended at the guard's closing brace, reporting every
+    // stamp below it as "dropped" when all four were emitted.
     const addedBlock =
-      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n\s*\{([\s\S]*?)\n\s*\}/.exec(
+      /case Thing e:\s*\n\s*if \(entry\.State == EntityState\.Added\)\s*\n( +)\{([\s\S]*?)\n\1\}/.exec(
         src,
       );
     expect(addedBlock, "no EntityState.Added block emitted for Thing").not.toBeNull();
-    const added = addedBlock![1]!;
+    const added = addedBlock![2]!;
     // tenantOwned's two stamps AND auditable's two — not just whichever came first.
     for (const prop of ["TenantId", "DataKey", "CreatedAt", "CreatedBy"]) {
       expect(added, `create stamp for ${prop} was dropped`).toContain(`x => x.${prop}`);

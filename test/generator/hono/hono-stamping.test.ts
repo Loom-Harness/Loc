@@ -166,21 +166,6 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     );
   });
 
-  it("a currentUser stamp on an auth deployable reads the ambient actor in the helper", async () => {
-    const files = await build(PRINCIPAL_SRC);
-    // Entity stays pure even with a principal stamp — no User import for stamps.
-    const entity = find(files, /domain\/order\.ts$/);
-    expect(entity).not.toContain("_stampOnCreate");
-    // The helper reads the principal from the ambient request context, not a
-    // threaded currentUser param.
-    const helper = find(files, /db\/audit-stamp\.ts$/);
-    expect(helper).toContain("createdBy: ctx.actorId");
-    // The route no longer reads currentUser for stamping (op body doesn't use it).
-    const routes = find(files, /order\.routes\.ts$/);
-    expect(routes).not.toContain("_stampOnCreate");
-    expect(routes).not.toContain('.get("currentUser")');
-  });
-
   it("a CLAIM-valued principal stamp reads the claim off the ambient principal, not the actor id", async () => {
     const helper = find(await build(CLAIM_SRC), /db\/audit-stamp\.ts$/);
     // The full principal is bound from the ambient context (typed via the

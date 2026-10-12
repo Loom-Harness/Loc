@@ -269,8 +269,13 @@ const JAVA_KEYWORDS = new Set([
   "null",
 ]);
 
-/** Python keywords + soft keywords unsafe as a plain binding.  Escaped with a
- *  trailing underscore. */
+/** Python's HARD keywords — the words that cannot be an identifier anywhere.
+ *  Escaped with a trailing underscore.  The soft keywords (`match`, `case`,
+ *  `type`, `_`) are deliberately absent: PEP 634/695 keep them legal as a
+ *  binding, attribute, parameter and `def` name, so `case: string` stays
+ *  `case` on python exactly as it does on node/elixir (pinned by
+ *  `java-reserved-identifier.test.ts`), and a declaration and its reads —
+ *  `pythonIdent` vs `escapePythonIdent` — always agree. */
 const PYTHON_KEYWORDS = new Set([
   "False",
   "None",
@@ -307,8 +312,6 @@ const PYTHON_KEYWORDS = new Set([
   "while",
   "with",
   "yield",
-  "match",
-  "case",
 ]);
 
 /** Elixir reserved words / special forms unsafe as a plain variable binding.
@@ -367,24 +370,41 @@ export function escapeJavaIdent(name: string): string {
   return JAVA_KEYWORDS.has(name) ? `${name}_` : name;
 }
 
-/** Does `name` collide with a Java reserved word?  The predicate behind
- *  `src/generator/java/java-ident.ts`'s `isMangled`, which decides whether a
- *  DECLARED member needs its wire spelling pinned back on: `escapeJavaIdent` is
- *  a RENAME (`case` → `case_`), harmless for a local binding the emitter also
- *  declares, but a renamed record component is a renamed JSON property — so on
- *  a wire-carrying declaration the rename always travels with an explicit
- *  `@JsonProperty` / `@RequestParam` / converter (M-T6.36).  C# needs none of
- *  this (`@case` is lexically the identifier `case`), which is why the .NET arm
- *  of F2-ADP-7 is a one-line escape and the java arm is a funnel. */
-export function isJavaKeyword(name: string): boolean {
-  return JAVA_KEYWORDS.has(name);
-}
-
 /** Escape a (already snake_cased) local identifier that collides with a
  *  Python keyword with a trailing underscore (`class` → `class_`); pass
  *  through otherwise. */
 export function escapePythonIdent(name: string): string {
   return PYTHON_KEYWORDS.has(name) ? `${name}_` : name;
+}
+
+/** The python MEMBER-identifier funnel (eval item 6, ruling D2 — the python
+ *  twin of java's M-T6.36): the snake_cased python spelling of a `.ddd`
+ *  field / part / derived / function / operation / parameter name, escaped
+ *  with a trailing underscore when it is a python keyword (`def` → `def_`,
+ *  `class` → `class_`).  Every python site that spells a `.ddd` name as a
+ *  bare IDENTIFIER — an attribute, a keyword argument, a `def` name — goes
+ *  through this, so the declaration and every use agree.  The names the
+ *  outside world sees are NOT funnelled: the DB column keeps the snake name
+ *  (`mapped_column("def", …)`) and the wire keeps the declared name (a
+ *  pydantic `alias`), exactly as java keeps them via `@Column` /
+ *  `@JsonProperty`. */
+export function pythonIdent(name: string): string {
+  return escapePythonIdent(snake(name));
+}
+
+/** The python WIRE-model attribute for a `.ddd` name: the pydantic HTTP
+ *  models keep the declared camelCase spelling as the attribute (it IS the
+ *  JSON key), so only a keyword collision is escaped (`def` → `def_`) — and
+ *  the emitter pairs an escaped attribute with `Field(alias="def")` so the
+ *  wire key does not move.  See {@link pythonIdent}. */
+export function pythonWireIdent(name: string): string {
+  return escapePythonIdent(name);
+}
+
+/** True when {@link pythonWireIdent} moved the name — the attribute needs an
+ *  explicit wire alias. */
+export function pythonWireNeedsAlias(name: string): boolean {
+  return pythonWireIdent(name) !== name;
 }
 
 /** Escape a (already snake_cased) local identifier that collides with an

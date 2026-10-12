@@ -8,10 +8,23 @@
 // `string(x)` conversion admits.
 //
 //   loom.interp-hole-type — the hole expression is not stringifiable
+//   loom.interp-format-dropped-in-domain (warning) — an ICU `plural` /
+//     `select` / `selectordinal` hole in a template that lowers into backend
+//     domain code (a `derived`, `function` or `operation` body).  Every
+//     backend renders an `i18nFormat` hole as its bare value, so the branch
+//     text is silently lost (ruling D8; rendering the branches is a mission).
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { isTemplateStr, type Model } from "../generated/ast.js";
+import {
+  isDerivedProp,
+  isDomainServiceOperation,
+  isFunctionDecl,
+  isOperation,
+  isTemplateStr,
+  isUi,
+  type Model,
+} from "../generated/ast.js";
 import {
   type DddType,
   envForNode,
@@ -42,6 +55,30 @@ function formatKind(format: string | undefined): FormatKind | undefined {
   return "unsupported";
 }
 
+/** The ICU branch forms whose branch TEXT only the frontend i18n runtime
+ *  renders: every backend leaf table renders `i18nFormat` as its bare value. */
+const BRANCH_FORMATS = new Set(["plural", "select", "selectordinal"]);
+
+/** The raw ICU argType of a format suffix (`", plural, one {…}"` → `plural`). */
+function icuArgType(format: string): string {
+  return format.replace(/^,/, "").trim().split(/[\s,]/)[0] ?? "";
+}
+
+/** The enclosing declaration kind when `node` sits in a body that lowers into
+ *  backend domain code — a `derived`, a `function`, an `operation` (aggregate
+ *  or domain-service) — or `undefined` (a page slot, a ui function, a test …). */
+function domainCodeHost(node: AstNode): "derived" | "function" | "operation" | undefined {
+  let host: "derived" | "function" | "operation" | undefined;
+  for (let n: AstNode | undefined = node.$container; n; n = n.$container) {
+    if (isUi(n)) return undefined;
+    if (host) continue;
+    if (isDerivedProp(n)) host = "derived";
+    else if (isFunctionDecl(n)) host = "function";
+    else if (isOperation(n) || isDomainServiceOperation(n)) host = "operation";
+  }
+  return host;
+}
+
 function isNumericType(t: DddType): boolean {
   return (
     t.kind === "primitive" &&
@@ -53,8 +90,22 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isTemplateStr(node)) continue;
     const env = envForNode(node);
+    let host: ReturnType<typeof domainCodeHost> | null = null; // null = not yet computed
     for (let i = 0; i < node.holes.length; i++) {
       const hole = node.holes[i]!;
+      if (hole.format !== undefined && BRANCH_FORMATS.has(icuArgType(hole.format))) {
+        if (host === null) host = domainCodeHost(node);
+        if (host) {
+          accept(
+            "warning",
+            diagMessage("loom.interp-format-dropped-in-domain", {
+              format: icuArgType(hole.format),
+              host,
+            }),
+            { node, property: "holes", index: i, code: "loom.interp-format-dropped-in-domain" },
+          );
+        }
+      }
       const t: DddType = typeOf(hole.value, env);
       // `unknown` is already reported upstream (unresolved ref / bad expr) —
       // fail open so we don't double-report.

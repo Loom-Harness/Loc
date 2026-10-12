@@ -34,6 +34,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
@@ -449,7 +450,13 @@ ${cuBind}${indexBody}
   // to THREAD the principal and answer the typed denial.  `create_<agg>/2`
   // takes it whether or not a stamp does, so the arg is unconditional once the
   // create is gated.
-  const createGated = lifecycleGates(agg.canonicalCreate).length > 0;
+  // The create action needs its `{:error, {:forbidden, detail}}` arm when a
+  // lifecycle `requires` gate can refuse — and equally when the F-018
+  // missing-claim guard can, since the repository answers with the same tuple.
+  // Without the arm the tuple falls through the `case` and raises, turning the
+  // refusal back into the 500 it exists to replace.
+  const createGated =
+    lifecycleGates(agg.canonicalCreate).length > 0 || requiredClaimStamps(agg, "create").length > 0;
   const destroyGated = lifecycleGates(agg.canonicalDestroy).length > 0;
   const createCuBind =
     stampPrincipal || defaultUsesPrincipal || createGated

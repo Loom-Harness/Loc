@@ -15,8 +15,12 @@
 // drizzle's own pin for the identical shape), and the validator no longer
 // fires for it at all.
 //
-// MikroORM's `array: true` + the element's own scalar `type` is what
-// `MetadataDiscovery` wraps in an element-typed `ArrayType`, resolving the
+// MikroORM 6 does NOT wrap a scalar `array: true` property in `ArrayType` (it
+// does so only for a `string[]`/`number[]`/`array` TYPE name or an enum with
+// `items`), so that spelling bound an `int[]` as the JSON text `[7,2,9]` and
+// hydrated a `text[]` as the raw `{a,b}` literal (wave C3 D1/D3, booted on
+// `collection-op-shapes` / `enum-collection`).  The emitter now names an
+// explicit `customType: new ArrayType(…)`, resolving the
 // column to `<element column type>[]` on Postgres (native array support) —
 // so `money[]`/`decimal[]` still round-trip through the SAME string
 // conversion their scalar twins use (shared with drizzle: `projectFieldEntries`
@@ -65,14 +69,24 @@ describe("scalar-collection columns round-trip on mikroorm", () => {
     // trailing `[]` MikroORM's own auto-append would otherwise supply — set
     // explicitly here because an explicit `columnType` suppresses it.
     expect(entities).toContain(
-      'prices: { type: "decimal", columnType: "numeric(19,4)[]", array: true },',
+      'prices: { type: "decimal", columnType: "numeric(19,4)[]", customType: new ArrayType() },',
     );
-    expect(entities).toContain('rates: { type: "decimal", columnType: "numeric[]", array: true },');
-    // int/string/enum need no explicit columnType — MikroORM derives
-    // `<element column type>[]` itself.
-    expect(entities).toContain('counts: { type: "integer", array: true },');
-    expect(entities).toContain('labels: { type: "string", array: true },');
-    expect(entities).toContain('kinds: { type: "string", array: true },');
+    expect(entities).toContain(
+      'rates: { type: "decimal", columnType: "numeric[]", customType: new ArrayType() },',
+    );
+    // An explicit `customType` suppresses MikroORM's own column derivation, so
+    // int/string/enum pin their native `<element column type>[]` too; a
+    // numeric element converts back to a JS number the way its scalar twin does.
+    expect(entities).toContain(
+      'counts: { type: "integer", columnType: "integer[]", customType: new ArrayType((i) => +i) },',
+    );
+    expect(entities).toContain(
+      'labels: { type: "string", columnType: "text[]", customType: new ArrayType() },',
+    );
+    expect(entities).toContain(
+      'kinds: { type: "string", columnType: "text[]", customType: new ArrayType() },',
+    );
+    expect(entities).toContain('import { ArrayType, EntitySchema } from "@mikro-orm/core";');
     // The Row class field types are TS arrays of the element's own TS type.
     expect(entities).toContain("prices!: string[];");
     expect(entities).toContain("rates!: string[];");

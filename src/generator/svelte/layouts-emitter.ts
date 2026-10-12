@@ -22,6 +22,7 @@ import type {
   SystemIR,
   UiIR,
 } from "../../ir/types/loom-ir.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -77,7 +78,7 @@ export interface SvelteLayoutContext {
  *  page in this ui actually selects.  Returns an empty map when no page
  *  uses a named layout (so the default `(app)` chrome is untouched). */
 export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/svelte/layouts-emitter");
   if (ctx.sys.layouts.length === 0) return out;
 
   const referenced = new Set<string>();

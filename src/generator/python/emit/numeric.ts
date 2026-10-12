@@ -39,6 +39,7 @@
 /** The generated helper module.  Value-restricted TypeVar (not `float`) so
  *  `trunc_mod(int, int)` stays `int` under `mypy --strict` — a plain `float`
  *  return would poison every int-typed field it feeds. */
+import { rewrite } from "../../../util/emission-sink.js";
 export const NUMERIC_PY = `"""Numeric helpers with cross-backend semantics.  Auto-generated."""
 
 from typing import TypeVar
@@ -103,7 +104,7 @@ export function wireNumericHelpers(out: Map<string, string>): void {
       used = true;
       next = insertImport(next, h.importLine);
     }
-    if (next !== content) out.set(path, next);
+    if (next !== content) rewrite(out, path, next);
   }
   if (used) out.set(HELPER_PATH, NUMERIC_PY);
 }

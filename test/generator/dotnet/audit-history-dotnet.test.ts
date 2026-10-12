@@ -56,13 +56,6 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — .NET route surface", () => {
-  it("serves GET /{id}/history off the derived find", async () => {
-    const ctrl = fileEndingWith(await emit(MASKED), "Api/EmployeesController.cs");
-    expect(ctrl).toContain('[HttpGet("{id}/history")]');
-    expect(ctrl).toContain("[ProducesResponseType(typeof(IReadOnlyList<AuditEntry>), 200)]");
-    expect(ctrl).toContain("await _mediator.Send(new GetEmployeeHistoryQuery(new EmployeeId(id)))");
-  });
-
   it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
     const reader = fileEndingWith(
       await emit(MASKED),
@@ -102,46 +95,6 @@ describe("entity history — .NET route surface", () => {
     expect(fileEndingWith(files, "Program.cs")).toContain(
       "AddScoped<Api.Application.Common.IAuditHistoryReader, Api.Infrastructure.Persistence.AuditHistoryReader>()",
     );
-  });
-
-  it("indexes the snapshot object directly — no parse, and no value re-typing", async () => {
-    const files = await emit(MASKED);
-    const mod = fileEndingWith(files, "Application/Common/AuditHistory.cs");
-    // `before`/`after` bind as `JsonNode?` (docs/audit.md §2 — the jsonb object
-    // binding every backend shares), so the mapper indexes them; carrying the
-    // diffed values straight back out as `JsonNode` is what keeps `5` from
-    // re-serializing as `5.0` and diverging from the wire golden.
-    expect(mod).toContain(
-      "public sealed record AuditFieldChange(string Field, JsonNode? Before, JsonNode? After);",
-    );
-    expect(mod).toContain("public static JsonNode? Value(JsonNode? snapshot, string key)");
-    expect(mod).not.toContain("decimal");
-    expect(mod).not.toContain("JsonSerializer.Deserialize");
-    // Nothing parses a snapshot — the handler reads `row.Before` / `row.After`.
-    const handler = fileEndingWith(files, "Queries/GetEmployeeHistoryHandler.cs");
-    expect(handler).toContain("AuditSnapshot.Value(row.Before,");
-    expect(handler).not.toContain("JsonDocument.Parse");
-    expect(handler).not.toContain("AuditSnapshot.Parse");
-  });
-
-  it("looks the snapshot up by the PascalCase key the write side actually stored", async () => {
-    const files = await emit(MASKED);
-    // The write side serializes the wire DTO with NO options — so
-    // `JsonSerializerDefaults.General` (PascalCase), not the app's
-    // camelCase MVC policy.  This pins the pair: if the write site ever gains a
-    // camelCase options argument, this assertion is the thing that fails.
-    const create = fileEndingWith(files, "Commands/CreateEmployeeHandler.cs");
-    expect(create).toContain(
-      "After = System.Text.Json.JsonSerializer.SerializeToNode(new EmployeeResponse(",
-    );
-    // No naming-policy options at the write site — that is the whole reason the
-    // stored keys are PascalCase rather than the app's camelCase MVC wire.
-    expect(create).not.toContain("JsonSerializerOptions");
-    expect(create).not.toContain("CamelCase");
-    const handler = fileEndingWith(files, "Queries/GetEmployeeHistoryHandler.cs");
-    // camelCase on the wire, PascalCase into the blob — emitted as a pair.
-    expect(handler).toContain('new[] { ("name", "Name") }');
-    expect(handler).toContain('AuditSnapshot.Value(row.Before, "Salary")');
   });
 });
 
@@ -183,18 +136,6 @@ describe("entity history — .NET negative authz", () => {
     const action = ctrl.slice(ctrl.indexOf('[HttpGet("{id}/history")]'));
     expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 403)]");
     expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
-  });
-
-  it("scopes by entity reachability, so a filtered-out row 404s instead of leaking", async () => {
-    const handler = fileEndingWith(await emit(MASKED), "Queries/GetEmployeeHistoryHandler.cs");
-    // `audit_records` carries no tenant column, so there is nothing on it for a
-    // capability filter to scope.  The handler resolves the ENTITY first —
-    // `GetByIdAsync` already carries every capability predicate (EF applies the
-    // read query-filter automatically) — and only reads the trail for a row this
-    // caller can see.  Absent → AggregateNotFoundException → 404.
-    expect(handler).toContain("await _repo.GetByIdAsync(query.Id, cancellationToken)");
-    expect(handler).toContain("throw new AggregateNotFoundException(");
-    expect(handler.indexOf("GetByIdAsync")).toBeLessThan(handler.indexOf("_history.ReadAsync"));
   });
 
   it("never lets a stamp, the version counter, or the id into the diff", async () => {

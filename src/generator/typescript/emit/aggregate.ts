@@ -24,8 +24,9 @@ import { directParentName } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -224,6 +225,24 @@ export function renderAggregate(
   );
 }
 
+/** The name of the generated private invariant-check method.  It is
+ *  `_assertInvariants` unless the entity already binds that member: every
+ *  field / part keeps its state in a private `_<name>` backing field, so a
+ *  member `assertInvariants` declared a field with the method's own name
+ *  (esbuild: `Duplicate member "_assertInvariants"`).  On a collision the
+ *  helper steps aside with trailing underscores (eval item 6, ruling D2);
+ *  every other entity keeps the unchanged name. */
+function invariantHelperName(e: EntityShape): string {
+  const taken = new Set<string>([
+    ...e.fields.map((f) => `_${f.name}`),
+    ...e.fields.filter((f) => f.provenanced).map((f) => `_${f.name}_provenance`),
+    ...e.contains.map((c) => `_${c.name}`),
+  ]);
+  let name = "_assertInvariants";
+  while (taken.has(name)) name += "_";
+  return name;
+}
+
 function rootShape(a: AggregateIR): EntityShape {
   return {
     name: a.name,
@@ -265,32 +284,33 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
  *  beside `type`, a scalar wraps a `value`, `none` is the bare unit. */
 /** Type-correct seed value for a non-optional, non-input field the create
  *  factory must name in its all-fields state literal but the server owns
- *  (`managed`/`token`/`internal`).  A `datetime managed` placement stamp
- *  seeds to `new Date()`; numeric counters to `0`, etc.  Falls back to
- *  `null` for shapes with no obvious zero (value objects, enums) — those
- *  don't occur as server-managed non-optional fields today, and `null`
- *  preserves the prior behaviour rather than fabricating a bogus instance. */
-function serverInitSeed(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "datetime":
-        return "new Date()";
-      case "int":
-      case "long":
-      case "decimal":
-        return "0";
-      // `money` renders as `Decimal` (decimal.js) and `json`/value-object /
-      // enum shapes have no obvious bare zero — those fall through to the
-      // `null` default below (none occur as server-managed non-optional
-      // fields today; the seed only has to cover the cases that do).
-      case "bool":
-        return "false";
-      case "string":
-      case "guid":
-        return '""';
-    }
+ *  (`managed`/`token`/`internal`).
+ *
+ *  WHICH types have a seed is not this emitter's call — it is
+ *  `src/ir/util/server-init-seed.ts`, the same table
+ *  `loom.unconstructible-server-field` refuses from.  This function only
+ *  SPELLS the answer in TypeScript.  Keeping the two in one place is what
+ *  stops the gate refusing a shape the emitter could seed, or the emitter
+ *  fabricating one the gate believes has no value.
+ *
+ *  `null` here is reached only for a type the table has no seed for, which
+ *  the gate has already refused — it is the unreachable-by-valid-input arm,
+ *  kept because the emitter must still return a string. */
+function serverInitSeedExpr(t: TypeIR): string {
+  switch (serverInitSeed(t)) {
+    case "now":
+      return "new Date()";
+    case "zero":
+      return "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+    default:
+      return "null";
   }
-  return "null";
 }
 
 export function renderOperationReturnType(returnType: TypeIR, ctx: BoundedContextIR): string {
@@ -313,6 +333,7 @@ function renderEntity(
   emitTrace = false,
   opFragments?: OpFragment[],
 ): string {
+  const assertName = invariantHelperName(e);
   const containsType = (c: ContainmentIR): string =>
     `${c.partName}${c.collection ? "[]" : " | null"}`;
   const containsGetterType = (c: ContainmentIR): string =>
@@ -377,13 +398,28 @@ function renderEntity(
   // (`renderNew`) only pass declared fields (and, for a nested part, no
   // parentId).  Byte-identical for a non-nested part with no containments;
   // `_rehydrate` keeps the full required state contract.
+  //
+  // An OPTIONAL field (`tag: Tag id?`) is relaxed the same way, and for the
+  // same reason (F-010): `new NoteLine { text: text }` is legal `.ddd` — the
+  // DSL lets an optional be omitted — but `renderNew` passes only the fields
+  // the construction literal spells, so a REQUIRED-but-nullable `tag` slot in
+  // the `_create` state made every such construction a TS2345 ("Property 'tag'
+  // is missing … but required").  `null` is what an omitted optional MEANS, so
+  // `_create` accepts the omission and writes it, exactly as it already does
+  // for an omitted containment.  Note `T?` only: a field with a `= default`
+  // stays required here (its default is applied on the create-input path, not
+  // by this factory), and `_rehydrate` keeps the full contract — the store
+  // always has a value for every column.
   const hasContains = e.contains.length > 0;
+  const optionalFields = e.fields.filter((f) => f.type.kind === "optional");
   const createStateLiteral =
-    hasContains || isNested
+    hasContains || isNested || optionalFields.length > 0
       ? `{ ${[
           `id: Ids.${e.name}Id`,
           parentIdField(isNested),
-          ...e.fields.map((f) => `${f.name}: ${renderTsType(f.type)}`),
+          ...e.fields.map(
+            (f) => `${f.name}${f.type.kind === "optional" ? "?" : ""}: ${renderTsType(f.type)}`,
+          ),
           ...provFields.map((f) => `${f.name}_provenance: ProvLineage | null`),
           ...e.contains.map((c) => `${c.name}?: ${containsType(c)}`),
         ]
@@ -394,11 +430,14 @@ function renderEntity(
   // polymorphic so `<Agg>Base._create` constructs the concrete subclass and
   // never forward-references it), else the plain `new <Agg>` form.
   const createCallee = isExternRoot ? "this" : e.name;
-  const createBody = hasContains
-    ? `new ${createCallee}({ ...state, ${e.contains
-        .map((c) => `${c.name}: state.${c.name} ?? ${c.collection ? "[]" : "null"}`)
-        .join(", ")} })`
-    : `new ${createCallee}(state)`;
+  const createDefaults = [
+    ...e.contains.map((c) => `${c.name}: state.${c.name} ?? ${c.collection ? "[]" : "null"}`),
+    ...optionalFields.map((f) => `${f.name}: state.${f.name} ?? null`),
+  ];
+  const createBody =
+    createDefaults.length > 0
+      ? `new ${createCallee}({ ...state, ${createDefaults.join(", ")} })`
+      : `new ${createCallee}(state)`;
 
   const fieldDecls: string[] = [];
   fieldDecls.push(`  ${fieldVis} _id: Ids.${e.name}Id;`);
@@ -453,7 +492,7 @@ function renderEntity(
   // in-operation evaluations.
   ctorAssignments.push(
     "    if (!trustStore) {",
-    emitTrace ? `      this._assertInvariants("<init>");` : "      this._assertInvariants();",
+    emitTrace ? `      this.${assertName}("<init>");` : `      this.${assertName}();`,
     "    }",
   );
 
@@ -490,7 +529,9 @@ function renderEntity(
   }
 
   const fns = e.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     // PUBLIC, like the operations below.  A `function` is not an internal
     // helper the class keeps to itself: the generated code calls it from
     // OUTSIDE the class in three places the model itself asks for — the
@@ -550,7 +591,9 @@ function renderEntity(
     // The authorization gate is the CALLER's job — the handler evaluates it
     // post-load, before this method is entered (op-gates.ts).
     const opBody = operationBody(op);
-    const baseParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const baseParams = op.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const userParam = usesUser ? "currentUser: User" : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -560,7 +603,10 @@ function renderEntity(
       // `protected abstract <op>Extern(...)` the scaffold-once subclass fills.
       const checkName = `check${op.name[0]!.toUpperCase()}${op.name.slice(1)}`;
       const hookName = `${lowerFirst(op.name)}Extern`;
-      const callArgs = [op.params.map((p) => p.name).join(", "), usesUser ? "currentUser" : ""]
+      const callArgs = [
+        op.params.map((p) => escapeTsIdent(p.name)).join(", "),
+        usesUser ? "currentUser" : "",
+      ]
         .filter(Boolean)
         .join(", ");
       const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
@@ -585,9 +631,7 @@ function renderEntity(
         ops.push(`    return this.${hookName}(${callArgs});`);
       } else {
         ops.push(`    this.${hookName}(${callArgs});`);
-        ops.push(
-          emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-        );
+        ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
       }
       ops.push("  }");
       ops.push("");
@@ -646,9 +690,7 @@ function renderEntity(
     }
     if (body.length > 0) ops.push(body);
     if (!op.returnType) {
-      ops.push(
-        emitTrace ? `    this._assertInvariants("${op.name}");` : "    this._assertInvariants();",
-      );
+      ops.push(emitTrace ? `    this.${assertName}("${op.name}");` : `    this.${assertName}();`);
     }
     ops.push("  }");
     ops.push("");
@@ -754,7 +796,7 @@ function renderEntity(
     // backend sidesteps this by leaving such fields at their property
     // default; Hono's state object has to name every field, so it seeds one.
     if (f.optional) return "null";
-    return serverInitSeed(f.type);
+    return serverInitSeedExpr(f.type);
   };
   // Factory shape helpers.  An extern root is an ABSTRACT base whose concrete
   // subclass (`${e.name}`, scaffold-once) is what callers reference, so its
@@ -801,13 +843,13 @@ function renderEntity(
           `    const inst = ${newSelf(`{ id: Ids.new${e.name}Id() } as unknown as ${stateLiteral}, true`)};`,
           `    inst._init(${esCreate.params.map((p) => `input.${p.name}`).join(", ")});`,
           emitTrace
-            ? `    inst._assertInvariants(${JSON.stringify(esCreate.name)});`
-            : `    inst._assertInvariants();`,
+            ? `    inst.${assertName}(${JSON.stringify(esCreate.name)});`
+            : `    inst.${assertName}();`,
           `    return inst;`,
           `  }`,
           "",
           `  private _init(${esCreate.params
-            .map((p) => `${p.name}: ${renderTsType(p.type)}`)
+            .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
             .join(", ")}): void {`,
           renderTsStatements(esCreate.statements, emitProvenance, {
             emitTrace,
@@ -900,7 +942,7 @@ function renderEntity(
               eventSourced: true,
             });
             return [
-              `  private _apply${ap.event}(${ap.param}: Events.${ap.event}): void {`,
+              `  private _apply${ap.event}(${escapeTsIdent(ap.param)}: Events.${ap.event}): void {`,
               ...(body.length > 0 ? [body] : []),
               "  }",
               "",
@@ -948,8 +990,8 @@ function renderEntity(
     // wrapper → "extern") so the invariant_evaluated trace line carries
     // op context.  Trace off: byte-identical no-arg signature.
     emitTrace
-      ? "  private _assertInvariants(__op: string): void {"
-      : "  private _assertInvariants(): void {",
+      ? `  private ${assertName}(__op: string): void {`
+      : `  private ${assertName}(): void {`,
     ...invariants,
     "  }",
     "",

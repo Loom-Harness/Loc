@@ -32,7 +32,7 @@
 // This paragraph described the intent before it described the code: until
 // M-T6.54 F18 both of those sites ANDed the principal conjunct unconditionally,
 // so `find … ignoring tenantOwned` silently kept returning only the caller's
-// tenant while `FILTER_BYPASS_FAMILIES` listed `java`.  Keep the claim and the
+// tenant while the validator listed `java` as honoring the bypass.  Keep the claim and the
 // code together — `test/generator/java/generator-java-find-bypass-principal.test.ts`
 // asserts the ABSENCE of the conjunct per surface, which is the only assertion
 // shape that can see a retained one.

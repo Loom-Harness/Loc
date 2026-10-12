@@ -13,10 +13,12 @@ name: Generated Flutter build
 # (Create/Operation/Workflow/Destroy) + Modal + the pack inputs (Field /
 # MultilineField / PasswordField / NumberField / Toggle / SelectField /
 # FileUpload) + Tabs + named routing.  Only the native (non-web) surface remains
-# deferred.  `analyze` runs errors-only
-# (`--no-fatal-warnings --no-fatal-infos`) so lint-nits (prefer_const infos)
-# don't block; `flutter build web` is the load-bearing "is the Dart real"
-# check.  The .ddd is embedded here (not under examples/) so the other
+# deferred.  `analyze` fails on every error AND warning (an unused import or
+# local, a dead null check, a type-inference failure) — the Flutter twin of
+# `dotnet build /warnaserror` and javac `-Werror`.  Only infos stay non-fatal
+# (`--no-fatal-infos`): they are style lints (prefer_const_*, string
+# interpolation), the tier the other toolchains also leave advisory.
+# `flutter build web` is the load-bearing "is the Dart real" check.  The .ddd is embedded here (not under examples/) so the other
 # example-globbing gates never pick up a flutter-only source.
 
 on:
@@ -36,11 +38,33 @@ on:
       - 'src/util/**'
       - 'src/generator/flutter/**'
       - 'src/generator/_frontend/**'
+      - 'src/generator/_openapi/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/required-primitives.ts'
       - 'src/platform/flutter.ts'
       - 'src/platform/metadata.ts'
       - 'src/platform/registry.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_workflow/**'
       - 'scripts/flutter-table-controls-test.dart'
       - '.github/workflows/generated-flutter-build.yml'
   pull_request:
@@ -60,11 +84,33 @@ on:
       - 'src/util/**'
       - 'src/generator/flutter/**'
       - 'src/generator/_frontend/**'
+      - 'src/generator/_openapi/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/required-primitives.ts'
       - 'src/platform/flutter.ts'
       - 'src/platform/metadata.ts'
       - 'src/platform/registry.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_expr/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_workflow/**'
       - 'scripts/flutter-table-controls-test.dart'
       - '.github/workflows/generated-flutter-build.yml'
   workflow_dispatch:
@@ -379,9 +425,9 @@ jobs:
       - name: flutter pub get
         working-directory: ${{ steps.proj.outputs.dir }}
         run: flutter pub get
-      - name: flutter analyze (errors)
+      - name: flutter analyze (errors + warnings)
         working-directory: ${{ steps.proj.outputs.dir }}
-        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+        run: flutter analyze --no-fatal-infos
       # Runs the whole test/ dir: the boot smoke (widget_test.dart) AND the
       # runtime a11y gate (a11y_test.dart — WCAG meetsGuideline matchers, the
       # axe analogue for Flutter's canvas render).  See the Flutter a11y audit.
@@ -468,7 +514,7 @@ jobs:
         working-directory: ${{ steps.sproj.outputs.dir }}
         run: |
           flutter pub get
-          flutter analyze --no-fatal-warnings --no-fatal-infos
+          flutter analyze --no-fatal-infos
           flutter test
           flutter build web --release
 
@@ -592,7 +638,7 @@ jobs:
         working-directory: ${{ steps.shproj.outputs.dir }}
         run: |
           flutter pub get
-          flutter analyze --no-fatal-warnings --no-fatal-infos
+          flutter analyze --no-fatal-infos
           flutter test
           flutter build web --release
 

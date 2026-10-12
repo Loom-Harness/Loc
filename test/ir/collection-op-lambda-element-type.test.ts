@@ -12,7 +12,7 @@ import type { AggregateIR, ExprIR } from "../../src/ir/types/loom-ir.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
 import { generateDotnet, generateHono } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/index.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseValid } from "../_helpers/parse.js";
 
 // A money-typed containment element (`OrderLine.price`) read inside an `any`
 // lambda, doing money arithmetic (`+ 10.00`) and a money comparison (`> total`).
@@ -64,8 +64,7 @@ describe("B9 — collection-op lambda params carry the element type", () => {
   });
 
   it("renders money `.plus`/`.gt` (not `String(...)` + raw `>`) on Hono/TS", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
+    const model = await parseValid(SRC);
     const files = generateHono(model);
     const order = files.get("domain/order.ts")!;
     expect(order).toBeDefined();
@@ -82,8 +81,7 @@ describe("B9 — collection-op lambda params carry the element type", () => {
   });
 
   it("resolves the element member + money-typed literal on .NET", async () => {
-    const { model, errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
+    const model = await parseValid(SRC);
     const files = generateDotnet(model);
     const order = files.get("Domain/Orders/Order.cs")!;
     expect(order).toBeDefined();

@@ -422,7 +422,7 @@ function renderOperation(
   const multiContextReading =
     classifyDomainServiceTier(op) === "reading" && !readingIsSingleContext(op, ctx);
   const fnName = snake(op.name);
-  const paramNames = op.params.map((p) => snake(p.name));
+  const paramNames = op.params.map((p) => escapeElixirIdent(snake(p.name)));
 
   // @spec — each declared parameter's type, then the return type.  A union
   // (`Money or CouponExpired`) return is conveyed as a tagged tuple at
@@ -445,9 +445,9 @@ function renderOperation(
   // gets a `_ = <name>` discard rather than renaming the head (so call-site
   // arity and readable param names are preserved).
   const bodyText = op.body.map((s) => JSON.stringify(s)).join("");
-  const discards = paramNames
-    .filter((n) => !new RegExp(`"${n}"`).test(bodyText))
-    .map((n) => `    _ = ${n}`);
+  const discards = op.params
+    .filter((p) => !new RegExp(`"${snake(p.name)}"`).test(bodyText))
+    .map((p) => `    _ = ${escapeElixirIdent(snake(p.name))}`);
 
   if (multiContextReading) {
     // INTERNAL FLOOR.  This branch used to emit a `def` whose body was a
@@ -568,5 +568,13 @@ function renderStatement(
         cond: renderExpr(s.cond, rc),
         renderInner: (stmts) => stmts.map((st) => renderStatement(st, ctx, rc, isUnion)),
       });
+    default: {
+      // CR1-f (wave CR1, audit row P0-2b): the switch already listed all 12
+      // `StmtIR` kinds, so `tsc` caught a new one only as "function lacks
+      // ending return" — a message that names neither this file nor the
+      // union.  The never-check states the invariant where it lives.
+      const _exhaustive: never = s;
+      return `    # unreachable: ${JSON.stringify(_exhaustive)}`;
+    }
   }
 }

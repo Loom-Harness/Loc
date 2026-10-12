@@ -37,8 +37,34 @@ export function provableStringType(e: ExprIR): TypeIR | undefined {
       return e.target === "string" ? stringType : undefined;
     case "ternary":
       return provableStringType(e.then) && provableStringType(e.otherwise) ? stringType : undefined;
-    default:
+    // NOT provably a string from the node alone.  `undefined` is the
+    // conservative answer — callers fall back to their own inference rather
+    // than assuming `string` — so a missing arm narrows a claim, it never
+    // widens one.  Named rather than left to a `default:` so a new `ExprIR`
+    // kind that DOES carry a provable string type is a `tsc` error here.
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "call":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ref":
+    case "this":
+    case "unary":
       return undefined;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 
@@ -99,7 +125,32 @@ export function bodyTypeOf(e: ExprIR): TypeIR | undefined {
         default:
           return undefined;
       }
-    default:
+    // No type derivable from the node alone.  `undefined` means "ask your own
+    // fallback", not "untyped": `method-call` is the documented example (see
+    // the NOTE above — `MethodCallExpr` carries no result type), and the rest
+    // either need the surrounding declaration (`this`, `id`, `action-ref`) or
+    // are container shapes whose element type the caller already knows
+    // (`list`, `new`, `object`, `match`, `lambda`).  Named rather than left to
+    // a `default:` so a new `ExprIR` kind that DOES carry a result type is a
+    // `tsc` error here — the arm `i18nFormat` needed, and did not have, until
+    // the Python `"on " + <datetime>` TypeError found it.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "duration":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
       return undefined;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }

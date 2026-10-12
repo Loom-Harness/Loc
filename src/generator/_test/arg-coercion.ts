@@ -90,3 +90,36 @@ export function coerceTestArgs(
 ): string[] {
   return args.map((a, i) => coerceTestLiteral(params?.[i]?.type, a, renderArg(a, i), target));
 }
+
+/** The asserted subject's type for a matcher call, `.not.` peeled: for a
+ *  negated assertion the matcher's receiver is the synthetic `.not` member, so
+ *  the subject's type is that member's own `receiverType`. */
+export function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): TypeIR {
+  const recv = expr.receiver;
+  return recv.kind === "member" && recv.member === "not" ? recv.receiverType : expr.receiverType;
+}
+
+/** The matcher-expected position: `expect(o.dispatchedAt).toBe("2026-…Z")`.
+ *  The expected value of a `toBe` over a `datetime` subject is written as an
+ *  ISO-8601 string, like every other `datetime` literal in a test body, and
+ *  each backend compares it as its date type.  A raw string never equals a
+ *  stored date on the typed backends, and on elixir/python a wrongly STORED
+ *  string would equal it — hiding exactly the defect such an assertion exists
+ *  to catch.
+ *
+ *  Equality only, and `datetime` only: an ordering matcher over a date has no
+ *  uniform operator spelling across the backends (Elixir's `<` is term order
+ *  on a struct), and an `<Agg> id` subject already compares equal to its raw
+ *  string on the backends whose tests assert ids.  Returns the coerced
+ *  expected text, or `undefined` when the rule does not apply — the caller
+ *  then renders its ordinary matcher, so every other emission is unchanged. */
+export function coerceMatcherExpected(
+  expr: ExprIR & { kind: "method-call" },
+  rendered: string,
+  target: TestLiteralTarget,
+): string | undefined {
+  const arg = expr.args[0];
+  if (expr.member !== "toBe" || !arg) return undefined;
+  const c = decideLiteralCoercion(matcherSubjectType(expr), arg);
+  return c.kind === "datetime" ? target.datetime(rendered) : undefined;
+}

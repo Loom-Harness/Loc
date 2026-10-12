@@ -149,7 +149,14 @@ the conforming backends, and the fix that established it.
   zero-value `false`/`null`.
 - **Trigger.** `active: bool = true`; a create body omitting `active`.
 - **Observable.** `POST {}` (no `active`) reads back `{"active":true}`.
-- **Conforms.** node, **python**, **java** (dotnet/elixir still targets).
+- **Conforms.** node, dotnet, java, python, elixir. .NET binds the declared
+  value as a create-record positional default (`bool Active = true`), Phoenix
+  as an Ecto schema default plus a changeset `__default(:active, true)`; both
+  are pinned statically by `test/conformance/create-input-default-parity.test.ts`
+  and behaviourally by the `field-defaults` corpus case, whose e2e asserts
+  `read.active` is `true` after a create that omits it and whose wire golden
+  (`test/behavioral/wire-golden/field-defaults.json`) is recorded on all seven
+  wire-gated legs with no skip or waiver.
 - **Provenance.** July full-code-review finding B14; Java closed by RST-10. Tier:
   **T1** — gated per-PR on node and python (A6.2) and on Java via the behavioral
   tier. The python behavioral gate **found and closed** a real parity bug here:
@@ -1435,8 +1442,12 @@ nothing and the test passes vacuously.
   errors explicitly — with the inner field path *and* the authored message *and*
   the `loom_code` the i18n catalog is keyed by. Collapsing it to
   `[{field, "is invalid"}]` discarded all three.
-- **Conforms.** node, dotnet, python, elixir. **Open:** java (the bracket
-  spelling; `src/generator/java/emit/api.ts:678` and `:802`).
+- **Conforms.** node, dotnet, java, python, elixir. Java's bracket spelling
+  (`/lineTotals[0].unitPrice`) is closed: every `errors[]` call site in
+  `src/generator/java/emit/api.ts` now routes through a `pointerOf(String)`
+  helper that splits on `.`, turns each `[i]` indexer into its own numeric
+  segment and applies the RFC 6901 escapes (M-T9.25 / F1, pinned by
+  `test/generator/java/errors-pointer-rfc6901.test.ts`).
 - **Provenance.** Recorded as ledger rows `F2-W-03` and
   `nested-errors-pointer-shape`; the elixir arm fixed in the W1b elixir packet
   (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`),
@@ -1611,31 +1622,15 @@ nothing and the test passes vacuously.
 - **Conforms.** node, dotnet, java, python, elixir (all adapters).
 - **Provenance.** Contract enforced since #2577 / M-T9.11 (the per-PR wire
   differential); named and written down by M-T5.36/P11b. Tier: **behavioral**.
-- **⚠ Registry entry pending — and why (a finding, not an oversight).** Step 1
-  of *Adding a rule* above says the `RS-N` entry goes in
-  `test/conformance/semantics-rules.ts`, and `semantics-rules.test.ts` is meant
-  to make a prose-only rule impossible. **It currently cannot be followed.**
-  That registry holds `RS-1 … RS-31` and its `ids are unique and gap-free`
-  assertion requires the numbers to be *contiguous* — but **RS-32, RS-33 and
-  RS-34 were merged into this document with no registry entries** (RS-32/RS-33
-  in #2704, RS-34 in the wave-2 packet 2.7). So the registry is three rules
-  behind the prose, and **any** new rule is now unlandable there: taking `RS-35`
-  fails the contiguity assertion, and taking `RS-32` would collide with a number
-  this document already uses, which the `id` contract ("never renumbered")
-  forbids.
+- **Registry.** RS-35 has its entry in `test/conformance/semantics-rules.ts`.
+  When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
+  merged as prose only, which made any new rule unlandable under the registry's
+  gap-free assertion. That has since been closed: the registry was backfilled
+  (it now holds RS-1 … RS-38, contiguous), and `semantics-rules.test.ts` gained
+  the prose-vs-registry parity assertion this finding asked for ("the prose and
+  the registry describe the SAME set of rules", plus a per-rule title check), so
+  a prose-only rule now fails CI instead of slipping past it.
 
-  The gate that was supposed to prevent prose-only rules only checks the
-  registry's *internal* consistency, never prose-vs-registry parity — which is
-  exactly how three rules slipped past it.
-
-  **Remedy, for whoever picks this up:** backfill registry entries for RS-32,
-  RS-33 and RS-34 from their prose above, then add RS-35, then regenerate the
-  mirror (`UPDATE_SEMANTICS_SPEC=1 npx vitest run
-  test/conformance/semantics-spec-sync.test.ts`). Authoring three other
-  packets' entries is a mission of its own — misstating another rule's
-  `conforms`/`targets` is worse than the gap — so P11b records the blocker here
-  rather than guessing at them. A prose-vs-registry parity assertion belongs in
-  the same change, or this recurs.
 ### RS-36 · `.first` on an EMPTY collection fails on every target; `.firstOrNull` is the total form
 - **Guarantee.** `first` is declared `T` — **non-optional** — in
   `src/util/collection-ops.ts`, so reading it from an empty receiver FAILS on

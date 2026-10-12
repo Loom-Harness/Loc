@@ -17,7 +17,6 @@
 // reserved words is that existing output does not move.
 
 import { describe, expect, it } from "vitest";
-import type { Model } from "../../../src/language/generated/ast.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `order` / `group` / `limit` are Postgres reserved words; `total` is the
