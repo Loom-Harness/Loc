@@ -343,6 +343,18 @@
     {
       "seq": 26,
       "method": "GET",
+      "path": "/api/ledgers/{id}",
+      "status": 200,
+      "body": {
+        "balance": "20.0000",
+        "id": "<volatile:key>",
+        "limit": "25.0000",
+        "version": 3
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
       "path": "/api/ledgers/over?min=9.5",
       "status": 200,
       "body": [
@@ -355,14 +367,14 @@
       ]
     },
     {
-      "seq": 27,
+      "seq": 28,
       "method": "GET",
       "path": "/api/ledgers/over?min=100",
       "status": 200,
       "body": []
     },
     {
-      "seq": 28,
+      "seq": 29,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -375,7 +387,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 30,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -388,7 +400,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 31,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,

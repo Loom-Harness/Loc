@@ -269,6 +269,10 @@ system MoneyNullable {
     // `x >= balance` with an absent `x`: false, so refused.
     expect(api.ledgers.setLimit(l, { x: null })).toThrow(422)
     api.ledgers.setLimit(l, { x: money("25") })
+    // The new limit is stored as money, not as the raw request text: the read
+    // (and this fixture's wire golden) sees the canonical scale.
+    let limited = api.ledgers.getById(l)
+    expect(limited.version).toBe(3)
     // The in-memory find orders by value: 20 > 9.5 (term order on the
     // `%Decimal{}` structs said no).
     let over = api.ledgers.over({ min: money("9.5") })
