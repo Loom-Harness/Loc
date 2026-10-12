@@ -7,9 +7,11 @@
 // generated drizzle migrations, wires the context's repositories, and runs the
 // body.
 //
-// A context with workflows wires the SYNCHRONOUS `createInProcessDispatcher(db)`
-// so a `save`'s emitted event fires its reactors inline (a placed order reserves
-// stock before the next read); a workflow-free context uses the no-op dispatcher.
+// A context with workflows, in a deployable whose `http/workflows.ts` exports
+// the SYNCHRONOUS `createInProcessDispatcher(db)` (it has event subscriptions or
+// durable events), wires that dispatcher so a `save`'s emitted event fires its
+// reactors inline (a placed order reserves stock before the next read); any
+// other context has nothing to fan out and uses the no-op dispatcher.
 //
 // v1 constraint (`loom.integration-find-must-bind`): a repository find must be
 // LET-BOUND (`let inv = Inventory.forSku(x)`), not written inline inside an
@@ -175,8 +177,14 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
 }
 
 /** Emit `test/<ctx>.integration.test.ts` for a context that declares integration
- *  tests, or null when it declares none. */
-export function renderContextIntegrationTest(ctx: BoundedContextIR): string | null {
+ *  tests, or null when it declares none.  `inProcessDispatcher` says whether the
+ *  deployable's `http/workflows.ts` exports `createInProcessDispatcher` — the
+ *  caller reads it off the emitted file, so the import cannot name a symbol
+ *  that does not exist. */
+export function renderContextIntegrationTest(
+  ctx: BoundedContextIR,
+  opts: { inProcessDispatcher: boolean },
+): string | null {
   if (ctx.tests.length === 0) return null;
 
   const body: string[] = [`describe(${JSON.stringify(`${ctx.name} (integration)`)}, () => {`];
@@ -194,11 +202,10 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
   const usesIds = /\bIds\./.test(bodyStr);
-  // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
-  // so a `save`'s emitted event fires its reactors inline (a placed order
-  // reserves stock before the next read).  A workflow-free context has nothing
-  // to fan out → the no-op dispatcher (and `../http/workflows` may not exist).
-  const cascade = ctx.workflows.length > 0;
+  // A context that runs workflows wires the in-process dispatcher — when the
+  // deployable emits one; without event subscriptions there is no reactor to
+  // fire and `createInProcessDispatcher` does not exist, so the no-op stands in.
+  const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
