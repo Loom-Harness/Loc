@@ -174,9 +174,9 @@ export class NpmInstallBundleEngine implements RuntimeEngine {
       stdinContents: makeEntryStdin(
         input.honoEntry,
         schemaPathFor(input.honoEntry),
-        // Present only for an `auth: required` deployable without an
-        // `auth { oidc }` block — the entry then registers the emitted dev stub
-        // so `createApp`'s verifier assertion passes (#2571).
+        // Present for every `auth: required` deployable, `auth { oidc }` ones
+        // included — the entry registers the emitted dev stub so `createApp`'s
+        // verifier assertion passes without a reachable IdP.
         devStubEntryFor(generatedFiles, input.honoEntry),
       ),
       // Backend-only: the React run below never sets this.

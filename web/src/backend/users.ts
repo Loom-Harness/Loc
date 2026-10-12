@@ -8,9 +8,11 @@
 //   2. the Auth tab's OVERRIDE — the claims JSON injected as
 //      `x-loom-dev-claims` when the stub is enabled.
 //
-// A system with an `auth { oidc }` block has a real verifier instead, and a
-// system with no `user` block carries no identity at all; both are reported
-// as such rather than as an empty list.
+// An `auth { oidc }` system emits the dev stub too and the preview registers
+// it (no IdP is reachable from the worker), so it reports the stub's
+// identities like any other.  A file set with an OIDC verifier but no stub, or
+// a system with no `user` block, is reported as such rather than as an empty
+// list.
 //
 // Pure: file list + config in, identities out.
 
