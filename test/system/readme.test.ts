@@ -226,6 +226,42 @@ describe("README.md — run recipes", () => {
     // Same image the compose stack runs, threaded through rather than retyped.
     expect(md).toContain("postgres:18-alpine");
   });
+
+  // An `auth { oidc … }` block replaces the dev-stub verifier on every
+  // backend, so a host-side run needs the IdP.  The recipe must say so, and
+  // name the bundled Keycloak's issuer the compose file hands the backend.
+  const withAuth = (auth: string) =>
+    BACKEND_ONLY.replace(
+      "storage pg { type: postgres }",
+      `user { sub: string }\n    auth { ${auth}\n enforcement: opt }\n    storage pg { type: postgres }`,
+    ).replace("port: 3000", "port: 3000, auth: required");
+
+  it("with a self-hosted oidc block, says there is no dev stub and starts the bundled Keycloak", async () => {
+    const md = await readme(
+      withAuth(`oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }`),
+    );
+    expect(md).toContain("There is no dev-stub verifier (`x-loom-dev-claims`) here");
+    expect(md).toContain("docker compose up -d keycloak");
+    expect(md).toContain("export OIDC_ISSUER=http://host.docker.internal:8081/realms/ledger");
+    expect(md).toContain("export OIDC_CLIENT_ID=ledger-app");
+  });
+
+  it("with a hosted preset, names the OIDC variables instead of a bundled IdP", async () => {
+    const md = await readme(
+      withAuth(
+        `provider: google\n oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }`,
+      ),
+    );
+    expect(md).toContain("There is no dev-stub verifier");
+    expect(md).not.toContain("docker compose up -d keycloak");
+    expect(md).toContain("Set `OIDC_ISSUER` and `OIDC_CLIENT_ID`");
+  });
+
+  it("without an auth block, says nothing about an IdP", async () => {
+    const md = await readme(BACKEND_ONLY);
+    expect(md).not.toContain("x-loom-dev-claims");
+    expect(md).not.toContain("OIDC_ISSUER");
+  });
 });
 
 describe("README.md — the test projects", () => {

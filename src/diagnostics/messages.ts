@@ -4887,6 +4887,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // reading of a file whose braces are fine.  Say where the declaration
   // belongs and how to move it there; the valid scopes are derived from the
   // grammar (`src/language/misplaced-declaration.ts`).
+  // A vendor setting written beside `type:` in a `storage` block.  The block
+  // takes a fixed clause set and every vendor parameter is a `config` entry,
+  // so the remedy is to move the key — not to rename it (which is what the
+  // reserved-name text would say for `from`), and not to balance a brace
+  // (which is what chevrotain's "Expecting '}'" suggests for `bucket`).
+  "loom.parse-error#storage-config-key": (p: {
+    key: unknown;
+    storage: unknown;
+    clauses: unknown;
+  }) =>
+    `'${p.key}' is not a clause of \`storage ${p.storage}\` (it takes ${p.clauses}) — ` +
+    `vendor settings go inside its config map: \`config: { ${p.key}: … }\`.`,
   "loom.parse-error#misplaced-declaration": (p: {
     keyword: unknown;
     where: unknown;

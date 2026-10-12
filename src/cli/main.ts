@@ -93,6 +93,7 @@ import {
   type StarterTemplate,
 } from "./new-templates.js";
 import { escapesOutDir } from "./output-containment.js";
+import { warningLines } from "./warning-lines.js";
 
 interface ParseResult {
   model: Model;
@@ -341,6 +342,7 @@ function irDiagnosticLocator(
 function printIrDiagnostics(
   diagnostics: readonly LoomDiagnostic[],
   sourceTexts?: ReadonlyMap<string, string>,
+  opts: { allWarnings?: boolean } = {},
 ): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
@@ -358,7 +360,7 @@ function printIrDiagnostics(
   // here: with a literal, the second advisory code to arrive silently came out
   // labelled `warning` and inflated the count.)
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
-  for (const d of warnings) console.error(`${at(d)}${d.code} ${d.source} warning: ${d.message}`);
+  for (const line of warningLines(warnings, at, opts.allWarnings ?? false)) console.error(line);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // and the update-gate lint (audit D3) keep their own footer and never fail
@@ -389,7 +391,7 @@ function printIrDiagnostics(
  * A `.ddd` fragment meant to be imported by an entry file still fails here, on
  * its AST errors.
  */
-async function runParse(file: string) {
+async function runParse(file: string, opts: { allWarnings?: boolean } = {}) {
   // The project loader, matching `generate system` — a multi-file entry
   // resolves its import graph instead of reporting its siblings' declarations
   // as unresolved.
@@ -420,6 +422,7 @@ async function runParse(file: string) {
   const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(
     irDiagnostics,
     result.sourceTexts,
+    opts,
   );
   // Both phases have run — ONE footer, counting both.  It has to come after
   // the IR phase, or it is a verdict on half the file (M-T9.60).
@@ -557,6 +560,9 @@ function loadLoomIgnore(outDir: string): ignore.Ignore {
 
 interface RunOptions {
   dryRun?: boolean;
+  /** `--all-warnings` — print every phase-⑦ warning instead of collapsing a
+   *  repeated code to its first occurrence plus a summary line. */
+  allWarnings?: boolean;
   /** When true, errors are reported but `runGenerate` returns instead
    * of calling `process.exit`.  Used by watch mode so a typo in the
    * `.ddd` source doesn't tear down the watcher. */
@@ -711,7 +717,11 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(
+    loomDiags,
+    sourceTexts,
+    { allWarnings: options.allWarnings },
+  );
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -1832,6 +1842,10 @@ async function runBreakpoints(file: string, options: BreakpointOptions): Promise
   }
 }
 
+const ALL_WARNINGS_FLAG = "--all-warnings";
+const ALL_WARNINGS_HELP =
+  "print every repeated warning in full (by default a warning code that fires more than 3 times prints once plus a summary line naming the rest)";
+
 const program = new Command();
 program.name("ddd").description("DDD DSL CLI").version(LOOM_VERSION);
 
@@ -1842,9 +1856,10 @@ program
     "--json",
     "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
-  .action(async (file: string, options: { json?: boolean }) => {
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
+  .action(async (file: string, options: { json?: boolean; allWarnings?: boolean }) => {
     if (options.json) await runParseJson(file);
-    else await runParse(file);
+    else await runParse(file, { allWarnings: options.allWarnings });
   });
 
 program
@@ -1944,6 +1959,7 @@ generate
     "--inline-sources",
     "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
   )
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
   .option(
     "--locales <dir>",
     "translator tree root to read locale catalogs from (default: <.ddd file's dir>/locales — the same resolution as `ddd i18n --dir`). Each locale found is emitted into every frontend with a translation runtime and registered in its i18n shim.",
@@ -1963,6 +1979,7 @@ generate
         sourcemap?: boolean;
         inlineSources?: boolean;
         locales?: string;
+        allWarnings?: boolean;
       },
     ) => {
       if (options.json) {
@@ -1982,6 +1999,7 @@ generate
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
         localesDir: options.locales,
+        allWarnings: options.allWarnings,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {

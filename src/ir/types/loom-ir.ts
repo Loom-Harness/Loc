@@ -1080,6 +1080,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** Provenance back to the `retrieval` declaration — the span its
+   *  diagnostics point at. */
+  origin?: OriginRef;
 }
 
 export interface BoundedContextIR {

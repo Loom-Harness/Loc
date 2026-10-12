@@ -158,6 +158,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
 | `--allow-destructive` | `generate system` | Permit destructive delta migrations (column/table drops, and NOT-NULL column adds without a default on an existing table).  Off by default a destructive delta aborts with a `loom.migration-destructive` error — see [`migrations.md`](migrations.md) § Destructive changes. |
+| `--all-warnings` | `parse`, `generate system` | Print every IR-level warning in full.  By default a warning code that fires more than three times (the per-aggregate `denyByDefault` read-gate warnings, typically) prints its first occurrence plus one line naming the rest — `… and 3 more loom.default-deny-by-id-ungated warning(s): Desk/Agent, Desk/Queue, Desk/Tag`.  The `N warning(s)` count and `--json` output always carry every diagnostic. |
 
 `ddd parse` exits non-zero if the source has errors.  `ddd generate`
 runs validation first and refuses to emit if there are any errors.
