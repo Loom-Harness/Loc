@@ -79,6 +79,12 @@ const BASE = EXTERNAL_BASE ?? `http://127.0.0.1:${PORT}`;
 // it must be identical on every invocation or Gradle forks a second daemon for
 // the differing JVM args.  `stopGradleDaemon()` reaps it at the end of the run.
 const GRADLE_BASE = ["--daemon", "-q", "-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g"];
+// javac at `-Xlint:all -Werror`, the same init script the java compile legs
+// install (java-build.yml, corpus-build.yml).  This leg is the ONLY java
+// compile of the shared `systems/*.ddd` models, so without it their warnings
+// never fail anything — the same reason the .NET and Elixir boot legs build
+// with warnings fatal.
+const JAVA_WERROR_INIT = join(REPO, "test", "e2e", "support", "java-werror.init.gradle");
 
 /** Reap the daemon at the end of the run so a local invocation leaves no JVM
  *  behind. `gradle --stop` stops every compatible daemon, not just ours — the
@@ -254,7 +260,7 @@ async function runCase(c) {
       // produces the jar even if a unit test fails, so the api tier below still
       // boots and reports.  Results parsed from build/test-results/test/*.xml.
       const hasUnit = existsSync(join(deplDir, "src", "test", "java"));
-      const gradleArgs = hasUnit ? [...GRADLE_BASE, "--continue", "test", "bootJar"] : [...GRADLE_BASE, "bootJar"];
+      const gradleArgs = [...GRADLE_BASE, "-I", JAVA_WERROR_INIT, ...(hasUnit ? ["--continue", "test", "bootJar"] : ["bootJar"])];
       let gradleErr = null;
       try {
         execFileSync("gradle", gradleArgs, { cwd: deplDir, stdio: "pipe" });
