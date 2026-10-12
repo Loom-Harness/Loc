@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { clashFreeRootNamespace } from "../../../src/generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../../../src/generator/dotnet/emit/program.js";
-import { generateSystems } from "../../../src/system/index.js";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/index.js";
+import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // A .NET root namespace equal to a hosted type name (claims eval, P12).
@@ -88,8 +88,7 @@ describe("dotnet — root namespace equal to a hosted type (CS0118)", () => {
   });
 
   it("the coreclr launch config names the suffixed assembly", async () => {
-    const model = await parseValid(systemSource("pay"));
-    const files = generateSystems(model, { sourcemap: true }).files;
+    const files = await generateSystemFiles(systemSource("pay"), { sourcemap: true });
     const launch = JSON.parse(files.get(".vscode/launch.json")!) as {
       configurations: Array<{ program?: string }>;
     };
@@ -98,18 +97,28 @@ describe("dotnet — root namespace equal to a hosted type (CS0118)", () => {
     );
   });
 
-  it("legacy `generate dotnet`: a context named like its aggregate", async () => {
-    const model = await parseValid(`
-context Pay {
-  aggregate Pay {
-    amount: int
-    create(amount: int) { amount := amount }
-  }
-}
-`);
-    const files = generateDotnet(model);
-    expect(files.has("PayApp.csproj")).toBe(true);
-    expect(filesRootedAt(files, "", "Pay")).toEqual([]);
-    expect(filesRootedAt(files, "", "PayApp").length).toBeGreaterThan(0);
+  // The legacy `generate dotnet` entry (root namespace = the context name, so
+  // `context Pay { aggregate Pay }` hit the same CS0118) calls this same helper;
+  // it is pinned here rather than through the legacy entry, whose callers the
+  // M-T9.49 ratchet only lets shrink.  Its compile leg ran in docker (see PR).
+  it("the shared helper: suffix only on an exact declared-type match, repeated until free", () => {
+    const ctx = (names: { aggs?: string[]; vos?: string[]; enums?: string[] }) =>
+      ({
+        aggregates: (names.aggs ?? []).map((name) => ({ name, parts: [] })),
+        valueObjects: (names.vos ?? []).map((name) => ({ name })),
+        enums: (names.enums ?? []).map((name) => ({ name })),
+        events: [],
+        payloads: [],
+        domainServices: [],
+        projections: [],
+      }) as unknown as BoundedContextIR;
+    expect(clashFreeRootNamespace("Pay", [ctx({ aggs: ["Pay"] })])).toBe("PayApp");
+    expect(clashFreeRootNamespace("Pay", [ctx({ aggs: ["Pay"], vos: ["PayApp"] })])).toBe(
+      "PayAppApp",
+    );
+    expect(clashFreeRootNamespace("Kind", [ctx({ enums: ["Kind"] })])).toBe("KindApp");
+    expect(clashFreeRootNamespace("Payments", [ctx({ aggs: ["Pay", "Payment"] })])).toBe(
+      "Payments",
+    );
   });
 });
