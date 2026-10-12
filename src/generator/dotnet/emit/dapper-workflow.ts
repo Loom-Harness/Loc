@@ -16,7 +16,7 @@
 //   - a per-context `IWorkflowEventStore<<Ctx>EventRecord>` over `<ctx>_events`,
 //   - a `DapperUnitOfWork` (real Npgsql transaction),
 //   - an Npgsql-querying outbox dispatcher + relay BackgroundService,
-//   - the saga / projection / outbox table DDL (rendered into `DbSchema.cs`),
+//   - (the saga / projection / outbox tables come from the shared migration chain),
 //
 // while keeping the EF output byte-identical when `persistence: efcore`
 // (everything here is gated on the dapper branch in index.ts / program.ts).
@@ -113,65 +113,6 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
     return fieldColumn({ ...f, type: optionalType }, accBase);
   });
-}
-
-/** `CREATE TABLE IF NOT EXISTS` for a keyed saga / projection row: `pkCol` is
- *  the primary key column, the rest carry ` not null` unless nullable. */
-function keyedTableDdl(table: string, pkCol: string, cols: DapperColumn[]): string {
-  const body = cols.map((c) => {
-    if (c.col === pkCol) return `    ${sqlIdent(c.col)} ${c.sql} primary key`;
-    return `    ${sqlIdent(c.col)} ${c.sql}${c.nullable ? "" : " not null"}`;
-  });
-  return `CREATE TABLE IF NOT EXISTS ${table} (\n${body.join(",\n")}\n);`;
-}
-
-/** The transactional-outbox table DDL (dispatch-delivery-semantics.md), the
- *  raw-Npgsql mirror of `outboxTableShape`. */
-export function dapperOutboxTableDdl(): string {
-  return [
-    "CREATE TABLE IF NOT EXISTS __loom_outbox (",
-    "    id uuid primary key default gen_random_uuid(),",
-    "    occurred_at timestamptz not null default now(),",
-    "    type text not null,",
-    "    payload jsonb not null,",
-    "    dispatched_at timestamptz,",
-    "    attempts int not null default 0",
-    ");",
-  ].join("\n");
-}
-
-/** Every extra `CREATE TABLE` the Dapper workflow surface needs, spliced into
- *  `DbSchema.cs` alongside the aggregate / event-log / provenance tables.  The
- *  `<ctx>_events` log itself is already emitted by `renderDapperSchema` (its
- *  `eventLogContexts` cover event-sourced workflows). */
-export function dapperWorkflowTables(
-  workflows: readonly WorkflowIR[],
-  projections: readonly ProjectionIR[],
-  durable: boolean,
-  hasOutbox: boolean,
-): string[] {
-  const out: string[] = [];
-  for (const wf of correlationWorkflows(workflows)) {
-    out.push(
-      keyedTableDdl(
-        workflowStateTable(wf),
-        snake(wf.correlationField as string),
-        stateColumns(wf, durable),
-      ),
-    );
-  }
-  for (const proj of projections) {
-    if (!projectionNeedsRowStore(proj)) continue;
-    out.push(
-      keyedTableDdl(
-        projectionRowTable(proj),
-        snake(proj.correlationField as string),
-        projectionColumns(proj),
-      ),
-    );
-  }
-  if (hasOutbox) out.push(dapperOutboxTableDdl());
-  return out;
 }
 
 /** A private `Row` DTO + a `Map` builder producing the closed row/POCO type

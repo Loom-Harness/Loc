@@ -107,6 +107,7 @@
     "test:migration-evolution-python": "LOOM_MIGRATION_E2E_PYTHON=1 vitest run test/e2e/migration-evolution-python.test.ts",
     "test:migration-evolution-java": "LOOM_MIGRATION_E2E_JAVA=1 vitest run test/e2e/migration-evolution-java.test.ts",
     "test:migration-evolution-dotnet": "LOOM_MIGRATION_E2E_DOTNET=1 vitest run test/e2e/migration-evolution-dotnet.test.ts",
+    "test:migration-evolution-dapper": "LOOM_MIGRATION_E2E_DAPPER=1 vitest run test/e2e/migration-evolution-dotnet.test.ts",
     "test:migration-evolution-elixir": "LOOM_MIGRATION_E2E_ELIXIR=1 vitest run test/e2e/migration-evolution-elixir.test.ts",
     "test:obs": "LOOM_OBS_E2E=1 vitest run test/e2e/observability-events.test.ts",
     "test:obs-dotnet": "LOOM_OBS_E2E_DOTNET=1 vitest run test/e2e/observability-events-dotnet.test.ts",
