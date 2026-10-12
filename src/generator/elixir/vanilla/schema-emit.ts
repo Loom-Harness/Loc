@@ -48,7 +48,13 @@ import {
 import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { isRefCollField, manyToManyLine, refCollFields } from "./ref-collection-emit.js";
+import {
+  foreignRefCollFields,
+  isRefCollField,
+  refCollFields,
+  refCollRelationLine,
+  renderRefRowSchema,
+} from "./ref-collection-emit.js";
 import { valueCollectionModule, valueCollectionsWithVo } from "./value-collection-schema-emit.js";
 
 /** An aggregate's nested entity-part containments are persisted RELATIONALLY
@@ -100,9 +106,22 @@ export function emitVanillaSchemas(
     const schemaPrefix = sys
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
       : undefined;
-    const schemaModule = isVanillaDocAgg(agg, ctx, sys)
+    const isDoc = isVanillaDocAgg(agg, ctx, sys);
+    const schemaModule = isDoc
       ? renderDocSchema(appModule, ctxModule, agg, schemaPrefix)
       : renderSchema(appModule, ctxModule, agg, enumsByName, schemaPrefix, ctx, sys, pool);
+    // A reference collection over a FOREIGN target (no schema in this context)
+    // is a `has_many` onto its join-row schema — emit that module beside the
+    // owner, in the owner's Postgres schema (where the migration creates the
+    // join table).
+    if (!isDoc) {
+      for (const rc of foreignRefCollFields(agg, pool)) {
+        out.set(
+          `lib/${appSnake}/${ctxSnake}/${rc.assoc.joinTable}.ex`,
+          renderRefRowSchema(appModule, ctxModule, rc, schemaPrefix),
+        );
+      }
+    }
     // Append the Inspect-protocol redaction impl (sensitive-field leak guard)
     // after the schema module — emitted only for an aggregate carrying a
     // sensitive leaf; `null` otherwise, so unaffected aggregates stay
@@ -313,7 +332,11 @@ function renderSchema(
     .filter(Boolean);
   // `many_to_many :party, App.Ctx.Pokemon, join_through: "<schema>.trainer_party", …`
   // — the runtime side of the already-correct join migration.
-  const refCollLines = refCollFields(agg).map((rc) => manyToManyLine(appModule, ctxModule, rc));
+  // A FOREIGN target (no schema in this context) is a `has_many` onto its
+  // join-row schema instead — see `isForeignRefColl`.
+  const refCollLines = refCollFields(agg).map((rc) =>
+    refCollRelationLine(appModule, ctxModule, rc, pool),
+  );
   // Co-located provenance backing columns — one `<field>_provenance` jsonb
   // (the pass-through `Provenance.Json` Ecto type) per provenanced field,
   // holding the current lineage persisted on the row.  Never cast from client

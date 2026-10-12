@@ -48,6 +48,8 @@ import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./prove
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
 import {
   containsRefCollField,
+  foreignRefCollFields,
+  hasLocalRefColls,
   hasRefColls,
   preloadList,
   putAssocLines,
@@ -242,7 +244,7 @@ function renderRepository(
   // resolve the incoming id list to target structs and `put_assoc` them.  Insert
   // and the named-op persist start from a fresh / loaded record; update preloads
   // the existing association first so `put_assoc` can replace it cleanly.
-  const refAssocLines = putAssocLines(appModule, ctxModule, agg, "    ");
+  const refAssocLines = putAssocLines(appModule, ctxModule, agg, "    ", pool);
   const insertPutAssoc = refAssocLines.length > 0 ? `\n${refAssocLines.join("\n")}` : "";
   const updatePutAssoc = insertPutAssoc;
   // The insert result must preload the SAME wire-shape associations the reads do.
@@ -287,7 +289,12 @@ function renderRepository(
   const updatePreloadRels = [...(refColls ? preloadList(agg) : []), ...containmentRels];
   const updatePreload =
     updatePreloadRels.length > 0 ? ` |> Repo.preload([${updatePreloadRels.join(", ")}])` : "";
-  const refHelpers = refColls ? `\n${refCollRepoHelpers(appModule)}\n` : "";
+  const refHelpers = refColls
+    ? `\n${refCollRepoHelpers(appModule, {
+        local: hasLocalRefColls(agg, pool),
+        foreign: foreignRefCollFields(agg, pool).length > 0,
+      })}\n`
+    : "";
   // `import Ecto.Query` is required for `from(...)` — needed when there's a
   // custom find OR a capability filter (which turns `list`/`find_by_id` into
   // `from(...)` reads) OR a reference collection (id-list resolution).  Omit it
@@ -301,7 +308,9 @@ function renderRepository(
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
   const ectoImport =
-    finds.length > 0 || capEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
+    finds.length > 0 || capEff || hasLocalRefColls(agg, pool) || listPaged
+      ? `\n  import Ecto.Query`
+      : "";
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
   const listHead = principal ? `def list(${actorParam}) do` : "def list do";
