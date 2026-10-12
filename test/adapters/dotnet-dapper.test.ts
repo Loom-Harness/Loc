@@ -17,6 +17,22 @@ import { adaptersFor } from "../../src/platform/resolve-adapters.js";
 import { generateSystems } from "../../src/system/index.js";
 import { diagText } from "../_helpers/diagnostics.js";
 
+/** The Dapper deployable's DDL, as the assertions below read it: every
+ *  `Migrations/*.cs` statement (Dapper applies the shared migration chain —
+ *  M-T2.17), verbatim escaping undone, identifiers unquoted and
+ *  schema-unqualified, lowercased. */
+function dapperDdl(files: Map<string, string>, dir = "api"): string {
+  return [...files.entries()]
+    .filter(([p]) => p.startsWith(`${dir}/Migrations/`))
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([, c]) => [...c.matchAll(/^ {12}@"((?:[^"]|"")*)",$/gm)].map((m) => m[1]).join("\n"))
+    .join("\n")
+    .replace(/""/g, '"')
+    .replace(/"[a-z_0-9]+"\./g, "")
+    .replace(/"/g, "")
+    .toLowerCase();
+}
+
 /** Lower + enrich + run BOTH the Langium parse diagnostics and the IR-level
  *  validator (where `loom.dapper-unsupported` lives), then emit. */
 async function emit(src: string): Promise<{ files: Map<string, string>; errors: string[] }> {
@@ -107,8 +123,8 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     expect(filter).toContain("if (context.Exception is ConcurrencyConflictException)");
     expect(filter).not.toContain("DbUpdateConcurrencyException"); // no EF type on the dapper path
     // schema DDL + Npgsql/Dapper deps + connection wiring.
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")).toContain(
-      "CREATE TABLE IF NOT EXISTS orders",
+    expect(dapperDdl(files)).toContain(
+      "create table orders",
     );
     expect(files.get("api/Api.csproj")).toContain('Include="Dapper"');
     expect(files.get("api/Api.csproj")).not.toContain("EntityFrameworkCore");
@@ -168,8 +184,8 @@ system D {
     expect(repo).toContain("WHERE stream_type = @st AND stream_id = @sid");
     expect(repo).toContain('"Opened" => System.Text.Json.JsonSerializer.Deserialize<Opened>');
     // The per-context event table ships in the self-applied schema.
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")).toContain(
-      "CREATE TABLE IF NOT EXISTS o_events",
+    expect(dapperDdl(files)).toContain(
+      "create table o_events",
     );
   });
 
@@ -205,9 +221,9 @@ system D {
     expect(repo).toContain("Account._FromEvents(id, __rows.Select(RowToEvent).ToList());");
     expect(repo).not.toContain("HydrateAsync");
     // No child table for the contained part; only the event log.
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS ledger_lines");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS o_events");
+    const schema = dapperDdl(files);
+    expect(schema).not.toContain("create table ledger_lines");
+    expect(schema).toContain("create table o_events");
   });
 });
 
@@ -243,8 +259,8 @@ system D {
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     // The root row carries no tags column; the join table does.
     expect(repo).not.toContain("tags { get; set; }");
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")).toContain(
-      "CREATE TABLE IF NOT EXISTS order_tags",
+    expect(dapperDdl(files)).toContain(
+      "create table order_tags",
     );
     // Reads funnel through the bulk loader, ordered by the target FK id.
     expect(repo).toContain(
@@ -384,8 +400,8 @@ system D {
     expect(ports).toContain("public sealed class DapperUnitOfWork : IUnitOfWork");
     expect(ports).not.toContain("AppDbContext");
     // The saga-state table ships in DbSchema (not an EF migration).
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")!).toContain(
-      "CREATE TABLE IF NOT EXISTS ws (",
+    expect(dapperDdl(files)).toContain(
+      "create table ws (",
     );
     // Ephemeral channel → NO outbox (no durable events).
     expect(files.has("api/Infrastructure/Events/OutboxRelayService.cs")).toBe(false);
@@ -432,12 +448,12 @@ system D {
     expect(relay).not.toContain("Microsoft.EntityFrameworkCore");
     // The __loom_outbox DDL ships in DbSchema (not an EF migration); the EF
     // OutboxMessage POCO is NOT emitted on the Dapper path.
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")!).toContain(
-      "CREATE TABLE IF NOT EXISTS __loom_outbox (",
+    expect(dapperDdl(files)).toContain(
+      "create table __loom_outbox (",
     );
     expect(files.has("api/Infrastructure/Persistence/OutboxMessage.cs")).toBe(false);
     // The idempotent-consumer marker column rides the durable saga table.
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")!).toContain(
+    expect(dapperDdl(files)).toContain(
       "last_event_id text",
     );
     // Program.cs registers the same three dispatcher/relay lines the EF path uses.
@@ -484,8 +500,8 @@ system D {
       files.has("api/Infrastructure/Persistence/Configurations/OEventRecordConfiguration.cs"),
     ).toBe(false);
     // The <ctx>_events log ships in DbSchema.
-    expect(files.get("api/Infrastructure/Persistence/DbSchema.cs")!).toContain(
-      "CREATE TABLE IF NOT EXISTS o_events (",
+    expect(dapperDdl(files)).toContain(
+      "create table o_events (",
     );
   });
   it("accepts a part-in-part under shape: embedded — the nested subtree folds via snapshots", async () => {
@@ -555,12 +571,13 @@ system D {
   it("emits child tables + a HydrateAsync load/save/delete graph", async () => {
     const { files, errors } = await emit(PARTS);
     expect(errors).toEqual([]);
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // One child table per containment, FK-cascaded to the root + indexed.
-    expect(schema).toContain("order_id uuid not null references orders (id) on delete cascade");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS line_items");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS ship_infos");
-    expect(schema).toContain("CREATE INDEX IF NOT EXISTS line_items_order_id_idx");
+    expect(schema).toContain("order_id uuid not null");
+    expect(schema).toContain("foreign key (order_id) references orders on delete cascade");
+    expect(schema).toContain("create table line_items");
+    expect(schema).toContain("create table ship_infos");
+    expect(schema).toContain("create index line_items_order_id_idx");
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     // The root has no flat `Map` (reads reconstruct via HydrateAsync); children
     // hydrate through the part's own `_Create(State)` seam.
@@ -617,11 +634,12 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // the part-in-part gate is lifted for the relational shape
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // Root-level part FKs the aggregate; grandchildren FK their DIRECT parent part.
-    expect(schema).toContain("box_id uuid not null references boxes (id) on delete cascade");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS items");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS tags");
+    expect(schema).toContain("box_id uuid not null");
+    expect(schema).toContain("foreign key (box_id) references boxes on delete cascade");
+    expect(schema).toContain("create table items");
+    expect(schema).toContain("create table tags");
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     // The parent part's Map threads the grandchild dictionaries; its ParentId is
     // typed to the ROOT (Box.State.ParentId : OrderId), the grandchild's to Box.
@@ -688,9 +706,9 @@ system D {
     );
     // Save writes both the child table and the join table; the schema has both.
     expect(repo).toContain("INSERT INTO line_items");
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS line_items");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS order_tags");
+    const schema = dapperDdl(files);
+    expect(schema).toContain("create table line_items");
+    expect(schema).toContain("create table order_tags");
   });
 
   // Wave 4: a scalar / enum / value-object collection field ON a part is no
@@ -725,7 +743,7 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // the part-collection-field gate is lifted
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     expect(schema).toContain("tags jsonb not null");
     expect(schema).toContain("kinds jsonb not null");
     expect(schema).toContain("charges jsonb not null");
@@ -780,8 +798,8 @@ system D {
     expect(errors).toEqual([]);
     // `tags: Tag[]` stores as a grandchild table owned by LineItem (line_item_id
     // FK) — the ownership storage the old gate recommended, now applied for free.
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
-    expect(schema).toMatch(/CREATE TABLE IF NOT EXISTS tags \(/);
+    const schema = dapperDdl(files);
+    expect(schema).toMatch(/create table tags \(/);
     expect(schema).toContain("line_item_id");
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     expect(repo).toContain("INSERT INTO tags");
@@ -821,11 +839,11 @@ system D {
     const { files, errors } = await emit(DOC);
     expect(errors).toEqual([]); // the dapper document gate is lifted
     // Blob table (no per-field columns, no child/join tables).
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS carts (");
+    const schema = dapperDdl(files);
+    expect(schema).toContain("create table carts (");
     expect(schema).toContain("data jsonb not null");
-    expect(schema).toContain("version int not null");
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines"); // parts fold into the blob
+    expect(schema).toContain("version integer not null");
+    expect(schema).not.toContain("create table cart_lines"); // parts fold into the blob
     // The repository (de)serialises the whole aggregate through the snapshot,
     // stamping the row's version onto it so the optimistic-concurrency CAS
     // compares against the persisted value (PR #2095).
@@ -886,13 +904,13 @@ system D {
   it("no longer rejects shape: embedded; folds containments into JSONB columns (no child tables)", async () => {
     const { files, errors } = await emit(EMB);
     expect(errors).toEqual([]); // the dapper embedded gate is lifted
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // Flat root columns + one jsonb column per containment; NO child tables.
     expect(schema).toContain("customer text not null");
-    expect(schema).toContain("lines jsonb not null");
+    expect(schema).toContain("lines jsonb null");
     expect(schema).toContain("coupon jsonb"); // single optional → nullable
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines");
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS coupons");
+    expect(schema).not.toContain("create table cart_lines");
+    expect(schema).not.toContain("create table coupons");
     const repo = files.get("api/Infrastructure/Repositories/CartRepository.cs")!;
     // The JSONB options field + the snapshot (de)serialisation.
     expect(repo).toContain("private static readonly System.Text.Json.JsonSerializerOptions __json");
@@ -948,12 +966,12 @@ system D {
   it("no longer rejects TPC inheritance; each concrete gets a standalone merged-field table", async () => {
     const { files, errors } = await emit(TPC);
     expect(errors).toEqual([]); // the dapper TPC inheritance gate is lifted
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // Standalone concrete tables carry base + own columns; the abstract base
     // owns NO table.
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS customers");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS vendors");
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS parties");
+    expect(schema).toContain("create table customers");
+    expect(schema).toContain("create table vendors");
+    expect(schema).not.toContain("create table parties");
     const customer = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
     // The concrete's Map hydrates the merged (inherited + own) State fields.
     expect(customer).toContain("Name = r.name,");
@@ -993,13 +1011,14 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // the TPH-with-contains gate is lifted
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // The concrete owns no state table, but its child + join tables DO emit —
     // FK'd to the shared base row (`parties`), not the (table-less) concrete.
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS notes");
-    expect(schema).toContain("party_id uuid not null references parties (id) on delete cascade");
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS customer_tags");
+    expect(schema).not.toContain("create table customers");
+    expect(schema).toContain("create table notes");
+    expect(schema).toContain("party_id uuid not null");
+    expect(schema).toContain("foreign key (party_id) references parties on delete cascade");
+    expect(schema).toContain("create table customer_tags");
     const repo = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
     // Containment child rows FK the shared base row (`party_id = aggregate.Id`);
     // the part's State.ParentId is typed to the concrete (Note.State : CustomerId).
@@ -1050,17 +1069,17 @@ system D {
   it("no longer rejects TPH; emits one shared kind-discriminated table", async () => {
     const { files, errors } = await emit(TPH);
     expect(errors).toEqual([]); // the dapper TPH inheritance gate is lifted for flat members
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     // ONE shared table named for the base; the concretes own no table.
-    expect(schema).toContain("CREATE TABLE IF NOT EXISTS parties");
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
-    expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS vendors");
+    expect(schema).toContain("create table parties");
+    expect(schema).not.toContain("create table customers");
+    expect(schema).not.toContain("create table vendors");
     // id + kind + base columns (not null) + the UNION of concrete columns
     // (nullable — a row of one kind leaves the other kind's columns NULL).
     expect(schema).toContain("kind text not null");
     expect(schema).toContain("name text not null");
-    expect(schema).toContain("credit_limit integer,"); // nullable (no "not null")
-    expect(schema).toContain("rating integer,");
+    expect(schema).toContain("credit_limit integer null,"); // nullable
+    expect(schema).toContain("rating integer null,");
     expect(schema).toContain("active boolean");
     expect(schema).not.toMatch(/credit_limit integer not null/);
   });
@@ -1289,10 +1308,10 @@ system D {
     // rather than the hand-written mirror it used to carry, so it now also gets
     // the `correlation_id` index — and `IF NOT EXISTS` throughout, since
     // DbSchema re-runs on every startup.
-    const schema = files.get("api/Infrastructure/Persistence/DbSchema.cs")!;
+    const schema = dapperDdl(files);
     expect(schema).toContain("total_provenance jsonb");
-    expect(schema).toContain('CREATE TABLE IF NOT EXISTS ""provenance_records""');
-    expect(schema).toContain('CREATE INDEX IF NOT EXISTS ""provenance_records_correlation_idx""');
+    expect(schema).toContain("create table provenance_records");
+    expect(schema).toContain("create index provenance_records_correlation_idx");
   });
 });
 

@@ -10,10 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 import type { SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
-import { generateSystems } from "../../src/system/index.js";
 import { memoryMigrationArtifactIndex } from "../../src/system/migration-artifacts.js";
 import { memorySnapshotStore } from "../../src/system/snapshot.js";
-import { parseString } from "../_helpers/parse.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SRC = (persistence: string, extraField: string) => `
 system Rr {
@@ -43,11 +42,10 @@ system Rr {
 async function regen(persistence: string, onDisk: readonly string[]) {
   const stored: Record<string, SchemaSnapshot> = {};
   const gen = async (src: string, files: readonly string[]) => {
-    const { model } = await parseString(src);
-    const out = generateSystems(model, {
+    const out = await generateSystemFiles(src, {
       snapshots: memorySnapshotStore(stored),
       existingMigrations: memoryMigrationArtifactIndex({ Catalog: files }),
-    }).files;
+    });
     for (const [p, c] of out) {
       const m = /^\.loom\/snapshots\/(.+)\.snapshot\.json$/.exec(p);
       if (m) stored[m[1]!] = JSON.parse(c) as SchemaSnapshot;

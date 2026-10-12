@@ -270,4 +270,21 @@ describe("Dapper: delta steps on the jsonb layout", () => {
     expect(t.checks?.map((c) => c.name)).toEqual(["a"]);
     expect(t.columns.map((c) => c.name)).toEqual(["id", "status", "p"]);
   });
+
+  it("drops the FK of an `X id` inside a value object — the id lives in the jsonb", () => {
+    // Found by the dapper behavioural leg (`vo-id-reference`): the Initial
+    // failed with 42703 `column "berth_ship" referenced in foreign key
+    // constraint does not exist`.
+    const t = projectDapperTable({
+      ...ORDERS([
+        { name: "owner_id", type: { kind: "uuid" }, nullable: false },
+        { name: "berth_ship", type: { kind: "uuid" }, nullable: false, voGroup: "berth" },
+      ]),
+      foreignKeys: [
+        { column: "owner_id", refTable: "owners", onDelete: "restrict" },
+        { column: "berth_ship", refTable: "ships", onDelete: "restrict" },
+      ],
+    });
+    expect(t.foreignKeys.map((fk) => fk.column)).toEqual(["owner_id"]);
+  });
 });

@@ -121,8 +121,11 @@ export function projectDapperTable(t: TableShape): TableShape {
     .map((ix) => mapIndex(ix, leafToGroup))
     .filter((ix) => ix.columns.every((c) => names.has(c)));
   const checks = (t.checks ?? []).filter((ck) => keepCheck(ck, names));
+  // An `X id` inside a value object is a leaf column with an FK; on this
+  // layout it lives in the jsonb, so the FK has no column to hang on.
+  const foreignKeys = t.foreignKeys.filter((fk) => names.has(fk.column));
   const { checks: _old, ...rest } = t;
-  return { ...rest, columns, indexes, ...(checks.length > 0 ? { checks } : {}) };
+  return { ...rest, columns, indexes, foreignKeys, ...(checks.length > 0 ? { checks } : {}) };
 }
 
 /** A migration's steps on the Dapper layout (see the header). */
