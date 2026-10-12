@@ -27,7 +27,11 @@ import {
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
@@ -555,6 +559,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
+    ...userClaimIdTypeSources(args.sys.user),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
   // `ConcurrencyError` (+ its 409 handler) rides on either the `versioned`

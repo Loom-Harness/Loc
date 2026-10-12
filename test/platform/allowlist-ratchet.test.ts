@@ -743,7 +743,14 @@ const REGISTERED: Ratchet[] = [
     // three) and 3g's six drains come off that — the merged register holds
     // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
     // both ways (19 fails naming 20; 999 fails as slack).
-    max: 20,
+    //
+    // 20 -> 21 (claims eval D6, PR #3232): a reviewed RAISE of one.
+    // `auth-id-claim-foreign` is the foreign-deployable twin of
+    // `auth-id-claim` — same disposition, and like it NOT a tier gap: the
+    // defect is a missing id-brand DECLARATION, which the corpus compile
+    // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
+    // missing symbol), and nothing in the fixture reads the claim at runtime.
+    max: 21,
   },
 ];
 

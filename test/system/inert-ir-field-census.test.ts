@@ -86,7 +86,6 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "rootEnums",
   "rootPayloads",
   "rootValueObjects",
-  "runtimeString",
   "sessions",
   // Read only through `src/ir/util/reachable-types.ts` (`enumPool`), which the
   // generators call — the root grep does not follow that indirection.  Its
