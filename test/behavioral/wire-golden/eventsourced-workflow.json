@@ -182,6 +182,45 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/orders/{id}/place",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
     }
   ]
 }
