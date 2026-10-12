@@ -18,10 +18,17 @@ import {
   type FunctionIR,
   type InvariantIR,
   type OperationIR,
+  type ParamIR,
+  type StmtIR,
   type TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -110,6 +117,10 @@ interface EntityShape {
   eventSourced?: boolean;
   appliers?: import("../../../ir/types/loom-ir.js").ApplyIR[];
   esCreate?: OperationIR;
+  /** The state-based canonical create's rendered body (`createBodyStatements`)
+   *  and the params it reads (`createBodyParams`); absent on a part. */
+  createBody?: StmtIR[];
+  createParams?: ParamIR[];
   /** Root-only lifecycle stamps (audit / softDelete capability stamps, or
    *  hand-written `stamp onCreate`/`onUpdate`) — `_stamp_on_create` /
    *  `_stamp_on_update` methods the route calls before persist. */
@@ -188,6 +199,7 @@ export function renderPyAggregate(
       for (const st of ap.statements) collectStmtExprImports(st, exprImports);
     }
     for (const st of s.esCreate?.statements ?? []) collectStmtExprImports(st, exprImports);
+    for (const st of s.createBody ?? []) collectStmtExprImports(st, exprImports);
     // Lifecycle-stamp values (e.g. `now()`) need their own import triggers.
     for (const rule of s.contextStamps ?? []) {
       for (const a of rule.assignments) collectPyExprImports(a.value, exprImports);
@@ -392,6 +404,8 @@ function rootShape(a: AggregateIR): EntityShape {
     eventSourced: a.persistedAs === "eventLog",
     appliers: a.appliers,
     esCreate: a.creates?.[0],
+    createBody: createBodyStatements(a),
+    createParams: createBodyParams(a),
     contextStamps: a.contextStamps,
   };
 }
@@ -945,17 +959,44 @@ function renderEntity(
       if (f.optional) return "None";
       return serverInitSeed(f.type);
     };
+    // The create body (`createBodyStatements`) runs against the constructed
+    // instance, exactly like an operation body: params as locals, unlisted
+    // fields already at their declared defaults.
+    const createBody = e.createBody ?? [];
+    const createParams = e.createParams ?? [];
+    const bodyName = (() => {
+      const taken = new Set(e.fields.map((f) => `_${snake(f.name)}`));
+      let name = "_create_body";
+      while (taken.has(name)) name += "_";
+      return name;
+    })();
     createFactory = [
       "",
       "    @classmethod",
       `    def create(cls${factoryParams.length > 0 ? `, *, ${factoryParams.join(", ")}` : ""}) -> ${self}:`,
-      "        return cls(",
+      `        ${createBody.length > 0 ? "inst = " : "return "}cls(`,
       `            id=new_${snake(e.name)}_id(),`,
       ...e.fields.map((f) => `            ${pythonIdent(f.name)}=${fieldInit(f)},`),
       ...e.contains.map(
         (c) => `            ${pythonIdent(c.name)}=${c.collection ? "[]" : "None"},`,
       ),
       "        )",
+      ...(createBody.length > 0
+        ? [
+            `        inst.${bodyName}(${createParams.map((p) => pythonIdent(p.name)).join(", ")})`,
+            "        return inst",
+            "",
+            `    def ${bodyName}(self${createParams
+              .map((p) => `, ${pythonIdent(p.name)}: ${renderPyType(p.type)}`)
+              .join("")}) -> None:`,
+            renderPyStatements(createBody, undefined, {
+              eventSourced: false,
+              trace: emitTrace ? { aggregate: e.name, op: "create" } : undefined,
+              emitProvenance,
+              domainFloorCodes: true,
+            }),
+          ]
+        : []),
     ];
   }
 

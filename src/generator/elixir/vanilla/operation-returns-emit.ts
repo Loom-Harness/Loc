@@ -336,7 +336,7 @@ export function opHasGuards(op: OperationIR): boolean {
  *  status mapping to the vanilla workflow (`workflow-execution-emit.ts`) and
  *  ES-command (`eventsourced-emit.ts`) renderers, so every guard path across the
  *  Phoenix backend maps to the same HTTP status. */
-function renderOpGuardClause(
+export function renderOpGuardClause(
   s: Extract<StmtIR, { kind: "requires" | "precondition" }>,
   rc: RenderCtx,
   /** The operation's param names — the request body a wire-rung denial can

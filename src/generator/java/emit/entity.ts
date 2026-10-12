@@ -16,7 +16,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -908,6 +913,8 @@ export function renderJavaEntity(
   // --- factories --------------------------------------------------------------------
   // Public create — constructible, state-based roots only (event-sourced
   // construction goes through the `_init` emit-and-fold path above).
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines: string[] =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -962,9 +969,31 @@ export function renderJavaEntity(
                 })
             : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [`        e._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`]
+            : []),
           `        return e;`,
           `    }`,
           ``,
+          ...(createBody.length > 0
+            ? [
+                `    private void _createBody(${createParams
+                  .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+                  .join(", ")}) {`,
+                renderJavaStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                `    }`,
+                ``,
+              ]
+            : []),
         ]
       : [];
   // Part factory — the target of the renderer's `new <Part>` arm:

@@ -1517,33 +1517,21 @@ function flagStmt(
 }
 
 // ---------------------------------------------------------------------------
-// The canonical `create` / `destroy` BODY is not rendered on a state-based
-// aggregate — an honest gap, so that it stops being a silent one.
+// What a state-based canonical `create` / `destroy` BODY renders, and the
+// honest gap for the rest.
 //
-// Lowering does its job: `canonicalCreate.statements` and
-// `canonicalDestroy.statements` carry the full body, guards included.  No
-// backend reads either.  `canonicalCreate` is consumed as a MARKER — its
-// existence gates whether `POST /<aggs>` and the `static create` factory are
-// emitted — plus `params` / `audited`; `.statements` is read nowhere across all
-// five emitters.  The factory body is synthesized from the field set
-// (`forCreateInput`), so whatever the author wrote in the braces never reaches
-// an emitter.
+// A `requires` is hoisted to each backend's chokepoint (403).  A `create` body
+// additionally renders its `precondition`s, `emit`s and `let`s
+// (`createBodyStatements`, `src/ir/util/op-gates.ts`) against the constructed
+// instance — the 422 / event an operation body produces.  Everything else is
+// NOT rendered: a destroy body beyond its gate, and in a create any
+// assignment the factory does not already reproduce, any `+=` / `-=`, call,
+// `if` or `match`.  A statement nothing renders would silently not run — a
+// guard that never checks, a side effect that never happens — so each is a
+// named error instead.
 //
-// That makes a `requires` inside a create SILENTLY NON-ENFORCING: it parses
-// clean, emits no guard, and turns an authorization-gated create into an open
-// one.  A `precondition` vanishes the same way, and so does a literal default
-// (`status := "New"`) — while `name := name` survives only by coincidence,
-// because the field-derived input already supplies `name`.  That coincidence is
-// why this went unnoticed: repo-wide it is the ONLY create-body idiom in use.
-//
-// EVENT-SOURCED aggregates are exempt and must stay so — their create runs
-// through `agg.creates[0]`, a different path that IS rendered (`emit` in an
-// `eventLog` create works today).  Gating them would break working code.
-//
-// This is deliberately a GAP, not a fix: the fix is to render the body like any
-// other operation (the IR is already correct — see the header note above), one
-// backend at a time.  Until then a named error beats a silent drop, which is
-// this repo's standing rule for a capability a backend does not emit.
+// EVENT-SOURCED creates are exempt: their body is the `_init` fold, a
+// different path that renders `emit` and the rest.
 // ---------------------------------------------------------------------------
 
 /** What the author loses for each statement kind a lifecycle body can hold.
@@ -1572,10 +1560,12 @@ function droppedStmtReason(kind: StmtIR["kind"], label: "create" | "destroy"): s
     // would make the emitted gate unreachable from any valid source.
     case "requires":
       return null;
+    // A create body renders these against the constructed instance
+    // (`RENDERED_CREATE_STMT_KINDS`); a destroy body does not.
     case "precondition":
-      return `the guard never runs — ${subject} is left unchecked`;
+      return label === "create" ? null : `the guard never runs — ${subject} is left unchecked`;
     case "emit":
-      return "the domain event is never published";
+      return label === "create" ? null : "the domain event is never published";
     case "add":
     case "remove":
       return "the collection mutation never runs";
@@ -1587,7 +1577,7 @@ function droppedStmtReason(kind: StmtIR["kind"], label: "create" | "destroy"): s
       return "the branch never runs";
     case "assign":
       return label === "create"
-        ? "the assignment never runs — the field takes its value from the request body instead"
+        ? "the assignment never runs — the field takes its value from the create input, or its declared default, instead"
         : "the assignment never runs";
     // `let` binds a local that only the dropped statements could read, so it is
     // not observable on its own; `return` is not admissible in a lifecycle body.

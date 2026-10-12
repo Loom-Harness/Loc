@@ -28,7 +28,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  lifecycleGates,
+  lifecycleGatesUseCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -88,6 +93,7 @@ import {
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
+  renderOpGuardClause,
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
@@ -773,9 +779,113 @@ ${body}
     const createValidateClause = isDoc
       ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
       : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(${declaredCreateParamNames(agg) !== undefined ? `${changesetMod}.take_create_attrs(attrs)` : "attrs"}), :insert)`;
+    // The create BODY (`createBodyStatements`): its `precondition`s and
+    // `let`s join the same `with` chain, evaluated against the validated draft
+    // struct — `record`, exactly what an operation's guards read — with each
+    // read create param bound off it (a param IS its same-named field).  Its
+    // `emit`s dispatch after the insert, off the inserted row.
+    const body = createBodyStatements(agg);
+    const bodyRc: RenderCtx = {
+      thisName: "record",
+      contextModule: facadeMod,
+      agg: agg as EnrichedAggregateIR,
+    };
+    const bodyReadsRecord = body.some((st) => st.kind !== "emit");
+    const bodyClauses = [
+      ...createBodyParams(agg).map(
+        (p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`,
+      ),
+      ...body.flatMap((st) => {
+        // An empty wire set: a create precondition is not lifted into the
+        // create request validator on any backend, so it answers the domain
+        // floor (with its `errors[]` entry when messaged), like the other four.
+        if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
+        if (st.kind === "let")
+          return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+        return [];
+      }),
+    ];
+    const bodyEmits = body.some((st) => st.kind === "emit");
+    const emitAction = { ...agg.canonicalCreate!, statements: body };
+    const createHasDispatcher = contextHasDispatcher(
+      ctx as EnrichedBoundedContextIR,
+      extraChannels,
+    );
+    const durableCreateEmit = bodyEmits && opEmitsDurableEvent(emitAction, channels);
+    const validateClause =
+      bodyReadsRecord && body.length > 0
+        ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
+        : createValidateClause;
+    const insertCall = `${repoMod}.insert(attrs${stampActorArg ? ", current_user" : ""})`;
+    // A durable event's dispatch is an outbox INSERT, so it shares the
+    // insert's transaction; its PubSub broadcast waits for the commit.  The
+    // event structs are returned out of the transaction alongside the row so
+    // the broadcast can reach them.
+    const durableParts = durableCreateEmit
+      ? renderDurableEmitDispatchParts(
+          emitAction,
+          bodyRc,
+          createHasDispatcher,
+          {
+            bind: "              ",
+            dispatch: "              ",
+            broadcast: "          ",
+          },
+          undefined,
+          undefined,
+          channels,
+        )
+      : { bind: [], dispatch: [], broadcast: [] };
+    const durableVars = body.filter((st) => st.kind === "emit").map((_, i) => `loom_event_${i}`);
+    const createDo = !bodyEmits
+      ? `      ${insertCall}`
+      : durableCreateEmit
+        ? `      tx_result =
+        ${appModule}.Repo.transaction(fn ->
+          case ${insertCall} do
+            {:ok, record} ->
+${[...durableParts.bind, ...durableParts.dispatch].join("\n")}
+              {record, ${durableVars.join(", ")}}
+
+            {:error, reason} ->
+              ${appModule}.Repo.rollback(reason)
+          end
+        end)
+
+      case tx_result do
+        {:ok, {record, ${durableVars.join(", ")}}} ->
+${durableParts.broadcast.join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`
+        : `      case ${insertCall} do
+        {:ok, record} ->
+${renderEmitDispatchLines(emitAction, bodyRc, createHasDispatcher, "          ", undefined, undefined, channels).join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`;
+    // The body is DOMAIN logic, not authorization, so it runs in the entry
+    // every caller reaches — the ungated `create_<agg>`, or, when a `requires`
+    // gate splits the seam, `create_<agg>_unguarded` (workflow steps and event
+    // dispatch call that one, and run the body like every other backend's
+    // domain factory does).
+    const bodyEntry = (name: string): string =>
+      body.length === 0
+        ? `  defdelegate ${name}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        : `  @doc "Create a ${aggPascal}: validate, run the canonical \`create\` body's guards over the draft, insert, then dispatch its events."
+  def ${name}(attrs${stampActorArg}) do
+    with ${[validateClause, ...bodyClauses].join(",\n         ")} do
+${createDo}
+    end
+  end
+`;
     const createDelegate =
       createClauses.length === 0
-        ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        ? bodyEntry(`create_${aggSnake}`)
         : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
     lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
@@ -786,7 +896,7 @@ ${body}
   end
 
   @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
-  defdelegate ${unguardedName("create", agg.name)}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`;
+${bodyEntry(unguardedName("create", agg.name))}`;
     const deleteClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
@@ -952,7 +1062,8 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     // `ensure/2` defined (undefined function, not a warning).
     if (
       lifecycleGates(agg.canonicalCreate).length > 0 ||
-      lifecycleGates(agg.canonicalDestroy).length > 0
+      lifecycleGates(agg.canonicalDestroy).length > 0 ||
+      createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
       return true;
     }
@@ -970,9 +1081,10 @@ function contextEmitsEvent(ctx: BoundedContextIR): boolean {
   return ctx.aggregates.some(
     (agg) =>
       !isEventSourced(agg) &&
-      (agg.operations ?? []).some(
+      ((agg.operations ?? []).some(
         (op) => !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => s.kind === "emit"),
-      ),
+      ) ||
+        createBodyStatements(agg).some((s) => s.kind === "emit")),
   );
 }
 

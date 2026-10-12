@@ -13,6 +13,9 @@
 // against the create contract at compile time, so it cannot send a forged key.
 //
 // Usage:  npm ci  (in this dir, once) ; node create-contract.mjs
+// It also proves the create BODY runs: a valid create dispatches the body's
+// `emit`, and a body `precondition` over a param refuses with a 422.
+//
 // Exit non-zero on any failed assertion or a boot error.
 
 import { build } from "esbuild";
@@ -85,6 +88,17 @@ async function main() {
       packages: "external",
       logLevel: "warning",
     });
+    // The generated backend logs one JSON line per dispatched event; tee
+    // stdout so the create body's `emit` can be asserted on.
+    const logLines = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, ...rest) => {
+      const text = String(chunk);
+      if (text.startsWith('{"level"')) logLines.push(text);
+      return write(chunk, ...rest);
+    };
+    const dispatched = (type) =>
+      logLines.filter((l) => l.includes('"event":"event_dispatched"') && l.includes(`"event_type":"${type}"`)).length;
     const { boot } = await import(pathToFileURL(bundle).href);
     const { dispatch, close } = await boot();
     const post = async (path, body) => {
@@ -132,6 +146,31 @@ async function main() {
       check("confirm() runs from Requested", conf.status >= 200 && conf.status < 300, `status=${conf.status}`);
       const again = await post(`/api/appointments/${id}/confirm`, {});
       check("a second confirm() is refused (the when-gate holds)", again.status === 409, `status=${again.status}`);
+    }
+
+    process.stdout.write("▶ the create body runs: its precondition guards, its emit publishes\n");
+    {
+      const before = dispatched("AppointmentRequested");
+      const ok = await post("/api/appointments", params);
+      check("a valid create answers 201", ok.status === 201, `status=${ok.status}`);
+      check(
+        "the create body's emit dispatched AppointmentRequested once",
+        dispatched("AppointmentRequested") === before + 1,
+        `dispatched=${dispatched("AppointmentRequested") - before}`,
+      );
+      const bad = await post("/api/appointments", { ...params, patient: "" });
+      check("a failed create precondition answers 422", bad.status === 422, `status=${bad.status}`);
+      check(
+        "its detail is the precondition's message",
+        bad.body?.detail === "A patient is required" ||
+          bad.body?.errors?.some?.((e) => e.message === "A patient is required"),
+        JSON.stringify(bad.body),
+      );
+      check(
+        "a refused create dispatches nothing",
+        dispatched("AppointmentRequested") === before + 1,
+        `dispatched=${dispatched("AppointmentRequested") - before}`,
+      );
     }
 
     process.stdout.write("▶ a required create param is still required\n");

@@ -384,7 +384,56 @@ changeset =
 
 `create [name](params) [audited] { body }` is the factory marker: an **unnamed** `create(...)` makes the aggregate constructible over HTTP (`POST /<aggs>` + a static factory whose input is the parameter list — or, for the empty `create()`, the whole client-suppliable field set; see below); `destroy [name][(params)] [audited] { body }` is the terminator (`DELETE /{id}`). Neither is ever `private` or `extern`. The `crudish` capability injects the canonical pair plus an `update`. Two gates are distinct: the **domain factory** `Agg.create(...)` is emitted for every *constructible* aggregate — one that declares a create, or whose every invariant is satisfiable from the create input (`isConstructible`, `src/ir/enrich/wire-projection.ts`) — and is parameterized over the create-input field set, while the **REST** `POST /<aggs>` appears only when a canonical `create` is actually declared (by hand or by `crudish`). Field defaults do not decide either: a default only makes that field optional *input*.
 
-On a **state-based** aggregate the braces are a contract, not a body: no backend renders `canonicalCreate.statements` / `canonicalDestroy.statements`, so the validator refuses any statement that would silently vanish (`loom.lifecycle-body-dropped`, an error): a `precondition`, an `emit`, a `+=`/`-=`, a call, or an assignment whose value the emitted factory does not already reproduce. Two assignments *are* reproduced and therefore admitted — `field := <same-named param>` (the field-derived input supplies it) and `field := <literal>` when the field declares that same literal default. A **named** `create open(...)` / `destroy close(...)` on a state-based aggregate reaches no emitter at all and is refused whole (`loom.named-lifecycle-dropped`) — with one exception: on an **event-sourced** aggregate the single `create` is canonical whether or not it is named, so `create open(owner: string) { emit Opened { … } }` is emitted and ungated. Reading the identity as the explicit `this.id` inside a `create` body is `loom.this-id-in-create`; a bare `id` is not gated, and is what the event-sourced `create` above emits.
+On a **state-based** aggregate a `create` body runs against the constructed instance, exactly like an operation body (`createBodyStatements`, `src/ir/util/op-gates.ts`): its `requires` gates the route (403, below), a `precondition` refuses with the domain-floor 422 an operation's does, an `emit` records the event and the create's save dispatches it, and a `let` binds a value either reads. The params are locals and every field the params do not supply already holds its declared default, so a guard may read both. Everything else would silently vanish and is refused instead (`loom.lifecycle-body-dropped`, an error): a `+=`/`-=`, a call, an `if` / `match`, or an assignment whose value the emitted factory does not already reproduce — and in a `destroy` body anything beyond its `requires`. Two assignments *are* reproduced and therefore admitted — `field := <same-named param>` (the create input supplies it) and `field := <literal>` when the field declares that same literal default.
+
+```ddd
+event AppointmentRequested { appointment: Appointment id, patient: string }
+aggregate Appointment {
+  patient: string
+  status: AppointmentStatus = Requested
+  create(patient: string) {
+    precondition patient.length > 0 message "A patient is required"
+    emit AppointmentRequested { appointment: id, patient: patient }
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+// domain/appointment.ts
+static create(input: { patient: string }): Appointment {
+  const inst = new Appointment({ id: Ids.newAppointmentId(), patient: input.patient,
+    status: AppointmentStatus.Requested, version: 1 });
+  inst._createBody(input.patient);
+  return inst;
+}
+
+private _createBody(patient: string): void {
+  if (!([...patient].length > 0)) throw new DomainError("A patient is required", "msg.4rnahg", "/patient");
+  this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient });
+}
+```
+== elixir
+```elixir
+# lib/app/scheduling.ex — guards over the validated draft, insert, then dispatch
+def create_appointment(attrs) do
+  with {:ok, record} <- Ecto.Changeset.apply_action(AppointmentChangeset.base_changeset(AppointmentChangeset.take_create_attrs(attrs)), :insert),
+       patient = record.patient,
+       :ok <- ensure(length(String.to_charlist(patient)) > 0, {:precondition_failed, %{detail: "A patient is required", code: "msg.4rnahg", pointer: "/patient"}}) do
+    case AppointmentRepository.insert(attrs) do
+      {:ok, record} ->
+        loom_event_0 = %Scheduling.Events.AppointmentRequested{appointment: record.id, patient: patient}
+        Phoenix.PubSub.broadcast(App.PubSub, "events", loom_event_0)
+        {:ok, record}
+      error -> error
+    end
+  end
+end
+```
+::: end
+
+A **named** `create open(...)` / `destroy close(...)` on a state-based aggregate reaches no emitter at all and is refused whole (`loom.named-lifecycle-dropped`) — with one exception: on an **event-sourced** aggregate the single `create` is canonical whether or not it is named, so `create open(owner: string) { emit Opened { … } }` is emitted and ungated. Reading the identity as the explicit `this.id` inside a `create` body is `loom.this-id-in-create`; a bare `id` is not gated, and is what the event-sourced `create` above emits.
 
 **The parameter list IS the request contract.** On a state-based aggregate, a non-empty unnamed `create(p1, p2, …)` narrows the create input to exactly the fields it lists — the `POST /<plural>` wire schema, the route binding, the OpenAPI document, the generated clients, the domain factory and the scaffolded `CreateForm` all derive from it (`declaredCreateParamNames` / `buildCreateInput`, `src/ir/enrich/wire-projection.ts`). Every field the list leaves out is initialised by the factory: its declared constant default, `null` for a `T?`, `false` for a bare `bool`, `[]` for a collection. A request body that names such a field anyway is ignored for it:
 

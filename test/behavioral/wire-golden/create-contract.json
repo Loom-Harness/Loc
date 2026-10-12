@@ -65,48 +65,25 @@
     {
       "seq": 4,
       "method": "POST",
-      "path": "/api/appointments/{id}/confirm",
-      "status": 409,
+      "path": "/api/appointments",
+      "status": 422,
       "body": {
-        "detail": "operation 'confirm' is not allowed in the current state of Appointment.",
-        "instance": "/api/appointments/{id}/confirm",
-        "status": 409,
-        "title": "Disallowed",
+        "detail": "A patient is required",
+        "errors": [
+          {
+            "code": "msg.4rnahg",
+            "message": "A patient is required",
+            "pointer": "/patient"
+          }
+        ],
+        "instance": "/api/appointments",
+        "status": 422,
+        "title": "Unprocessable Entity",
         "type": "about:blank"
       }
     },
     {
       "seq": 5,
-      "method": "GET",
-      "path": "/api/appointments?dir=asc&sort=patient",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "fee": {
-              "amount": 50,
-              "currency": "EUR"
-            },
-            "id": "<volatile:key>",
-            "minutes": 30,
-            "notes": null,
-            "patient": "p-1",
-            "priority": 3,
-            "room": "A1",
-            "status": "Confirmed",
-            "tags": [],
-            "urgent": false,
-            "version": 2
-          }
-        ],
-        "page": 1,
-        "pageSize": 20,
-        "total": 1,
-        "totalPages": 1
-      }
-    },
-    {
-      "seq": 6,
       "method": "POST",
       "path": "/api/appointments",
       "status": 422,
@@ -126,7 +103,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 6,
       "method": "PATCH",
       "path": "/api/appointments",
       "status": 405,
@@ -139,7 +116,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 7,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -152,7 +129,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 8,
       "method": "POST",
       "path": "/api/appointments",
       "status": 400,

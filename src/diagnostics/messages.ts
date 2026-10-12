@@ -313,7 +313,7 @@ export const DIAGNOSTIC_MESSAGES = {
     reason: unknown;
     plural: unknown;
   }) =>
-    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. The body is lowered into the IR but no backend renders it (an event-sourced \`create\` is the exception — that path does run). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
+    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. A \`create\` body renders only its \`requires\`, \`precondition\`, \`emit\` and \`let\` statements, a \`destroy\` body only its \`requires\` (an event-sourced \`create\` runs its whole body). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
   // The sibling of the above, one level up: the whole ACTION is dropped, not
   // just its body.  Kept separate because the remedy differs — the canonical
   // case keeps its route and loses the braces, this one has no route to keep.

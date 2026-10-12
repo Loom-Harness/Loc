@@ -10,11 +10,12 @@ import type {
   SystemIR,
   TestIR,
 } from "../../../ir/types/loom-ir.js";
+import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
+import { denialMessage, denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { esInvariantChecks, isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
@@ -165,19 +166,62 @@ export function renderAggregatePureCore(
     declaredCreateParamNames(agg) !== undefined
       ? `${changesetMod}.take_create_attrs(attrs)`
       : "attrs";
+  // The create BODY's `precondition`s / `let`s (`createBodyStatements`) run
+  // over the applied draft, the read params bound off it (a param IS its
+  // same-named field).  A failed precondition is the `{:error, …}` tuple this
+  // core already answers an invalid changeset with.  Its `emit`s are effects,
+  // dispatched by the context's persisted create — the pure core drops them,
+  // as it does an operation's.
+  const bodyRc: RenderCtx = {
+    thisName: "record",
+    contextModule: `${appModule}.${ctxModule}`,
+    captureProvenance: false,
+  };
+  const bodyClauses = createBodyStatements(agg).some((st) => st.kind !== "emit")
+    ? [
+        // Only the params a guard / `let` reads: the dropped `emit`s read none
+        // here, and an unused binding fails `--warnings-as-errors`.
+        ...createBodyParams(agg)
+          .filter((p) =>
+            createBodyStatements(agg).some((st) => st.kind !== "emit" && stmtUsesParam(st, p.name)),
+          )
+          .map((p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`),
+        ...createBodyStatements(agg).flatMap((st) => {
+          if (st.kind === "precondition") {
+            return [
+              `:ok <- if(${renderExpr(st.expr, bodyRc)}, do: :ok, else: {:error, {:precondition_failed, ${elixirString(denialMessage(st))}}})`,
+            ];
+          }
+          if (st.kind === "let")
+            return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+          return [];
+        }),
+      ]
+    : [];
   const createBody =
-    collectionContainments.length === 0
+    bodyClauses.length > 0
       ? [
-          `    ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
-          "    |> Ecto.Changeset.apply_action(:insert)",
-        ]
-      : [
           "    with {:ok, record} <-",
           `           ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
-          "           |> Ecto.Changeset.apply_action(:insert) do",
-          `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
+          "           |> Ecto.Changeset.apply_action(:insert),",
+          ...bodyClauses.map((c, i) => `         ${c}${i < bodyClauses.length - 1 ? "," : " do"}`),
+          collectionContainments.length === 0
+            ? "      {:ok, record}"
+            : `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
           "    end",
-        ];
+        ]
+      : collectionContainments.length === 0
+        ? [
+            `    ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
+            "    |> Ecto.Changeset.apply_action(:insert)",
+          ]
+        : [
+            "    with {:ok, record} <-",
+            `           ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
+            "           |> Ecto.Changeset.apply_action(:insert) do",
+            `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
+            "    end",
+          ];
   const out: string[] = [
     `  @doc "Pure create core — validates + applies the changeset in memory (no persistence)."`,
     "  def create(attrs) when is_map(attrs) do",

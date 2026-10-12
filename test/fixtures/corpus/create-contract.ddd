@@ -7,6 +7,10 @@
 // those is outside the create input and must be initialised by the factory —
 // to its declared default, `null`, `false` or `[]` — on every backend.
 //
+// The create BODY runs too (`createBodyStatements`, src/ir/util/op-gates.ts):
+// its `precondition` reads a create param and answers the domain-floor 422 an
+// operation's does, and its `emit` publishes `AppointmentRequested` on save.
+//
 // The booted forged-body proof (a POST carrying `"status":"Completed"`) is
 // `test/behavioral/create-contract.mjs`, which generates THIS fixture on node:
 // the `test e2e` below cannot send a key the create does not list (its create
@@ -22,6 +26,8 @@ system CreateContract {
         invariant currency.length == 3
       }
 
+      event AppointmentRequested { appointment: Appointment id, patient: string, minutes: int }
+
       aggregate Appointment {
         patient: string
         minutes: int
@@ -35,7 +41,10 @@ system CreateContract {
 
         invariant minutes >= 10 && minutes <= 120 message "Duration must be 10–120 minutes"
 
-        create(patient: string, minutes: int, fee: Fee) { }
+        create(patient: string, minutes: int, fee: Fee) {
+          precondition patient.length > 0 message "A patient is required"
+          emit AppointmentRequested { appointment: id, patient: patient, minutes: minutes }
+        }
 
         operation confirm() when status == Requested {
           status := Confirmed
@@ -49,6 +58,10 @@ system CreateContract {
           expect(a.priority).toBe(3)
           expect(a.urgent).toBe(false)
           expect(a.tags.count).toBe(0)
+        }
+
+        test "the create body's precondition guards construction" {
+          expect(Appointment.create({ patient: "", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })).toThrow()
         }
       }
 
@@ -88,6 +101,9 @@ system CreateContract {
     expect(api.appointments.confirm(a)).toThrow(409)
     let listed = api.appointments.all({ sort: "patient", dir: "asc" })
     expect(listed.total).toBe(1)
+
+    // The create body's precondition reads a param and refuses with a 422.
+    expect(api.appointments.create({ patient: "", minutes: 30, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)
 
     // The narrowed input still carries the aggregate's invariant.
     expect(api.appointments.create({ patient: "p-2", minutes: 5, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)

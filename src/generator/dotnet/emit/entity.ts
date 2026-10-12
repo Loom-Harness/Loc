@@ -20,7 +20,12 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -930,6 +935,8 @@ export function renderEntity(
           return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
         })
     : [];
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -960,8 +967,33 @@ export function renderEntity(
           ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
           emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [
+                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+              ]
+            : []),
           "        return e;",
           "    }",
+          ...(createBody.length > 0
+            ? [
+                "",
+                `    private void _CreateBody(${createParams
+                  .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+                  .join(", ")})`,
+                "    {",
+                renderCsStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                "    }",
+              ]
+            : []),
         ]
       : [];
 
