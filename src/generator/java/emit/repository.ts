@@ -20,7 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
-import { isMangled, jid } from "../java-ident.js";
+import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -125,6 +125,40 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | 
  *  null limit → unbounded).  The .NET document/event repos take the same
  *  hydrate-then-filter shape.  Returns the method lines plus the extra
  *  imports they need (`java.util.Comparator` when any retrieval sorts). */
+/** Names an in-memory (document / event-store) read method spells itself —
+ *  the `x` / `o` lambda parameters of its predicate and comparators, the
+ *  `all` / `items` / `result` / `__cmp` / `__sortField` locals, the paging
+ *  controls, and the principal binding.  A find / retrieval param landing
+ *  here moves to `<name>_` (`javaLocals`); every other param keeps `jid`. */
+export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
+  "x",
+  "o",
+  "all",
+  "items",
+  "result",
+  "__cmp",
+  "__sortField",
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+  "offset",
+  "limit",
+  "currentUser",
+  "currentUserAccessor",
+]);
+
+/** The `paramExpr` render hook for an in-memory read's moved params — spread
+ *  into the render context, and absent (so the context is unchanged) when
+ *  nothing moved. */
+export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
+  paramExpr?: (name: string) => string | undefined;
+} {
+  return [...locals].some(([n, l]) => l !== jid(n))
+    ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
+    : {};
+}
+
 export function inMemoryRetrievalLines(
   agg: EnrichedAggregateIR,
   retrievals: readonly RetrievalIR[],
@@ -149,12 +183,23 @@ export function inMemoryRetrievalLines(
   if (retrievals.length === 0) return [];
   if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
+    // The params are closed over by the `x ->` predicate / comparator lambdas
+    // and sit beside `offset` / `limit` — a param named like one moves.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
-    const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
+    const where = renderJavaExpr(r.where, {
+      thisName: "x",
+      agg,
+      accessorProps: true,
+      ...inMemoryParamExpr(locals),
+    });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
@@ -259,14 +304,44 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 
+/** Names a declared-find delegate in the repository IMPL spells itself — the
+ *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
+ *  `__sortField` / `__session` locals.  A find param landing here is declared
+ *  under a `_`-suffixed name in the impl (`javaLocals`); the port's parameter
+ *  names are irrelevant to the override, so only the impl moves. */
+const REPO_IMPL_FIND_NAMES: ReadonlySet<string> = new Set([
+  "jpa",
+  "em",
+  "currentUserAccessor",
+  "result",
+  "__sort",
+  "__sortField",
+  "__session",
+]);
+
+/** Names a JPA retrieval's `run<Name>` overloads spell themselves: the paged
+ *  overload's `offset` / `limit` params plus everything a find delegate spells
+ *  (`REPO_IMPL_FIND_NAMES` — the `jpa` / accessor fields, the bypass
+ *  session).  A retrieval param landing here moves to `<name>_`. */
+const RETRIEVAL_IMPL_NAMES: ReadonlySet<string> = new Set([
+  ...REPO_IMPL_FIND_NAMES,
+  "offset",
+  "limit",
+]);
+
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
- *  `int page, int pageSize` parameters (1-based, cross-backend). */
-function findSignature(find: FindIR, imports: Set<string>): string {
+ *  `int page, int pageSize` parameters (1-based, cross-backend).
+ *  `locals` names each param's Java identifier when it differs from `jid`. */
+function findSignature(
+  find: FindIR,
+  imports: Set<string>,
+  locals: ReadonlyMap<string, string> = new Map(),
+): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
@@ -309,10 +384,16 @@ export function renderJavaRepositoryInterface(
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
   // (either may be null — partial pages are legal in the DSL).
   const retrievalLines = (ctx.retrievals ?? []).flatMap((r) => {
+    // Same spelling as the impl's overrides (`RETRIEVAL_IMPL_NAMES`): a param
+    // named `offset` / `limit` would redeclare the paged overload's own.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -658,14 +739,22 @@ export function renderJavaRepositoryImpl(
   };
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
+    // The paged overload declares its own `offset` / `limit` beside the
+    // retrieval's params, and the body spells the `jpa` / accessor fields — a
+    // param named like one moves to `<name>_` (`javaLocals`).  The JPA
+    // `@Param` key / JPQL `:name` binding keep the declared spelling.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
-    const bareArgs = r.params.map((p) => p.name).join(", ");
+    const bareArgs = r.params.map((p) => localOf(locals, p.name)).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
       // A reified `criterion` retrieval reads via
       // JpaSpecificationExecutor.findAll(spec); the scoped findAll/findById
@@ -675,7 +764,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.Sort");
       const args = r.criterionRef.args.map((a) => {
         collectJavaExprImports(a, imports);
-        return renderJavaExpr(a);
+        return renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) });
       });
       const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [
@@ -722,13 +811,17 @@ export function renderJavaRepositoryImpl(
   const findExecutedLog = (f: FindIR, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${f.name}", "rows", ${rowsExpr});`;
   const delegateLines = finds.flatMap((f) => {
-    const sig = findSignature(f, imports);
+    const findLocals = javaLocals(
+      f.params.map((p) => p.name),
+      REPO_IMPL_FIND_NAMES,
+    );
+    const sig = findSignature(f, imports, findLocals);
     const findBypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
     if (isPagedFind(f)) {
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => jid(p.name)),
+        ...f.params.map((p) => localOf(findLocals, p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
       // Server-side sort: whitelist the wire key against the sortable
@@ -752,7 +845,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => jid(p.name)).join(", ");
+    const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,
