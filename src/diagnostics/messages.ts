@@ -2896,31 +2896,31 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
-  // The SYNTHESISED by-id read (F-009 / M-T3.19).  A WARNING with its own code
-  // rather than an arm of `loom.default-deny-ungated`, because it is the one
-  // ungated read the author cannot currently gate — see the long-form reason
-  // at the call site in `default-deny-checks.ts`.
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  Since M-T3.19 the route is
+  // REFUSED AT RUNTIME (403) under denyByDefault unless the author declares
+  // `find byId(id: T id): T? requires <expr>`.  A WARNING for one release
+  // (owner decision 2026-10-11) so existing models keep building; promoted to
+  // an error in a later release.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
-    `denyByDefault: the synthesised by-id read '${p.path}' on aggregate '${p.name}' serves to ` +
-    `ANY authenticated caller — it is compiler-generated and has no author surface to attach a ` +
-    `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
-    `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
-    `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
-    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
-    `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
-    `whole api is restricted.`,
-  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A
-  // WARNING with its own code, the same tier as the by-id read above — but
-  // this one HAS recourse, so the message names the exact line to write.
+    `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
+    `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, declare the by-id read in ` +
+    `'${p.name}'s repository with a gate: \`find byId(id: ${p.name} id): ${p.name}? requires <expr>\` ` +
+    `(use \`requires true\` to make it intentionally public), or set \`enforcement: opt\`. A gate ` +
+    `elsewhere (an admin-only \`find all\`, gated operations) does not cover it. This warning ` +
+    `becomes an error in a later release.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5;
+  // runtime gate M-T3.19).  Same tier and same promotion plan as the by-id
+  // read above.
   "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
     `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
-    `\`requires\` gate, so it serves every row to ANY authenticated caller. Gate it by ` +
-    `declaring the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
-    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one and is ` +
-    `enforced on all five backends (use \`requires true\` to mark it intentionally public).`,
+    `\`requires\` gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, ` +
+    `declare the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
+    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one (use ` +
+    `\`requires true\` to mark it intentionally public), or set \`enforcement: opt\`. This ` +
+    `warning becomes an error in a later release.`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
-  // for the same RECOURSE reason as the by-id read above: the author cannot gate
-  // this one either — a body `requires` here is refused outright by
+  // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
+  // a surface): the author cannot gate this one — a body `requires` here is refused outright by
   // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
   // unsatisfiable error.  See the long-form reason at the call site in
   // `default-deny-checks.ts`.

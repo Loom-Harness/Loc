@@ -943,6 +943,13 @@ export interface FindIR {
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
   auditHistory?: boolean;
+  /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
+   *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
+   *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
+   *  `readsDefaultDenied`, when the author declared no gate for it: under
+   *  `denyByDefault` that read fails closed (403 before the load) on every
+   *  backend, and the validator still reports it as ungated. */
+  defaultDenied?: boolean;
 }
 
 export interface RepositoryIR {
@@ -965,6 +972,13 @@ export interface RepositoryIR {
    *  resolved for `op.audited`; a separate field makes consumption OPT-IN, so
    *  a backend that has not ported history emits nothing instead of garbage. */
   historyFind?: FindIR;
+  /** Set by enrichment (M-T3.19) when the aggregate is served by an
+   *  `auth: required` backend under `enforcement: denyByDefault`: its two
+   *  compiler-derived reads (list, by-id) fail CLOSED unless the author
+   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  per-context backends cannot re-derive (they never see the deployables),
+   *  hence stored.  Consumed through `read-gates.ts`. */
+  readsDefaultDenied?: boolean;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */

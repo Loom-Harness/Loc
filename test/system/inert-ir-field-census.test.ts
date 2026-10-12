@@ -72,6 +72,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   // --- the rest: candidates awaiting a disposition -------------------------
   "auditHistory",
   "crossTenant",
+  // M-T3.19 deny-by-default reads: read only through `src/ir/util/read-gates.ts`
+  // (`byIdRouteFind`) and the validator; the effect reaches every target as the
+  // stamped/synthesised `requires` gate, which every route emitter renders.
+  "defaultDenied",
   "execTestsByCodeElement",
   "impliedBy",
   "keyPrefix",
@@ -81,6 +85,7 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "policyWriteLevels",
   "priority",
   "readonly",
+  "readsDefaultDenied", // see `defaultDenied` above — consumed via read-gates.ts
   "resourceInterfaces",
   "retain",
   "rootEnums",

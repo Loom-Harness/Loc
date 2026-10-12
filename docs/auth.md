@@ -49,32 +49,33 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `handle …(){}` continuation (event-triggered creates and `on(...)`
   reactors are not client-reachable, so they are excluded);
 - **repository `find`s** — the same optional `requires` gate (see
-  [Find gates](#find-requires-gates) below).  The list route
-  (`GET /api/<plural>`, backed by the auto-injected `find all`) is the one
-  find that is a **warning** rather than an error: under `denyByDefault` an
-  ungated list read raises `loom.default-deny-list-ungated` (ruling D5 —
-  same tier as the by-id warning, so existing models keep building).  The
-  warning names its remedy: declaring an explicit
-  `find all(): T[] requires <expr>` replaces the injected find and gates that
-  route (`requires true` marks it intentionally public), and does so on **all
-  five** backends — node/Hono and .NET emit a route per repository find and so
-  always honoured it, while java, python and elixir each special-case `all` out
-  of their named-find loop and used to emit the list route without reading its
-  gate.  All five now resolve the list read through one shared derivation
-  (`src/ir/util/read-gates.ts`).
-- **the synthesised by-id read is the second warning — and unlike the list
-  read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
-  on all five backends and carries no gate on any of them, so gating an
-  aggregate everywhere else (an admin-only `find all`, gated operations) still
-  leaves single records readable by any authenticated caller.  It is no longer
-  silent: under `denyByDefault` each such route raises
-  `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
-  the author can write to satisfy it — the by-id gate surface
-  (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
-  still apply to the by-id route: the tenancy filter (a foreign tenant's row
-  reads 404) and `mask unless` field redaction.  What does not: role
-  separation within a tenant.
-- **an event-sourced `create` is the third exception — on the four backends that
+  [Find gates](#find-requires-gates) below).
+- **the two compiler-derived aggregate reads** (M-T3.19, Commons F-006, ruling
+  D5) — the list read `GET /api/<plural>` and the single-record read
+  `GET /api/<plural>/{id}`.  Each is served on all five backends whether or
+  not the author declares anything, so each is gated by declaring it on the
+  repository with a `requires`, named at the declaration (no inherited
+  aggregate-level default):
+
+  ```ddd
+  repository Secrets for Secret {
+    find all(): Secret[] requires currentUser.role == "admin"
+    find byId(id: Secret id): Secret? requires currentUser.role == "admin"
+  }
+  ```
+
+  The by-id read is recognised by name AND shape — `byId`, one `<T> id`
+  parameter, returning `<T>?`; a filterless one reads THE row (`where this.id
+  == id` is supplied).  A declared `find all` replaces the compiler-injected
+  one.  Every backend evaluates the gate **before** the load, so a refused
+  caller gets 403 (on `/{id}`, for an existing and a missing id alike — no
+  existence oracle); the routes' OpenAPI responses gain 403.  All five
+  backends resolve both reads through one shared derivation
+  (`src/ir/util/read-gates.ts`).  `requires true` is the explicit public
+  escape; the tenancy filter and `mask unless` still apply on top of the gate.
+  See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
+  for what changes for an existing model.
+- **an event-sourced `create` is the one remaining exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
   is refused (`loom.lifecycle-guard-event-sourced`, below) on `node` / `dotnet` /
@@ -85,8 +86,8 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   gate present, one error; gate absent, one error — which made
   `enforcement: denyByDefault` and `persistedAs: eventLog` **mutually exclusive**
   for any event-sourced aggregate with a creation endpoint.  It now raises
-  `loom.default-deny-es-create-ungateable` (a **warning**, for the same reason
-  the by-id arm is one: there is nothing the author can write to satisfy it), and
+  `loom.default-deny-es-create-ungateable` (a **warning**: there is nothing the
+  author can write to satisfy it), and
   the model builds.  To close the hole today, issue the create from a gated
   `operation` / `workflow` and keep the canonical `create` off the client, or
   host the aggregate on a deployable whose whole api is restricted.  Gating the
@@ -151,6 +152,35 @@ and demands 403 (so a no-op guard fails).  Both run per-PR on **all five**
 backend legs — which is the point, since the list-read drop was a
 java/python/elixir defect that a node-only probe could not have seen.  See
 `test/behavioral/README.md` § "Principals — and the authorization ladder".
+
+### Migration: the synthesised reads fail closed (M-T3.19)
+
+Before M-T3.19, under `denyByDefault` the two compiler-derived reads of every
+aggregate — the list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}`
+— served **any** authenticated caller unless the author had declared a gated
+`find all`; the by-id read could not be gated at all.  Now, on all five
+backends, a read whose repository does not declare a gate for it is **refused
+at runtime with 403** (evaluated before the load — no existence oracle).  To
+keep serving it, declare it with a gate (`requires true` for intentionally
+public):
+
+```ddd
+repository Orders for Order {
+  find all(): Order[] requires currentUser.role == "clerk"
+  find byId(id: Order id): Order? requires currentUser.role == "clerk"
+}
+```
+
+…or set `enforcement: opt` on the `auth` block to keep the pre-flip posture
+(nothing is denied by default, so the reads serve as before).
+
+**The build does not break for one release.**  Each undeclared read raises a
+**warning** that names the line to write — `loom.default-deny-list-ungated`
+for the list read and `loom.default-deny-by-id-ungated` for the by-id read.
+Both warnings become **errors** in a later release (tracked under M-T3.19 in
+`docs/new-plan/T3-security-governance.md`, target ~2026-11-01), so treat them
+as a to-do list now.  A *declared* `find byId` with no `requires` is an
+ordinary ungated find and is already an error (`loom.default-deny-ungated`).
 
 What's intentionally **not** here yet:
 
