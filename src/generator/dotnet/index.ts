@@ -523,9 +523,14 @@ function emitProjectFromContexts(
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
-    // EF-repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // applying the EF migrations, wiring the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(ctx, ns);
+    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+    // the repos, and persisting→reading.
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system?.deployable.persistence === "dapper",
+    );
     if (integrationTests) {
       out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }

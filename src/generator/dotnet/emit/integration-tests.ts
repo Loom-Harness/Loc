@@ -1,13 +1,20 @@
-// Context-scoped INTEGRATION test emission (test-placement.md) — the
-// .NET/EF backend.  The .NET twin of the node renderer
+// Context-scoped INTEGRATION test emission (test-placement.md) — the .NET
+// backend.  The .NET twin of the node renderer
 // (`typescript/emit/integration-tests.ts`): a `test … for <Context>` (or a
 // `context`-nested `test`) runs cross-aggregate behaviour IN-PROCESS against
-// live EF repositories, no HTTP — a create persists via `repo.SaveAsync(...)`,
-// an operation mutates-then-saves, a repository find reads back.  The emitted
-// class is provisioning-agnostic — it reads `LOOM_PG_URL` (a Loom app already
-// ships a compose Postgres), applies the EF migrations via
-// `db.Database.MigrateAsync()`, wires the context's repositories, and runs the
-// body.
+// the deployable's live repositories, no HTTP — a create persists via
+// `repo.SaveAsync(...)`, an operation mutates-then-saves, a repository find
+// reads back.  The emitted class is provisioning-agnostic — it reads
+// `LOOM_PG_URL` (a Loom app already ships a compose Postgres), brings the
+// schema up the way the app's own boot does, wires the context's repositories,
+// and runs the body.
+//
+// The boot follows the deployable's persistence adapter, because the test
+// project references only the API project's packages: on EF it applies the
+// migrations (`db.Database.MigrateAsync()`) and builds `AppDbContext`-backed
+// repositories; on Dapper (`persistence: dapper`) the API project carries no
+// EF Core at all, so it applies `DbSchema.EnsureAsync` over an
+// `NpgsqlDataSource` and builds the Dapper repositories over that.
 //
 // v1 constraints: a repository find must be LET-BOUND
 // (`loom.integration-find-must-bind`, shared with node), and the dispatcher is
@@ -23,6 +30,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { renderCsExpr } from "../render-expr.js";
 import { renderCreateCall, renderExplicitMatcherToAwesome, renderTestExpr } from "./tests.js";
@@ -137,22 +145,35 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, usedAggs: readonly AggregateIR[]): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  usedAggs: readonly AggregateIR[],
+  dapper: boolean,
+): string[] {
   const methodName = upperFirst(t.name.replace(/[^A-Za-z0-9]+/g, "_")) || "Test";
   const out: string[] = [];
   out.push(`    [Fact(DisplayName = ${JSON.stringify(t.name)})]`);
   out.push(`    public async Task ${methodName}()`);
   out.push("    {");
-  out.push(
-    "        var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).Options;",
-  );
-  out.push("        await using var db = new AppDbContext(opts);");
-  out.push("        await db.Database.MigrateAsync();");
+  if (dapper) {
+    out.push("        await using var db = NpgsqlDataSource.Create(ConnString());");
+    out.push("        await DbSchema.EnsureAsync(db);");
+  } else {
+    out.push(
+      "        var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).Options;",
+    );
+    out.push("        await using var db = new AppDbContext(opts);");
+    out.push("        await db.Database.MigrateAsync();");
+  }
   out.push("        var events = new NoopDomainEventDispatcher();");
   for (const a of usedAggs) {
-    out.push(
-      `        var ${repoVar(a.name)} = new ${a.name}Repository(db, events, NullLogger<${a.name}Repository>.Instance);`,
-    );
+    // A Dapper repository of an audited aggregate drains the request-scoped
+    // audit buffer inside its own transaction, so it takes the buffer too.
+    const ctorArgs = dapper
+      ? `db, events${aggHasAuditedTarget(a) ? ", new AuditWriter()" : ""}`
+      : `db, events, NullLogger<${a.name}Repository>.Instance`;
+    out.push(`        var ${repoVar(a.name)} = new ${a.name}Repository(${ctorArgs});`);
   }
   for (const s of t.statements) out.push(...renderStmt(s, ctx));
   out.push("    }");
@@ -160,8 +181,13 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, usedAggs: readonly Aggrega
 }
 
 /** Emit `Tests/<ns>.Tests/<Ctx>IntegrationTests.cs` for a context that declares
- *  integration tests, or null when it declares none. */
-export function renderContextIntegrationTest(ctx: BoundedContextIR, ns: string): string | null {
+ *  integration tests, or null when it declares none.  `dapper` selects the
+ *  `persistence: dapper` boot (see the file header). */
+export function renderContextIntegrationTest(
+  ctx: BoundedContextIR,
+  ns: string,
+  dapper = false,
+): string | null {
   if (ctx.tests.length === 0) return null;
 
   // Which aggregates (with a repo) the bodies reference → wire + import.  Detect
@@ -175,15 +201,18 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR, ns: string):
       ctx.repositories.some((r) => r.aggregateName === a.name) &&
       new RegExp(`\\b${a.name}\\b`).test(bodyOnly),
   );
-  const methodBlocks = ctx.tests.map((t) => renderTest(t, ctx, usedAggs));
+  const methodBlocks = ctx.tests.map((t) => renderTest(t, ctx, usedAggs, dapper));
 
   const className = `${upperFirst(ctx.name)}IntegrationTests`;
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push("using System;");
   lines.push("using System.Threading.Tasks;");
-  lines.push("using Microsoft.EntityFrameworkCore;");
-  lines.push("using Microsoft.Extensions.Logging.Abstractions;");
+  if (!dapper) {
+    lines.push("using Microsoft.EntityFrameworkCore;");
+    lines.push("using Microsoft.Extensions.Logging.Abstractions;");
+  }
+  if (dapper) lines.push("using Npgsql;");
   lines.push("using Xunit;");
   lines.push("using AwesomeAssertions;");
   lines.push(`using ${ns}.Domain.Common;`);
