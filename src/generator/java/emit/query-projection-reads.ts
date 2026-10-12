@@ -31,7 +31,14 @@ import {
   type FilterBypass,
   promotedCapabilities,
 } from "../capability-filter.js";
-import { jid, jsonProp } from "../java-ident.js";
+import {
+  javaLocals,
+  jid,
+  jsonProp,
+  localOf,
+  movedLocalOrUndefined,
+  requestParam,
+} from "../java-ident.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
 import {
   collectJavaExprImports,
@@ -265,6 +272,31 @@ function wrapAggregationBypass(caps: readonly string[], bodyLines: string[]): st
   ];
 }
 
+/** The names a query-time projection's SERVICE read method spells itself,
+ *  per arm (see `renderJavaQueryProjections`): the injected repository field(s)
+ *  it dereferences, its row lambda parameter (`a` / `x` / `r`), and its own
+ *  locals (`rows`, the `<agg>ById` join maps, `__a`).  A projection param bound
+ *  under one of these is moved off it (`javaLocals`). */
+function queryProjectionReadNames(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): Set<string> {
+  const source = proj.query!.source!;
+  if (groupedAggregates(proj)) return new Set(["rows", "r", "entityManager"]);
+  if (wholeTableAggregates(proj)) return new Set(["r", "entityManager"]);
+  if (proj.query!.sourceKind === "workflow") {
+    const wf = ctx.workflows.find((w) => w.name === source);
+    return new Set(["x", ...(wf ? [stateRepoField(wf)] : [])]);
+  }
+  if (proj.query!.sourceKind === "projection") {
+    const src = ctx.projections.find((p) => p.name === source);
+    return new Set(["x", ...(src ? [projectionRepoField(src)] : [])]);
+  }
+  return new Set([
+    "a",
+    "__a",
+    repoField(source),
+    ...proj.query!.joins.flatMap((j) => [repoField(j.aggregate), `${lowerFirst(j.aggregate)}ById`]),
+  ]);
+}
+
 export function renderJavaQueryProjections(
   ctx: EnrichedBoundedContextIR,
   qpctx: QueryProjectionCtx,
@@ -310,13 +342,39 @@ export function renderJavaQueryProjections(
     // interface binds them into the JPQL (`@Param`, from the synthesised find).
     // `javaValueTypeForId` mirrors api.ts's find-param rule: an `X id` binds as
     // its underlying value type, because Spring cannot bind a wrapper record.
-    const projParamDecls = proj.params.map((p) =>
+    const paramDecl = (p: (typeof proj.params)[number], local: string): string =>
       p.type.kind === "id"
-        ? `${javaValueTypeForId(p.type.valueType)} ${p.name}`
-        : `${renderJavaType(p.type)} ${p.name}`,
+        ? `${javaValueTypeForId(p.type.valueType)} ${local}`
+        : `${renderJavaType(p.type)} ${local}`;
+    // Each layer's params are locals of a method that spells names of its own
+    // — the service read: the injected repository fields it dereferences and
+    // its `a` / `x` / `r` lambda params and `rows` / join-map locals; the
+    // controller action: the injected `queryProjections` service and the gate's
+    // principal.  A param named like one shadowed or redeclared it
+    // (`ordersRepository.inReg(ordersRepository, …)` on a String).  Only a
+    // colliding name moves; the query key stays the `.ddd` spelling
+    // (`requestParam`), and the JPQL `@Param` binding is positional.
+    const svcLocals = javaLocals(
+      proj.params.map((p) => p.name),
+      queryProjectionReadNames(proj, ctx),
     );
-    const projRequestParams = projParamDecls.map((d) => `@RequestParam ${d}`);
-    const projArgNames = proj.params.map((p) => p.name);
+    const gateUsesUser = !!proj.query!.requires && exprUsesCurrentUser(proj.query!.requires);
+    const routeLocals = javaLocals(
+      proj.params.map((p) => p.name),
+      new Set([
+        "queryProjections",
+        ...(gateUsesUser ? ["currentUser", "currentUserAccessor"] : []),
+      ]),
+    );
+    const projParamDecls = proj.params.map((p) => paramDecl(p, localOf(svcLocals, p.name)));
+    const projRequestParams = proj.params.map((p) => {
+      const local = localOf(routeLocals, p.name);
+      return `${requestParam(p.name, local)} ${paramDecl(p, local)}`;
+    });
+    const projArgNames = proj.params.map((p) => localOf(svcLocals, p.name));
+    const routeArgNames = proj.params.map((p) => localOf(routeLocals, p.name));
+    // In-memory filters (workflow- / projection-sourced) read the params too.
+    const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);
     const rowName = `${upperFirst(proj.name)}Row`;
     const shape = proj.wireShape ?? [];
 
@@ -510,14 +568,18 @@ export function renderJavaQueryProjections(
         collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
-          renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
+          renderJavaExpr(sel.expr, {
+            thisName: "x",
+            accessorProps: true,
+            paramExpr: svcParamExpr,
+          }),
         );
       });
       const filter = proj.query!.filter;
       const filterLine = filter
         ? (() => {
             collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
+            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
           })()
         : undefined;
       methods.push(
@@ -546,14 +608,18 @@ export function renderJavaQueryProjections(
         collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
-          renderJavaExpr(sel.expr, { thisName: "x", accessorProps: true }),
+          renderJavaExpr(sel.expr, {
+            thisName: "x",
+            accessorProps: true,
+            paramExpr: svcParamExpr,
+          }),
         );
       });
       const filter = proj.query!.filter;
       const filterLine = filter
         ? (() => {
             collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true })})`;
+            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
           })()
         : undefined;
       methods.push(
@@ -636,7 +702,7 @@ export function renderJavaQueryProjections(
         gateLines.push(`        var currentUser = currentUserAccessor.user();`);
       }
       gateLines.push(
-        `        if (!(${renderJavaExpr(gate, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderJavaExpr(gate, { thisName: "this", paramExpr: (n) => movedLocalOrUndefined(routeLocals, n) })})) throw new ForbiddenException(${JSON.stringify(
           `Forbidden: projection ${proj.name}`,
         )});`,
       );
@@ -649,7 +715,7 @@ export function renderJavaQueryProjections(
       `    @GetMapping("/${snake(proj.name)}")`,
       `    public ${routeType} ${findName}(${projRequestParams.join(", ")}) {`,
       ...gateLines,
-      `        return queryProjections.${findName}(${projArgNames.join(", ")});`,
+      `        return queryProjections.${findName}(${routeArgNames.join(", ")});`,
       `    }`,
       ``,
     );

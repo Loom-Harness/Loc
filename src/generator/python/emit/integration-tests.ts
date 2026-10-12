@@ -155,10 +155,18 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, lets: Map<string, stri
   }
 }
 
+const mentions = (text: string, name: string): boolean => new RegExp(`\\b${name}\\b`).test(text);
+
+/** One test function.  Its fixture locals are derived from ITS OWN rendered
+ *  body, never pooled across the context's tests: a `<agg>_repo` only when the
+ *  body reads it, `events` only when some repository is constructed, and the
+ *  `session` fixture parameter only when a local or the body touches it.  A
+ *  body that only builds value objects therefore declares nothing — ruff F841
+ *  rejects an unused local, and a session-free test needs no Postgres. */
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  usedAggs: readonly AggregateIR[],
+  repoAggs: readonly AggregateIR[],
   cascade: boolean,
   used: Set<string>,
 ): string[] {
@@ -166,16 +174,25 @@ function renderTest(
   for (const s of t.statements) {
     if (s.kind === "let" && s.type?.kind === "entity") lets.set(s.name, s.type.name);
   }
-  const out: string[] = [`async def ${testFnName(t.name, used)}(session: AsyncSession) -> None:`];
-  out.push(
-    cascade
-      ? "    events = InProcessDispatcher(session)"
-      : "    events = NoopDomainEventDispatcher()",
-  );
-  for (const a of usedAggs) {
-    out.push(`    ${repoVar(a.name)} = ${a.name}Repository(session, events)`);
-  }
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, lets));
+  const bodyStr = body.join("\n");
+  const fixtures: string[] = [];
+  const repos = repoAggs.filter((a) => mentions(bodyStr, repoVar(a.name)));
+  if (repos.length > 0) {
+    fixtures.push(
+      cascade
+        ? "    events = InProcessDispatcher(session)"
+        : "    events = NoopDomainEventDispatcher()",
+    );
+    for (const a of repos) {
+      fixtures.push(`    ${repoVar(a.name)} = ${a.name}Repository(session, events)`);
+    }
+  }
+  const usesSession = mentions([...fixtures, bodyStr].join("\n"), "session");
+  const out: string[] = [
+    `async def ${testFnName(t.name, used)}(${usesSession ? "session: AsyncSession" : ""}) -> None:`,
+    ...fixtures,
+  ];
   out.push(...(body.length > 0 ? body : ["    pass"]));
   return out;
 }
@@ -188,20 +205,15 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   const used = new Set<string>();
   const cascade = ctx.workflows.length > 0;
 
-  // Render every test body first, then narrow imports to what's referenced.
+  // Render every test first, then narrow imports to what the rendered module
+  // names.
   const testBlocks: string[] = [];
-  // usedAggs: an aggregate with a repository, referenced anywhere in the tests.
-  const allBodies = ctx.tests
-    .flatMap((t) => t.statements)
-    .flatMap((s) => renderStmt(s, ctx, new Map()))
-    .join("\n");
-  const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(allBodies);
-  const usedAggs = ctx.aggregates.filter(
-    (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
+  const repoAggs = ctx.aggregates.filter((a) =>
+    ctx.repositories.some((r) => r.aggregateName === a.name),
   );
   for (const t of ctx.tests) {
     testBlocks.push("", "");
-    testBlocks.push(...renderTest(t, ctx, usedAggs, cascade, used));
+    testBlocks.push(...renderTest(t, ctx, repoAggs, cascade, used));
   }
   const bodyStr = testBlocks.join("\n");
 
@@ -231,14 +243,17 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   );
   out.push("");
   out.push("from app.db.migrate import run_migrations");
-  if (cascade) {
+  if (mentions(bodyStr, "InProcessDispatcher")) {
     out.push("from app.dispatch import InProcessDispatcher");
-  } else {
+  }
+  if (mentions(bodyStr, "NoopDomainEventDispatcher")) {
     out.push("from app.domain.events import NoopDomainEventDispatcher");
   }
-  for (const a of usedAggs) {
-    out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
-    out.push(`from app.db.repositories.${snake(a.name)}_repository import ${a.name}Repository`);
+  for (const a of repoAggs) {
+    if (mentions(bodyStr, a.name)) out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
+    if (mentions(bodyStr, `${a.name}Repository`)) {
+      out.push(`from app.db.repositories.${snake(a.name)}_repository import ${a.name}Repository`);
+    }
   }
   if (idNames.length > 0) out.push(`from app.domain.ids import ${idNames.join(", ")}`);
   if (voEnumNames.length > 0) {

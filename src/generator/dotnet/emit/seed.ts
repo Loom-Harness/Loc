@@ -26,7 +26,7 @@
 import type { EnrichedBoundedContextIR, SeedRowIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import {
   type Entry,
   groupByDataset,
@@ -151,7 +151,7 @@ function renderArgs(row: SeedRowIR, agg: SeederAggregate): string {
       provided !== undefined
         ? coerceSeedValue(p.type, renderCsExpr(provided))
         : renderCsOmission(p.omission);
-    return `${p.name}: ${value}`;
+    return `${escapeCsharpIdent(p.name)}: ${value}`;
   });
   return args.join(", ");
 }
