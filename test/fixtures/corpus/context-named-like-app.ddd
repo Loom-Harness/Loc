@@ -1,0 +1,55 @@
+// A deployable named like the context it hosts: `deployable claims` hosting
+// `context Claims`.  On elixir the app module and the context module then share
+// a name (`Claims` / `Claims.Claims`), and every controller used to open with
+// `alias Claims.Claims` — which rebinds `Claims` itself, so the controller's own
+// `rescue guard_error in Claims.GuardError` resolved to
+// `Claims.Claims.GuardError` and `mix compile --warnings-as-errors` failed
+// ("struct Claims.Claims.GuardError is undefined").  `generate system` said
+// `0 error(s), 0 warning(s)`.
+//
+// The relational aggregate carries a guarded operation (the GuardError rescue)
+// and a custom find; the event-sourced one exercises the second controller
+// emitter, which opened with the same alias.  The other four backends have no
+// alias semantics here, so the row is ALL: nothing else may move.
+system Claims {
+  subdomain Intake {
+    context Claims {
+      enum ClaimStatus { Open, Closed }
+
+      aggregate Clm with crudish {
+        ref: string
+        status: ClaimStatus
+        operation relink(r: string) {
+          precondition r.length > 0 message "ref required"
+          ref := r
+        }
+      }
+      repository Clms for Clm {
+        find byRef(r: string): Clm[] where ref == r
+      }
+
+      event Filed { ledger: Ledger id, amount: int }
+      aggregate Ledger persistedAs: eventLog {
+        total: int
+        create open(amount: int) {
+          precondition amount > 0 message "amount must be positive"
+          emit Filed { ledger: id, amount: amount }
+        }
+        apply(e: Filed) { total := e.amount }
+      }
+      repository Ledgers for Ledger { }
+    }
+  }
+
+  api ClaimsApi from Intake
+  storage pg { type: postgres }
+  resource claimsState { for: Claims, kind: state, use: pg }
+  resource claimsLog { for: Claims, kind: eventLog, use: pg }
+  deployable claims {
+    platform: __PLATFORM__
+    contexts: [Claims]
+    dataSources: [claimsState, claimsLog]
+    serves: ClaimsApi
+    port: 4000
+  }
+}

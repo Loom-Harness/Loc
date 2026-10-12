@@ -743,7 +743,14 @@ const REGISTERED: Ratchet[] = [
     // three) and 3g's six drains come off that — the merged register holds
     // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
     // both ways (19 fails naming 20; 999 fails as slack).
-    max: 20,
+    // 20 -> 21 (2026-10-12, claims-eval wave 2): `context-named-like-app`, a
+    // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
+    // controller's `alias Claims.Claims` shadowed the app module, so
+    // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
+    // the fix (spelling the facade fully qualified) is not observable on the
+    // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
+    // as base + each side's delta (see the #3024 note above).
+    max: 21,
   },
 ];
 

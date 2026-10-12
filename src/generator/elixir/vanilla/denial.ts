@@ -186,6 +186,25 @@ export function appModuleOf(contextModule: string): string {
   return contextModule.split(".")[0] ?? contextModule;
 }
 
+/** The reference a controller calls the `<App>.<Ctx>` facade through.  Normally
+ *  the bare `<Ctx>` (under `alias <App>.<Ctx>`), but when the context is named
+ *  like the app (`deployable claims` hosting `context Claims`) that alias would
+ *  rebind `<App>` itself — every `<App>.GuardError` / `<App>.Repo` in the file
+ *  would then resolve to `<App>.<App>.…` and fail to compile.  In that case the
+ *  facade is referenced fully qualified and no alias is emitted
+ *  ({@link contextAliasLine}). */
+export function contextCallRef(appModule: string, ctxModule: string): string {
+  return ctxModule === appModule ? `${appModule}.${ctxModule}` : ctxModule;
+}
+
+/** The `alias <App>.<Ctx>` line (with trailing newline) a controller needs for
+ *  {@link contextCallRef}'s bare `<Ctx>` — empty when the ref is fully qualified. */
+export function contextAliasLine(appModule: string, ctxModule: string): string {
+  return contextCallRef(appModule, ctxModule) === ctxModule
+    ? `  alias ${appModule}.${ctxModule}\n`
+    : "";
+}
+
 /** `<App>.GuardError` — the typed exception a guard raises on the pure paths. */
 export function guardErrorModule(appModule: string): string {
   return `${appModule}.GuardError`;
