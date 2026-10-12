@@ -124,7 +124,8 @@ describe("React i18n runtime", () => {
       "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
     );
     // `values` widened to admit Date (for `, date`) + boolean alongside string/number.
-    expect(i18n).toMatch(/values\?: Record<string, string \| number \| boolean \| Date>/);
+    expect(i18n).toContain("type Values = Record<string, string | number | boolean | Date>;");
+    expect(i18n).toMatch(/values\?: Values/);
     // No leftover regex shim.
     expect(i18n).not.toContain("message.replace(");
     // A plain 2-arg call (no values) still returns the message untouched (no parse cost).
