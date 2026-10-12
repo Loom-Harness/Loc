@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java backend — event-sourced workflows (workflow-and-applier.md A2-S5b; java
-// joined EVENT_SOURCING_WORKFLOW_BACKENDS).  An `eventSourced` workflow persists
+// joined the event-sourced-workflow backends).  An `eventSourced` workflow persists
 // in the single per-context `<ctx>_events` log (its `stream_type = "<Wf>"` rows)
 // folded through its `apply(...)` blocks — the saga analogue of a
 // `persistedAs: eventLog` aggregate — instead of a

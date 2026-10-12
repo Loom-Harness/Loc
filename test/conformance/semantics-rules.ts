@@ -124,8 +124,15 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     title: "Boolean create defaults materialize at the wire boundary",
     trigger: "`active: bool = true`; a create body omitting `active`",
     observable: 'POST {} (no active) reads back {"active":true}, not a zero-value false/null',
-    conforms: ["node", "python", "java"],
-    targets: ["dotnet", "elixir"],
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    // dotnet/elixir were `targets` until verified: .NET binds the declared
+    // value as a create-record positional default (`bool Active = true`), Phoenix
+    // as an Ecto schema default + changeset `__default(:active, true)`. Both are
+    // pinned statically by test/conformance/create-input-default-parity.test.ts
+    // and behaviourally by the `field-defaults` corpus case (its e2e asserts
+    // `read.active` is true after a create omitting it; the wire golden records
+    // on all seven wire-gated legs with no skip/waiver).
+    //
     // Gated per-PR on node and python (A6.2), and on Java via the behavioral tier
     // (RST-10). The python behavioral gate surfaced (and the fix closed) a real
     // parity bug: the FastAPI create model hardcoded `active: bool = False` (the
@@ -1042,12 +1049,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // authored message AND the `loom_code` the i18n catalog is keyed by.
     // Collapsing it to `[{field, "is invalid"}]` discarded all three.
     //
-    // NOTE — the prose in docs/conformance-semantics.md still lists java under
-    // "Open" (the bracket spelling). That is STALE: java's advice now routes
-    // both `errors[]` call sites through a `pointerOf(String)` helper that
-    // splits on `.`, turns each `[i]` indexer into its own numeric segment and
-    // applies the RFC 6901 escapes, and the conversion is pinned. Java is
-    // listed as conforming here on that evidence, not on the prose.
+    // Java's bracket spelling is closed: its advice routes every `errors[]`
+    // call site through a `pointerOf(String)` helper that splits on `.`, turns
+    // each `[i]` indexer into its own numeric segment and applies the RFC 6901
+    // escapes, and the conversion is pinned (see provenance). The prose in
+    // docs/conformance-semantics.md now agrees.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
       "ledger rows `F2-W-03` and `nested-errors-pointer-shape`",
@@ -1084,23 +1090,22 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // aggregate's own list still shows the row unfiltered — one silent failure
     // traded for a worse one.
     //
-    // WHY DOTNET IS A TARGET, NOT CONFORMING. The other four emit an absent
+    // HISTORY — why dotnet WAS a target rather than conforming (it now
+    // conforms; see CLOSED below). The other four emit an absent
     // branch that is literally `null`: node `__j0 === undefined ? null : …`,
     // python `(… if (__j0 := m.get(…)) is not None else None)`, elixir's total
     // `__joined/2` reader (`defp __joined(nil, _field), do: nil`), java's
     // null-guarded ternary with the wire coercion INSIDE the true branch.
-    // .NET's guarded arm ends `: default!`
+    // .NET's guarded arm ended `: default!`
     // (src/generator/dotnet/query-projection-emit.ts), which is `null` only for
     // a REFERENCE-typed joined field. For a joined `int`/`decimal`/`bool`/
-    // `datetime` it is `0`/`false`/`DateTime.MinValue` — a value, not absence,
-    // so .NET does not satisfy the guarantee as stated for those kinds. No
-    // fixture in the corpus or the pinned suites exercises a joined field of
-    // those kinds today, so the gap is UNVERIFIED as well as unfixed; the
-    // reference-typed case (the one the unguarded-index fix was proven on) does
-    // conform. Listing dotnet under `targets` records exactly that: the rule is
-    // asserted against it defensively, not proven. The doc's `Conforms` line
-    // lists dotnet and then names this gap under `Open`; this entry resolves
-    // that contradiction in the safe direction.
+    // `datetime` it was `0`/`false`/`DateTime.MinValue` — a value, not absence,
+    // so .NET did not satisfy the guarantee as stated for those kinds. No
+    // fixture in the corpus or the pinned suites exercised a joined field of
+    // those kinds then, so the gap was UNVERIFIED as well as unfixed; the
+    // reference-typed case (the one the unguarded-index fix was proven on) did
+    // conform. At the time, listing dotnet under `targets` recorded exactly
+    // that: the rule asserted against it defensively, not proven.
     //
     // CLOSED (wave C5 moment 5b, D-ABSENT-JOIN-DATETIME-WIRE): the .NET row
     // record widens every join-read member to nullable and the absent branch is

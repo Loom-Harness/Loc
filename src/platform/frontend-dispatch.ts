@@ -15,6 +15,7 @@
 // newly-added static frontend can't silently regress the matrix.
 // ---------------------------------------------------------------------------
 
+import type { TranslationCatalogs } from "../generator/_frontend/i18n-runtime.js";
 import type { SourceMapRecorder } from "../generator/_trace/sourcemap.js";
 import { generateAngularForContexts } from "../generator/angular/index.js";
 import { generateReactForContexts } from "../generator/react/index.js";
@@ -38,6 +39,10 @@ export interface FrontendEmitArgs {
    *  scoping happens here (the system orchestrator already scoped it per
    *  deployable before calling the platform surface). */
   sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree
+   *  (`PlatformSurface.emitProject`'s `translations`).  Forwarded verbatim;
+   *  each generator scopes them to its own ui's keys. */
+  translations?: TranslationCatalogs;
 }
 
 type FrontendGenerator = (args: FrontendEmitArgs) => Map<string, string>;
@@ -48,13 +53,18 @@ const forward =
       contexts: EnrichedBoundedContextIR[],
       sys: SystemIR,
       deployable: DeployableIR,
-      options: { topLevelComponents?: ComponentIR[]; sourcemap?: SourceMapRecorder },
+      options: {
+        topLevelComponents?: ComponentIR[];
+        sourcemap?: SourceMapRecorder;
+        translations?: TranslationCatalogs;
+      },
     ) => Map<string, string>,
   ): FrontendGenerator =>
   (a) =>
     gen(a.contexts, a.sys, a.deployable, {
       topLevelComponents: a.topLevelComponents,
       sourcemap: a.sourcemap,
+      translations: a.translations,
     });
 
 /** Framework keyword → its project generator.  `static` is React's UI-only

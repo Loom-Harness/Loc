@@ -766,14 +766,6 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
 };
 
-/** True when `name` is a registered walker primitive (any group).
- *  Mirrors the old `isWalkerPrimitive` from walker-stdlib.ts but
- *  resolves through the registry so the language-side check and the
- *  generator-side dispatch can never disagree on what's admissible. */
-export function isRegisteredPrimitive(name: string): boolean {
-  return Object.hasOwn(WALKER_PRIMITIVES, name);
-}
-
 /** Names of every primitive in the named group, lexically sorted.
  *  Consumed by `test/language/walker-stdlib-completeness.test.ts`
  *  to pin the language-side sets against this registry. */

@@ -26,12 +26,22 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
-import { walkWorkflowStmtChildren, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
+import {
+  walkWorkflowStmtChildren,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { snake, upperFirst, workflowFnSnake } from "../../util/naming.js";
+import {
+  pythonIdent,
+  pythonWireIdent,
+  snake,
+  upperFirst,
+  workflowFnSnake,
+} from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
@@ -42,6 +52,7 @@ import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { responsePyType, wireModelImport } from "./emit/http-models.js";
+import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { wireHelperImport } from "./py-type-imports.js";
 import {
@@ -144,7 +155,9 @@ export function buildPyWorkflowsFile(
       lines(
         `class ${pl.name}Response(BaseModel):`,
         pl.fields.length > 0
-          ? pl.fields.map((f) => `    ${f.name}: ${requestFieldDecl(f.type, f.optional, ctx)}`)
+          ? pl.fields.map((f) =>
+              withFieldConstraint(f.name, requestFieldDecl(f.type, f.optional, ctx), undefined),
+            )
           : ["    pass"],
         "",
         "",
@@ -153,7 +166,7 @@ export function buildPyWorkflowsFile(
         pl.fields.length > 0
           ? pl.fields.map(
               (f) =>
-                `    ${f.name}: ${renderPyType(f.type)}${f.optional && f.type.kind !== "optional" ? " | None" : ""}`,
+                `    ${pythonWireIdent(f.name)}: ${renderPyType(f.type)}${f.optional && f.type.kind !== "optional" ? " | None" : ""}`,
             )
           : ["    pass"],
         "",
@@ -167,7 +180,9 @@ export function buildPyWorkflowsFile(
       lines(
         `class ${upperFirst(wf.name)}Request(BaseModel):`,
         wf.params.length > 0
-          ? wf.params.map((p) => `    ${p.name}: ${requestFieldDecl(p.type, false, ctx)}`)
+          ? wf.params.map((p) =>
+              withFieldConstraint(p.name, requestFieldDecl(p.type, false, ctx), undefined),
+            )
           : ["    pass"],
         "",
         "",
@@ -256,7 +271,7 @@ export function buildPyWorkflowsFile(
     ]
       .filter(Boolean)
       .join(", ")}`,
-    `from pydantic import ${["BaseModel", refersTo("RootModel") ? "RootModel" : null].filter(Boolean).join(", ")}`,
+    `from pydantic import ${["BaseModel", refersTo("Field") ? "Field" : null, refersTo("RootModel") ? "RootModel" : null].filter(Boolean).join(", ")}`,
     refersTo("select") ? "from sqlalchemy import select" : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
     // Own-state scratch namespace for an uncorrelated command workflow
@@ -351,16 +366,21 @@ function eventsImports(
  *  op-call renderer threads through, so the actor must be bound even
  *  if the workflow body itself never names `currentUser`. */
 function callsUserGatedOp(sts: WorkflowStmtIR[], ctx: EnrichedBoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") {
+  // Rides the shared deep walker: the hand-rolled recursion this replaces
+  // descended into `for-each` ONLY, so a gated op-call inside an `if-let`
+  // branch never bound the actor (CLAUDE.md, no hand-rolled IR walks).
+  let found = false;
+  for (const top of sts) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (found || s.kind !== "op-call") return;
       const o = lookupOp(ctx, s.aggName, s.op);
       // Either half can need the binding: the remaining body (trailing
       // argument) or the hoisted gate rendered at this call site.
-      return !!o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o));
-    }
-    if (s.kind === "for-each") return callsUserGatedOp(s.body, ctx);
-    return false;
-  });
+      if (o && (operationBodyUsesCurrentUser(o) || operationGatesUseCurrentUser(o))) found = true;
+    });
+    if (found) return true;
+  }
+  return false;
 }
 
 function lookupOp(
@@ -602,7 +622,9 @@ function pyIsolationLevel(level: import("../../ir/types/loom-ir.js").IsolationLe
 function workflowFnHelpers(wf: WorkflowIR): string[] {
   const out: string[] = [];
   for (const fn of wf.functions ?? []) {
-    const params = fn.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`)
+      .join(", ");
     const name = workflowFnSnake(wf.name, fn.name);
     const head = `def ${name}(${params}) -> ${renderPyType(fn.returnType)}:`;
     // Module-level def → 4-space body indent (methods use 8).
@@ -702,7 +724,9 @@ function workflowRoute(
   if (readCorrParam) readParams.add(readCorrParam.name);
   for (const p of wf.params) {
     if (!readParams.has(p.name)) continue;
-    out.push(`        ${snake(p.name)} = ${pyWireToDomain(`body.${p.name}`, p.type, ctx)}`);
+    out.push(
+      `        ${pythonIdent(p.name)} = ${pyWireToDomain(`body.${pythonWireIdent(p.name)}`, p.type, ctx)}`,
+    );
   }
   // F58 — a CORRELATED command workflow addresses a real persisted saga row:
   // load-or-allocate it exactly as the event-triggered starter in
@@ -836,7 +860,7 @@ function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
     const t = f.source === "id" ? "str" : responsePyType(f.type, ctx);
     const optional = f.optional || f.type.kind === "optional";
     const suffix = optional && !t.endsWith("| None") ? " | None = None" : optional ? " = None" : "";
-    return `    ${f.name}: ${t}${suffix}`;
+    return withFieldConstraint(f.name, `${t}${suffix}`, undefined);
   });
   return lines(
     `class ${T}InstanceResponse(BaseModel):`,
@@ -943,7 +967,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
  *  value text / scalar) passes through the column verbatim.  Shared with the
  *  workflow-instance read-model emitter. */
 export function instanceFieldValue(rowVar: string, f: WireField): string {
-  const attr = `${rowVar}.${snake(f.name)}`;
+  const attr = `${rowVar}.${pythonIdent(f.name)}`;
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "primitive" && t.name === "datetime") {
     return f.optional || f.type.kind === "optional"
@@ -983,13 +1007,13 @@ export function pyWorkflowStmtTarget(
     ],
     emit: (st, i) => {
       const kwargs = st.fields
-        .map((f) => `${snake(f.name)}=${renderPyExpr(f.value, rctx)}`)
+        .map((f) => `${pythonIdent(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
       return [`${i}workflow_events.append(${st.eventName}(${kwargs}))`];
     },
     factoryLet: (st, i) => {
       const kwargs = st.fields
-        .map((f) => `${snake(f.name)}=${renderPyExpr(f.value, rctx)}`)
+        .map((f) => `${pythonIdent(f.name)}=${renderPyExpr(f.value, rctx)}`)
         .join(", ");
       return [`${i}${snake(st.name)} = ${st.aggName}.create(${kwargs})`];
     },

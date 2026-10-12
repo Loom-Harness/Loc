@@ -26,7 +26,9 @@ import {
   RESET_PRESERVED_TABLES,
   resetTableDiscoverySql,
   TEST_RESET_ENV,
+  TEST_RESET_HEADER,
   TEST_RESET_PATH,
+  TEST_RESET_TOKEN_ENV,
 } from "../../src/util/test-reset.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
@@ -95,17 +97,25 @@ function loopbackGate(e2e: string): (base: string) => boolean {
 interface ResetRun {
   /** URLs the stub `fetch` was asked for. */
   readonly hits: string[];
+  /** The headers sent with each hit, in order. */
+  readonly headers: Record<string, string>[];
   /** Whatever the helper wrote to stderr, one entry per write. */
   readonly stderr: string[];
   /** The error it threw, if it threw. */
   readonly thrown?: unknown;
 }
 
+/** The token the suite is handed in most cases — the opt-in. */
+const TOKEN = "s3cret-token";
+
 async function driveReset(
   e2e: string,
   mode: string | undefined,
   bases: string[],
   status = 200,
+  // `null`, not `undefined`, for "no token": a default parameter would
+  // silently swallow an explicit `undefined`.
+  token: string | null = TOKEN,
 ): Promise<ResetRun> {
   // From `__authHeaders` (which the reset forwards) down to the first wire
   // helper — i.e. the whole isolation section, evaluated as one unit.
@@ -118,17 +128,20 @@ async function driveReset(
   }).outputText;
 
   const hits: string[] = [];
+  const headers: Record<string, string>[] = [];
   const stderr: string[] = [];
   let thrown: unknown;
   const g = globalThis as unknown as { fetch: unknown };
   const realFetch = g.fetch;
   const realEnv = process.env.E2E_RESET;
+  const realToken = process.env[TEST_RESET_TOKEN_ENV];
   // Guarded: one of these cases deliberately removes `process.stderr` to model
   // a host that has none, so the harness must not assume it either.
   const realStderr = Object.getOwnPropertyDescriptor(process, "stderr");
   const realWarn = console.warn;
-  g.fetch = async (url: string) => {
+  g.fetch = async (url: string, init?: { headers?: Record<string, string> }) => {
     hits.push(String(url));
+    headers.push({ ...(init?.headers ?? {}) });
     return { ok: status < 400, status, text: async () => "stub body" };
   };
   // The helper writes to `process.stderr` rather than `console.warn` because
@@ -145,6 +158,8 @@ async function driveReset(
   };
   if (mode === undefined) delete process.env.E2E_RESET;
   else process.env.E2E_RESET = mode;
+  if (token === null) delete process.env[TEST_RESET_TOKEN_ENV];
+  else process.env[TEST_RESET_TOKEN_ENV] = token;
   try {
     // biome-ignore lint/security/noGlobalEval: this repo's own emitted source, produced in-process.
     const run = eval(
@@ -162,8 +177,10 @@ async function driveReset(
     console.warn = realWarn;
     if (realEnv === undefined) delete process.env.E2E_RESET;
     else process.env.E2E_RESET = realEnv;
+    if (realToken === undefined) delete process.env[TEST_RESET_TOKEN_ENV];
+    else process.env[TEST_RESET_TOKEN_ENV] = realToken;
   }
-  return { hits, stderr, thrown };
+  return { hits, headers, stderr, thrown };
 }
 
 describe("when the reset fires", () => {
@@ -225,7 +242,7 @@ describe("when the reset fires", () => {
     const warned = await driveReset(e2e, "per-test", [LOCAL, LOCAL], 404);
     expect(warned.thrown, "a 404 must not fail the suite").toBeUndefined();
     expect(warned.stderr, "…and must say so, once").toHaveLength(1);
-    expect(warned.stderr[0]).toContain("LOOM_TEST_RESET=1");
+    expect(warned.stderr[0]).toContain(`${TEST_RESET_ENV}=1`);
 
     const failed = await driveReset(e2e, "per-test", [LOCAL], 500);
     expect(failed.thrown, "a 500 IS a fault and must surface").toBeDefined();
@@ -244,10 +261,41 @@ describe("when the reset fires", () => {
       const run = await driveReset(e2e, "per-test", [LOCAL], 404);
       expect(run.thrown, "a missing stderr must not fail the suite").toBeUndefined();
       // …and the message still lands, via console.
-      expect(run.stderr.join("")).toContain("LOOM_TEST_RESET=1");
+      expect(run.stderr.join("")).toContain(`${TEST_RESET_ENV}=1`);
     } finally {
       if (real) Object.defineProperty(process, "stderr", real);
     }
+  });
+
+  // Finding H-30: the suite reset by DEFAULT against any loopback base, so
+  // running it against a dev stack holding real data erased that data.  The
+  // reset is now opt-in on the CLIENT too: no token, no request.
+  it("never resets without the token, in any mode — and says so once", async () => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    for (const mode of [undefined, "per-file", "per-test"]) {
+      const run = await driveReset(e2e, mode, [LOCAL, LOCAL, LOCAL], 200, null);
+      expect(run.hits, String(mode)).toHaveLength(0);
+      expect(run.thrown).toBeUndefined();
+      expect(run.stderr, "…warned exactly once").toHaveLength(1);
+      expect(run.stderr[0]).toContain(TEST_RESET_TOKEN_ENV);
+      expect(run.stderr[0]).toContain("SHARE a database");
+    }
+    // An EMPTY token is no token.
+    expect((await driveReset(e2e, undefined, [LOCAL], 200, "")).hits).toHaveLength(0);
+  });
+
+  it("sends the token in the reset header", async () => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const run = await driveReset(e2e, undefined, [LOCAL]);
+    expect(run.hits).toHaveLength(1);
+    expect(run.headers[0]?.[TEST_RESET_HEADER]).toBe(TOKEN);
+  });
+
+  it("fails loudly when the backend refuses the token (403)", async () => {
+    const e2e = (await files(WITH_E2E)).get("e2e/Shop.e2e.test.ts")!;
+    const run = await driveReset(e2e, undefined, [LOCAL], 403);
+    expect(run.thrown, "a token mismatch is a misconfiguration, not shared state").toBeDefined();
+    expect(String(run.thrown)).toContain(TEST_RESET_TOKEN_ENV);
   });
 
   it("sends nothing to a remote target in any mode", async () => {
@@ -330,18 +378,38 @@ describe("the reset cannot fire against a non-local target", () => {
 });
 
 describe("the backend only registers the reset route when told to", () => {
-  it("gates registration on an explicit switch with a non-production default", async () => {
+  it("gates registration on an explicit switch AND a token — never on NODE_ENV", async () => {
     const http = (await files(WITH_E2E)).get("d/http/index.ts")!;
     expect(http).toContain(`app.post("${TEST_RESET_PATH}"`);
     // Registration is wrapped in a runtime `if`, not merely checked inside the
-    // handler: outside a dev profile the PATH DOES NOT EXIST, so a production
-    // deploy answers through the ordinary not-found floor having touched
-    // nothing.
-    const gate = http.slice(0, http.indexOf(`app.post("${TEST_RESET_PATH}"`));
-    expect(gate).toContain(`process.env.${TEST_RESET_ENV} === "1"`);
-    expect(gate).toContain(`process.env.${TEST_RESET_ENV} !== "0"`);
-    expect(gate).toContain(`process.env.NODE_ENV !== "production"`);
-    expect(gate).toMatch(/if \(testResetEnabled\) \{\s*$/m);
+    // handler: unless opted in, the PATH DOES NOT EXIST, so a request answers
+    // through the ordinary not-found floor having touched nothing.
+    const gate = http.slice(
+      http.indexOf("// Dev-only state reset"),
+      http.indexOf(`app.post("${TEST_RESET_PATH}"`),
+    );
+    expect(gate).toMatch(
+      new RegExp(
+        `if \\(process\\.env\\.${TEST_RESET_ENV} === "1" && testResetToken !== ""\\) \\{\\s*$`,
+        "m",
+      ),
+    );
+    expect(gate).toContain(`process.env.${TEST_RESET_TOKEN_ENV}`);
+    // H-30: the implied "on outside production" default is gone.
+    expect(gate).not.toContain("NODE_ENV");
+    expect(gate).not.toContain(`!== "0"`);
+  });
+
+  it("refuses a request without the token, compared in constant time", async () => {
+    const http = (await files(WITH_E2E)).get("d/http/index.ts")!;
+    const route = http.slice(http.indexOf(`app.post("${TEST_RESET_PATH}"`));
+    const check = route.indexOf("timingSafeEqual(given, expected)");
+    expect(check, "the handler compares the header with timingSafeEqual").toBeGreaterThan(-1);
+    expect(route).toContain(`c.req.header(${JSON.stringify(TEST_RESET_HEADER)})`);
+    // …and refuses BEFORE it discovers or truncates anything.
+    expect(check).toBeLessThan(route.indexOf("pg_tables"));
+    expect(route.slice(check, route.indexOf("pg_tables"))).toContain("403");
+    expect(http).toContain('import { timingSafeEqual } from "node:crypto";');
   });
 
   it("truncates with RESTART IDENTITY CASCADE and preserves the bookkeeping", async () => {
@@ -441,46 +509,58 @@ describe("the reset preserves every backend's migration ledger", () => {
     // leaves the path string in place and an assertion on the path alone
     // stays green. (Measured — that is exactly what the first version of this
     // test did.)
-    const backends: Array<{ platform: string; path: string; gate: RegExp }> = [
+    const backends: Array<{
+      platform: string;
+      path: string;
+      gate: RegExp;
+      /** The constant-time comparison the token check must use. */
+      compare: string;
+      /** A profile-derived default that must NOT reappear (H-30). */
+      inferred: string;
+    }> = [
       {
         platform: "node",
         path: "d/http/index.ts",
-        gate: /if \(testResetEnabled\) \{/,
+        gate: /if \(process\.env\.LOOM_TEST_RESET === "1" && testResetToken !== ""\) \{/,
+        compare: "timingSafeEqual(",
+        inferred: `${TEST_RESET_ENV} !== "0"`,
       },
       {
         platform: "python",
         path: "d/app/main.py",
-        gate: /^if _TEST_RESET_ENABLED:$/m,
+        gate: /^_TEST_RESET_ENABLED = os\.environ\.get\("LOOM_TEST_RESET"\) == "1" and _TEST_RESET_TOKEN != ""$/m,
+        compare: "hmac.compare_digest(",
+        inferred: "APP_ENV",
       },
       {
         platform: "dotnet",
         path: "d/Program.cs",
-        gate: /if \(loomTestReset == "1" \|\| \(loomTestReset != "0" && !app\.Environment\.IsProduction\(\)\)\)/,
+        gate: /if \(System\.Environment\.GetEnvironmentVariable\("LOOM_TEST_RESET"\) == "1" && loomTestResetToken\.Length > 0\)/,
+        compare: "CryptographicOperations.FixedTimeEquals(",
+        inferred: 'loomTestReset != "0"',
       },
       {
         // Phoenix is the one backend whose route is registered
         // unconditionally — a router is COMPILED, so a `scope` cannot be added
         // or dropped by an environment variable read at boot.  The refusal
-        // lives in the action instead, and the fallback default is compiled in
-        // (config/prod.exs bakes `false`).  Verified: a `MIX_ENV=prod` build
-        // reports `Application.get_env(:api, :loom_test_reset_default) =>
-        // false`, a dev build `true`.
+        // lives in the action instead.
         platform: "elixir",
         path: "d/lib/d_web/controllers/test_reset_controller.ex",
-        gate: /defp enabled\? do/,
+        gate: /System\.get_env\("LOOM_TEST_RESET"\) != "1" or expected == "" ->/,
+        compare: "Plug.Crypto.secure_compare(",
+        inferred: "loom_test_reset_default",
       },
       {
         // Java gates in the handler for the same reason as Phoenix — Spring
-        // builds its mappings from the beans present at context refresh, so a
-        // conditional MAPPING means carrying this rule as a SpEL string.  And
-        // like python it has no profile marker the generated app sets, so the
-        // switch is required outright: strictly tighter, never looser.
+        // builds its mappings from the beans present at context refresh.
         platform: "java",
         path: "d/src/main/java/com/loom/d/api/TestResetController.java",
-        gate: /if \(!"1"\.equals\(System\.getenv\("LOOM_TEST_RESET"\)\)\) \{/,
+        gate: /if \(!"1"\.equals\(System\.getenv\("LOOM_TEST_RESET"\)\) \|\| expected == null \|\| expected\.isEmpty\(\)\) \{/,
+        compare: "MessageDigest.isEqual(",
+        inferred: "spring.profiles",
       },
     ];
-    for (const { platform, path, gate } of backends) {
+    for (const { platform, path, gate, compare, inferred } of backends) {
       const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
       const src = out.get(path)!;
       expect(src, `${platform} emits the reset`).toContain(TEST_RESET_PATH);
@@ -489,6 +569,14 @@ describe("the reset preserves every backend's migration ledger", () => {
       // …and the guard reads the shared switch, so the contract is one rule
       // rather than five spellings that drift apart.
       expect(src, `${platform} reads ${TEST_RESET_ENV}`).toContain(TEST_RESET_ENV);
+      // H-30: a shared secret, read from the shared env name, carried in the
+      // shared header, compared in constant time — and no profile default.
+      expect(src, `${platform} reads ${TEST_RESET_TOKEN_ENV}`).toContain(TEST_RESET_TOKEN_ENV);
+      expect(src, `${platform} reads the ${TEST_RESET_HEADER} header`).toMatch(
+        new RegExp(`${TEST_RESET_HEADER}|x_loom_test_reset`),
+      );
+      expect(src, `${platform} compares the token in constant time`).toContain(compare);
+      expect(src, `${platform} infers nothing from a profile`).not.toContain(inferred);
     }
   });
 });
@@ -558,36 +646,42 @@ describe("the reset re-applies seed data", () => {
   });
 });
 
-describe("the elixir release bakes its default closed", () => {
-  // Phoenix cannot gate the ROUTE (a router is compiled), so everything rests
-  // on the fallback the build bakes in: `config/prod.exs` must say `false`, or
-  // a `MIX_ENV=prod` release ships a reachable truncate to anyone who can
-  // reach the port. This is the one exclusion no runtime probe of a DEV build
-  // would ever catch, which is why it is pinned here.
-  //
-  // Verified against the real toolchain: `Application.get_env(:api,
-  // :loom_test_reset_default)` reads `false` in a MIX_ENV=prod build and
-  // `true` in a dev build.
+describe("the elixir build bakes no reset default", () => {
+  // The fallback used to be compiled in per MIX_ENV (dev/test `true`), which is
+  // exactly the "on by default in dev" H-30 removes.  No env carries one now.
   it.each([
-    ["prod", false],
-    ["dev", true],
-    ["test", true],
-  ])("config/%s.exs bakes loom_test_reset_default: %s", async (env, expected) => {
+    ["prod"],
+    ["dev"],
+    ["test"],
+  ])("config/%s.exs carries no loom_test_reset_default", async (env) => {
     const out = await files(WITH_E2E.replace("platform: node", "platform: elixir"));
     const cfg = out.get(`d/config/${env}.exs`)!;
-    expect(cfg).toContain(`config :d, loom_test_reset_default: ${expected}`);
+    expect(cfg, `config/${env}.exs is emitted`).toBeDefined();
+    expect(cfg).not.toContain("loom_test_reset_default");
   });
 });
 
-describe("the documented compose recipe opts in by name", () => {
-  it("sets the switch on the backend service, so `npm test` is green twice", async () => {
-    // The generated container image correctly pins NODE_ENV=production — it is
-    // a production image — so without this line the compose stack, which is
-    // the LOCAL dev stack built from it, would have no reset route and the
-    // documented `docker compose up -d && cd e2e && npm test` would be red on
-    // its second run.  That is the whole of F3.
-    const compose = (await files(WITH_E2E)).get("docker-compose.yml")!;
-    const api = compose.slice(compose.indexOf("\n  d:"));
-    expect(api.slice(0, api.indexOf("\n  volumes:"))).toContain(`${TEST_RESET_ENV}: "1"`);
+describe("the generated compose file never enables the reset (H-30)", () => {
+  // The compose file publishes every backend on 0.0.0.0.  It used to force
+  // `LOOM_TEST_RESET: "1"` on every backend service, which made one
+  // unauthenticated curl — or the generated e2e suite pointed at a dev stack
+  // holding real data — truncate every table.  A harness that wants the reset
+  // opts in in its OWN environment, with a token.
+  it.each([
+    ["node"],
+    ["python"],
+    ["dotnet"],
+    ["java"],
+    ["elixir"],
+  ])("a %s system with e2e tests gets no LOOM_TEST_RESET in compose", async (platform) => {
+    const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
+    expect(out.has("e2e/Shop.e2e.test.ts"), "the e2e suite that calls the reset is emitted").toBe(
+      true,
+    );
+    for (const [path, content] of out) {
+      if (!/docker-compose[^/]*\.ya?ml$/.test(path)) continue;
+      expect(content, path).not.toContain(TEST_RESET_ENV);
+    }
+    expect(out.get("docker-compose.yml")!).not.toContain(TEST_RESET_ENV);
   });
 });

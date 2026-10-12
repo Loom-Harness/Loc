@@ -50,10 +50,39 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
       if (t !== true) return t;
       return sqlRenderableExpr(e.otherwise);
     }
-    default:
+    // The refused half, named.  A backfill runs as one SQL `UPDATE`, so
+    // anything needing a host runtime — a call, a member walk, a ctor, a list,
+    // a match, a conversion, an i18n hole, a duration, an authz sentinel, a
+    // lambda, an action reference — is refused with a `loom.*` code rather
+    // than emitted.  Enumerated rather than left to a `default:` so a new
+    // `ExprIR` kind is a `tsc` error and someone rules on whether Postgres can
+    // express it (`src/generator/sql-pg-expr.ts` is the other half of that
+    // decision).
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
       return {
         reason: `'${e.kind}' expressions are not supported in a backfill — use literals, sibling fields, arithmetic/comparison operators, or a raw sql step`,
       };
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return {
+        reason: `'${(e as { kind: string }).kind}' expressions are not supported in a backfill — use literals, sibling fields, arithmetic/comparison operators, or a raw sql step`,
+      };
+    }
   }
 }
 

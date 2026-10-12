@@ -169,3 +169,59 @@ describe("a hard keyword as a field name says it is a keyword (reserved-keyword 
     expect(errors).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The sweep's review.  14,948 seeded mistakes (one token deleted, or the head
+// word misspelt, on every softened-keyword line of the valid corpus) were
+// parsed before and after the sweep.  No error moved line, but three things
+// regressed, and each is pinned here.
+// ---------------------------------------------------------------------------
+
+describe("the keyword sweep's review regressions", () => {
+  it("a missing `{` before a `for:` clause is reported as the missing brace", async () => {
+    // `for` is hard and followed by `:`, which is the reserved-name shape — but
+    // the parser expected a `{`, and that is the whole story.
+    const { errors } = await parseString(`
+      context C { event Tick { at: datetime } }
+      system S {
+        timerSource Nightly
+          for: Tick
+          cron: "0 0 * * *"
+        }
+      }
+    `);
+    const all = errors.join("\n");
+    expect(all).toContain("Expecting token of type '{'");
+    expect(all).not.toContain("'for' is a Loom keyword");
+  });
+
+  it("a gate line missing its subject still fails — `requires` is a statement head", async () => {
+    const { errors } = await parseString(`
+      context C {
+        aggregate A {
+          n: int
+          operation op() {
+            requires .permissions.contains("x")
+            n := 1
+          }
+        }
+      }
+    `);
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it("a missing name does not list soft keywords as the alternatives", async () => {
+    // Every soft keyword is legal where a name is — as that name.  Listing
+    // 'abstract', 'action', 'against', … as "expected" buried the real answer.
+    const { errors } = await parseString(`
+      system S {
+        deployable {
+          platform: node
+        }
+      }
+    `);
+    const all = errors.join("\n");
+    expect(all).toContain("Unexpected '{'");
+    for (const w of ["'abstract'", "'action'", "'against'"]) expect(all).not.toContain(w);
+  });
+});

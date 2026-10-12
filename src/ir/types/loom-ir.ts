@@ -481,8 +481,8 @@ export interface OperationIR {
    * `GET /{id}/can_<op>` returns `{ allowed }` for UI enablement.
    * Lowered in the aggregate env (operation params are out of scope —
    * `loom.when-references-op-param`); named criteria / aggregate
-   * functions inline like any boolean position.  Emission: Hono +
-   * .NET; gated on elixir (`loom.when-unsupported`). */
+   * functions inline like any boolean position.  Emitted by every
+   * backend. */
   when?: ExprIR;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
@@ -775,6 +775,10 @@ export interface ContextStampAssignmentIR {
 
 export interface TestIR {
   name: string;
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
   statements: TestStmtIR[];
   /** Traceability back-link: the `verifies <TC-id>` clause
    *  naming the TestCase this executable test realises.  Undefined when
@@ -805,6 +809,10 @@ export type TestStmtIR =
 export interface EnumIR {
   name: string;
   values: string[];
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
 }
 
 export interface ValueObjectIR {
@@ -3167,6 +3175,10 @@ export type Platform =
 
 export interface DeployableIR {
   name: string;
+  /** Provenance chain back to the `.ddd` source — see
+   * src/ir/types/origin.ts.  Populated at lowering; lets an IR-phase
+   * diagnostic about this node print `path:line:col`. */
+  origin?: OriginRef;
   /** The platform **family** (`"node"`, `"dotnet"`, `"react"`, …) —
    *  the closed union every downstream consumer branches on.  A
    *  `family@version` pin in the source is normalised here to its
@@ -4076,25 +4088,6 @@ export function exprUsesCurrentUser(e: ExprIR | undefined): boolean {
   return found;
 }
 
-/** True when a `currentUser`-valued stamp RHS is the bare principal or its
- *  `id` member — the "who" identity that a backend may collapse onto the
- *  ambient actor id (Hono `ctx.actorId`, Java `@CreatedBy`/AuditorAware).  A
- *  member access on any OTHER claim (`currentUser.role`, `currentUser.tenantId`)
- *  returns false: those must persist the DECLARED attribute so a read filter
- *  comparing the same claim (`this.createdByRole == currentUser.role`) matches
- *  the stamped row. */
-export function currentUserRefIsActorId(e: ExprIR): boolean {
-  if (e.kind === "ref" && e.refKind === "current-user") return true;
-  if (
-    e.kind === "member" &&
-    e.member === "id" &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  )
-    return true;
-  return false;
-}
-
 /** True when the operation's body — preconditions, assignments,
  *  emits, calls — references `currentUser` anywhere. */
 export function operationUsesCurrentUser(op: OperationIR): boolean {
@@ -4188,7 +4181,7 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (!read || read.readKind !== "named") return;
+      if (read?.readKind !== "named") return;
       if (readThrows(read.repo, read.method)) canNotFound = true;
     });
   }
@@ -4263,18 +4256,6 @@ export function queryProjectionUsesCurrentUser(proj: ProjectionIR): boolean {
  *  closure-captured `HasQueryFilter`.) */
 export function aggregateUsesPrincipalContextFilter(agg: { contextFilters?: ExprIR[] }): boolean {
   return (agg.contextFilters ?? []).some(exprUsesCurrentUser);
-}
-
-/** True when any of the aggregate's lifecycle stamps (`contextStamps`, from
- *  `with audit`/`auditable` or `stamp onCreate`/`onUpdate`) assigns a value
- *  that reads `currentUser` (e.g. `createdBy := currentUser`).  Such a stamp
- *  needs the request principal threaded onto the create /
- *  update call so the stamp can read the current actor — the
- *  stamp-side analogue of `aggregateUsesPrincipalContextFilter`. */
-export function aggregateStampUsesPrincipal(agg: { contextStamps?: ContextStampIR[] }): boolean {
-  return (agg.contextStamps ?? []).some((r) =>
-    r.assignments.some((a) => exprUsesCurrentUser(a.value)),
-  );
 }
 
 export function stmtUsesCurrentUser(s: StmtIR): boolean {

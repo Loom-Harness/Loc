@@ -1,0 +1,114 @@
+// The scalar INTRINSIC catalogue (`src/util/intrinsics.ts`, docs/stdlib.md) in
+// the two positions a booted backend can be asked about: IN MEMORY (a derived
+// field, an invariant) and IN SQL (a queryable `find … where`, column side and
+// value side, plus a reified criterion).
+//
+// PROMOTED (M-T9.42) from the five per-backend `intrinsic-trim.test.ts` string
+// copies, which pinned each emitter's SPELLING of the same op — `this._name.
+// trim()` / `.strip()` / `String.trim` / `.Trim()`, and in SQL drizzle's
+// `sql\`trim(…)\``, JPQL `trim(e.name)`, `func.trim(col)`, an Ecto fragment,
+// EF's translated `Trim()`, java's `cb.trim` inside a Specification.  The
+// in-memory arms are also rows of the evaluated value table
+// (`test/generator/_expr/expr-value-table.ts`); what only a booted backend can
+// answer is the QUERY side — whether the database really compares the trimmed
+// column — and the derived fields as they reach the wire, so that is what this
+// fixture asserts, on every leg:
+//
+//   - a derived `trim()`, a chained `trim().toLower()`, a money `round(0)`
+//     (half-away-from-zero: 18.50 → 19, where banker's rounding answers 18)
+//     and an int `abs()`;
+//   - `trim()`, `toLower()`, `floor()` and `abs()` on the COLUMN side of a
+//     find, matched against the stored value;
+//   - the same column-side `trim()` through a reified criterion.
+//
+// Two claims the copies carry are NOT asserted here, because promoting them
+// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+// a VALUE-side intrinsic in a find (`q.trim()`, `q.toLower()`) 500s on the
+// MikroORM adapter, and a
+// whitespace-only name tripping `invariant name.trim().length > 0` answers
+// three different 422 bodies (node `/name` + the rule text; python a pydantic
+// `Value error, …` prefix with an empty pointer; elixir Ecto's "can't be blank",
+// because Ecto treats a whitespace-only string as MISSING before the invariant
+// runs).  The invariant stays declared — every write below still passes it.
+system IntrinsicsSystem {
+  subdomain Catalog {
+    context Catalog {
+      aggregate Product with crudish {
+        name: string
+        price: money
+        qty: int
+        derived cleanName: string = name.trim()
+        derived slug: string = name.trim().toLower()
+        derived wholePrice: money = price.round(0)
+        derived absQty: int = qty.abs()
+        invariant name.trim().length > 0
+      }
+      criterion Bobbish of Product as p = p.name.trim() == "Bob"
+      repository Products for Product {
+        find byExactName(q: string): Product[] where this.name.trim() == q
+        find byLowerName(q: string): Product[] where this.name.toLower() == q
+        // Not `x`: a find parameter named `x` collides with the .NET emitter's
+        // EF lambda variable (`Where(x => Math.Floor(x.Price) == x)`, CS0019) —
+        // handed off.
+        find byFloorPrice(whole: money): Product[] where this.price.floor() == whole
+        find byAbsQty(n: int): Product[] where this.qty.abs() == n
+        find bobbish(): Product[] where Bobbish
+      }
+    }
+  }
+  api CatalogApi from Catalog
+  storage primary { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: CatalogApi
+    port: 4000
+  }
+
+  test e2e "intrinsics agree in memory and in the database" against d {
+    let ada = api.products.create({ name: "  Ada  ", price: money("18.50"), qty: -3 })
+    let bob = api.products.create({ name: "Bob", price: money("7.25"), qty: 4 })
+
+    // ── in memory: the derived fields as they reach the wire ────────────────
+    let read = api.products.getById(ada)
+    expect(read.name).toBe("  Ada  ")
+    expect(read.cleanName).toBe("Ada")
+    expect(read.slug).toBe("ada")
+    expect(decimal(read.wholePrice)).toBe(19)
+    expect(read.absQty).toBe(3)
+
+    // ── in SQL: column side, value side, both sides ─────────────────────────
+    let exact = api.products.byExactName({ q: "Ada" })
+    expect(exact.count()).toBe(1)
+    expect(exact.first().cleanName).toBe("Ada")
+    let lower = api.products.byLowerName({ q: "bob" })
+    expect(lower.count()).toBe(1)
+    expect(lower.first().name).toBe("Bob")
+    let floored = api.products.byFloorPrice({ whole: money("18") })
+    expect(floored.count()).toBe(1)
+    expect(floored.first().cleanName).toBe("Ada")
+    let absolute = api.products.byAbsQty({ n: 3 })
+    expect(absolute.count()).toBe(1)
+    expect(absolute.first().qty).toBe(-3)
+    // …and through a reified criterion.
+    let viaCriterion = api.products.bobbish()
+    expect(viaCriterion.count()).toBe(1)
+    expect(viaCriterion.first().name).toBe("Bob")
+
+    // An update re-derives, and the finds follow the stored value.
+    api.products.update(bob, { name: " Bob ", price: money("7.25"), qty: -4 })
+    let bobRead = api.products.getById(bob)
+    expect(bobRead.cleanName).toBe("Bob")
+    expect(bobRead.absQty).toBe(4)
+    expect(api.products.bobbish().count()).toBe(1)
+    expect(api.products.byExactName({ q: "Bob" }).count()).toBe(1)
+
+    let all = api.products.all()
+    expect(all.total).toBe(2)
+    api.products.destroy(bob)
+    expect(api.products.getById(bob)).toThrow(404)
+    expect(api.products.bobbish().count()).toBe(0)
+  }
+}

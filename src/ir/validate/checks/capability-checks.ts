@@ -138,6 +138,7 @@ export function validateStampReadsBeforeFlush(
             createStampFields: CREATE_STAMP_FIELDS.join("/"),
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
       });
     }
@@ -156,6 +157,7 @@ export function validateStampReadsBeforeFlush(
             updateStampFields: UPDATE_STAMP_FIELDS.join("/"),
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
         });
       });
     }

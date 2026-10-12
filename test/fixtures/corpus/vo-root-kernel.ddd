@@ -1,0 +1,112 @@
+// A ROOT-LEVEL (ambient / shared-kernel) value object, nested inside a
+// CONTEXT-LOCAL one — `Outer.origin: UnLocode` where `UnLocode` is declared at
+// file scope, outside any context.
+//
+// Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).
+// A root-level VO is the documented shared kernel and the THIRD of the three
+// pools an emitter resolves a VO name through (`ctx.valueObjects`, then
+// `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  In
+// the whole repo only FOUR models declared one — all four under
+// `web/src/examples/` — and every one of them is MULTI-FILE, while
+// `react-build-cases.ts` is single-file-only by construction ("the build harness
+// copies one .ddd into a temp dir", so `erp/main.ddd` and
+// `fulfillment-newest.ddd` "can't be built").  So no compile gate on any backend
+// or any frontend had ever seen a shared kernel.  The corpus had none at all.
+//
+// Two nesting DIRECTIONS ride here deliberately, because they are emitted by
+// different code and only one of them was ever correct:
+//
+//   * root VO -> AGGREGATE field (`Shipment.tag`).  The four multi-file examples
+//     had this one, so the react build gate would have covered it had it been
+//     able to build them.
+//   * root VO -> CONTEXT-LOCAL VO field (`Outer.origin`).  NOTHING had this, and
+//     it is the ordering-sensitive one: a VO that must be emitted BEFORE the
+//     context-local VO that references it, from a different pool than the one
+//     the emitter walks in declaration order.
+//
+// This is the evaluation's F-007, whose two halves have diverged since:
+//
+//   react/vue/svelte  FIXED.  `web/src/api/<agg>.ts` now emits `UnLocodeSchema`
+//                     ahead of `OuterSchema`, so the `z.object` const it
+//                     references is initialised first.
+//   node              STILL BROKEN at mint time, and this fixture is how we
+//                     know.  `http/<agg>.routes.ts` emits the context-local
+//                     `OuterSchema` FIRST and the root-level `UnLocodeSchema`
+//                     after it, so the initialiser reads a `const` in its
+//                     temporal dead zone: `error TS2448: Block-scoped variable
+//                     'UnLocodeSchema' used before its declaration` (+ TS2454).
+//                     Same defect the evaluation reported on the FRONTENDS,
+//                     surviving on the backend after the frontend half was
+//                     fixed — which is exactly why the shape, not the symptom,
+//                     is what a fixture has to carry.  Excluded from this row's
+//                     `backends:` via the manifest's named
+//                     `ORDERED_ROOT_VO_EMISSION` set; ordering the emission by
+//                     dependency returns the key.
+//   python            STILL BROKEN TOO, on the SAME defect in two more files:
+//                     `app/domain/value_objects.py` and `app/http/wire_models.py`
+//                     both emit `class Outer` (annotating `origin: UnLocode`)
+//                     ahead of `class UnLocode`, so ruff reports
+//                     `F821 Undefined name 'UnLocode'` four times.  ONE
+//                     emission-order bug, two backends — which is the argument for
+//                     carrying the SHAPE in the shared corpus rather than
+//                     per-backend.  Excluded alongside node in the same
+//                     `ORDERED_ROOT_VO_EMISSION` set; both keys return together.
+//   dotnet/java       free — both hoist type declarations (a C# record / Java
+//                     class has no initialisation order), so nesting direction
+//                     cannot matter.  Carried as the contrast.
+//   elixir            free — a VO is one `:map` (jsonb) cell, no per-VO schema
+//                     const is emitted at all.
+//
+// `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) already exists
+// to solve exactly this; the routes emitter does not route through it.
+//
+// COMPILE-TIER ONLY — no runtime block, same reason as `vo-cross-context.ddd`:
+// a recorded behavioural case must ship a reviewed wire golden
+// (`golden-coverage.test.ts`), and this shape currently makes the node routes
+// module fail at evaluation (a TDZ read, above) and python's classes fail to
+// resolve — so on two of the five backends there is no booted stack to record
+// from, and a captured golden would freeze the defect as the answer key.  Add
+// the runtime block with the fix.
+
+// The shared kernel: declared at FILE scope, outside every context.
+valueobject UnLocode {
+  value: string
+  invariant value.length == 5 message "UN/LOCODE must be 5 characters"
+  derived label: string = value
+}
+
+system VoRootKernel {
+  subdomain Freight {
+    context Routing {
+      // A CONTEXT-LOCAL value object whose own fields are the ROOT-LEVEL one.
+      // The emission order that matters: `UnLocode` must come first.
+      valueobject Outer {
+        origin: UnLocode
+        destination: UnLocode
+      }
+
+      aggregate Shipment with crudish {
+        reference: string
+        // root VO -> context-local VO -> aggregate (the ordering-sensitive path)
+        route: Outer
+        // root VO -> aggregate directly (the path the examples already had)
+        tag: UnLocode
+        derived display: string = reference
+      }
+
+      repository Shipments for Shipment { }
+    }
+  }
+
+  api FreightApi from Freight
+  storage primary { type: postgres }
+  resource routingState { for: Routing, kind: state, use: primary }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Routing]
+    dataSources: [routingState]
+    serves: FreightApi
+    port: 4000
+  }
+}

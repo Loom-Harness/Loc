@@ -1,0 +1,141 @@
+{
+  "case": "stamps-principal",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "ownerRole": "agent",
+        "title": "Printer",
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "id": "<volatile:key>",
+        "ownerRole": "agent",
+        "title": "Printer 2",
+        "version": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/tickets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "createdAt": "<timestamp>",
+            "createdBy": "admin",
+            "id": "<volatile:key>",
+            "ownerRole": "agent",
+            "title": "Printer 2",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "DELETE",
+      "path": "/api/tickets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "PATCH",
+      "path": "/api/tickets",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/tickets",
+        "instance": "/api/tickets",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/tickets",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/tickets",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "role": "admin"
+      }
+    }
+  ]
+}

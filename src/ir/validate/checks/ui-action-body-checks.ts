@@ -7,6 +7,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { ActionIR, AggregateIR, ExprIR, StmtIR, UiIR } from "../../types/loom-ir.js";
+import { walkExprChildren, walkStmtChildren } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { namedArg, VIEW_EFFECT_BUILTINS } from "./ui-checks-shared.js";
 
@@ -119,7 +120,7 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
       }
       const shellLocals = FORM_SHELL_LOCALS[e.name];
       const childScope = shellLocals ? new Set<string>([...ctx.scope, ...shellLocals]) : ctx.scope;
-      for (const a of e.args) checkBody(a, { ...ctx, scope: childScope }, diags);
+      descend(e, { ...ctx, scope: childScope }, diags);
       return;
     }
     case "method-call": {
@@ -128,8 +129,7 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
       // Fix 5 — a remote/mutating backend command in action-body position
       // needs an `await` marker (Proposal B) that doesn't exist yet.
       if (ctx.inActionBody) checkMissingEffectMarker(e, ctx, diags);
-      checkBody(e.receiver, ctx, diags);
-      for (const a of e.args) checkBody(a, ctx, diags);
+      descend(e, ctx, diags);
       return;
     }
     case "lambda": {
@@ -140,50 +140,57 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
       // `action` body (walked via `checkActionBodies`, never through this arm),
       // so any effectful statement reached here is an inline handler.
       checkLambdaPurity(e, ctx, diags);
-      checkBody(e.body, { ...ctx, scope: childScope }, diags);
-      for (const s of e.block ?? []) checkStmt(s, { ...ctx, scope: childScope }, diags);
+      descend(e, { ...ctx, scope: childScope }, diags);
       return;
     }
     case "member":
       // F3 — a ui read of a `projection` has no frontend path yet.
       checkProjectionRead(e, ctx, diags);
-      checkBody(e.receiver, ctx, diags);
-      return;
+      break;
+    // No check of their own — only children, handled by `descend` below.
+    // Enumerated rather than left to a `default:` so a new `ExprIR` kind is a
+    // `tsc` error here and someone decides whether it needs a page-body gate.
+    case "action-ref":
+    case "authz-filter":
     case "binary":
-      checkBody(e.left, ctx, diags);
-      checkBody(e.right, ctx, diags);
-      return;
-    case "unary":
-      checkBody(e.operand, ctx, diags);
-      return;
-    case "paren":
-      checkBody(e.inner, ctx, diags);
-      return;
-    case "ternary":
-      checkBody(e.cond, ctx, diags);
-      checkBody(e.then, ctx, diags);
-      checkBody(e.otherwise, ctx, diags);
-      return;
     case "convert":
-      checkBody(e.value, ctx, diags);
-      return;
+    case "duration":
+    case "i18nFormat":
+    case "id":
     case "list":
-      for (const el of e.elements) checkBody(el, ctx, diags);
-      return;
+    case "literal":
     case "match":
-      for (const arm of e.arms) {
-        checkBody(arm.cond, ctx, diags);
-        checkBody(arm.value, ctx, diags);
-      }
-      checkBody(e.otherwise, ctx, diags);
-      return;
     case "new":
     case "object":
-      for (const f of e.fields) checkBody(f.value, ctx, diags);
-      return;
-    default:
-      return;
+    case "paren":
+    case "ref":
+    case "ternary":
+    case "this":
+    case "unary":
+      break;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+    }
   }
+  descend(e, ctx, diags);
+}
+
+/** The DESCENT step of {@link checkBody}, riding the sanctioned shallow walker
+ *  (CLAUDE.md §"No hand-rolled IR walks").
+ *
+ *  It used to be a hand-rolled per-kind child enumeration, and it was short in
+ *  four places a page body can really reach: a `match`'s SUBJECT and its
+ *  `variantArms`, a primitive's `style: { … }` entry values, an `i18nFormat`
+ *  hole and a `duration` amount.  A `Action(...)` / method-call / unresolved
+ *  ref hidden in any of those was invisible to every gate this module raises —
+ *  the M-T6.50 shape, in a VALIDATOR, where the failure is a diagnostic that
+ *  does not fire. */
+function descend(e: ExprIR, ctx: BodyCheckCtx, diags: LoomDiagnostic[]): void {
+  walkExprChildren(e, {
+    expr: (c) => checkBody(c, ctx, diags),
+    stmt: (s) => checkStmt(s, ctx, diags),
+  });
 }
 
 /** Statement bodies inside block lambdas (StmtIR) — descend into every
@@ -192,18 +199,14 @@ export function checkBody(e: ExprIR | undefined, ctx: BodyCheckCtx, diags: LoomD
  *  single-expr slots (`expr` / `value`) and the `args` array of a call
  *  statement; `emit` field values are recursed too. */
 
-function checkStmt(
-  s: { kind: string } & Record<string, unknown>,
-  ctx: BodyCheckCtx,
-  diags: LoomDiagnostic[],
-): void {
+function checkStmt(s: StmtIR, ctx: BodyCheckCtx, diags: LoomDiagnostic[]): void {
   // Action-body call statement (Fix 3 / Fix 5).  Only reachable with
   // `inActionBody` set; `target: "action"` is a resolved sibling call, but a
   // `private-operation`/`function` fall-through inside a frontend action body
   // is a bare call that resolved to nothing local — there are no backend ops on
   // a UI surface, so it's an unresolved action reference.
   if (ctx.inActionBody && s.kind === "call") {
-    const stmt = s as Extract<StmtIR, { kind: "call" }>;
+    const stmt = s;
     if (
       stmt.target !== "action" &&
       // A `<Store>.<action>()` call is a resolved cross-surface dispatch
@@ -224,28 +227,18 @@ function checkStmt(
       });
     }
   }
-  // Effect-form variant-`match` (async-actions-and-effects.md Stage 2): walk the
-  // awaited subject (its `awaited` flag makes the effect-marker check accept it)
-  // and recurse each arm / else body so nested calls are still checked.
-  if (s.kind === "variant-match") {
-    const vm = s as unknown as Extract<StmtIR, { kind: "variant-match" }>;
-    checkBody(vm.subject, ctx, diags);
-    for (const arm of vm.arms) for (const b of arm.body) checkStmt(b, ctx, diags);
-    for (const b of vm.elseBody ?? []) checkStmt(b, ctx, diags);
-    return;
-  }
-  for (const key of ["expr", "value"] as const) {
-    const v = s[key];
-    if (v && typeof v === "object" && "kind" in (v as object)) {
-      checkBody(v as ExprIR, ctx, diags);
-    }
-  }
-  if (Array.isArray(s.args)) {
-    for (const a of s.args as ExprIR[]) checkBody(a, ctx, diags);
-  }
-  if (Array.isArray(s.fields)) {
-    for (const f of s.fields as { value: ExprIR }[]) checkBody(f.value, ctx, diags);
-  }
+  // Effect-form variant-`match` (async-actions-and-effects.md Stage 2) and every
+  // other statement kind descend through the sanctioned shallow walker.  This
+  // replaces a duck-typed `s["expr"] | s["value"] | s.args | s.fields` scan plus
+  // a hand-written `variant-match` arm which, between them, reached every
+  // statement kind EXCEPT `if` — so an `Orders.create(draft)` (or any other gate
+  // this module raises) hidden in an `if` branch of a block lambda was never
+  // checked.
+  walkStmtChildren(
+    s,
+    (c) => checkBody(c, ctx, diags),
+    (n) => checkStmt(n, ctx, diags),
+  );
 }
 
 /** Effectful `StmtIR` kinds — a statement that mutates state, dispatches a
@@ -690,93 +683,28 @@ function firstMutatingCallInLambda(
   ctx: BodyCheckCtx,
 ): { aggName: string; op: string } | undefined {
   let found: { aggName: string; op: string } | undefined;
+  // Both legs ride the sanctioned shallow walkers.  Hand-rolled, the expression
+  // leg had no arm for `duration` / `i18nFormat` / `authz-filter` and the
+  // statement leg none for `if` — so an inline `X.create(v)` inside an `if`
+  // branch of a block lambda, or inside a `t("…{n}")` hole, silently passed the
+  // `loom.effect-in-lambda` gate.
   const visitExpr = (e: ExprIR | undefined): void => {
     if (!e || found) return;
-    switch (e.kind) {
-      case "method-call": {
-        const m = mutatingAggCommand(e, ctx);
-        if (m) {
-          found = m;
-          return;
-        }
-        visitExpr(e.receiver);
-        for (const a of e.args) visitExpr(a);
+    // A nested lambda is intentionally NOT descended — it self-checks through
+    // its own `checkLambdaPurity` pass, and recursing would double-report.
+    if (e.kind === "lambda") return;
+    if (e.kind === "method-call") {
+      const m = mutatingAggCommand(e, ctx);
+      if (m) {
+        found = m;
         return;
       }
-      case "call":
-        for (const a of e.args) visitExpr(a);
-        return;
-      case "member":
-        visitExpr(e.receiver);
-        return;
-      case "binary":
-        visitExpr(e.left);
-        visitExpr(e.right);
-        return;
-      case "unary":
-        visitExpr(e.operand);
-        return;
-      case "paren":
-        visitExpr(e.inner);
-        return;
-      case "ternary":
-        visitExpr(e.cond);
-        visitExpr(e.then);
-        visitExpr(e.otherwise);
-        return;
-      case "convert":
-        visitExpr(e.value);
-        return;
-      case "list":
-        for (const el of e.elements) visitExpr(el);
-        return;
-      case "match":
-        for (const arm of e.arms) {
-          visitExpr(arm.cond);
-          visitExpr(arm.value);
-        }
-        visitExpr(e.otherwise);
-        return;
-      case "new":
-      case "object":
-        for (const f of e.fields) visitExpr(f.value);
-        return;
-      // "lambda" is intentionally NOT descended — a nested lambda self-checks.
-      default:
-        return;
     }
+    walkExprChildren(e, { expr: visitExpr, stmt: (s) => visitStmt(s) });
   };
   const visitStmt = (s: StmtIR): void => {
     if (found) return;
-    switch (s.kind) {
-      case "precondition":
-      case "requires":
-      case "let":
-      case "expression":
-        visitExpr(s.expr);
-        return;
-      case "assign":
-      case "add":
-      case "remove":
-        visitExpr(s.value);
-        return;
-      case "emit":
-        for (const f of s.fields) visitExpr(f.value);
-        return;
-      case "call":
-        for (const a of s.args) visitExpr(a);
-        return;
-      case "return":
-        visitExpr(s.value);
-        return;
-      case "variant-match":
-        visitExpr(s.subject);
-        for (const arm of s.arms) for (const b of arm.body) visitStmt(b);
-        for (const b of s.elseBody ?? []) visitStmt(b);
-        return;
-      default:
-        return;
-    }
+    walkStmtChildren(s, visitExpr, visitStmt);
   };
   visitExpr(lambda.body);
   for (const s of lambda.block ?? []) visitStmt(s);
@@ -846,11 +774,36 @@ function toastMessageProblem(
       return toastMessageProblem(e.inner, bind);
     case "binary":
       return toastMessageProblem(e.left, bind) ?? toastMessageProblem(e.right, bind);
-    default:
+    // Everything outside the five-arm v1 subset is refused, by name.  Spelled
+    // out rather than left to a `default:` so a NEW `ExprIR` kind is a `tsc`
+    // error here — the three renderers this mirrors (`renderMessageExpr`,
+    // `renderFsToastMessage`, `renderMessageExprElixir`) would `throw` on it,
+    // and this gate exists precisely to turn that throw into a `loom.*` code.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
+    case "unary":
       return {
         kind: e.kind,
         detail: `uses a \`${e.kind}\` expression`,
       };
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 

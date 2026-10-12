@@ -1,0 +1,119 @@
+# M-T3.14 — SAST over the GENERATED auth + tenancy code.
+#
+# A small, targeted semgrep ruleset (not a general sweep) run over the emitted
+# source of the authorization/tenancy corpus fixtures on all five backends by
+# `test/e2e/sast-generated.test.ts` (nightly + `security` label:
+# `.github/workflows/sast-generated.yml`).  Two rule families:
+#
+#   forbidden — a hit is a finding; the harness fails on any hit not triaged in
+#               `test/sast/triage.ts` (and on a triage row no hit matches);
+#   required  — the pattern MUST fire on every backend of a fixture that carries
+#               the feature (metadata.required-when); zero hits is the finding.
+#
+# Every rule is proved by the harness on every run: `test/sast/seeds.ts` re-seeds
+# the historical defect each rule exists for into a COPY of the emitted tree and
+# asserts the rule names it.  The two tenancy rules re-find the two historical
+# leaks the authz missions name — F2-ADP-1 (#2668 wave 1: `ignoring *` lifting
+# the `policy { deny }` carve-out on EF) and audit A1 (`projection-agg-filters`'
+# minting defect: a query-time aggregation reading the source table without the
+# tenant conjunct).  The generated code is single-line per statement, so the
+# rules are line-anchored regexes — deliberately: the SAME rule reads five
+# languages' emitted spelling, and the harness asserts each still matches the
+# clean tree's correct form (no-hit) and the seeded defect (hit).
+
+rules:
+  # ---------------------------------------------------------------- tenancy --
+  - id: loom-ef-bypass-lifts-every-filter
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      A repository read calls the PARAMETERLESS `IgnoreQueryFilters()`, which lifts
+      EVERY EF query filter on the entity — including a `policy { deny }` carve-out,
+      which `ignoring *` must never lift (F2-ADP-1, #2668 wave 1).  Enumerate the
+      bypassable filters by name: `IgnoreQueryFilters(["TenantIdFilter", …])`.
+    paths:
+      include: ["**/Repositories/*.cs"]
+    pattern-regex: '\.IgnoreQueryFilters\(\)'
+    metadata: { family: forbidden, leak: F2-ADP-1 }
+
+  - id: loom-aggregation-without-tenant-floor-ts
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      A query-time aggregation (count/sum/avg/min/max) reads a table with no
+      `tenantId` conjunct — a cross-tenant COUNT/SUM (audit A1,
+      `projection-agg-filters`).  The tenant floor must be ANDed into the read.
+    paths:
+      include: ["**/http/query-projections.ts"]
+    pattern-regex: '^(?![^\n]*tenantId)[^\n]*\.select\(\{[^\n]*\b(?:count|sum|avg|min|max)\([^\n]*\.from\(schema\.\w+\)'
+    metadata: { family: forbidden, leak: A1 }
+
+  - id: loom-aggregation-without-tenant-floor-py
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      A query-time aggregation selects from a row class with no `tenant_id`
+      conjunct on the same read — a cross-tenant COUNT/SUM (audit A1).
+    paths:
+      include: ["**/query_projections_routes.py"]
+    pattern-regex: '\.select_from\(\w+Row\)(?!\.where\([^\n]*tenant_id)'
+    metadata: { family: forbidden, leak: A1 }
+
+  - id: loom-aggregation-without-tenant-floor-java
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      A JPQL aggregation has no `tenantId` predicate — a cross-tenant COUNT/SUM
+      (audit A1).
+    paths:
+      include: ["**/*QueryProjections.java"]
+    pattern-regex: 'createQuery\("(?![^"]*tenantId)select [^"]*\b(?:count|sum|avg|min|max)\('
+    metadata: { family: forbidden, leak: A1 }
+
+  - id: loom-aggregation-without-tenant-floor-ex
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      An Ecto aggregation query has no `tenant_id` predicate — a cross-tenant
+      COUNT/SUM (audit A1).
+    paths:
+      include: ["**/query_projections/*.ex"]
+    pattern-regex: 'from\(\w+ in [\w.]+,(?![^\n]*tenant_id)[^\n]*\b(?:count|sum|avg|min|max)\('
+    metadata: { family: forbidden, leak: A1 }
+
+  # ------------------------------------------------------------------- auth --
+  - id: loom-hardcoded-client-secret
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      An OIDC client secret is a string LITERAL in generated code.  It must come
+      from the environment / configuration, never the emitted source.
+    pattern-regex: '(?i)client_?secret["'']?\s*[:=]\s*["''][A-Za-z0-9_\-]{8,}["'']'
+    metadata: { family: forbidden }
+
+  - id: loom-token-logged
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      A log call carries an OAuth token (access / refresh / id token).  Tokens are
+      bearer credentials: anything that can read the log can replay them.
+    pattern-regex: '(?i)(?:console\.\w+|\blog(?:ger)?\.\w+|\bLogger\.\w+|_logger\.\w+|\bLog\.\w+|IO\.puts)\([^\n]*(?:access_?token|refresh_?token|id_?token)'
+    metadata: { family: forbidden }
+
+  - id: loom-oidc-state-verified
+    languages: [regex]
+    severity: INFO
+    message: >-
+      The OIDC callback compares the returned `state` with the value bound to the
+      browser's `oidc_state` cookie (CSRF defence of the authorization-code flow).
+    pattern-regex: 'state\s*!==?\s*[^\n]*oidc_state|state\s*==\s*conn\.cookies\["oidc_state"\]|!state\.equals\(expected\)'
+    metadata: { family: required, required-when: oidc }
+
+  - id: loom-pkce-verifier-exchanged
+    languages: [regex]
+    severity: INFO
+    message: >-
+      The token exchange sends the PKCE `code_verifier` (RFC 7636) — without it
+      the challenge sent at login is never checked.
+    pattern-regex: 'code_verifier["''\]]*\s*(?:[:=,]|=>)'
+    metadata: { family: required, required-when: oidc }

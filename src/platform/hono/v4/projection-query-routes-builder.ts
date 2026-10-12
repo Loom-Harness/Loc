@@ -3,6 +3,11 @@ import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { whereToMikroFilter } from "../../../generator/typescript/emit/mikroorm.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
+import {
+  isInstantWireType,
+  RAW_INSTANT_FN,
+  renderRawInstantHelper,
+} from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
   allContextFilterEntries,
@@ -26,6 +31,7 @@ import {
   isQueryTimeProjection,
   queryProjectionUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { projectionSourceTable } from "../../../ir/util/inheritance.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   type AggregateSelect,
@@ -67,9 +73,8 @@ import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 //
 // One file per context — `http/projections.ts` — mounted under `/projections`
 // in `http/index.ts` (the folded projection
-// read model keeps its own by-key route elsewhere).  Only backends that have
-// ported this emit are permitted a query-time projection by the IR validator
-// (`loom.projection-query-time-unsupported`); node is the first.
+// read model keeps its own by-key route elsewhere).  Every backend emits the
+// query-time projection read; node was the first.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -141,7 +146,7 @@ export function buildQueryProjectionsFile(
   // neither contributes here.
   const sourceAggs = new Set<string>();
   const followAggs = new Set<string>();
-  const isRawTableSource = (kind?: string) => kind === "workflow" || kind === "projection";
+
   for (const p of projections) {
     if (p.query?.source && !isRawTableSource(p.query.sourceKind)) sourceAggs.add(p.query.source);
     for (const aux of p.query?.auxiliaries ?? []) followAggs.add(aux.aggName);
@@ -200,8 +205,14 @@ export function buildQueryProjectionsFile(
     // A COMPUTED grouping key (`group by o.placedAt.startOfDay()`) renders
     // through the Drizzle intrinsic snippets, which build a `sql` template.
     if ((grouped?.groupBy ?? []).some((e) => groupKeyOf(e)?.transform)) rawDrizzleOps.add("sql");
-    const table = lowerFirst(plural(p.query.source));
+    const { table, kind } = directSourceTable(p, ctx);
     const parts: string[] = [];
+    // A TPH (`sharedTable`) concrete shares its root's table: scope the read to
+    // this concrete's rows, or every sibling's rows enter the aggregate.
+    if (kind) {
+      parts.push(`eq(schema.${table}.kind, ${JSON.stringify(kind)})`);
+      rawDrizzleOps.add("eq");
+    }
     if (p.query.filter) {
       const lowered = lowerToDrizzle(p.query.filter, table, ctx);
       if (!lowered) throw new Error(unloweredWhere(p.name));
@@ -225,7 +236,9 @@ export function buildQueryProjectionsFile(
   if (usingMikro) {
     for (const p of projections) {
       const f = p.query?.filter;
+      const kind = p.query?.source ? directSourceTable(p, ctx).kind : undefined;
       const parts = [
+        ...(kind ? [`{ kind: ${JSON.stringify(kind)} }`] : []),
         ...(f ? [mikroFilterFor(f, p, ctx)] : []),
         ...mikroCapabilityFilters(p, ctx),
       ].filter((x): x is string => x !== undefined);
@@ -319,6 +332,7 @@ export function buildQueryProjectionsFile(
   }
   lines.push("");
   if (anyIntegralAggregate(projections)) lines.push(...INT_WIRE_HELPER);
+  if (anyRawInstantSelect(projections)) lines.push(...renderRawInstantHelper(), "");
 
   // Per-projection row / response schema (the declared `<Proj>Row` shape).
   for (const p of projections) {
@@ -399,7 +413,9 @@ export function buildQueryProjectionsFile(
     `    const problem = (status: ${projProblemUnion}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   lines.push(
-    `    if (err instanceof ForbiddenError) return problem(${projForbiddenStatus}, ${JSON.stringify(problemTitle(projForbiddenStatus))}, err.message);`,
+    // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
+    // the body carries `err.detail` (echoed only under the dev-stub verifier).
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(problemTitle(projForbiddenStatus))}, err.detail); }`,
   );
   lines.push(
     `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(problemTitle(projDomainStatus))}, err.message);`,
@@ -446,7 +462,7 @@ export function buildQueryProjectionsFile(
     ...new Set(
       projections
         .filter((p) => p.query?.source)
-        .map((p) => mikroRowClassFor(p, p.query!.source!))
+        .map((p) => mikroRowClassFor(p, p.query!.source!, ctx))
         .filter((cls) => new RegExp(`\\b${cls}\\b`).test(file)),
     ),
   ].sort();
@@ -534,7 +550,7 @@ function emitQueryProjectionRoute(
   // and ORDERs BY, for a deterministic cross-backend read — exactly the
   // grouping columns, in one query.
   if (grouped && mikro) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     const alias = "src";
     // SELECT: one raw fragment per grouping key + per aggregate, each aliased to
     // the projection field so the row comes back keyed like the drizzle one.
@@ -588,7 +604,7 @@ function emitQueryProjectionRoute(
   }
   // WHOLE-TABLE aggregation, mikro edition: the same push-down, one row out.
   if (aggregates && mikro) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     const alias = "src";
     const selects = aggregates.map(
       (sel) =>
@@ -611,7 +627,7 @@ function emitQueryProjectionRoute(
     return out;
   }
   if (grouped) {
-    const sourceTable = `schema.${lowerFirst(plural(source))}`;
+    const sourceTable = `schema.${directSourceTable(p, ctx).table}`;
     const groupCols = grouped.groupBy.map((e) => groupKeyExpr(e, sourceTable)).join(", ");
     const cols = [
       ...grouped.keys.map((k) => `${k.field}: ${groupKeyExpr(k.expr, sourceTable, true)}`),
@@ -644,7 +660,7 @@ function emitQueryProjectionRoute(
   // produce one integer, which is the scaling failure M-T2.6 removed from
   // `findAll`.  One row out, so the response is the row itself.
   if (aggregates) {
-    const sourceTable = `schema.${lowerFirst(plural(source))}`;
+    const sourceTable = `schema.${directSourceTable(p, ctx).table}`;
     const cols = aggregates
       .map((s) => `${s.field}: ${drizzleAggregate(s.aggregate, sourceTable, colOf)}`)
       .join(", ");
@@ -681,10 +697,18 @@ function emitQueryProjectionRoute(
   // is why the runtime leg stayed green; `node-mikroorm-query-projections.test.ts`
   // now pins it.
   if (mikro && rawRead) {
-    const rowClass = mikroRowClassFor(p, source);
+    const rowClass = mikroRowClassFor(p, source, ctx);
     out.push(`    const rows = await db.find(${rowClass}, ${mikro.where ?? "{}"});`);
+    // A `datetime` column hydrates to a `Date` on a mikro ENTITY exactly as it
+    // does on a drizzle row, so the same RS-4 canonicalisation applies — see the
+    // drizzle twin below.
     const projectedFields = (p.query!.selects ?? [])
-      .map((sel) => `      ${sel.field}: ${renderProjectionSelect(sel.expr, aliasMap)}`)
+      .map((sel) => {
+        const rendered = renderProjectionSelect(sel.expr, aliasMap);
+        const t = rowFieldType.get(sel.field);
+        const value = t && isInstantWireType(t) ? `${RAW_INSTANT_FN}(${rendered})` : rendered;
+        return `      ${sel.field}: ${value}`;
+      })
       .join(",\n");
     out.push(`    const projected = rows.map((r) => ({\n${projectedFields},\n    }));`);
     out.push(`    return httpCtx.json(projected as z.infer<typeof ${T}Response>, 200);`);
@@ -709,12 +733,20 @@ function emitQueryProjectionRoute(
     // churned — the defect that motivated the coercion (a domain `Decimal`
     // reaching the wire unscaled) cannot occur on this arm.
     //
-    // A selected `datetime` DOES arrive as a `Date` here, which is the one case
-    // this arm might still need; no fixture selects one, so it is stated rather
-    // than speculatively "fixed" — a change with no witness is how the last two
-    // bugs in this file got in.
+    // EXCEPT a selected `datetime`, which DOES arrive as a `Date` — the one case
+    // this arm's own note flagged as still open ("no fixture selects one").  The
+    // witness arrived: the folded-projection read routes shipped `.000Z` off the
+    // very same raw `<Proj>Row` (`behavioral-mikroorm`, #3023), so the same
+    // `Date` reaching `JSON.stringify` here would spell it the same wrong way.
+    // Nothing else on this arm is touched, so a `select` with no datetime stays
+    // byte-identical.
     const projectedFields = (p.query!.selects ?? [])
-      .map((s) => `      ${s.field}: ${renderProjectionSelect(s.expr, aliasMap)}`)
+      .map((s) => {
+        const rendered = renderProjectionSelect(s.expr, aliasMap);
+        const t = rowFieldType.get(s.field);
+        const value = t && isInstantWireType(t) ? `${RAW_INSTANT_FN}(${rendered})` : rendered;
+        return `      ${s.field}: ${value}`;
+      })
       .join(",\n");
     out.push(`    const projected = rows.map((r) => ({\n${projectedFields},\n    }));`);
     out.push(`    return httpCtx.json(projected as z.infer<typeof ${T}Response>, 200);`);
@@ -818,11 +850,31 @@ function emitQueryProjectionRoute(
  *  source reads `<Agg>Row`, a WORKFLOW source its saga-state Row, a PROJECTION
  *  source the folded read-model Row — the same three classes `renderMikroEntities`
  *  emits, so the names cannot drift. */
-function mikroRowClassFor(p: ProjectionIR, source: string): string {
+function mikroRowClassFor(p: ProjectionIR, source: string, ctx: EnrichedBoundedContextIR): string {
   const kind = p.query?.sourceKind;
   if (kind === "workflow") return `${upperFirst(source)}Row`;
   if (kind === "projection") return `${upperFirst(source)}Row`;
-  return `${source}Row`;
+  // A TPH concrete has no Row of its own — it reads its root's shared Row
+  // (scoped by the `kind` conjunct in `mikroWheres`).
+  return `${projectionSourceTable(source, ctx.aggregates).tableOwner}Row`;
+}
+
+/** The drizzle table (bare `schema.<name>` member) a direct-table projection
+ *  reads, plus the TPH `kind` discriminator scoping it.  A raw-table source
+ *  (`from <Workflow>` / `from <Projection>`) names its own table; an AGGREGATE
+ *  source names its table OWNER — the root's shared table for a TPH
+ *  (`sharedTable`) concrete, which owns no table of its own (selecting
+ *  `schema.<concretes>` was a TS2339, eval item 10). */
+function directSourceTable(
+  p: ProjectionIR,
+  ctx: EnrichedBoundedContextIR,
+): { table: string; kind?: string } {
+  const source = p.query!.source!;
+  const sourceKind = p.query?.sourceKind;
+  if (sourceKind === "workflow" || sourceKind === "projection")
+    return { table: lowerFirst(plural(source)) };
+  const { tableOwner, kind } = projectionSourceTable(source, ctx.aggregates);
+  return { table: lowerFirst(plural(tableOwner)), kind };
 }
 
 /** A projection `where` as a MikroORM FilterQuery literal.
@@ -1041,6 +1093,28 @@ function anyIntegralAggregate(projections: readonly ProjectionIR[]): boolean {
     return aggs.some((a) => {
       const kind = numericKindOf(a.type);
       return kind === "int" || kind === "long";
+    });
+  });
+}
+
+/** A projection `source` that is another read MODEL (a workflow's saga-state row
+ *  or a folded projection's `<Proj>Row`) rather than an aggregate — read straight
+ *  off the table, with no repository in between.  Module-level so the route
+ *  builder and `anyRawInstantSelect` cannot answer it differently. */
+const isRawTableSource = (kind?: string): boolean => kind === "workflow" || kind === "projection";
+
+/** Whether any RAW-TABLE-sourced projection here `select`s a `datetime` — the
+ *  gate for the canonical-instant helper the two raw-read arms call.  A
+ *  `<Proj>Row` / saga-state row hands that column back as a JS `Date` under both
+ *  adapters, and emitting the call without the declaration is a `TS2304`, so the
+ *  flag and the call sites stay adjacent (`anyMoneyAggregate`'s discipline). */
+function anyRawInstantSelect(projections: readonly ProjectionIR[]): boolean {
+  return projections.some((p) => {
+    if (!isRawTableSource(p.query?.sourceKind)) return false;
+    const typeOf = new Map(p.stateFields.map((f) => [f.name, f.type] as const));
+    return (p.query?.selects ?? []).some((sel) => {
+      const t = typeOf.get(sel.field);
+      return !!t && isInstantWireType(t);
     });
   });
 }

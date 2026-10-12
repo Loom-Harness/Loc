@@ -98,11 +98,17 @@ export function emitVanillaSeeds(
 
   const fnBlocks: string[] = [];
   const callLines: string[] = [];
+  // Whether any emitted row goes through the domain `insert!/3` guard.  A
+  // context whose every row is `raw` (the enrichment-appended demo-tenant
+  // registry row, #26) calls only `Repo.query!`, and an unused `defp
+  // insert!/3` fails `mix compile --warnings-as-errors`.
+  let anyDomainRow = false;
   for (const ds of datasets) {
     // A `raw` row needs no repository, so it survives the seedable filter that
     // drops a domain row whose aggregate has no `insert/1` seam.
     const entries = ds.entries.filter((e) => e.raw || seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
+    if (entries.some((e) => !e.raw)) anyDomainRow = true;
     fnBlocks.push(...renderDatasetFn(ds.name, entries, ctxModule, aggByName, schemaFor));
     callLines.push(`    seed_${snake(ds.name)}(requested)`);
   }
@@ -204,15 +210,19 @@ export function emitVanillaSeeds(
       `  defp mark_seeded(dataset) do`,
       `    Repo.query!(${elixirString(`INSERT INTO "__loom_seed" ("dataset") VALUES ($1)`)}, [dataset])`,
       `  end`,
-      ``,
-      `  # A seed row that the domain refuses (a violated invariant) is a BUILD-TIME`,
-      `  # authoring error, not a runtime condition to swallow: raise so first boot`,
-      `  # fails loudly instead of starting against a half-populated database.`,
-      `  defp insert!(_dataset, _aggregate, {:ok, _record}), do: :ok`,
-      ``,
-      `  defp insert!(dataset, aggregate, {:error, reason}) do`,
-      `    raise "seed dataset #{dataset}: #{aggregate} row rejected — #{inspect(reason)}"`,
-      `  end`,
+      ...(anyDomainRow
+        ? [
+            ``,
+            `  # A seed row that the domain refuses (a violated invariant) is a BUILD-TIME`,
+            `  # authoring error, not a runtime condition to swallow: raise so first boot`,
+            `  # fails loudly instead of starting against a half-populated database.`,
+            `  defp insert!(_dataset, _aggregate, {:ok, _record}), do: :ok`,
+            ``,
+            `  defp insert!(dataset, aggregate, {:error, reason}) do`,
+            `    raise "seed dataset #{dataset}: #{aggregate} row rejected — #{inspect(reason)}"`,
+            `  end`,
+          ]
+        : []),
       `end`,
       ``,
     ),

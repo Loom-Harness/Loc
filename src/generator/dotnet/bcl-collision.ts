@@ -34,7 +34,8 @@
 // no working C# today, so there is no generated API surface to keep compatible.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../util/naming.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
  *  same-named domain type is ambiguous rather than merely shadowed.
@@ -92,37 +93,6 @@ export const BCL_COLLIDING_TYPE_NAMES: ReadonlySet<string> = new Set([
   "Progress",
 ]);
 
-/** The C#-visible type names this context emits, i.e. the names a colliding
- *  BCL type would be ambiguous WITH.  Mirrors `csVisibleTypeNames` in
- *  `src/ir/validate/checks/backend-syntax-checks.ts`, minus the `<X>Id` classes
- *  (an id class is `TaskId`, which collides with nothing). */
-function csEmittedTypeNames(ctx: Pick<BoundedContextIR, "aggregates">): Set<string> {
-  const names = new Set<string>();
-  for (const a of ctx.aggregates) {
-    names.add(a.name);
-    for (const p of a.parts) names.add(p.name);
-  }
-  return names;
-}
-
-/** The names in this context that collide with a BCL type — the input to both
- *  halves of the fix.  Empty for almost every model, which is what keeps the
- *  output byte-identical. */
-export function bclCollisions(ctx: Pick<BoundedContextIR, "aggregates">): ReadonlySet<string> {
-  const hits = new Set<string>();
-  for (const n of csEmittedTypeNames(ctx)) {
-    if (BCL_COLLIDING_TYPE_NAMES.has(n)) hits.add(n);
-  }
-  return hits;
-}
-
-/** True when this context declares a type named `Task`, the one collision that
- *  also breaks NON-GENERIC async return positions (`async Task Foo()`), because
- *  the file-scoped alias binds bare `Task` to the domain type. */
-export function collidesWithTask(ctx: Pick<BoundedContextIR, "aggregates">): boolean {
-  return bclCollisions(ctx).has("Task");
-}
-
 /** How to spell a NON-GENERIC BCL `Task` return in a file that may carry the
  *  domain alias.  `Task` normally (byte-identical), fully qualified when the
  *  context declares a type named `Task`.
@@ -132,26 +102,6 @@ export function collidesWithTask(ctx: Pick<BoundedContextIR, "aggregates">): boo
  *  `Task<…>` sites are left alone. */
 export function csTaskType(taskCollision: boolean): string {
   return taskCollision ? "System.Threading.Tasks.Task" : "Task";
-}
-
-/** The file-scoped alias lines a file must carry to bind a colliding bare name
- *  to the DOMAIN type rather than the BCL one.  `ns` is the domain namespace the
- *  file already wildcard-imports (`Api.Domain.Tasks`).
- *
- *  Emitted AFTER the `using` block it disambiguates — C# accepts alias
- *  directives in any order among the usings, and putting them last keeps the
- *  existing block byte-identical. */
-export function csDomainAliasLines(
-  collisions: ReadonlySet<string>,
-  nsOf: (name: string) => string,
-): string[] {
-  return [...collisions].sort().map((n) => `using ${n} = ${nsOf(n)}.${n};`);
-}
-
-/** Convenience for the common single-aggregate case: the alias lines for `agg`
- *  when its own name collides, given the namespace it is emitted into. */
-export function csAggregateAliasLines(agg: Pick<AggregateIR, "name">, ns: string): string[] {
-  return BCL_COLLIDING_TYPE_NAMES.has(agg.name) ? [`using ${agg.name} = ${ns}.${agg.name};`] : [];
 }
 
 /** The BCL-colliding names in scope for a file emitted FOR this aggregate —
@@ -187,4 +137,160 @@ export function collidingNamesOfAggregate(agg: Pick<AggregateIR, "name" | "parts
  *  repository IMPL wildcard-imports that namespace (CS0104). */
 export function taskInScopeOfAggregate(agg: Pick<AggregateIR, "name" | "parts">): boolean {
   return collidingNamesOfAggregate(agg).includes("Task");
+}
+
+// ---------------------------------------------------------------------------
+// Static receivers shadowed by a same-named domain MEMBER.
+//
+// A domain member spelled `math` is emitted as the C# member `Math`, and
+// inside its declaring type C# simple-name lookup finds that MEMBER before any
+// type or namespace of the same name.  Every static-receiver reference the
+// emitter writes in EXPRESSION position in that scope then binds against the
+// member's type instead (measured under `dotnet build /warnaserror`):
+//
+//     public int Math { get; private set; }
+//     public int B => Math.Abs(this.N);
+//     error CS0176: Member 'int.Abs(int)' cannot be accessed with an instance
+//                   reference; qualify it with a type name instead
+//
+//     public string Regex { get; private set; }
+//     public bool C => Regex.IsMatch(this.Label, "^[a-z]+$");
+//     error CS1061: 'string' does not contain a definition for 'IsMatch'
+//
+// The same holds for every receiver in `CS_BCL_RECEIVER_HOME` below, for the
+// project's own static helpers (`DomainLog`, `RequestContext`), for a domain
+// service's static class (`Pricing.Quote(…)` beside a `pricing` field) and a
+// workflow's `<Wf>Functions` class, and for the `System` namespace root itself
+// (`System.Globalization.CultureInfo…` beside a `system` member — CS1061
+// "'string' does not contain a definition for 'Globalization'").
+//
+// THE FIX: on a collision, and only then, the receiver is written fully
+// qualified from `global::` (`global::System.Math.Abs(…)`), which no member can
+// shadow.  Every other model emits byte-identical output.
+//
+// TYPE positions (property types, `new System.X(…)`, attributes, casts) are
+// unaffected — namespace-or-type-name lookup skips non-type members — so only
+// expression-position references go through these helpers.  A member whose own
+// type IS the receiver (`DateTime DateTime`) would survive under C#'s
+// "Color Color" rule, but qualifying it is equally valid, so the check does not
+// bother to tell the two apart.
+//
+// Domain TYPE names colliding with a member (`Status.Active` beside a `status`
+// field of another type) are a separate, refused case —
+// `loom.dotnet-name-collision` in src/ir/validate/checks/backend-syntax-checks.ts.
+// ---------------------------------------------------------------------------
+
+/** Each BCL type the .NET emitter writes as a static-member receiver in
+ *  expression position inside a domain class body, mapped to its namespace.
+ *  Built from the emitters, not from guesswork:
+ *  `render-expr.ts` (intrinsics `Math.*` / `MidpointRounding` /
+ *  `StringComparison`, `Regex.IsMatch`, `TimeSpan.From*`, `now` →
+ *  `DateTime.UtcNow`, `Guid.Parse` / `Guid.CreateVersion7`). */
+export const CS_BCL_RECEIVER_HOME = {
+  Math: "System",
+  MidpointRounding: "System",
+  StringComparison: "System",
+  TimeSpan: "System",
+  DateTime: "System",
+  Guid: "System",
+  Regex: "System.Text.RegularExpressions",
+} as const;
+
+export type CsBclReceiver = keyof typeof CS_BCL_RECEIVER_HOME;
+
+/** The simple names a class body declares as members — the scope a
+ *  static-receiver reference is resolved in — plus the project root
+ *  namespace, so a project-local helper can be qualified from `global::`. */
+export interface CsMemberScope {
+  /** C# member names (PascalCase), own and inherited. */
+  readonly members: ReadonlySet<string>;
+  /** The project root namespace (`Api`). */
+  readonly ns: string;
+}
+
+/** The scope for a class whose `.ddd` members are `memberNames`. */
+export function csMemberScope(memberNames: Iterable<string>, ns: string): CsMemberScope {
+  return { members: new Set([...memberNames].map(upperFirst)), ns };
+}
+
+/** The `.ddd` names a domain TYPE declares as C# members of its own
+ *  class/record — fields, containments, derived members, functions and
+ *  (aggregates) operations — plus any it inherits (`inherited`, a TPC/TPH
+ *  base's fields). */
+export function typeMemberNames(
+  t: {
+    readonly fields: readonly { readonly name: string }[];
+    readonly derived: readonly { readonly name: string }[];
+    readonly functions: readonly { readonly name: string }[];
+    readonly contains?: readonly { readonly name: string }[];
+    readonly operations?: readonly { readonly name: string }[];
+  },
+  inherited: Iterable<string> = [],
+): string[] {
+  return [
+    ...t.fields.map((f) => f.name),
+    ...(t.contains ?? []).map((c) => c.name),
+    ...t.derived.map((d) => d.name),
+    ...t.functions.map((f) => f.name),
+    ...(t.operations ?? []).map((o) => o.name),
+    ...inherited,
+  ];
+}
+
+/** A BCL static receiver for an expression-position reference: the bare name
+ *  normally (byte-identical), `global::<namespace>.<Name>` when a member of
+ *  that name is in scope. */
+export function csBcl(name: CsBclReceiver, scope: CsMemberScope | undefined): string {
+  return scope?.members.has(name) ? `global::${CS_BCL_RECEIVER_HOME[name]}.${name}` : name;
+}
+
+/** The `System` namespace root for an expression-position qualified
+ *  reference: `System` normally, `global::System` when a member named
+ *  `System` is in scope. */
+export function csSystemRoot(scope: CsMemberScope | undefined): string {
+  return scope?.members.has("System") ? "global::System" : "System";
+}
+
+/** A project-declared static class (`DomainLog`, `RequestContext`, a domain
+ *  service, `<Wf>Functions`) living in `<ns>.<nsSuffix>`: the bare name
+ *  normally, `global::<ns>.<nsSuffix>.<Name>` when a member of that name is in
+ *  scope. */
+export function csProjectType(
+  name: string,
+  nsSuffix: string,
+  scope: CsMemberScope | undefined,
+): string {
+  return scope?.members.has(name) ? `global::${scope.ns}.${nsSuffix}.${name}` : name;
+}
+
+// ---------------------------------------------------------------------------
+// A PARAMETER spelled exactly like a member of its class.
+//
+// `.ddd` field names are not case-restricted, so `Guid: string` / `Total: int`
+// are legal, and the emitter writes parameters verbatim.  A parameter named
+// after a field then IS the member's C# name, and inside the method it hides
+// the member — the write `Guid = Guid;` assigns the parameter to itself
+// (measured under `dotnet build /warnaserror`, sdk:10.0):
+//
+//     public Tag(string Guid, int Total, string label) { Guid = Guid; … }
+//     error CS1717: Assignment made to same variable; did you mean to assign
+//                   something else?
+//     (and CS8618 on the never-initialised non-nullable property)
+//
+// The value-object constructor and the `with crudish` `update(...)` operation
+// (whose params are named after the fields it writes) both hit it.  The fix
+// renames the PARAMETER — never the member, which is wire surface — to its
+// lower-first spelling (`guid`), on a collision only, so every lowercase
+// parameter stays byte-identical.  Uses of the parameter follow the same rule
+// (`renderRef`'s `param` arm reads `CsRenderContext.memberScope`).
+// ---------------------------------------------------------------------------
+
+/** The C# identifier for a `.ddd` parameter declared inside a class whose
+ *  members are `scope`: `escapeCsharpIdent(name)` normally (byte-identical),
+ *  the lower-first spelling when `name` IS a member's C# name (`Guid` beside a
+ *  `Guid` field → `guid`; a name with no case to lower gets a trailing `_`). */
+export function csParamIdent(name: string, scope: CsMemberScope | undefined): string {
+  if (!scope?.members.has(name)) return escapeCsharpIdent(name);
+  const lowered = lowerFirst(name);
+  return escapeCsharpIdent(lowered !== name ? lowered : `${name}_`);
 }

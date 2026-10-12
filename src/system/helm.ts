@@ -1,5 +1,6 @@
 import type { SystemIR } from "../ir/types/loom-ir.js";
 import { API_BASE_PATH } from "../util/api-base.js";
+import { emissionSink } from "../util/emission-sink.js";
 import {
   type BrokerModel,
   buildBrokers,
@@ -472,7 +473,7 @@ function gated(w: WorkloadModel, body: string): string {
  *  `WorkloadModel` (`buildWorkloads`) so it stays in lock-step with the raw
  *  manifests in `kubernetes.ts`. */
 export function renderHelmChart(sys: SystemIR): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("system/helm");
   const workloads = buildWorkloads(sys);
   const brokers = buildBrokers(sys);
   out.set("helm/Chart.yaml", renderChartYaml(sys));

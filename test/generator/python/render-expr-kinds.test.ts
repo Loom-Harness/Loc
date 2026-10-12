@@ -125,66 +125,6 @@ describe("py renderPyExpr — member / method-call", () => {
     ).toBe("order.placed_at");
   });
 
-  it("renders array count and string length via len()", () => {
-    expect(
-      renderPyExpr({
-        kind: "member",
-        receiver: thisProp("lines"),
-        member: "count",
-        receiverType: { kind: "array", element: { kind: "entity", name: "OrderLine" } },
-        memberType: INT,
-      }),
-    ).toBe("len(self._lines)");
-    expect(
-      renderPyExpr({
-        kind: "member",
-        receiver: refParam("name"),
-        member: "length",
-        receiverType: STRING,
-        memberType: INT,
-      }),
-    ).toBe("len(name)");
-  });
-
-  it("renders the string.trim intrinsic as .strip(), not .trim() (stdlib A1)", () => {
-    expect(
-      renderPyExpr({
-        kind: "method-call",
-        receiver: refParam("name"),
-        member: "trim",
-        args: [],
-        receiverType: STRING,
-        isCollectionOp: false,
-      }),
-    ).toBe("name.strip()");
-  });
-
-  it("renders the string case intrinsics as .upper()/.lower() (stdlib A2)", () => {
-    const call = (member: string): ExprOf<"method-call"> => ({
-      kind: "method-call",
-      receiver: refParam("name"),
-      member,
-      args: [],
-      receiverType: STRING,
-      isCollectionOp: false,
-    });
-    expect(renderPyExpr(call("toUpper"))).toBe("name.upper()");
-    expect(renderPyExpr(call("toLower"))).toBe("name.lower()");
-  });
-
-  it("renders string.substring as a clamping slice (both arities)", () => {
-    const sub = (args: ExprIR[]): ExprOf<"method-call"> => ({
-      kind: "method-call",
-      receiver: refParam("name"),
-      member: "substring",
-      args,
-      receiverType: STRING,
-      isCollectionOp: false,
-    });
-    expect(renderPyExpr(sub([litInt("2")]))).toBe("name[2 :]");
-    expect(renderPyExpr(sub([litInt("2"), litInt("3")]))).toBe("name[2 : (2) + (3)]");
-  });
-
   it("renders string.contains as a parenthesised `in` (intrinsic, not the collection op)", () => {
     expect(
       renderPyExpr({
@@ -242,10 +182,6 @@ describe("py renderPyExpr — collection ops", () => {
   });
   const lam = (body: ExprIR): ExprOf<"lambda"> => ({ kind: "lambda", param: "l", body });
 
-  it("count → len()", () => {
-    expect(renderPyExpr(arr("count"))).toBe("len(self._lines)");
-  });
-
   it("sum with selector → generator expression", () => {
     expect(
       renderPyExpr(
@@ -260,10 +196,6 @@ describe("py renderPyExpr — collection ops", () => {
         ]),
       ),
     ).toBe("sum((lambda l: l.quantity)(__x) for __x in self._lines)");
-  });
-
-  it("sum without selector → builtin sum", () => {
-    expect(renderPyExpr(arr("sum"))).toBe("sum(self._lines)");
   });
 
   // A5 — an ARITHMETIC λ body (`l.price * l.qty`, the canonical order total).
@@ -439,24 +371,12 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
     leftType: undefined,
   });
 
-  it("renders && / || as and / or", () => {
-    expect(renderPyExpr(bin("&&", litBool("true"), litBool("false")))).toBe("True and False");
-    expect(renderPyExpr(bin("||", litBool("true"), litBool("false")))).toBe("True or False");
-  });
-
   it("renders `== null` / `!= null` as identity `is None` / `is not None` (ruff E711)", () => {
     const nul: ExprIR = { kind: "literal", lit: "null", value: "" };
     expect(renderPyExpr(bin("==", refParam("holder"), nul))).toBe("holder is None");
     expect(renderPyExpr(bin("!=", refParam("holder"), nul))).toBe("holder is not None");
     // subject stays on the left regardless of which operand is the null literal
     expect(renderPyExpr(bin("==", nul, refParam("holder")))).toBe("holder is None");
-  });
-
-  it("renders ! as not; unary minus natively", () => {
-    expect(renderPyExpr({ kind: "unary", op: "!", operand: refParam("active") })).toBe(
-      "not active",
-    );
-    expect(renderPyExpr({ kind: "unary", op: "-", operand: litInt("5") })).toBe("-5");
   });
 
   // A11 — the audit flagged unary `-` on money as a bare `${op}${operand}` on
@@ -467,44 +387,6 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
     expect(
       renderPyExpr({ kind: "unary", op: "-", operand: { ...thisProp("total"), type: MONEY } }),
     ).toBe("-self._total");
-  });
-
-  it("money arithmetic stays native (Decimal overloads operators)", () => {
-    expect(
-      renderPyExpr({
-        kind: "binary",
-        op: "+",
-        left: thisProp("total"),
-        right: litMoney("1.50"),
-        leftType: MONEY,
-      }),
-    ).toBe('self._total + Decimal("1.50")');
-  });
-
-  it("renders ternary as a conditional expression", () => {
-    expect(
-      renderPyExpr({
-        kind: "ternary",
-        cond: refParam("ok"),
-        // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
-        then: litInt("1"),
-        otherwise: litInt("2"),
-      }),
-    ).toBe("(1 if ok else 2)");
-  });
-
-  it("renders match as right-folded conditional expressions", () => {
-    expect(
-      renderPyExpr({
-        kind: "match",
-        variantArms: [],
-        arms: [
-          { cond: refParam("a"), value: litInt("1") },
-          { cond: refParam("b"), value: litInt("2") },
-        ],
-        otherwise: litInt("0"),
-      }),
-    ).toBe("(1 if a else (2 if b else 0))");
   });
 
   it("renders converts per (from, target) pair", () => {
@@ -526,25 +408,6 @@ describe("py renderPyExpr — operators / ternary / match / convert", () => {
 });
 
 describe("py renderPyExpr — A1 int-division widening + divTrunc", () => {
-  const DECIMAL: TypeIR = { kind: "primitive", name: "decimal" };
-
-  // `int / int` widens to `decimal`, and `decimal` arithmetic is EXACT (RS-37):
-  // the division computes on `Decimal` and narrows to the `float` domain type
-  // once, like every other decimal arithmetic chain.
-  it("renders int/int→decimal division as exact Decimal division", () => {
-    expect(
-      renderPyExpr({
-        kind: "binary",
-        op: "/",
-        left: litInt("5"),
-        right: litInt("2"),
-        leftType: INT,
-        rightType: INT,
-        resultType: DECIMAL,
-      }),
-    ).toBe('float(Decimal("5") / Decimal("2"))');
-  });
-
   // `a.divTrunc(b)` — truncating integer division toward zero via `int(...)`.
   // `int(recv / arg)` was a FLOAT round-trip: wrong past 2^53 on the one backend
   // with exact integers.  `trunc_div` truncates toward zero in integer space

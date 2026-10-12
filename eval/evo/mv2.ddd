@@ -1,0 +1,13 @@
+system Mv {
+  subdomain S {
+    context C { aggregate Keep with crudish { k: string?  derived display: string = "k" }  repository Keeps for Keep { } }
+    context D {
+      aggregate Thing with crudish { alpha: string?  derived display: string = "t" }  repository Things for Thing { }
+      aggregate Other with crudish { z: string?  derived display: string = "o" }  repository Others for Other { }
+    }
+  }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  resource dState { for: D, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C, D], dataSources: [cState, dState], port: 3500 }
+}

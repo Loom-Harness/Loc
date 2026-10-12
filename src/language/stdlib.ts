@@ -48,8 +48,3 @@ export function stdFunctions(): ReadonlyMap<string, FunctionDecl> {
 export function stdFunction(name: string): FunctionDecl | undefined {
   return stdFunctions().get(name);
 }
-
-/** True iff `name` is a prelude function (used by the unknown-name gate). */
-export function isStdFunctionName(name: string): boolean {
-  return stdFunctions().has(name);
-}

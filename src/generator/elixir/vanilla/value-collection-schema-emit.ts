@@ -7,7 +7,7 @@ import type {
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { ectoValidator } from "./changeset-validators.js";
+import { ectoValidator, messageCodeTagging } from "./changeset-validators.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 
@@ -164,6 +164,8 @@ function renderChildSchema(
       .filter((c) => voFieldNames.has(snake(c.field)))
       .map((c) => ectoValidator(snake(c.field), c.pattern, inv.message?.text)),
   );
+  const tagging = messageCodeTagging(vo);
+  if (tagging.pipe) validatorLines.push(tagging.pipe);
   const validatorBlock = validatorLines.length > 0 ? `\n${validatorLines.join("\n")}` : "";
   const requiredBlock = requiredCols ? `\n    |> validate_required([${requiredCols}])` : "";
 
@@ -190,7 +192,7 @@ ${voFieldLines.join("\n")}
     |> cast(attrs, [${castCols}])${requiredBlock}${validatorBlock}
   end
 
-${NORMALIZE_KEYS_DEFP}
+${NORMALIZE_KEYS_DEFP}${tagging.defs ? `\n\n${tagging.defs.trimEnd()}` : ""}
 end
 `;
 }

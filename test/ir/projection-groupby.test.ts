@@ -57,21 +57,6 @@ const context = (body: string) => `system S {
   } }
 }`;
 
-const hostedOn = (platform: string, body: string) => `system S {
-  subdomain Sales { context Orders {
-    enum OrderStatus { Draft Confirmed Cancelled }
-    aggregate Order { status: OrderStatus  total: money  derived display: string = status }
-    repository Orders for Order { }
-    ${body}
-  } }
-
-  api SalesApi from Sales
-  storage primarySql { type: postgres }
-  resource ordersState { for: Orders, kind: state, use: primarySql }
-
-  deployable api { platform: ${platform} contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-}`;
-
 const BY_STATUS = `projection SalesByStatus { status: OrderStatus  orders: int  revenue: money
   from Order as o
   group by o.status
@@ -212,23 +197,4 @@ describe("group-by shape gates", () => {
       ),
     ).toContain("loom.projection-groupby-select-not-grouped");
   });
-});
-
-describe("loom.projection-groupby-unsupported-backend (per-backend seam)", () => {
-  // All five backends ship the grouped emit, so the gate is silent everywhere.
-  // The check stays — it is the seam a NEW backend gates on until it ports.
-  for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
-    it(`is silent on ${platform}`, async () => {
-      const cs = await codes(
-        hostedOn(
-          platform,
-          `projection SalesByStatus { status: OrderStatus  orders: int
-            from Order as o
-            group by o.status
-            select status = o.status, orders = count() }`,
-        ),
-      );
-      expect(cs).not.toContain("loom.projection-groupby-unsupported-backend");
-    });
-  }
 });

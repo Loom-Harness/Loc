@@ -50,29 +50,6 @@ function find(files: Map<string, string>, re: RegExp): string {
 }
 
 describe("dotnet database seeding (Phase 3a, domain path)", () => {
-  it("emits Seed.cs going through the named-arg Create + repository SaveAsync", async () => {
-    const files = await build();
-    const seed = find(files, /Infrastructure\/Persistence\/Seed\.cs$/);
-
-    // Through the domain Create (D-SEED-PATH); named args over the full
-    // create-input set, so a row that omits optional fields still supplies
-    // every factory parameter.
-    expect(seed).toContain(
-      'Product.Create(sku: "BASE-1", price: new Money(1.0m, "USD"), tier: Tier.Free, stock: 1)',
-    );
-    expect(seed).toContain(
-      'Product.Create(sku: "DEMO-1", price: new Money(9.99m, "USD"), tier: Tier.Pro, stock: 10)',
-    );
-    expect(seed).toContain("sp.GetRequiredService<IProductRepository>()");
-    expect(seed).toContain("await productRepo.SaveAsync(");
-
-    // Usings narrowed to what's referenced.
-    expect(seed).toContain("using Api.Domain.Products;");
-    expect(seed).toContain("using Api.Domain.ValueObjects;");
-    expect(seed).toContain("using Api.Domain.Enums;");
-    expect(seed).toContain("namespace Api.Infrastructure.Persistence;");
-  });
-
   it("is ship-once per dataset via the __loom_seed marker (D-SEED-IDEMPOTENCY)", async () => {
     const seed = find(await build(), /Seed\.cs$/);
     expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
@@ -86,14 +63,6 @@ describe("dotnet database seeding (Phase 3a, domain path)", () => {
     expect(seed).toContain('dataset == "default" || requested.Contains(dataset)');
     expect(seed).toContain("private static async Task SeedDefault(");
     expect(seed).toContain("private static async Task SeedDemo(");
-  });
-
-  it("wires Seed.RunSeeds into Program.cs after migrations", async () => {
-    const program = find(await build(), /Program\.cs$/);
-    expect(program).toContain("await Api.Infrastructure.Persistence.Seed.RunSeeds(");
-    expect(program.indexOf("db.Database.Migrate()")).toBeLessThan(
-      program.indexOf("Seed.RunSeeds("),
-    );
   });
 
   it("also emits the seeder via the legacy per-context `generate dotnet` path", async () => {

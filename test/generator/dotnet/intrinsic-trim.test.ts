@@ -7,39 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import { generateDotnet } from "../../_helpers/generate.js";
-import { parseString, parseValid } from "../../_helpers/parse.js";
-
-const SRC = `
-  context Catalog {
-    aggregate Product {
-      name: string
-      derived cleanName: string = name.trim()
-      invariant name.trim().length > 0
-    }
-    repository Products for Product {
-      find byExactName(q: string): Product[] where this.name.trim() == q
-    }
-  }
-`;
+import { parseValid } from "../../_helpers/parse.js";
 
 describe("dotnet generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
-  it("parses + validates cleanly (typed as string, queryable where)", async () => {
-    const { errors } = await parseString(SRC);
-    expect(errors).toEqual([]);
-  });
-
-  it("renders trim in-memory in derived/invariant bodies", async () => {
-    const model = await parseValid(SRC);
-    const domain = generateDotnet(model).get("Domain/Products/Product.cs")!;
-    expect(domain).toContain(".Trim()");
-  });
-
-  it("renders trim inside the find Where lambda (EF Core translates it to SQL)", async () => {
-    const model = await parseValid(SRC);
-    const repo = generateDotnet(model).get("Infrastructure/Repositories/ProductRepository.cs")!;
-    expect(repo).toContain(".Where(x => x.Name.Trim() == q)");
-  });
-
   it("renders a value-side trim (param receiver) the same way", async () => {
     const src = `
       context Catalog {

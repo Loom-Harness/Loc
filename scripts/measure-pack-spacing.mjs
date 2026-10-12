@@ -87,7 +87,7 @@ const measure = (page) =>
     const toolbarCs = cs(toolbar);
     const sectionCs = cs(navSection);
     return {
-      "stack.gap": stackCs && stackCs.display.includes("flex") ? px(stackCs.rowGap) : null,
+      "stack.gap": stackCs?.display.includes("flex") ? px(stackCs.rowGap) : null,
       "toolbar.gap": toolbarCs ? px(toolbarCs.columnGap) : null,
       "main.padding": mainCs ? px(mainCs.paddingLeft) : null,
       "main.contained": mainCs ? mainCs.minWidth === "0px" || px(mainCs.minWidth) === 0 : null,

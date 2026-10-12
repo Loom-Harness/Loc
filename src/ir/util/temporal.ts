@@ -38,7 +38,34 @@ export function isDatetimeTypedIR(e: ExprIR): boolean {
       return isDt(e.resultType);
     case "ternary":
       return isDatetimeTypedIR(e.then) && isDatetimeTypedIR(e.otherwise);
-    default:
+    // Not provably datetime from the node alone — `false` is the CONSERVATIVE
+    // answer here: the sole caller (`firstNonQueryableNode`, the where-clause
+    // queryability gate) uses it to ADMIT temporal interval arithmetic, so a
+    // `false` refuses a shape rather than emitting one.  Most of these cannot
+    // reach it anyway: the same gate refuses `convert` / `match` / `list` /
+    // `call` / a ctor / a lambda / an i18n hole outright.  Named rather than
+    // left to a `default:` so a new `ExprIR` kind is a `tsc` error and someone
+    // rules on whether it carries a provable datetime type.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
+    case "unary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }

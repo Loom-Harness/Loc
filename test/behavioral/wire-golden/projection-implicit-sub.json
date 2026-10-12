@@ -1,0 +1,231 @@
+{
+  "case": "projection-implicit-sub",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/projections/order_board/{id}",
+      "status": 200,
+      "body": {
+        "at": "<timestamp>",
+        "orderRef": "<uuid>",
+        "status": "Placed"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/workflows/fulfilment/instances/{id}",
+      "status": 200,
+      "body": {
+        "orderRef": "<uuid>",
+        "shippedAt": null
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/workflows/fulfilment/instances",
+      "status": 200,
+      "body": [
+        {
+          "orderRef": "<uuid>",
+          "shippedAt": null
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/projections/order_board/{id}",
+      "status": 200,
+      "body": {
+        "at": "<timestamp>",
+        "orderRef": "<uuid>",
+        "status": "Shipped"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/workflows/fulfilment/instances/{id}",
+      "status": 200,
+      "body": {
+        "orderRef": "<uuid>",
+        "shippedAt": "<timestamp>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/projections/order_board",
+      "status": 200,
+      "body": [
+        {
+          "at": "<timestamp>",
+          "orderRef": "<uuid>",
+          "status": "Shipped"
+        }
+      ]
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "customerId": "<volatile:key>",
+        "id": "<volatile:key>",
+        "status": "Draft",
+        "version": 4
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/projections/order_board/{id}",
+      "status": 200,
+      "body": {
+        "at": "<timestamp>",
+        "orderRef": "<uuid>",
+        "status": "Shipped"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "customerId": "<volatile:key>",
+            "id": "<volatile:key>",
+            "status": "Draft",
+            "version": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/projections/order_board/{id}",
+      "status": 404,
+      "body": {
+        "detail": "OrderBoard {id} not found",
+        "instance": "/api/projections/order_board/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/workflows/fulfilment/instances/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Fulfilment {id} not found",
+        "instance": "/api/workflows/fulfilment/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

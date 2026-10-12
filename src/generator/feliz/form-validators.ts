@@ -178,15 +178,3 @@ export function felizFieldRules(
   }
   return out;
 }
-
-/** True when any emitted rule spells `cpLength` — the gate for splicing
- *  {@link CODE_POINT_LEN_HELPER}, so a form with only numeric rules keeps its
- *  `Validation` module free of an unused binding (F# warns on those). */
-export function rulesNeedCodePointLength(
-  byField: ReadonlyMap<string, readonly FelizFieldRule[]>,
-): boolean {
-  for (const rules of byField.values()) {
-    if (rules.some((r) => r.violated.includes("cpLength "))) return true;
-  }
-  return false;
-}

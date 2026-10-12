@@ -124,3 +124,12 @@ export function reservedFieldNameKeywords(): readonly string[] {
 const RESERVED_FIELD_NAMES: readonly string[] = [...GRAMMAR_KEYWORDS]
   .filter((k) => !FIELD_NAME_SET.has(k))
   .sort((a, b) => a.localeCompare(b));
+
+/** True when `word` is a `CommonSoftKeywords` member — admissible as an
+ *  ordinary name in every value position, so wherever the parser would also
+ *  accept an `ID` it is just another spelling of "a name". */
+export function isSoftKeyword(word: string): boolean {
+  return COMMON_SOFT.has(word);
+}
+
+const COMMON_SOFT: ReadonlySet<string> = keywordsOf(DddGrammar(), "CommonSoftKeywords");

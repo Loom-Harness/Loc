@@ -59,13 +59,15 @@ system DatetimeWire {
         startsAt: datetime
         venueOpenedAt: datetime
         venueCapacity: int
+        venueName: string
         from Slot as s
         join Venue as v on s.venueId
         select slotId = s.id,
                label = s.label,
                startsAt = s.startsAt,
                venueOpenedAt = v.openedAt,
-               venueCapacity = v.capacity
+               venueCapacity = v.capacity,
+               venueName = v.name
       }
     }
   }
@@ -114,11 +116,19 @@ system DatetimeWire {
     expect(rowA.startsAt).toBe("2024-03-02T09:00:00.050Z")
     expect(rowA.venueOpenedAt).toBe("2024-03-01T10:20:30Z")
     expect(rowA.venueCapacity).toBe(40)
+    expect(rowA.venueName).toBe("Hall")
     let rowB = board.where(r => r.label == "B").first()
     expect(rowB.startsAt).toBe("2024-03-01T10:20:30.999Z")
     expect(rowB.venueOpenedAt).toBe(null)
     // The VALUE-TYPED joined member — .NET's `default!` read `0` here.
     expect(rowB.venueCapacity).toBe(null)
+    // …and a joined STRING member (PROMOTED from the per-backend
+    // `query-projection-join-missing` string copies, M-T9.42 — each pinned its
+    // own guard spelling: .NET's `TryGetValue`, java's null-guarded ternary,
+    // python's `.get(...)`, node's bound lookup; the absent row must read
+    // `null` for every member kind).  A joined DECIMAL was tried too and is
+    // handed off: elixir serializes a PRESENT one as the string "2.5".
+    expect(rowB.venueName).toBe(null)
 
     // The venue list no longer carries the soft-deleted row.
     let venues = api.venues.all()

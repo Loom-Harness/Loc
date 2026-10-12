@@ -529,8 +529,33 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
         out.add(`${e.receiver.member}_${e.member}`);
       }
       return;
-    default:
+    // Contribute no column.  The only consumer is `indexedColumnsFor`, an
+    // INDEX HINT: narrowing this set loses an index, never a predicate — the
+    // query itself is rendered by `lowerToDrizzle`, not from here.  Named
+    // rather than left to a `default:` so a new `ExprIR` kind is a decision
+    // rather than a silent omission.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
       return;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return;
+    }
   }
 }
 

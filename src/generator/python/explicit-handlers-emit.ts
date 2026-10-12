@@ -27,7 +27,10 @@
 // params — mirroring the .NET controller→handler split without a message bus.
 //
 // v1 scope (mirrors .NET A1): handler params are ids / scalars (the common REST
-// case); response projection is a `{ "result": <value> }` envelope.
+// case).  The response is the handler's value, UNWRAPPED — it used to ride a
+// `{ "result": <value> }` envelope, which made python the lone backend to
+// answer `{"result": "hi"}` where the other four answer `"hi"` (M-T6.73; node
+// is the wire oracle the behavioural goldens are captured from).
 //
 // C2 (Python sibling of .NET C1/#1830): a handler whose return type resolves to
 // an aggregate/entity projects the domain instance to its wire shape via the
@@ -53,11 +56,18 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake } from "../../util/naming.js";
+import {
+  plural,
+  pythonIdent,
+  pythonWireIdent,
+  pythonWireNeedsAlias,
+  snake,
+} from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, wireModelImport } from "./emit/http-models.js";
+import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -77,6 +87,18 @@ type Handler = CommandHandlerIR | QueryHandlerIR;
  *  fields, byte-identical to the flat-param form); every other param (a
  *  path-bound id / scalar / value object) passes through.  An extern handler
  *  keeps its raw params — its scaffold-once impl owns the signature. */
+
+/** An explicit-handler route parameter.  Its wire name is the snake_cased
+ *  `.ddd` name (the path token / query key the route already publishes); a
+ *  keyword collision (`def`) binds under the escaped identifier with the wire
+ *  name restored by `Path(alias=…)` / `Query(alias=…)` (eval item 6, ruling
+ *  D2).  Every other parameter is byte-identical. */
+function pyAliasedParam(name: string, type: string, source: "Path" | "Query"): string {
+  const wire = snake(name);
+  if (!pythonWireNeedsAlias(wire)) return `${wire}: ${type}`;
+  return `${pythonWireIdent(wire)}: Annotated[${type}, ${source}(alias=${JSON.stringify(wire)})]`;
+}
+
 function flatHandlerParams(h: Handler, ctx: EnrichedBoundedContextIR): ParamIR[] {
   if (h.extern) return h.params.map((p) => ({ name: p.name, type: p.type }));
   const out: ParamIR[] = [];
@@ -137,10 +159,10 @@ function pyDomainImportLines(signatureText: string, ctx: EnrichedBoundedContextI
 function renderPyExternDispatch(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const fnName = snake(h.name);
   const implFn = externImplFn(h.name);
-  const paramSig = h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = ["session: AsyncSession", ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
-  const callArgs = h.params.map((p) => snake(p.name)).join(", ");
+  const callArgs = h.params.map((p) => pythonIdent(p.name)).join(", ");
   const call = `${implFn}(${callArgs})`;
   const bodyLine = h.returnType ? `    return await ${call}` : `    await ${call}`;
   const sigText = `${paramSig.join(" ")} ${ret}`;
@@ -164,7 +186,7 @@ function renderPyExternDispatch(h: Handler, ctx: EnrichedBoundedContextIR): stri
  *  preserves it on regen). */
 function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const implFn = externImplFn(h.name);
-  const paramSig = h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)
     ? "queryHandler"
@@ -311,7 +333,7 @@ function renderPagedRunHandlerModule(
   const runWire = runAgg && aggHasFieldMask(runAgg) ? "to_wire_masked" : "to_wire";
   const sigParams = [
     "session: AsyncSession",
-    ...h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+    ...h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
     "page: int",
     "page_size: int",
     "sort: str",
@@ -410,7 +432,7 @@ function renderHandlerModule(
   };
   const params = [
     "session: AsyncSession",
-    ...flatHandlerParams(h, ctx).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+    ...flatHandlerParams(h, ctx).map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
     ...(usesUser ? ["current_user: User"] : []),
   ].join(", ");
 
@@ -628,8 +650,8 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // Non-default params first (Python signature order): path + criterion query
   // params + session, then the defaulted pagination controls.
   const sig = [
-    ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
-    ...queryParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
+    ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
+    ...queryParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Query")),
     "session: SessionDep",
     ...PY_PAGED_CONTROLS,
     `sort: str = "id"`,
@@ -639,7 +661,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // pagination controls (pageSize → the handler's snake `page_size`).
   const callArgs = [
     "session",
-    ...h.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)),
+    ...h.params.map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx)),
     "page",
     "pageSize",
     "sort",
@@ -710,12 +732,14 @@ export function emitPyExplicitRouteRouter(
       modelBlocks.push(
         lines(
           `class ${bodyModelName}(BaseModel):`,
-          ...bodyParams.map((p) => `    ${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
+          ...bodyParams.map((p) =>
+            withFieldConstraint(snake(p.name), requestPyType(p.type, ctx), undefined),
+          ),
         ),
       );
     }
     const sig = [
-      ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
+      ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? ["request: Request"] : []),
       "session: SessionDep",
@@ -726,8 +750,8 @@ export function emitPyExplicitRouteRouter(
       "session",
       ...effParams.map((p) =>
         pathNames.has(p.name)
-          ? pyWireToDomain(snake(p.name), p.type, ctx)
-          : pyWireToDomain(`body.${snake(p.name)}`, p.type, ctx),
+          ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
+          : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");
@@ -744,10 +768,21 @@ export function emitPyExplicitRouteRouter(
       routeBlocks.push(
         lines(
           `@router.${method}("${path}", operation_id="${opId}")`,
-          `async def ${routeName}(${sig}) -> dict[str, object]:`,
+          // `-> Any`, and the handler's value returned UNWRAPPED (M-T6.73).
+          // This route used to answer `{"result": <value>}` where every other
+          // backend answers the bare value — `POST /api/echo/hi` → `{"result":
+          // "hi"}` against node's `"hi"`.  That is a runtime-VALUE divergence a
+          // spec-vs-spec diff cannot see, and node is the wire oracle the
+          // goldens are captured from.
+          //
+          // `Any` (not `dict[str, object]`) because FastAPI reads the return
+          // annotation as the response_model and would then validate a scalar
+          // against a mapping.  It also matches what node publishes for these
+          // routes — `schema: z.unknown()` — so the two specs agree.
+          `async def ${routeName}(${sig}) -> Any:`,
           usesUser ? "    current_user: User = request.state.current_user" : null,
           `    result = await ${snake(h.name)}(${callArgs})`,
-          `    return {"result": result}`,
+          `    return result`,
         ),
       );
     } else {
@@ -800,15 +835,18 @@ export function emitPyExplicitRouteRouter(
     `from fastapi import ${[
       "APIRouter",
       "Depends",
+      refersTo("Path") ? "Path" : null,
       refersTo("Query") ? "Query" : null,
       usesRequest ? "Request" : null,
       usesResponse ? "Response" : null,
     ]
       .filter(Boolean)
       .join(", ")}`,
-    refersTo("BaseModel") ? "from pydantic import BaseModel" : null,
+    refersTo("BaseModel")
+      ? `from pydantic import ${refersTo("Field") ? "BaseModel, Field" : "BaseModel"}`
+      : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
-    "from typing import Annotated",
+    refersTo("Any") ? "from typing import Annotated, Any" : "from typing import Annotated",
     "",
     usesRequest ? "from app.auth.user import User" : null,
     ...[...handlerImports].sort().map((n) => `from app.application.${snake(n)} import ${snake(n)}`),

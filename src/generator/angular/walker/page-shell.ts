@@ -38,6 +38,7 @@ import {
   fieldGroupControlDecl,
   fileUploadMethodLines,
 } from "../form-fields.js";
+import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
 import { angularTarget } from "./angular-target.js";
 import { angularSink } from "./sink.js";
@@ -906,6 +907,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       // The id expression is a template-scope ref (`id` / `order.id`); class
       // fields read against `this` (`this.id` / `this.order.id`).
       const idExpr = prefixWholeWordsWithThis(f.idExpr, idFields);
+      if (f.gate) {
+        members.push(`  readonly ${f.gate.local} = ${f.gate.hook}(() => ${idExpr} ?? "");`);
+      }
       members.push(
         [
           `  async ${f.submitMethod}(): Promise<void> {`,
@@ -950,6 +954,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     for (const a of angularActions) {
       const names = byPath.get(a.importFrom) ?? new Set<string>();
       names.add(a.hookName);
+      if (a.gate) names.add(a.gate.hook);
       byPath.set(a.importFrom, names);
     }
     for (const [from, names] of [...byPath.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -957,6 +962,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     }
     for (const a of angularActions) {
       members.push(`  readonly ${a.localVar} = ${a.hookName}();`);
+      if (a.gate) {
+        members.push(
+          `  readonly ${a.gate.local} = ${a.gate.hook}(() => ${a.method.idAccess} ?? "");`,
+        );
+      }
       const body = [
         `  async ${a.method.name}(): Promise<void> {`,
         `    const id = ${a.method.idAccess};`,
@@ -978,10 +988,26 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   const angularModals = sink.modals;
   if (angularModals.length > 0) {
     coreSymbols.add("signal");
+    // Class-field names a modal trigger's template-scope id can read: route
+    // params, page params/state, and the hoisted query handles.
+    const modalIdRefs = new Set<string>([
+      ...page.state.map((s) => s.name),
+      ...page.params.map((p) => p.name),
+      ...boundParams,
+      ...[...result.usedApiHooks.values()].map((h) => h.varName),
+    ]);
     for (const m of angularModals) {
       members.push(`  readonly ${m.openSig} = signal(false);`);
       members.push(`  readonly ${m.idSig} = signal("");`);
       members.push(`  readonly ${m.mutationVar} = ${m.mutationFn}();`);
+      if (m.gate) {
+        // The trigger's id is a TEMPLATE-scope expression (`taskById.data()!.id`,
+        // a route `id`); the class field reads it against `this`, null-safely —
+        // the probe initialiser runs before an async record resolves (the
+        // query stays idle on the empty id until it does).
+        const classId = prefixWholeWordsWithThis(m.gate.idExpr, modalIdRefs).replace(/!\./g, "?.");
+        members.push(`  readonly ${m.gate.local} = ${m.gate.hook}(() => ${classId} ?? "");`);
+      }
       members.push(`  readonly ${m.formVar} = new FormGroup({ ${formGroupBody(m)} });`);
       members.push(...formArrayMemberLines(m.formVar, m.fieldArrays));
       members.push(
@@ -1045,7 +1071,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     const sorted = [...names].sort();
     imports.push(`import { ${sorted.join(", ")} } from ${JSON.stringify(rewritten)};`);
     for (const n of sorted) {
-      if (n.endsWith("Module")) componentImports.add(n);
+      // `*Module` declarables, plus the `IdLink` reference-label child — a
+      // standalone component the walker imports the same way.
+      if (n.endsWith("Module") || n === ANGULAR_REF_LABEL_CLASS) componentImports.add(n);
     }
   }
 

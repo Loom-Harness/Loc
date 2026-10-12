@@ -36,7 +36,16 @@
     "paramName",
     "stateField"
   ],
-  "aggregate": [],
+  "aggregate": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "aggregates": [
     "fieldName",
     "fieldNameAfterField",
@@ -98,7 +107,9 @@
     "paramName",
     "stateField"
   ],
-  "as": [],
+  "as": [
+    "memberAccess"
+  ],
   "asc": [
     "fieldName",
     "fieldNameAfterField",
@@ -678,7 +689,16 @@
     "stateField"
   ],
   "entity": [],
-  "enum": [],
+  "enum": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "env": [
     "fieldName",
     "fieldNameAfterField",
@@ -760,7 +780,16 @@
     "stateField"
   ],
   "expect": [],
-  "extends": [],
+  "extends": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "extern": [
     "fieldName",
     "fieldNameAfterField",
@@ -958,7 +987,16 @@
     "paramName",
     "stateField"
   ],
-  "import": [],
+  "import": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "in": [],
   "inMemory": [
     "fieldName",
@@ -1573,16 +1611,7 @@
     "paramName",
     "stateField"
   ],
-  "precondition": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
+  "precondition": [],
   "primeng": [
     "fieldName",
     "fieldNameAfterField",
@@ -1764,7 +1793,16 @@
     "paramName",
     "stateField"
   ],
-  "repository": [],
+  "repository": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "required": [
     "fieldName",
     "fieldNameAfterField",
@@ -1786,14 +1824,7 @@
     "stateField"
   ],
   "requires": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
+    "memberAccess"
   ],
   "resource": [
     "fieldName",
@@ -2166,7 +2197,16 @@
     "paramName",
     "stateField"
   ],
-  "static": [],
+  "static": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "storage": [
     "fieldName",
     "fieldNameAfterField",
@@ -2208,7 +2248,16 @@
     "paramName",
     "stateField"
   ],
-  "system": [],
+  "system": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "tablePrefix": [
     "fieldName",
     "fieldNameAfterField",
@@ -2261,6 +2310,7 @@
     "stateField"
   ],
   "this": [
+    "memberAccess",
     "nameRef"
   ],
   "timerSource": [

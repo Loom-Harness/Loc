@@ -29,6 +29,7 @@ import {
   isAggregate,
   isBinaryChain,
   isBoundedContext,
+  isComponent,
   isCreate,
   isCriterion,
   isDerivedProp,
@@ -46,14 +47,15 @@ import {
   isRequiresStmt,
   isReturnStmt,
   isTernaryExpr,
+  isTestE2E,
   isUi,
   isValueObject,
 } from "../generated/ast.js";
 import { isWellFormedMoneyLiteral, moneyLiteralText } from "../money-literal.js";
 import {
+  absentPrimitiveMember,
   absentRecordMember,
   absentUserClaim,
-  arithmeticResult,
   comparable,
   type DddType,
   type Env,
@@ -61,20 +63,20 @@ import {
   isAssignable,
   makeEnv,
   resolveTypeRef,
+  suffixType,
   T,
   ternaryJoin,
-  typeAfterSuffix,
   typeOf,
   typeToString,
 } from "../type-system.js";
+import { toDddType } from "../typing/adapt.js";
+import { typingFor } from "../typing/shared.js";
 import {
-  canPromoteAstLitTo,
   canPromoteLiteralTo,
   checkBlankMessage,
   envForAggregate,
   envForPart,
   isInfallibleConversion,
-  literalPromotionAnchor,
   warnSensitivityDrop,
 } from "./_shared.js";
 import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
@@ -117,6 +119,22 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // per-feature validator pass (e.g. the money rule that this
 // function replaces).
 // ---------------------------------------------------------------------------
+
+/** A `File`'s wire-reference fields — the shape the boundary emits and the
+ *  frontend prop declares (`_frontend/component-prop-type.ts::FILE_REF_TS`).
+ *  Readable in a page / component body; not in domain logic. */
+const FILE_WIRE_FIELDS: ReadonlySet<string> = new Set(["url", "key", "contentType", "size"]);
+
+/** True when `node` sits inside a `ui` or a `component` — the frontend
+ *  subtree, where a `File` prop is a real object rather than an opaque
+ *  reference.  Mirrors `builder-call.ts`'s helper of the same name. */
+function inFrontendDecl(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(node, isUi) !== undefined ||
+    AstUtils.getContainerOfType(node, isComponent) !== undefined
+  );
+}
+
 export function checkBinaryOperands(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isBinaryChain(node)) continue;
@@ -151,7 +169,7 @@ export function checkSlotMemberAccess(model: Model, accept: ValidationAcceptor):
         // Cascade suppression for the rest of this chain — one
         // diagnostic per offending access is enough.
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -187,6 +205,10 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     // admits `.orgPath` only; it types against the principal record, so
     // without this an unknown member would ALSO read as an undeclared claim.
     if (isNameRef(chain.head) && chain.head.name === ORG_CONTEXT_ACCESSOR) continue;
+    // A `test e2e` body reads RESPONSE fields through the generated client;
+    // `loom.e2e-unknown-response-field` (IR) owns those, and its message names
+    // the call and what the body can carry.
+    if (AstUtils.getContainerOfType(chain, isTestE2E)) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {
@@ -197,6 +219,12 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // type (a value-object `expect(Money{…}).toThrow()` included), so the
         // matcher terminates the chain rather than reporting an unknown member.
         if (intrinsicMatcherSig(ms.member)) break;
+        // The negated form `expect(x).not.toBe(…)`: `.not` is the matcher's
+        // prefix, not a member of `x`'s type.
+        if (ms.member === "not" && !ms.call) {
+          const next = chain.suffixes[chain.suffixes.indexOf(suffix) + 1];
+          if (next && isMemberSuffix(next) && intrinsicMatcherSig(next.member)) break;
+        }
         // Bare collection aggregation (`prices.sum`, no lambda call) — admitted
         // by the type system but unrenderable.  Reject with the lambda form (C11).
         if (
@@ -241,6 +269,107 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           );
           break;
         }
+        // A BARE member read on a PRIMITIVE receiver — the last fail-open
+        // hole in this funnel.  The CALL form has been gated since the stdlib
+        // landed (`loom.intrinsic-unknown`, `checkIntrinsicCalls` below), but
+        // a bare `s.totallyMadeUp` / `n.alsoInvented` / `m.amount` typed as
+        // `unknown`, every operand validator suppressed on `unknown`
+        // (anti-double-reporting), and the invented member reached the
+        // emitters verbatim.  node/.NET/Java then failed their OWN compile;
+        // python/elixir did NOT — `m.amount` is an `AttributeError` /
+        // `KeyError` on a Decimal at request time, and on a dynamically-typed
+        // read path an `invariant m.amount > 0` is a business rule that never
+        // fires.  Routed through the SAME member table the call form uses
+        // (`intrinsicsForReceiver` + `PRIMITIVE_FIELDS`), not a second one.
+        //
+        // Calls are left to `checkIntrinsicCalls` — it owns arity, argument
+        // types and the nullable-receiver deref, and reports them under their
+        // own codes.  Bare reads of a name that IS reachable (`s.trim` without
+        // its parens) are likewise its business (`loom.intrinsic-bare`):
+        // `absentPrimitiveMember` resolves those, so one mistake still yields
+        // exactly one diagnostic.
+        const prim = ms.call ? undefined : absentPrimitiveMember(recvType, ms.member);
+        if (prim) {
+          const known = prim.known.length
+            ? ` Available on '${prim.prim}': ${prim.known.join(", ")}.`
+            : "";
+          // Three primitives get their OWN wording, because for each of them
+          // the fix is not "correct the spelling" and the generic
+          // "a primitive has no fields" line would send the author looking
+          // for a typo that isn't there:
+          //   • `money` — the author wanted a record (`.amount`/`.currency`);
+          //   • `json`  — the interior is deliberately unmodelled;
+          //   • `File`  — it HAS a fixed wire shape (`{url, key, …}`), it is
+          //     just not readable from an expression; `FileLink` renders it.
+          // One `accept` per variant, each with the key and the `code:`
+          // spelled out inline — `diagnostic-catalog.test.ts` reads the call
+          // site, so a message hidden behind a local is invisible to it.
+          if (prim.prim === "money") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#money", { member: ms.member, known }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          } else if (prim.prim === "json") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#json", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else if (prim.prim === "File" && FILE_WIRE_FIELDS.has(ms.member)) {
+            // A `File`'s four wire fields ARE readable in a FRONTEND body and
+            // nowhere else, so the refusal is scoped rather than absolute.
+            //
+            // The emitted component prop is that object literally —
+            // `doc: { url: string; key: string; contentType: string; size: number }`
+            // (`component-prop-type.ts::FILE_REF_TS`) — so `Text { doc.url }`
+            // renders `<Text>{doc.url}</Text>` and type-checks. Refusing it
+            // rejected a model whose generated code was correct.
+            //
+            // In DOMAIN logic the reverse holds and the refusal stands: no
+            // backend exposes the members, so `.url` in an invariant reaches
+            // the generated code verbatim — node/.NET/Java fail their own
+            // compile, python and elixir do not, and the invariant silently
+            // never fires. Same asymmetry `builder-call.ts::inFrontendDecl`
+            // already draws, for the same reason.
+            if (!inFrontendDecl(ms)) {
+              accept(
+                "error",
+                diagMessage("loom.unknown-primitive-member#file", { member: ms.member }),
+                {
+                  node: ms,
+                  property: "member",
+                  code: "loom.unknown-primitive-member",
+                },
+              );
+            }
+          } else if (prim.prim === "File") {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member#file", { member: ms.member }),
+              {
+                node: ms,
+                property: "member",
+                code: "loom.unknown-primitive-member",
+              },
+            );
+          } else {
+            accept(
+              "error",
+              diagMessage("loom.unknown-primitive-member", {
+                member: ms.member,
+                prim: prim.prim,
+                known,
+              }),
+              { node: ms, property: "member", code: "loom.unknown-primitive-member" },
+            );
+          }
+          break;
+        }
         const record = absentRecordMember(recvType, ms.member);
         if (record) {
           accept("error", diagMessage("loom.unknown-member", { member: ms.member, record }), {
@@ -253,7 +382,7 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
           break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -309,7 +438,7 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
           }
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -423,9 +552,10 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
           // receiver that matches no catalogue row (and is neither the
           // string regex `matches` nor a test matcher) is REJECTED, not
           // failed open — failing open renders garbage per backend.  Bare
-          // member ACCESS stays un-gated (string `.length` is legal; a
-          // field-style member should not need a catalogue change to
-          // parse).  A `T?` receiver reaches here too — the member doesn't
+          // member ACCESS is gated too, one funnel up:
+          // `checkUnknownMemberAccess` → `absentPrimitiveMember`, over this
+          // same catalogue plus the field table (`string.length`), under
+          // `loom.unknown-primitive-member`.  A `T?` receiver reaches here too — the member doesn't
           // exist at all, which outranks its nullability, so this is the
           // one diagnostic the site gets.  The rendered receiver keeps its
           // `?` so the message names the type the author actually wrote.
@@ -442,9 +572,25 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
             { node: ms, property: "member", code: "loom.intrinsic-unknown" },
           );
           break;
+        } else if (!ms.call && isStringMatches) {
+          // The string regex `matches` is a real OPERATION that happens not to
+          // be a catalogue row, so `loom.intrinsic-bare` (which keys off a
+          // signature) never covered its bare form, and
+          // `absentPrimitiveMember` resolves the name — leaving `s.matches`
+          // the one reachable-but-uncallable member with no diagnostic.  It
+          // renders a property read of a function on every backend.
+          accept(
+            "error",
+            diagMessage("loom.intrinsic-bare", {
+              member: ms.member,
+              signature: "(pattern: string",
+            }),
+            { node: ms, property: "member", code: "loom.intrinsic-bare" },
+          );
+          break;
         }
       }
-      recvType = typeAfterSuffix(recvType, suffix, env);
+      recvType = suffixType(suffix);
     }
   }
 }
@@ -495,33 +641,23 @@ function shadowingDeclKind(node: AstNode, name: string): string {
  *  Diagnostics attach with `property: "rest"` and the rhs index so
  *  the editor underlines the offending right-hand operand. */
 export function checkSingleBinaryOperands(chain: BinaryChain, accept: ValidationAcceptor): void {
-  const env = envForNode(chain);
-  // Track the left-side type as we fold; the lhs starts as the head's
-  // type, then becomes the result of the previous step.  When a
-  // boolean-result op fires the chain's result is bool — that
-  // doesn't change downstream validity (a chain at this precedence
-  // band stays homogeneous-op).
-  let lt = typeOf(chain.head, env);
+  // The single typing pass folds the chain (M-T5.47): each step's operand
+  // types are already ELABORATED — a bare literal beside money / long /
+  // decimal promoted, an ambiguous enum value retargeted — exactly as
+  // lowering stamps them, so the check and the emitted code read one answer.
+  const folds = typingFor(chain).foldsAt(chain) ?? [];
   let leftExprForPromotion: Expression | undefined = chain.head;
   for (let i = 0; i < chain.ops.length; i++) {
     const op = chain.ops[i]!;
     const rhsExpr = chain.rest[i]!;
-    let rt = typeOf(rhsExpr, env);
+    const fold = folds[i];
+    if (!fold) continue;
+    const lt = toDddType(fold.left);
+    const rt = toDddType(fold.right);
     // Cascade suppression — broken upstream already reports.
     if (lt.kind === "unknown" || rt.kind === "unknown") {
-      // Update lt for next step using best-effort arithmeticResult.
-      lt = arithmeticResult(lt, rt, op);
       leftExprForPromotion = undefined;
       continue;
-    }
-    // Literal promotion at this fold-step — mirrors lowerExpr.
-    const lAnchor = literalPromotionAnchor(lt, op);
-    const rAnchor = literalPromotionAnchor(rt, op);
-    if (lAnchor && canPromoteAstLitTo(rhsExpr, lAnchor)) {
-      rt = T.prim(lAnchor);
-    }
-    if (rAnchor && leftExprForPromotion && canPromoteAstLitTo(leftExprForPromotion, rAnchor)) {
-      lt = T.prim(rAnchor);
     }
     const info = { node: chain, property: "rest" as const, index: i };
     if (op === "??") {
@@ -530,7 +666,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       // is no operand rule to enforce beyond the join the type-system already
       // computes.  Strip the optional off the left as the operator does, so a
       // later fold-step (`a ?? b ?? c`) sees the bare type.
-      lt = ternaryJoin(lt.kind === "optional" ? lt.inner : lt, rt) ?? rt;
       leftExprForPromotion = undefined;
       continue;
     }
@@ -548,7 +683,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
           { ...info, code: "loom.operator-non-bool-operands" },
         );
       }
-      lt = T.prim("bool");
       leftExprForPromotion = undefined;
       continue;
     }
@@ -580,12 +714,11 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
           { ...info, code: "loom.compare-type-mismatch" },
         );
       }
-      lt = T.prim("bool");
       leftExprForPromotion = undefined;
       continue;
     }
-    // Arithmetic: arithmeticResult returns unknown for invalid combos.
-    const result = arithmeticResult(lt, rt, op);
+    // Arithmetic: the fold's result is `unknown` for an invalid combination.
+    const result = toDddType(fold.result);
     if (result.kind === "unknown") {
       const isMoney = (t: typeof lt) => t.kind === "primitive" && t.name === "money";
       const moneyHint =
@@ -606,7 +739,6 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
         { ...info, code: "loom.operator-operand-mismatch" },
       );
     }
-    lt = result;
     leftExprForPromotion = undefined;
   }
 }
@@ -711,6 +843,11 @@ export function checkSinglePrimitiveConversion(
     }
     return;
   }
+  // A `test e2e` body converts a WIRE value read through the generated client
+  // (`decimal(full.dearest)` over a JSON number), not the domain type the
+  // response row declares (`money?`) — the conversion table judges domain
+  // values, so it has nothing to say there.
+  if (AstUtils.getContainerOfType(node, isTestE2E)) return;
   const env = envForNode(node);
   const valueType = typeOf(node.value, env);
   // Cascade suppression: upstream resolution failure already

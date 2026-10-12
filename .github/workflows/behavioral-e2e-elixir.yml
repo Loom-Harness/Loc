@@ -48,6 +48,29 @@ on:
       - 'src/generator/elixir/**'
       - 'src/generator/_expr/**'
       - 'src/platform/elixir.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_packs/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_walker/**'
+      - 'src/generator/_workflow/**'
       - 'web/src/testing/**'
       - 'test/behavioral/**'
       # The typed corpus manifest + its fixtures are this tier's CASE LIST:
@@ -110,7 +133,7 @@ jobs:
     # 30 came from an estimate ("~5 min setup + ~5 min cold primes + ~8 min
     # corpus"); measurement says setup is ~1m, not 5m, and the whole job's p95
     # is 11m27s — so the estimate was high on setup and the round-up doubled it.
-    # Measured 2026-09-10, n=15 successful runs: p95 11m27s, max 11m34s.
+    # Measured 2026-10-05, n=20 successful runs: p95 12m10s, max 13m03s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
     timeout-minutes: 20
 

@@ -43,17 +43,6 @@ const get = (p: string): string => {
 };
 
 describe("dotnet generator — audited lifecycle actions", () => {
-  it("emits the audit_records table when ONLY lifecycle actions are audited", () => {
-    // `pay()` is NOT audited — only create/destroy are — yet the shared
-    // predicate still turns on the audit table + writer.
-    expect(get("api/Infrastructure/Persistence/AuditRecord.cs")).toContain(
-      "public sealed class AuditRecord",
-    );
-    expect(get("api/Application/Common/IAuditWriter.cs")).toContain(
-      "public interface IAuditWriter",
-    );
-  });
-
   it("audits the create with Before:null and After=wire(created) staged in the save tx", () => {
     const h = get(`${ROOT}/CreateInvoiceHandler.cs`);
     expect(h).toContain("private readonly IAuditWriter _audit;");

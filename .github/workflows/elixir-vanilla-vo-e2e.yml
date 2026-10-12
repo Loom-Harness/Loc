@@ -67,7 +67,18 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      # Every phase `generate system` walks, whatever the backend: parse ->
+      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
+      # util/ leaves (naming, code-builder, platform-axes) every emitter
+      # imports.  These are NOT inherited from the `push:` block above:
+      # test/system/workflow-path-coverage.test.ts reads each trigger's own
+      # block, because a post-merge net does not run on the pull request,
+      # which is where this gate's check name is shown.
+      - 'src/language/**'
+      - 'src/macros/**'
       - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
       - 'src/generator/elixir/render-expr.ts'
       - 'src/generator/elixir/vanilla/wire-serialize.ts'
       - 'src/generator/elixir/vanilla/**'
