@@ -27,6 +27,7 @@ import {
   type ValueObject,
 } from "../../language/generated/ast.js";
 import type { ExprIR, TestIR, TestStmtIR } from "../types/loom-ir.js";
+import type { OriginRef } from "../types/origin.js";
 import { lowerExpr } from "./lower-expr.js";
 import { lowerStatement } from "./lower-stmt.js";
 import { cstText, type Env } from "./lower-types.js";
@@ -85,7 +86,7 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
   const statements: TestStmtIR[] = [];
   for (const s of block.body) {
     if (isExpectStmt(s)) {
-      statements.push(expectStmtIR(lowerExpr(s.expr, inner), cstText(s.expr)));
+      statements.push(expectStmtIR(lowerExpr(s.expr, inner), cstText(s.expr), originFor(s)));
     } else {
       const r = lowerStatement(s as Statement, inner);
       statements.push(r.stmt);
@@ -116,13 +117,16 @@ export function lowerTest(block: TestBlock, env: Env): TestIR {
  *  other's tier (`checkExpectMatcher`).  Every other `expect(...)` carries a
  *  value/locator matcher (`toBe`, `toHaveText`, …); a bare-boolean `expect` is
  *  rejected by the validator (`checkExpectMatcher`). */
-export function expectStmtIR(e: ExprIR, source: string): TestStmtIR {
+export function expectStmtIR(e: ExprIR, source: string, origin?: OriginRef): TestStmtIR {
   if (e.kind === "method-call" && e.isIntrinsicMatcher && e.member === "toThrow") {
     const inner = e.receiver.kind === "paren" ? e.receiver.inner : e.receiver;
     const arg = e.args[0];
     const status =
       arg && arg.kind === "literal" && arg.lit === "int" ? Number(arg.value) : undefined;
-    if (e.throwKind) return { kind: "expect-throws", expr: inner, source, throwKind: e.throwKind };
+    if (e.throwKind) {
+      const at = origin ? { origin } : {};
+      return { kind: "expect-throws", expr: inner, source, throwKind: e.throwKind, ...at };
+    }
     return status != null
       ? { kind: "expect-throws", expr: inner, source, status }
       : { kind: "expect-throws", expr: inner, source };
