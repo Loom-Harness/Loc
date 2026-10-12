@@ -143,7 +143,7 @@ fails the fast suite.
 | `java-build.yml` | `npm run test:java` — host JDK is too old; build in `gradle:9-jdk25` per `docs/tools.md`. CI compiles at javac `-Xlint:all -Werror` through `test/e2e/support/java-werror.init.gradle`: pass it with `-I` on a hand-run `gradle`, or copy it into `~/.gradle/init.d/` for `npm run test:java` (and remove it afterwards — init.d applies to every Gradle build on the machine) | docker |
 | `python-build.yml` | `npm run test:python` (uv on host) | — |
 | `elixir-vanilla-build.yml` | `LOOM_HEX_MIRROR=1 npm run test:phoenix` | docker, mirror |
-| `corpus-build.yml` | `npm run test:tsc-corpus` / `test:dotnet-corpus` / `test:java-corpus` / `test:python-corpus` (shard: `LOOM_CORPUS_<BACKEND>_CASE=<feature>`; the java leg runs javac at `-Xlint:all -Werror` — reproduce as in the `java-build.yml` row) | docker (java/dotnet) |
+| `corpus-build.yml` | `npm run test:tsc-corpus` / `test:dotnet-corpus` / `test:java-corpus` / `test:python-corpus` (shard: `LOOM_CORPUS_<BACKEND>_CASE=<feature>`; the java leg runs javac at `-Xlint:all -Werror` — reproduce as in the `java-build.yml` row; the dotnet leg also builds the emitted `Tests/<Ns>.Tests` xUnit project `/warnaserror` and runs it with `dotnet test`, `*IntegrationTests` filtered out — waivers in `DOTNET_TEST_WAIVERS`, stale entries fail) | docker (java/dotnet) |
 | `corpus-elixir-build.yml` | `LOOM_HEX_MIRROR=1 npm run test:elixir-corpus` | docker, mirror |
 | `generated-react-build.yml` | `npm run test:tsc-react` (shard: `LOOM_REACT_BUILD_CASE=<ddd>:<pack>`) | — |
 | `generated-vue-build.yml` | `npm run test:vue-build` | — |

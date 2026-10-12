@@ -20,7 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
-import { isMangled, jid } from "../java-ident.js";
+import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -125,6 +125,40 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | 
  *  null limit → unbounded).  The .NET document/event repos take the same
  *  hydrate-then-filter shape.  Returns the method lines plus the extra
  *  imports they need (`java.util.Comparator` when any retrieval sorts). */
+/** Names an in-memory (document / event-store) read method spells itself —
+ *  the `x` / `o` lambda parameters of its predicate and comparators, the
+ *  `all` / `items` / `result` / `__cmp` / `__sortField` locals, the paging
+ *  controls, and the principal binding.  A find / retrieval param landing
+ *  here moves to `<name>_` (`javaLocals`); every other param keeps `jid`. */
+export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
+  "x",
+  "o",
+  "all",
+  "items",
+  "result",
+  "__cmp",
+  "__sortField",
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+  "offset",
+  "limit",
+  "currentUser",
+  "currentUserAccessor",
+]);
+
+/** The `paramExpr` render hook for an in-memory read's moved params — spread
+ *  into the render context, and absent (so the context is unchanged) when
+ *  nothing moved. */
+export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
+  paramExpr?: (name: string) => string | undefined;
+} {
+  return [...locals].some(([n, l]) => l !== jid(n))
+    ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
+    : {};
+}
+
 export function inMemoryRetrievalLines(
   agg: EnrichedAggregateIR,
   retrievals: readonly RetrievalIR[],
@@ -149,12 +183,23 @@ export function inMemoryRetrievalLines(
   if (retrievals.length === 0) return [];
   if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
+    // The params are closed over by the `x ->` predicate / comparator lambdas
+    // and sit beside `offset` / `limit` — a param named like one moves.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
-    const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
+    const where = renderJavaExpr(r.where, {
+      thisName: "x",
+      agg,
+      accessorProps: true,
+      ...inMemoryParamExpr(locals),
+    });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
@@ -259,14 +304,44 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 
+/** Names a declared-find delegate in the repository IMPL spells itself — the
+ *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
+ *  `__sortField` / `__session` locals.  A find param landing here is declared
+ *  under a `_`-suffixed name in the impl (`javaLocals`); the port's parameter
+ *  names are irrelevant to the override, so only the impl moves. */
+const REPO_IMPL_FIND_NAMES: ReadonlySet<string> = new Set([
+  "jpa",
+  "em",
+  "currentUserAccessor",
+  "result",
+  "__sort",
+  "__sortField",
+  "__session",
+]);
+
+/** Names a JPA retrieval's `run<Name>` overloads spell themselves: the paged
+ *  overload's `offset` / `limit` params plus everything a find delegate spells
+ *  (`REPO_IMPL_FIND_NAMES` — the `jpa` / accessor fields, the bypass
+ *  session).  A retrieval param landing here moves to `<name>_`. */
+const RETRIEVAL_IMPL_NAMES: ReadonlySet<string> = new Set([
+  ...REPO_IMPL_FIND_NAMES,
+  "offset",
+  "limit",
+]);
+
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
- *  `int page, int pageSize` parameters (1-based, cross-backend). */
-function findSignature(find: FindIR, imports: Set<string>): string {
+ *  `int page, int pageSize` parameters (1-based, cross-backend).
+ *  `locals` names each param's Java identifier when it differs from `jid`. */
+function findSignature(
+  find: FindIR,
+  imports: Set<string>,
+  locals: ReadonlyMap<string, string> = new Map(),
+): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
@@ -309,10 +384,16 @@ export function renderJavaRepositoryInterface(
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
   // (either may be null — partial pages are legal in the DSL).
   const retrievalLines = (ctx.retrievals ?? []).flatMap((r) => {
+    // Same spelling as the impl's overrides (`RETRIEVAL_IMPL_NAMES`): a param
+    // named `offset` / `limit` would redeclare the paged overload's own.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -658,14 +739,22 @@ export function renderJavaRepositoryImpl(
   };
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
+    // The paged overload declares its own `offset` / `limit` beside the
+    // retrieval's params, and the body spells the `jpa` / accessor fields — a
+    // param named like one moves to `<name>_` (`javaLocals`).  The JPA
+    // `@Param` key / JPQL `:name` binding keep the declared spelling.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
-    const bareArgs = r.params.map((p) => p.name).join(", ");
+    const bareArgs = r.params.map((p) => localOf(locals, p.name)).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
       // A reified `criterion` retrieval reads via
       // JpaSpecificationExecutor.findAll(spec); the scoped findAll/findById
@@ -675,7 +764,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.Sort");
       const args = r.criterionRef.args.map((a) => {
         collectJavaExprImports(a, imports);
-        return renderJavaExpr(a);
+        return renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) });
       });
       const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [
@@ -722,13 +811,17 @@ export function renderJavaRepositoryImpl(
   const findExecutedLog = (f: FindIR, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${f.name}", "rows", ${rowsExpr});`;
   const delegateLines = finds.flatMap((f) => {
-    const sig = findSignature(f, imports);
+    const findLocals = javaLocals(
+      f.params.map((p) => p.name),
+      REPO_IMPL_FIND_NAMES,
+    );
+    const sig = findSignature(f, imports, findLocals);
     const findBypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
     if (isPagedFind(f)) {
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => jid(p.name)),
+        ...f.params.map((p) => localOf(findLocals, p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
       // Server-side sort: whitelist the wire key against the sortable
@@ -752,7 +845,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => jid(p.name)).join(", ");
+    const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,
@@ -772,6 +865,9 @@ export function renderJavaRepositoryImpl(
   // tenancy), the provenance-records repo, and (§11.6) the EntityManager when a
   // read bypasses a promoted @Filter (the impl unwraps it to a Hibernate Session
   // to disableFilter/enableFilter).
+  // M-T6.93: a versioned aggregate's repeat load / stale-handle save reaches
+  // the Hibernate Session (`independentHandleLines` below).
+  if (versioned) needsEntityManager = true;
   if (needsEntityManager) imports.add("jakarta.persistence.EntityManager");
   if (needsEntityManager) imports.add("jakarta.persistence.PersistenceContext");
   const pagedAll = isPagedAutoAll(repo);
@@ -863,7 +959,9 @@ export function renderJavaRepositoryImpl(
           `        }`,
         ]
       : []),
-    `        var saved = jpa.save(aggregate);`,
+    versioned
+      ? `        var saved = _isSecondHandle(aggregate) ? _saveSecondHandle(aggregate) : jpa.save(aggregate);`
+      : `        var saved = jpa.save(aggregate);`,
     // Provenance flush (provenance.md): drain the per-write lineage buffer and
     // persist one provenance_records row per write, BEFORE the @Transactional
     // method returns, so the history commits atomically with the state (the
@@ -900,7 +998,13 @@ export function renderJavaRepositoryImpl(
     ``,
     `    @Override`,
     `    public Optional<${agg.name}> findById(${idClass} id) {`,
-    `        return jpa.findById(id);`,
+    ...(versioned
+      ? [
+          `        var __shared = _isManaged(id);`,
+          `        var found = jpa.findById(id);`,
+          `        return __shared && found.isPresent() ? Optional.of(_loadSecondHandle(id)) : found;`,
+        ]
+      : [`        return jpa.findById(id);`]),
     `    }`,
     ``,
     `    @Override`,
@@ -909,14 +1013,25 @@ export function renderJavaRepositoryImpl(
     // scope is narrower than its read scope, load through the write-scoped
     // `findByIdForWrite` @Query — a readable-but-not-writable (or missing) row
     // → 404.  Otherwise the ordinary read-scoped `findById` (byte-identical).
+    // M-T6.93: whether an earlier load in this transaction already holds the
+    // row is read BEFORE the load — the scoped load still runs (its 404 / write
+    // scope is the authority), and only then is a shared instance swapped for
+    // an independent handle.
+    versioned ? `        var __shared = _isManaged(id);` : null,
     `        var found = jpa.${agg.writeScopeFilter ? "findByIdForWrite" : "findById"}(id);`,
     // aggregate_loaded (debug) — mirrors the Hono/.NET repo emission; `found` is
     // a bool so a downstream filter can grep failed loads by
     // (event="aggregate_loaded", found=false).
     `        CatalogLog.event(${javaLogEvent("aggregateLoaded")}, "aggregate", "${agg.name}", "id", String.valueOf(id.value()), "found", found.isPresent());`,
-    `        return found.orElseThrow(() ->`,
-    `            ${javaNotFoundThrow(agg.name)});`,
+    ...(versioned
+      ? [
+          `        var handle = found.orElseThrow(() ->`,
+          `            ${javaNotFoundThrow(agg.name)});`,
+          `        return __shared ? _loadSecondHandle(id) : handle;`,
+        ]
+      : [`        return found.orElseThrow(() ->`, `            ${javaNotFoundThrow(agg.name)});`]),
     `    }`,
+    ...(versioned ? independentHandleLines(agg.name, idClass) : []),
     ``,
     `    @Override`,
     `    public List<${agg.name}> findAll() {`,
@@ -951,6 +1066,68 @@ export function renderJavaRepositoryImpl(
     `}`,
     ``,
   );
+}
+
+/** M-T6.93 — two loads of one row are two HANDLES, each carrying the version
+ *  it read (node / python / .NET after M-T6.90).  JPA's persistence context is
+ *  an identity map: a second `findById` of a row the transaction already
+ *  manages returns the SAME instance, so `save(first)` bumps the version the
+ *  second handle then reads, its CAS succeeds and a stale write commits.
+ *
+ *  The fix stays out of the single-load path entirely:
+ *  - a REPEAT load (the row is already managed) reads a DETACHED copy through
+ *    a child Session that shares the transaction's JDBC connection — so it sees
+ *    the transaction's own writes (the parent is flushed first) and carries the
+ *    version the row has NOW;
+ *  - saving such a handle (detached, while another instance of the row is
+ *    managed) merges + flushes it in a child Session too, so the managed first
+ *    handle is NOT overwritten: it keeps the version it read, and its own later
+ *    save is the stale one (409), exactly as on node.
+ *  The `bumpVersion` CAS stays the conflict authority on both paths; a merge
+ *  onto the managed instance would have copied the bumped version onto it. */
+function independentHandleLines(aggName: string, idClass: string): string[] {
+  return [
+    ``,
+    // `getManagedEntities(Class)` matches by instance, so a TPH/TPC subtype row
+    // managed under a subtype class still matches.  (`Session.contains(String,
+    // Object)` is deprecated for removal in Hibernate 7, and the SPI
+    // `EntityKey` route trips a javac classfile warning — both fatal under the
+    // -Werror build.)  The entity-count guard is load-bearing: Hibernate 7.4's
+    // `getManagedEntities` NPEs on a persistence context that has never held
+    // an entity (its by-key map is created lazily) — i.e. on every create.
+    `    /** True when this transaction's persistence context already manages the row. */`,
+    `    private boolean _isManaged(${idClass} id) {`,
+    `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        if (__session.getStatistics().getEntityCount() == 0) return false;`,
+    `        return __session.getManagedEntities(${aggName}.class).stream()`,
+    `            .anyMatch(__e -> __e.id().equals(id));`,
+    `    }`,
+    ``,
+    `    /** A handle that is not the managed instance of a row another handle holds. */`,
+    `    private boolean _isSecondHandle(${aggName} aggregate) {`,
+    `        return !em.contains(aggregate) && _isManaged(aggregate.id());`,
+    `    }`,
+    ``,
+    `    /** An independent, detached handle on a row an earlier load already holds. */`,
+    `    private ${aggName} _loadSecondHandle(${idClass} id) {`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        __session.flush();`,
+    `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
+    `            return __fork.find(${aggName}.class, id);`,
+    `        }`,
+    `    }`,
+    ``,
+    `    /** Write a second handle without merging it onto the managed first one. */`,
+    `    private ${aggName} _saveSecondHandle(${aggName} aggregate) {`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
+    `            __fork.merge(aggregate);`,
+    `            __fork.flush();`,
+    `        }`,
+    `        return aggregate;`,
+    `    }`,
+  ];
 }
 
 /** The offset/limit `Pageable` behind the call-site `page:` tuple on
