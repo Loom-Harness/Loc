@@ -1116,9 +1116,18 @@ export function pyWorkflowStmtTarget(
       );
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
+      // A declared optional find (`findMethod`) already answers the row or
+      // `None`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${i}${v} = await ${snake(st.repoName)}.${snake(st.findMethod)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+          ]
+        : [
+            `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
+            `${i}${v} = ${hits}[0] if ${hits} else None`,
+          ];
       const out = [
-        `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
-        `${i}${v} = ${hits}[0] if ${hits} else None`,
+        ...lookup,
         `${i}if ${v} is not None:`,
         ...(thenAll.length > 0 ? thenAll : [`${inner}pass`]),
       ];

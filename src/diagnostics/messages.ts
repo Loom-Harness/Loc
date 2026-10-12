@@ -4703,14 +4703,14 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a 'let' binds only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, bind it with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', or declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
   "loom.handler-load-nullable-unsupported": (p: {
     kind: unknown;
     name: unknown;
     repoName: unknown;
     method: unknown;
   }) =>
-    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a handler body has no null-handling vocabulary, so the binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Use getById (throws → 404), or declare the find non-optional.`,
+    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, so a 'let' binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById (throws → 404), or declare the find non-optional.`,
   "loom.handler-load-nullable-unsupported#domain-service": (p: {
     name: unknown;
     repoName: unknown;
@@ -4782,7 +4782,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': in 'if let ${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
-    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' — the only optional source in v1.`,
+    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+  "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>
+    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
   "loom.workflow-unknown-binding": (p: { name: unknown; target: unknown; op: unknown }) =>
     `workflow '${p.name}': '${p.target}.${p.op}(...)' references unknown let-binding '${p.target}', or '${p.target}' isn't bound to an aggregate.`,
   "loom.workflow-unknown-operation": (p: {
