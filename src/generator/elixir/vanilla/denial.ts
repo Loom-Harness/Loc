@@ -226,10 +226,14 @@ defmodule ${guardErrorModule(appModule)} do
   author's \`message "..."\` missed the prefix and reraised into a 500.  With
   the classification out of band, \`:message\` is free text and carries exactly
   what the other four backends put in their \`DomainException\` / \`DomainError\`.
+
+  \`:disallowed\` is an operation's \`when\` state gate refusing, raised only by
+  the pure-core operation form (the domain unit tests' subject); the HTTP path
+  checks the gate in its \`with\` chain and answers 409 from there.
   """
   defexception [:message, :kind]
 
-  @type kind :: :forbidden | :precondition
+  @type kind :: :forbidden | :precondition | :disallowed
 end
 `;
 }
