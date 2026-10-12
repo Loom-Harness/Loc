@@ -35,7 +35,7 @@ import {
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
 import type { CsRenderContext } from "../render-expr.js";
 import { renderCsType } from "../render-expr.js";
@@ -227,7 +227,7 @@ function renderOperation(
   serviceIsReading: boolean,
 ): string {
   const opReads = readPortsForOperation(op).length > 0;
-  const userParams = op.params.map((p) => `${renderCsType(p.type)} ${p.name}`);
+  const userParams = op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
   const params = (
     opReads ? [...userParams, "CancellationToken cancellationToken = default"] : userParams
   ).join(", ");
