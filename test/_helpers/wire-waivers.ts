@@ -88,9 +88,10 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "M-T6.91 — the concurrency-conflict 409 detail is `<Aggregate> <id> was modified by another request` on node, a fixed sentence on .NET/java/python/elixir",
   },
-  // M-T6.90's containment twin records the same 409 off the same rung.
+  // M-T6.90's containment twin records the same 409 off the same rung (java
+  // joined with M-T6.93).
   {
-    backends: ["dotnet", "dapper", "python"],
+    backends: ["dotnet", "dapper", "python", "java"],
     cases: ["workflow-two-handles-containment"],
     request: "POST /api/workflows/add_twice",
     path: "$.detail",
