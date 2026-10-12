@@ -4,8 +4,9 @@
 // selected by `persistence: dapper`: the generated Domain layer (entities, ids,
 // value objects, enums, events, commands/handlers/controllers) is
 // persistence-agnostic and reused as-is; Dapper only replaces the Infrastructure
-// (per-aggregate repository + Npgsql connection + a self-applied `schema.sql`),
-// the Program.cs persistence wiring, and the project deps.
+// (per-aggregate repository + Npgsql connection), the Program.cs persistence
+// wiring, and the project deps.  The SCHEMA is not this file's: it is the
+// shared phase-⑨ migration chain, applied at boot (`dapper-migrations.ts`).
 //
 // SCOPE (v1, validator-gated in `ir/validate/validate.ts`): relational shape,
 // flat aggregates whose fields are scalar / enum / value-object / single id-ref.
@@ -33,15 +34,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import type { IndexShape, TableShape } from "../../../ir/types/migrations-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import {
-  isTphBase,
-  isTphConcrete,
-  ownFieldsOf,
-  tableOwnerName,
-  tphConcretesOf,
-} from "../../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
@@ -62,10 +55,10 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { renderCreateIndexIfNotExists, renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csLocalNamer } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -75,6 +68,34 @@ import {
 import { csClaimStampsFor } from "./entity.js";
 import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
+
+/** The locals a relational Dapper `find` method (list / single / paged)
+ *  declares for itself — each yields to a same-named find param. */
+const DAPPER_FIND_LOCALS = [
+  "conn",
+  "r",
+  "rows",
+  "offset",
+  "sortColumn",
+  "sortDir",
+  "total",
+  "totalPages",
+  "items",
+  "__roots",
+  "__one",
+];
+/** The locals a Dapper `Run<Name>Async` retrieval method declares for itself. */
+const DAPPER_RETRIEVAL_LOCALS = [
+  "conn",
+  "__caps",
+  "sql",
+  "p",
+  "pg",
+  "lim",
+  "off",
+  "rows",
+  "__roots",
+];
 
 // ---------------------------------------------------------------------------
 // Reserved-word identifier quoting (M-T6.42).
@@ -89,8 +110,7 @@ import { csStateHolderOf } from "./state-holder.js";
 //
 // The migrations path settled this question the other way long ago —
 // `sql-pg.ts` quotes ALWAYS, "safe for reserved words (`order`, `user`,
-// `end`)" — but this adapter provisions its own schema (`hasMigrations =
-// !usingDapper`, DbSchema.EnsureAsync) and never picked the rule up.
+// `end`)" — and this adapter's own statements must name the same columns.
 //
 // The WORD LIST is not ours: it lives once in `src/generator/sql-reserved.ts`,
 // shared with the Java backend's Hibernate quoting (M-T6.43).  Only the
@@ -98,14 +118,10 @@ import { csStateHolderOf } from "./state-holder.js";
 // partial fix worse than none (#2559 reverted one for exactly this reason):
 //
 //   - `new CommandDefinition("SELECT …")` — a REGULAR literal, needs `\"`.
-//   - `DbSchema.cs`'s `public const string Sql = @"…"` — a VERBATIM literal,
-//     where `\` is not an escape and a quote is written `""`.
 //
-// There are ~47 of the first and exactly ONE of the second, so `sqlIdent`
-// emits the regular-literal form and the single verbatim funnel translates on
-// the way in (`ddlToVerbatimLiteral`).  That way no call site has to know
-// which context it is in — the one that does is the one that can be read in
-// full.
+// Every emission site is in that one context (the DDL, which used to be the
+// lone verbatim-literal exception, is now the shared migration chain's), so
+// `sqlIdent` emits the regular-literal form.
 // ---------------------------------------------------------------------------
 
 /** One identifier in SQL position (a table or column name), quoted when it is a
@@ -118,17 +134,6 @@ import { csStateHolderOf } from "./state-holder.js";
  *  only seeds (an index name) — all three take the bare `col`. */
 export function sqlIdent(name: string): string {
   return isReservedIdent(name) ? `\\"${name}\\"` : name;
-}
-
-/** Re-encode a DDL fragment for `DbSchema.cs`'s VERBATIM (`@"…"`) literal.
- *
- *  The fragments arrive carrying `sqlIdent`'s regular-literal escaping
- *  (`\"order\"`), because that is what every other emission site needs.  In a
- *  verbatim literal a backslash is just a backslash and a quote is doubled, so
- *  strip the escape and double what is left.  Also doubles any quote the DDL
- *  carried for other reasons, which is what this funnel always did. */
-function ddlToVerbatimLiteral(ddl: string): string {
-  return ddl.replace(/\\"/g, '"').replace(/"/g, '""');
 }
 
 /** Postgres table for an aggregate — lowercase plural (e.g. `orders`).  BARE:
@@ -1724,6 +1729,13 @@ export function renderDapperRepository(
     const name = upperFirst(f.name);
     const ret = renderCsType(f.returnType);
     const isList = f.returnType.kind === "array";
+    // The method's own locals step aside (`__`-prefixed) only when a declared
+    // param is spelled the same — the param keeps its name, so the `@<name>`
+    // SQL placeholder and the anon-object member still agree (CS0136 otherwise).
+    const L = csLocalNamer(
+      f.params.map((p) => p.name),
+      DAPPER_FIND_LOCALS,
+    );
     // Id-typed params bind their wrapped `.Value` (Dapper has no handler for
     // the strongly-typed id struct); ENUM-typed params bind `.ToString()`;
     // scalars bind directly.
@@ -1806,23 +1818,27 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
-        `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
-        `        var offset = (page - 1) * pageSize;`,
-        `        var sortColumn = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "id" };`,
-        `        var sortDir = dir == "desc" ? "DESC" : "ASC";`,
-        `        var total = await conn.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: cancellationToken));`,
-        `        var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;`,
-        `        var rows = await conn.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY {sortColumn} {sortDir} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = offset${allFindParamsSuffix} }, cancellationToken: cancellationToken));`,
+        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
+        `        var ${L("offset")} = (page - 1) * pageSize;`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "id" };`,
+        `        var ${L("sortDir")} = dir == "desc" ? "DESC" : "ASC";`,
+        `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: cancellationToken));`,
+        `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY {${L("sortColumn")}} {${L("sortDir")}} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: cancellationToken));`,
         ...(hasContains
           ? [
-              `        var items = await HydrateAsync(conn, rows.ToList(), cancellationToken);`,
-              ...(hasAssoc ? [`        await LoadRefsAsync(conn, items, cancellationToken);`] : []),
+              `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+              ...(hasAssoc
+                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, cancellationToken);`]
+                : []),
             ]
           : [
-              `        var items = rows.Select(Map).ToList();`,
-              ...(hasAssoc ? [`        await LoadRefsAsync(conn, items, cancellationToken);`] : []),
+              `        var ${L("items")} = ${L("rows")}.Select(Map).ToList();`,
+              ...(hasAssoc
+                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, cancellationToken);`]
+                : []),
             ]),
-        `        return new Paged<${agg.name}>(items, page, pageSize, total, totalPages);`,
+        `        return new Paged<${agg.name}>(${L("items")}, page, pageSize, ${L("total")}, ${L("totalPages")});`,
         `    }`,
       );
     }
@@ -1830,23 +1846,25 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
         `    {`,
-        `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
-        `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: cancellationToken));`,
+        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: cancellationToken));`,
         ...(hasContains
           ? hasAssoc
             ? [
-                `        var __roots = await HydrateAsync(conn, rows.ToList(), cancellationToken);`,
-                `        await LoadRefsAsync(conn, __roots, cancellationToken);`,
-                `        return __roots;`,
+                `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+                `        return ${L("__roots")};`,
               ]
-            : [`        return await HydrateAsync(conn, rows.ToList(), cancellationToken);`]
+            : [
+                `        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+              ]
           : hasAssoc
             ? [
-                `        var __roots = rows.Select(Map).ToList();`,
-                `        await LoadRefsAsync(conn, __roots, cancellationToken);`,
-                `        return __roots;`,
+                `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
+                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+                `        return ${L("__roots")};`,
               ]
-            : [`        return rows.Select(Map).ToList();`]),
+            : [`        return ${L("rows")}.Select(Map).ToList();`]),
         `    }`,
       );
     }
@@ -1872,28 +1890,30 @@ export function renderDapperRepository(
         : `throw new AggregateNotFoundException("not_found")`;
     const absentGuard =
       f.returnType.kind === "optional"
-        ? "        if (r is null) return null;"
-        : `        if (r is null) throw new AggregateNotFoundException("not_found");`;
+        ? `        if (${L("r")} is null) return null;`
+        : `        if (${L("r")} is null) throw new AggregateNotFoundException("not_found");`;
     return lines(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
-      `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
-      `        var r = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: cancellationToken));`,
+      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
+      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? [
             absentGuard,
-            `        var __one = await HydrateAsync(conn, new List<Row> { r }, cancellationToken);`,
-            ...(hasAssoc ? [`        await LoadRefsAsync(conn, __one, cancellationToken);`] : []),
-            `        return __one[0];`,
+            `        var ${L("__one")} = await HydrateAsync(${L("conn")}, new List<Row> { ${L("r")} }, cancellationToken);`,
+            ...(hasAssoc
+              ? [`        await LoadRefsAsync(${L("conn")}, ${L("__one")}, cancellationToken);`]
+              : []),
+            `        return ${L("__one")}[0];`,
           ]
         : hasAssoc
           ? [
               absentGuard,
-              `        var __one = new List<${agg.name}> { Map(r) };`,
-              `        await LoadRefsAsync(conn, __one, cancellationToken);`,
-              `        return __one[0];`,
+              `        var ${L("__one")} = new List<${agg.name}> { Map(${L("r")}) };`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__one")}, cancellationToken);`,
+              `        return ${L("__one")}[0];`,
             ]
-          : [`        return r is null ? ${absent} : Map(r);`]),
+          : [`        return ${L("r")} is null ? ${absent} : Map(${L("r")});`]),
       `    }`,
     );
   });
@@ -1904,6 +1924,12 @@ export function renderDapperRepository(
   // Dapper subset stubs with NotImplementedException, like the find path.
   const retrievalMethods = retrievals.map((r) => {
     const name = upperFirst(r.name);
+    // Same collision rule as the find path: the method's own locals move, the
+    // declared params (and so the DynamicParameters keys) never do.
+    const L = csLocalNamer(
+      r.params.map((p) => p.name),
+      DAPPER_RETRIEVAL_LOCALS,
+    );
     let whereSql: string;
     try {
       whereSql = whereToSql(r.where, sqlCtx);
@@ -1935,7 +1961,7 @@ export function renderDapperRepository(
     const bypassLines =
       capabilityFilterParts.length > 0
         ? [
-            `        var __caps = new List<string>();`,
+            `        var ${L("__caps")} = new List<string>();`,
             ...capabilityFilterParts.map((part) => {
               // A non-bypassable conjunct (the `policy { deny }` sentinel) is
               // added unconditionally — no runtime `bypass` can drop it.
@@ -1944,47 +1970,52 @@ export function renderDapperRepository(
                 : part.origin != null
                   ? `if (!bypass.All && bypass.Capabilities?.Contains(${JSON.stringify(part.origin)}) != true) `
                   : `if (!bypass.All) `;
-              return `        ${guard}__caps.Add("${part.sql}");`;
+              return `        ${guard}${L("__caps")}.Add("${part.sql}");`;
             }),
-            `        var sql = "${headSql}" + (__caps.Count > 0 ? " AND " + string.Join(" AND ", __caps) : "")${orderSql ? ` + "${orderSql}"` : ""};`,
+            `        var ${L("sql")} = "${headSql}" + (${L("__caps")}.Count > 0 ? " AND " + string.Join(" AND ", ${L("__caps")}) : "")${orderSql ? ` + "${orderSql}"` : ""};`,
           ]
-        : [`        var sql = "${headSql}${orderSql}";`];
+        : [`        var ${L("sql")} = "${headSql}${orderSql}";`];
     const paramAdds = [
       ...r.params.map((p) => {
         const pt = p.type.kind === "optional" ? p.type.inner : p.type;
         const n = escapeCsharpIdent(p.name);
         const val = pt.kind === "id" ? `${n}${p.type.kind === "optional" ? "?." : "."}Value` : n;
-        return `        p.Add("${p.name}", ${val});`;
+        // The DynamicParameters KEY stays the declared name (it is the `@<name>`
+        // placeholder in the SQL); only the C# local holding the bag may move.
+        return `        ${L("p")}.Add("${p.name}", ${val});`;
       }),
       // Principal params (`__cu_<claim>`) — the spliced capability filter's refs
       // plus any the retrieval's own `where` carries — bound from the ambient
       // request principal (the retrieval method takes no `currentUser` param).
       ...dedupPrincipalRefs([...filterPrincipalRefs, ...collectFilterPrincipalRefs([r.where])]).map(
-        (pr) => `        p.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
+        (pr) =>
+          `        ${L("p")}.Add("${pr.param}", ${principalValue(pr, AMBIENT_CURRENT_USER)});`,
       ),
     ];
     return lines(
       `    public async Task<IReadOnlyList<${agg.name}>> Run${name}Async(${renderRetrievalParamsWithCt(r.params)})`,
       `    {`,
-      `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
+      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
       ...bypassLines,
-      `        var p = new DynamicParameters();`,
+      `        var ${L("p")} = new DynamicParameters();`,
       ...paramAdds,
-      `        if (page is { } pg)`,
+      `        if (page is { } ${L("pg")})`,
       `        {`,
-      `            if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }`,
-      `            if (pg.offset is { } off) { sql += " OFFSET @__off"; p.Add("__off", off); }`,
+      `            if (${L("pg")}.limit is { } ${L("lim")}) { ${L("sql")} += " LIMIT @__lim"; ${L("p")}.Add("__lim", ${L("lim")}); }`,
+      `            if (${L("pg")}.offset is { } ${L("off")}) { ${L("sql")} += " OFFSET @__off"; ${L("p")}.Add("__off", ${L("off")}); }`,
       `        }`,
-      `        var rows = await conn.QueryAsync<Row>(new CommandDefinition(sql, p, cancellationToken: cancellationToken));`,
+      `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition(${L("sql")}, ${L("p")}, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? hasAssoc
           ? [
-              `        var __roots = await HydrateAsync(conn, rows.ToList(), cancellationToken);`,
-              `        await LoadRefsAsync(conn, __roots, cancellationToken);`,
-              `        return __roots;`,
+              `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+              `        return ${L("__roots")};`,
             ]
-          : [`        return await HydrateAsync(conn, rows.ToList(), cancellationToken);`]
-        : [`        return rows.Select(Map).ToList();`]),
+          : [
+              `        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+            ]
+        : [`        return ${L("rows")}.Select(Map).ToList();`]),
       `    }`,
     );
   });
@@ -2333,8 +2364,10 @@ export function renderDapperDocumentRepository(
       .replace(".ToListAsync(cancellationToken)", ".ToList()")
       .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
     const usesUser = findUsesCurrentUser(f);
+    // `conn` steps aside for a same-named find param (CS0136) — see csLocalNamer.
+    const conn = csLocalNamer(f.params.map((p) => p.name))("conn");
     const loadAllLines = [
-      "await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `await using var ${conn} = await _db.OpenConnectionAsync(cancellationToken);`,
       // ORDER BY id — the document carrier's whole-table read answers in
       // Postgres heap order without it, and an `update` rewrites the tuple, so
       // a row MOVES after an unrelated write.  The EF twin of this read (see
@@ -2343,7 +2376,7 @@ export function renderDapperDocumentRepository(
       // that one was reached, so dapper kept answering heap order while EF did
       // not.  It is the same read on the same table, so it gets the same
       // ordering.  Id is the primary key, so this is an index scan.
-      `var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: cancellationToken));`,
+      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: cancellationToken));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
@@ -2701,293 +2734,6 @@ export function renderDapperEventSourcedRepository(
   );
 }
 
-// ---------------------------------------------------------------------------
-// schema.sql bootstrap — a self-applied `CREATE TABLE IF NOT EXISTS` per
-// aggregate, embedded in a C# helper run once at startup.
-// ---------------------------------------------------------------------------
-
-/** Collect the `unique` indexes the MigrationsIR derived (from `unique (…)`)
- *  for the tables this deployable's migrations carry, keyed by table name — the
- *  data `renderDapperSchema` appends after each CREATE TABLE.  Reads only the
- *  `_uq`-suffixed unique indexes (`uniqueIndexName`'s convention); the event-log
- *  `seq` cursor index is unique too, but the bootstrap already emits it. */
-export function dapperUniqueIndexesByTable(
-  tables: readonly TableShape[],
-): Map<string, readonly IndexShape[]> {
-  const out = new Map<string, IndexShape[]>();
-  for (const t of tables) {
-    for (const ix of t.indexes) {
-      if (!ix.unique || !ix.name.endsWith("_uq")) continue;
-      const list = out.get(t.name) ?? [];
-      if (list.some((x) => x.name === ix.name)) continue;
-      list.push(ix);
-      out.set(t.name, list);
-    }
-  }
-  return out;
-}
-
-export function renderDapperSchema(
-  aggs: readonly EnrichedAggregateIR[],
-  ns: string,
-  /** Snake-case names of the bounded contexts that own any event-sourced
-   *  stream — one shared `<ctx>_events` log per context (event-log-architecture.md),
-   *  holding every `persistedAs: eventLog` aggregate stream discriminated by
-   *  `stream_type`.  Empty ⇒ no event log. */
-  eventLogContexts: readonly string[] = [],
-  /** Names of `shape: document` aggregates — each persists as ONE `(id, data
-   *  jsonb, version)` table (the whole read model in the JSONB `data` column,
-   *  no normalised child/join tables) instead of the flat relational shape. */
-  documentAggNames: ReadonlySet<string> = new Set(),
-  /** Names of `shape: embedded` aggregates — flat root columns PLUS one JSONB
-   *  column per containment (the part sub-graph folds into it), no child tables. */
-  embeddedAggNames: ReadonlySet<string> = new Set(),
-  /** Extra `CREATE TABLE` statements (M-T6.9): the workflow saga-state,
-   *  projection read-model, and __loom_outbox tables the Dapper workflow
-   *  surface needs (the raw-Npgsql siblings of the EF-migration-owned tables).
-   *  Appended after the aggregate / event-log / provenance tables. */
-  extraTables: readonly string[] = [],
-  /** The shared `provenance_records` companion table, taken straight off the
-   *  MigrationsIR snapshot (`provenanceTableShape`) — the Dapper path emits no
-   *  migration files, so this bootstrap is the only thing that creates it, but
-   *  it renders the SHARED shape rather than a hand-written mirror.  Undefined
-   *  when the served module declares no provenanced field, or when another
-   *  deployable owns this module's migrations (that owner's migration creates
-   *  the table). */
-  provenanceHistoryTable?: TableShape,
-  /** The MigrationsIR's derived `unique (…)` indexes, keyed by table name
-   *  (`dapperUniqueIndexesByTable`).  The Dapper path writes its own CREATE
-   *  TABLE but must not re-derive uniqueness: the shared derivation owns the
-   *  index name (`<table>_<cols>_uq`, the 23505 → 409 join key), the column
-   *  spelling and the softDeletable partial predicate.  Each table's indexes
-   *  are appended right after its CREATE TABLE. */
-  uniqueIndexesByTable: ReadonlyMap<string, readonly IndexShape[]> = new Map(),
-): string {
-  // Unqualified: DbSchema creates every table in `public`.
-  const uniqueIndexesOn = (table: string): string[] =>
-    (uniqueIndexesByTable.get(table) ?? []).map((ix) => renderCreateIndexIfNotExists(ix));
-  // Event-sourced aggregates own no per-aggregate table — their stream lives in
-  // the shared per-context `<ctx>_events` log emitted after this map.  Document
-  // aggregates own one `(id, data, version)` blob table.  A TPC (`ownTable`)
-  // ABSTRACT base owns no table of its own (its rows live in each concrete's
-  // standalone table with the merged base fields), so it emits no DDL — but a
-  // TPH (`sharedTable`) ABSTRACT base DOES own the single shared table (`id` +
-  // `kind` discriminator + base columns + the nullable UNION of every concrete's
-  // own columns), and each TPH CONCRETE owns no table of its own.
-  // One join table per reference collection (`X id[]`).  `X id[]` is a set
-  // (membership only, no order): the composite (owner, target) PK is the whole
-  // row — no payload column.  No FK constraint (the ownerFk stores the shared
-  // base row id for a TPH concrete, whose table is the base's), so reads ORDER
-  // BY the target FK id.
-  const joinTablesFor = (agg: EnrichedAggregateIR): string[] =>
-    (agg.associations ?? []).map((a) =>
-      [
-        `CREATE TABLE IF NOT EXISTS ${sqlIdent(a.joinTable)} (`,
-        `    ${sqlIdent(a.ownerFk)} ${idTypes(agg.idValueType).sql} not null,`,
-        `    ${sqlIdent(a.targetFk)} ${idTypes(a.valueType).sql} not null,`,
-        `    primary key (${sqlIdent(a.ownerFk)}, ${sqlIdent(a.targetFk)})`,
-        ");",
-      ].join("\n"),
-    );
-  // One child table per nested containment (`contains lineItems: LineItem[]`):
-  // `id` PK + `<owner>_id` FK (indexed) + the part's own scalar/enum/vo/id
-  // columns.  `flattenParts` walks the WHOLE containment tree, so a part-in-part
-  // grandchild gets its own table FK'd to its DIRECT parent part (`pc.fkOwner`);
-  // a TPH concrete's root parts FK the shared base table (`ownerName`).
-  // Cascade-delete keeps the raw-SQL delete path trivial.
-  const childTablesFor = (agg: EnrichedAggregateIR, ownerName: string): string[] =>
-    flattenParts(partChildrenOf(agg, ownerName)).map((pc) => {
-      const fieldCols = pc.fieldCols.map(
-        (c) => `    ${sqlIdent(c.col)} ${c.sql}${c.nullable ? "" : " not null"}`,
-      );
-      return [
-        `CREATE TABLE IF NOT EXISTS ${sqlIdent(pc.table)} (`,
-        [
-          `    id ${pc.partIdSql} primary key`,
-          `    ${sqlIdent(pc.parentFk)} ${pc.parentIdSql} not null references ${sqlIdent(plural(snake(pc.fkOwner)))} (id) on delete cascade`,
-          ...fieldCols,
-        ].join(",\n"),
-        ");",
-        `CREATE INDEX IF NOT EXISTS ${pc.table}_${pc.parentFk}_idx ON ${sqlIdent(pc.table)} (${sqlIdent(pc.parentFk)});`,
-      ].join("\n");
-    });
-
-  const stateTables = aggs.flatMap((agg): string[] => {
-    if (agg.persistedAs === "eventLog") return [];
-    // TPH concrete: no state table of its own (its rows live in the shared base
-    // table), but its contained parts + `X id[]` reference collections DO need
-    // their tables — child tables FK the shared base row (EF's TPT-via-contains),
-    // join tables carry the base row id.
-    if (isTphConcrete(agg, aggs)) {
-      const base = tableOwnerName(agg, aggs);
-      return [...childTablesFor(agg, base), ...joinTablesFor(agg)];
-    }
-    // TPH shared table: `id` + `kind` + base columns + the nullable union of
-    // every concrete's own columns.  A concrete row leaves the sibling
-    // concretes' columns NULL (hence nullable); the `kind` discriminator picks
-    // the concrete on read (the repo splices `kind = '<Concrete>'`).  A TPC
-    // (`ownTable`) abstract base owns nothing.
-    if (agg.isAbstract) {
-      if (!isTphBase(agg, aggs)) return [];
-      const baseCols = columnsOf(agg); // id + base own fields (+version)
-      const seen = new Set(baseCols.map((c) => c.col));
-      const unionCols: DapperColumn[] = [];
-      for (const concrete of tphConcretesOf(agg, aggs)) {
-        for (const f of ownFieldsOf(concrete, agg)) {
-          const c = fieldColumn(f);
-          if (seen.has(c.col)) continue;
-          seen.add(c.col);
-          // A sibling concrete's column is absent on other kinds → nullable.
-          unionCols.push({ ...c, nullable: true });
-        }
-      }
-      const ddlCols = [
-        `    ${baseCols[0]!.col} ${baseCols[0]!.sql} primary key`,
-        "    kind text not null",
-        ...baseCols
-          .slice(1)
-          .map((c) => `    ${sqlIdent(c.col)} ${c.sql}${c.nullable ? "" : " not null"}`),
-        ...unionCols.map((c) => `    ${sqlIdent(c.col)} ${c.sql}`),
-      ];
-      const shared = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${ddlCols.join(",\n")}\n);`;
-      // A TPH base may itself declare `contains` / `X id[]` — its own child /
-      // join tables FK the shared table (owner = the base).
-      return [
-        shared,
-        ...uniqueIndexesOn(tableOf(agg.name)),
-        ...childTablesFor(agg, agg.name),
-        ...joinTablesFor(agg),
-      ];
-    }
-    // Document shape: the whole aggregate is one JSONB `data` column.  No
-    // per-field columns, no child/join tables — the graph folds into the blob.
-    if (documentAggNames.has(agg.name)) {
-      return [
-        [
-          `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (`,
-          `    id ${idTypes(agg.idValueType).sql} primary key,`,
-          "    data jsonb not null,",
-          "    version int not null",
-          ");",
-        ].join("\n"),
-      ];
-    }
-    // Embedded shape: flat root columns + one JSONB containment column each
-    // (folded into `columnsOf(agg, true)`), and NO child tables.
-    const embedded = embeddedAggNames.has(agg.name);
-    const cols = columnsOf(agg, embedded).map((c, i) => {
-      const pk = i === 0 ? " primary key" : "";
-      const nn = c.nullable || i === 0 ? "" : " not null";
-      return `    ${sqlIdent(c.col)} ${c.sql}${pk}${nn}`;
-    });
-    const root = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${cols.join(",\n")}\n);`;
-    return [
-      root,
-      ...uniqueIndexesOn(tableOf(agg.name)),
-      ...joinTablesFor(agg),
-      ...(embedded ? [] : childTablesFor(agg, agg.name)),
-    ];
-  });
-  // The single per-context event log `<ctx>_events` (event-log-architecture.md):
-  // seq cursor + stream_type discriminator + PK (stream_type, stream_id,
-  // version) + unique seq index — mirrors the canonical migration.
-  const eventLogTables = eventLogContexts.map((ctxSnake) => {
-    const t = `${ctxSnake}_events`;
-    return [
-      `CREATE TABLE IF NOT EXISTS ${t} (`,
-      "    seq bigserial not null,",
-      "    stream_type text not null,",
-      "    stream_id text not null,",
-      "    version int not null,",
-      "    type text not null,",
-      "    data jsonb not null,",
-      "    occurred_at timestamptz not null default now(),",
-      "    primary key (stream_type, stream_id, version)",
-      ");",
-      `CREATE UNIQUE INDEX IF NOT EXISTS ${t}_seq_key ON ${t} (seq);`,
-    ].join("\n");
-  });
-  // The append-only provenance history table (provenance.md), rendered from
-  // the SHARED MigrationsIR shape (`provenanceTableShape`) rather than a
-  // hand-written CREATE TABLE.  It reaches this emitter as DATA off the
-  // snapshot, not as an import (generator may not import system).
-  // `IF NOT EXISTS` because DbSchema re-runs on every
-  // startup, where a migration would run once.  The co-located
-  // `<field>_provenance` columns ride on each aggregate's CREATE TABLE via
-  // `columnsOf` — that half is per-aggregate and stays here.
-  const provenanceTable = provenanceHistoryTable
-    ? [renderCreateTableIfNotExists(provenanceHistoryTable)]
-    : [];
-  // The append-only audit table (audit-and-logging.md) — the Dapper sibling of
-  // the EF AuditRecordConfiguration, column-for-column the shape
-  // `migrations-builder` derives.  `before`/`after` are NULLABLE: a create has
-  // no before-state and a destroy has no after-state.
-  const auditTable = aggs.some(aggHasAuditedTarget)
-    ? [
-        [
-          "CREATE TABLE IF NOT EXISTS audit_records (",
-          "    audit_id text primary key,",
-          "    operation_id text not null,",
-          "    action text not null,",
-          "    target_type text not null,",
-          "    target_id text not null,",
-          "    actor jsonb,",
-          "    before jsonb,",
-          "    after jsonb,",
-          "    at timestamptz not null,",
-          "    status text not null,",
-          "    correlation_id text,",
-          "    scope_id text,",
-          "    parent_id text",
-          ");",
-          "CREATE INDEX IF NOT EXISTS audit_records_target_idx ON audit_records (target_type, target_id);",
-          "CREATE INDEX IF NOT EXISTS audit_records_correlation_idx ON audit_records (correlation_id);",
-        ].join("\n"),
-      ]
-    : [];
-  const ddl = [
-    ...stateTables,
-    ...eventLogTables,
-    ...provenanceTable,
-    ...auditTable,
-    ...extraTables,
-  ].join("\n\n");
-  return (
-    lines(
-      "// Auto-generated.  Dapper schema bootstrap (persistence: dapper).",
-      "using System.Threading;",
-      "using System.Threading.Tasks;",
-      "using Dapper;",
-      "using Npgsql;",
-      "",
-      `namespace ${ns}.Infrastructure.Persistence;`,
-      "",
-      "public static class DbSchema",
-      "{",
-      '    public const string Sql = @"',
-      ddlToVerbatimLiteral(ddl),
-      '";',
-      "",
-      "    public static async Task EnsureAsync(NpgsqlDataSource db, CancellationToken cancellationToken = default)",
-      "    {",
-      "        await using var conn = await db.OpenConnectionAsync(cancellationToken);",
-      "        // One statement per round-trip.  Npgsql runs a multi-statement command",
-      "        // through the extended query protocol, which PARSES every statement",
-      "        // before executing any — so a `CREATE INDEX` (or FK) referencing a table",
-      "        // an earlier statement creates fails to parse (`column ... does not",
-      "        // exist`).  Splitting on `;` keeps each DDL statement its own command, so",
-      "        // the table exists before the next statement is parsed.  Every emitted",
-      "        // statement is `;`-terminated with no inner semicolons.",
-      "        foreach (var stmt in Sql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))",
-      "        {",
-      "            await conn.ExecuteAsync(new CommandDefinition(stmt, cancellationToken: cancellationToken));",
-      "        }",
-      "    }",
-      "}",
-    ) + "\n"
-  );
-}
-
 /** Dapper `<PackageReference>` rows for the deployable's csproj (replaces the
  *  EF Core package set). */
 export const DAPPER_PROJECT_DEPS: readonly string[] = [
@@ -2996,10 +2742,22 @@ export const DAPPER_PROJECT_DEPS: readonly string[] = [
 ];
 
 /** Program.cs persistence wiring for Dapper — registers the NpgsqlDataSource
- *  (replaces the `AddDbContext` block). */
-export function renderDapperConnectionSetup(): readonly string[] {
+ *  (replaces the `AddDbContext` block).  `searchPath` (`dapperSearchPath`) puts
+ *  the context schemas the migrations create the tables in on the connection's
+ *  `search_path`, because the repositories name every table UNQUALIFIED.
+ *  Empty means the server default search path. */
+export function renderDapperConnectionSetup(searchPath: readonly string[] = []): readonly string[] {
+  if (searchPath.length === 0) {
+    return [
+      `builder.Services.AddSingleton(Npgsql.NpgsqlDataSource.Create(`,
+      `    builder.Configuration.GetConnectionString("Default")!));`,
+    ];
+  }
   return [
     `builder.Services.AddSingleton(Npgsql.NpgsqlDataSource.Create(`,
-    `    builder.Configuration.GetConnectionString("Default")!));`,
+    `    new Npgsql.NpgsqlConnectionStringBuilder(builder.Configuration.GetConnectionString("Default")!)`,
+    `    {`,
+    `        SearchPath = ${JSON.stringify(searchPath.join(","))},`,
+    `    }.ConnectionString));`,
   ];
 }

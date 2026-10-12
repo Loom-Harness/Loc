@@ -54,7 +54,7 @@ npm run test:phoenix      # LOOM_PHOENIX_VANILLA_BUILD=1 — `mix compile --warn
 # Corpus compile gates — every feature fixture in test/fixtures/corpus/*.ddd (feature list from the typed
 # manifest test/fixtures/corpus/manifest.ts, minus each backend's COMPILE_SKIP map) compiled per backend:
 npm run test:tsc-corpus     # LOOM_TS_BUILD=1  (per-feature shard via LOOM_CORPUS_<BACKEND>_CASE)
-npm run test:dotnet-corpus  # LOOM_DOTNET_BUILD=1
+npm run test:dotnet-corpus  # LOOM_DOTNET_BUILD=1 — dotnet build /warnaserror, then the emitted Tests/<Ns>.Tests xUnit project: build /warnaserror + dotnet test (unit only)
 npm run test:dapper-corpus  # LOOM_DOTNET_BUILD=1 — same fixtures with persistence: dapper forced
 npm run test:java-corpus    # LOOM_JAVA_BUILD=1
 npm run test:python-corpus  # LOOM_PYTHON_BUILD=1

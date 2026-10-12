@@ -160,12 +160,12 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:40",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
-      "document/event-sourced source, and the two self-provisioning limits — declared migration " +
-      "steps (`#migrations`, owned by M-T2.17 per D-DAPPER-ALTER: it closes when the " +
-      "`test:migration-evolution-dapper` leg is green, NOT when the gate widens) and Postgres " +
-      "schema placement (`#schema-split` / `#schema-ignored`, the twin limit of the same " +
-      "boot-time schema owner — also M-T2.17) (migration-checks.ts, " +
-      "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
+      "document/event-sourced source, and a dataSource `tablePrefix:` (`#schema-ignored`, " +
+      "migration-checks.ts `validateSelfProvisioningSchemaSupport`) — the repositories name every " +
+      "table unprefixed.  The declared-migration clause (`#migrations`) and the schema " +
+      "split-brain (`#schema-split`) DRAINED with M-T2.17's chain: Dapper applies the shared " +
+      "MigrationsIR as versioned migrations (`dapper-migrations.ts`) in the binding's schema, " +
+      "proven by the `test:migration-evolution-dapper` leg.  The " +
       "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
       "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
       "`collectFilterPrincipalRefs` (now on `walkExprDeep`) binds its four params, proven on a " +

@@ -1,28 +1,19 @@
-// A declared `migration` block on a SELF-PROVISIONING persistence adapter is
-// now an honest error instead of a silent no-op.
+// A declared `migration` block on the SELF-PROVISIONING persistence adapter is
+// an honest error instead of a silent no-op.
 //
-// Two adapters opt out of the phase-⑨ `MigrationsIR` chain and provision their
-// schema themselves at boot:
+// `persistence: mikroorm` opts out of the phase-⑨ `MigrationsIR` chain
+// (`hasMigrations = !usingMikro`, `src/platform/hono/v4/emit.ts`, shared by
+// v5) and syncs its schema at boot with `orm.schema.updateSchema()`, which has
+// no rename intent to consult: it resolves `old -> new` as DROP + ADD, i.e. it
+// DELETES the data the rename existed to preserve.  The gate lives at phase ⑦
+// because that is where the DECLARED intents live (`renameIntents` /
+// `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps`).
 //
-//   - `persistence: dapper`   — `hasMigrations = !usingDapper`
-//     (`src/generator/dotnet/index.ts`); `DbSchema.EnsureAsync` runs a
-//     `CREATE TABLE IF NOT EXISTS` block, which does NOTHING to an existing
-//     table — so a declared rename/backfill/sql step never runs.  The column
-//     keeps its old name; the app 500s, or quietly reads the NULL the backfill
-//     was supposed to fill.
-//   - `persistence: mikroorm` — `hasMigrations = !usingMikro`
-//     (`src/platform/hono/v4/emit.ts`, shared by v5); `orm.schema.updateSchema()`
-//     has no rename intent to consult, so it resolves `old -> new` as DROP +
-//     ADD, i.e. it DELETES the data the rename existed to preserve.
-//
-// Both were silent: the model validated, the project compiled, the migration
-// simply was not there.  The gate lives at phase ⑦ because that is where the
-// DECLARED intents live (`renameIntents` / `tableRenameIntents` /
-// `backfillIntents` / `sqlMigrationSteps`); the derived `MigrationsIR` only
-// exists in phase ⑨, downstream of every validator.
-//
-// This slice is the GATE only — teaching either adapter to actually carry a
-// migration chain is a separate piece of work.
+// `persistence: dapper` was gated the same way while it provisioned with
+// `CREATE TABLE IF NOT EXISTS`.  It now applies the shared chain as versioned
+// migrations (D-DAPPER-ALTER / M-T2.17, `dotnet/emit/dapper-migrations.ts`), so
+// every declared step reaches it — the dapper cases below pin that the gate
+// LIFTED, and the migration-evolution `dapper` leg proves the steps run.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -76,14 +67,9 @@ const CASES = [
 describe("declared migrations vs. the self-provisioning persistence adapters", () => {
   describe("persistence: dapper", () => {
     for (const [label, block] of CASES) {
-      it(`refuses a ${label} — the CREATE TABLE IF NOT EXISTS boot would silently skip it`, async () => {
+      it(`accepts a ${label} — Dapper applies the migration chain like EF`, async () => {
         const diags = await diagsFor("dotnet { persistence: dapper }", block);
-        const gate = diags.filter(
-          (d) => d.severity === "error" && d.code === "loom.dapper-unsupported",
-        );
-        expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);
-        expect(gate[0]!.message).toContain("emits no migration chain");
-        expect(gate[0]!.message).toContain("persistence: efcore");
+        expect(diags.filter((d) => d.code === "loom.dapper-unsupported")).toEqual([]);
       });
 
       it(`accepts the same ${label} on the default (EF Core) adapter`, async () => {

@@ -183,7 +183,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
   // char escaping (src/util/naming.ts; F2-ELX-ESCAPE-FUNNEL).
   escapeStringLiteral: elixirString,
-  literal: renderLiteral,
+  literal: (lit, value) => renderLiteral(lit, value),
   id: (ctx) => ctx.idLocal ?? `${ctx.thisName}.id`,
   ref: renderRef,
   member: renderMember,
@@ -206,7 +206,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // expression bodies.
   object: (fields) => `%{${fields.map((f) => `${snake(f.name)}: ${f.value}`).join(", ")}}`,
   unary: (op, operand, e) => renderUnary(op, operand, e),
-  binary: renderBinary,
+  binary: (l, r, e) => renderBinary(l, r, e),
   // Lower to the keyword `if cond, do: …, else: …` form — SELF-PARENTHESIZED,
   // like the Python leaf and for the same reason.  Elixir's keyword-list `if`
   // swallows everything after it up to the enclosing terminator, so a bare one
@@ -440,9 +440,9 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // param is a bare local.  (`let`/`lambda` are always locals.)
       if (ctx.filterArgs) {
         // Ecto query filter — pin the bound local.
-        return `^${snake(e.name)}`;
+        return `^${escapeElixirIdent(snake(e.name))}`;
       }
-      return snake(e.name);
+      return escapeElixirIdent(snake(e.name));
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the
@@ -539,7 +539,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return snake(e.member);
+    return escapeElixirIdent(snake(e.member));
   }
   // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
   // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a

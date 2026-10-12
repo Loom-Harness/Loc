@@ -158,7 +158,7 @@ export function renderProgram(
     realtimeTenantClaim?: string;
     /** Persistence selection (D-REALIZATION-AXES `persistence:`): when true,
      *  the deployable uses Dapper — Program.cs registers an `NpgsqlDataSource`
-     *  (not a `DbContext`) and applies the self-contained `DbSchema` at
+     *  (not a `DbContext`) and applies its versioned migrations via `DbSchema` at
      *  startup instead of EF migrations. */
     usingDapper?: boolean;
     /** Per-operation audit (audit-and-logging.md): registers the scoped
@@ -214,6 +214,10 @@ export function renderProgram(
      *  index.ts (it holds the pre-merge context names the event stores key
      *  off).  Consumed only when `usingDapper` — the EF path uses open generics. */
     dapperPortRegistrations?: string[];
+    /** Dapper connection `search_path` — `public` then every schema the
+     *  migrations put this deployable's tables in (`dapperSearchPath`).
+     *  Consumed only when `usingDapper`. */
+    dapperSearchPath?: string[];
     /** File upload/download (M-T1.2): fully-qualified raw-bytes helper method
      *  references for the bound objectStore, so Program.cs maps root
      *  `POST /files` + `GET /files/{key}` over them.  Undefined ⇒ no File field,
@@ -893,7 +897,7 @@ builder.Services.AddHttpLogging(opts =>
 ${
   usingDapper
     ? `// Dapper persistence: a single Npgsql data source, no DbContext.
-${renderDapperConnectionSetup().join("\n")}`
+${renderDapperConnectionSetup(options?.dapperSearchPath ?? []).join("\n")}`
     : usesStamping
       ? `builder.Services.AddScoped<${ns}.Infrastructure.Persistence.AuditableInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
@@ -1118,10 +1122,13 @@ await LoomWaitForDbAsync(
     },
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 
-// Dapper persistence: apply the self-contained schema (CREATE TABLE IF NOT
-// EXISTS) before serving traffic.  Idempotent; no migration history table.
+// Dapper persistence: apply the pending versioned migrations (Migrations/)
+// before serving traffic.  Idempotent — applied ids are recorded in
+// public.__loom_migrations; a database the pre-migration DbSchema bootstrap
+// provisioned is baselined on its first boot here (see DbSchema.cs).
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
-    app.Services.GetRequiredService<NpgsqlDataSource>());
+    app.Services.GetRequiredService<NpgsqlDataSource>(),
+    app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
     : hasMigrations
       ? `
@@ -1346,7 +1353,7 @@ app.MapFallbackToFile("index.html");
 }
 ${
   usingDapper || hasMigrations
-    ? // Dapper applied its schema via DbSchema.EnsureAsync at startup; a
+    ? // Dapper applied its migrations via DbSchema.EnsureAsync at startup; a
       // migrations-bearing deployable applied them via Database.Migrate().
       // Either way EnsureCreated must NOT also run: mixing it with
       // Migrate() is the classic EF trap — whichever runs first creates
@@ -1514,6 +1521,13 @@ export function renderCsproj(
          (the StringComparison overloads throw at query compile), and it runs
          as an anchored SQL prefix test where the collation decides, so the
          catalogue's ordinal contract holds.
+         CA1866: the same queryable \`startsWith\` with a ONE-character literal
+         prefix (\`startsWith("w")\`) — the analyzer wants StartsWith(char), but
+         EF Core 10 / Npgsql does NOT translate the char overloads (measured via
+         ToQueryString: StartsWith/EndsWith/Contains(char) all throw "could not
+         be translated"; StartsWith("w") lowers to LIKE 'w%').  The DOMAIN
+         position does take the char overload (its CA1865 twin is not
+         suppressed — render-expr.ts \`csSingleCharLiteral\`).
          MSG0005: Mediator 3's source generator warns on any IMessage with no
          registered handler.  Loom emits domain-event notifications that have
          no in-process subscriber by design (they exist for the outbox / event
@@ -1537,8 +1551,15 @@ export function renderCsproj(
          rule polices a decision Loom does not own, and it fires on a model that
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
-         hand-written libraries, not a mapped domain model. -->
-    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         hand-written libraries, not a mapped domain model.
+         CA1720: "identifier contains type name" — the same bargain for MEMBER
+         names.  A field \`Guid: string\` or \`single: bool\` (→ \`Single\`)
+         is legal .ddd on every backend, and its C# property name
+         is the wire field (and the column) on all five, so the generator may
+         not rename it and refusing it would reject a valid model for a C#
+         naming guideline.  The rule fires on the property, the request /
+         response record parameters and the command — every surface of it. -->
+    <NoWarn>CA1707;CA1711;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->
