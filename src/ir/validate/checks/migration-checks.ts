@@ -284,9 +284,12 @@ export function validateMigrationAdapterSupport(
 // ---------------------------------------------------------------------------
 // The OTHER consequence of self-provisioning: no schema concept (F2-ADP-3).
 //
-// A self-provisioning adapter emits its DDL as `CREATE TABLE IF NOT EXISTS` at
-// boot and names every table UNQUALIFIED — dapper's `DbSchema.EnsureAsync`
-// (`CREATE TABLE IF NOT EXISTS "as"`), mikroorm's `@Entity({ tableName: "as" })`.
+// The self-provisioning adapter syncs its schema at boot and names every table
+// UNQUALIFIED — mikroorm's `@Entity({ tableName: "as" })`.  (Dapper did too,
+// with `CREATE TABLE IF NOT EXISTS "as"`, until it applied the migration chain
+// — M-T2.17.  Its tables now land in the binding's schema like EF's; its SQL
+// stays unqualified and reaches them through the connection's `search_path`,
+// so it only refuses a `tablePrefix:`, which a search path cannot apply.)
 // Every migration-chain adapter instead routes the table into the binding's
 // Postgres schema, which `resolveDataSourceConfig` DEFAULTS to
 // `snake(<context>)` when the DSL omits `schema:` — so EF Core emits

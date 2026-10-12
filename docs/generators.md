@@ -31,6 +31,14 @@ mikroorm }` — see the "Realization axes" section of [`platforms.md`](platforms
 The alternates (`dapper`, `mikroorm`) share the domain layer below and only
 swap the repository/schema layer; both are now at full parity with their
 default (M-T6.9) — see [`platforms.md`](platforms.md) → "Realization axes".
+Schema evolution differs between them. **Dapper** applies the same versioned
+`MigrationsIR` chain as EF Core: `Migrations/*.cs`, run at boot by
+`DbSchema.EnsureAsync` behind `public.__loom_migrations`, projected onto its
+jsonb value-object layout. A database provisioned by the old `CREATE TABLE IF
+NOT EXISTS` bootstrap is baselined on its first migration-aware boot. See
+[`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
+self-provisions with `updateSchema()`, and declared `migration` steps are
+refused on it.
 
 > **Scope note.** The construct-by-construct matrix below tracks the three
 > reference platforms (TypeScript/Hono, .NET, React) for readability — it maps
