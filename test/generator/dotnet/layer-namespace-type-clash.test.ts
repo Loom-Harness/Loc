@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
-import { parseValid } from "../../_helpers/index.js";
+import { layerClashAliases } from "../../../src/generator/dotnet/bcl-collision.js";
+import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
+import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // A .NET domain type named like a generated LAYER namespace (claims eval, W2).
@@ -82,21 +83,54 @@ describe("dotnet — a domain type named like a layer namespace (CS0118/CS0104)"
     }
   });
 
-  it("legacy `generate dotnet`: the alias is rooted at the context namespace", async () => {
-    const model = await parseValid(`
-context Shop {
-  aggregate Application {
-    name: string
-    create(name: string) { name := name }
-  }
-}
-`);
-    const files = generateDotnet(model);
-    const hit = [...files].filter(
-      ([p, s]) =>
-        p.endsWith(".cs") &&
-        s.includes("using Application = global::Shop.Domain.Applications.Application;"),
+  // The legacy `generate dotnet` entry (root = the context name) calls this same
+  // helper per context; it is pinned here rather than through the legacy entry,
+  // whose callers the M-T9.49 ratchet only lets shrink.
+  it("the shared helper: aliases under its own root only, skips the home and CS0576 sites", () => {
+    const ctx = {
+      aggregates: [{ name: "Application", parts: [] }],
+      valueObjects: [],
+      enums: [],
+      events: [],
+      payloads: [],
+      domainServices: [],
+      projections: [],
+    } as unknown as BoundedContextIR;
+    const out = new Map<string, string>([
+      [
+        "Domain/Applications/Application.cs",
+        "namespace Shop.Domain.Applications;\npublic sealed class Application { ApplicationId Id; }\n",
+      ],
+      [
+        "Domain/Ids/Ids.cs",
+        "namespace Shop.Domain.Ids;\npublic readonly record struct ApplicationId(Guid Value);\n",
+      ],
+      [
+        "Application/X.cs",
+        "namespace Shop.Application.Applications\n{\n  class X { Application A; }\n}\n",
+      ],
+      ["Api/Y.cs", "namespace Shop.Api;\nclass Y { Application A; }\n"],
+      ["Api/Z.cs", "namespace Shop.Api;\nclass Z { }\n"],
+      ["Other/W.cs", "namespace Other.Api;\nclass W { Application A; }\n"],
+    ]);
+    const got = layerClashAliases(out, "Shop", [ctx]);
+    const app = " using Application = global::Shop.Domain.Applications.Application;";
+    const id = " using ApplicationId = global::Shop.Domain.Ids.ApplicationId;";
+    expect(got.get("Api/Y.cs")).toBe(`namespace Shop.Api;${app}\nclass Y { Application A; }\n`);
+    expect(got.get("Application/X.cs")).toBe(
+      `namespace Shop.Application.Applications\n{${app}\n  class X { Application A; }\n}\n`,
     );
-    expect(hit.length).toBeGreaterThan(0);
+    expect(got.get("Domain/Applications/Application.cs")).toBe(
+      `namespace Shop.Domain.Applications;${id}\npublic sealed class Application { ApplicationId Id; }\n`,
+    );
+    // No mention, another root, or a non-colliding model: untouched.
+    expect(got.has("Api/Z.cs")).toBe(false);
+    expect(got.has("Other/W.cs")).toBe(false);
+    expect(got.has("Domain/Ids/Ids.cs")).toBe(false);
+    const plain = {
+      ...ctx,
+      aggregates: [{ name: "Applicant", parts: [] }],
+    } as unknown as BoundedContextIR;
+    expect(layerClashAliases(out, "Shop", [plain]).size).toBe(0);
   });
 });
