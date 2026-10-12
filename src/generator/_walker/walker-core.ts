@@ -75,6 +75,7 @@ import { provableStringType } from "../../util/expr-body-type.js";
 import { snake } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { WALKER_LAYOUT_PRIMITIVES } from "../../util/walker-primitive-names.js";
+import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import {
   PROVENANCE_LINEAGE_FIELD,
@@ -1890,7 +1891,15 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
     case "binary": {
       const left = emitExpr(expr.left, ctx);
       const right = emitExpr(expr.right, ctx);
-      // Datetime-involving `+`/`-` first: `until + days(7)` is a method call on
+      // Value-object `==` / `!=` first: a value object compares by its fields,
+      // and the host operator on the page-side representation compares
+      // references on most targets.  Only VO-typed comparisons reach the seam;
+      // a target that omits it, and every scalar `==`, render as before.
+      if (isValueObjectEquality(expr)) {
+        const valueEq = ctx.target.exprValueEquality?.(left, right, expr);
+        if (valueEq !== undefined && valueEq !== null) return valueEq;
+      }
+      // Datetime-involving `+`/`-` next: `until + days(7)` is a method call on
       // a target whose datetime is not numeric-ish (`.Add` on F#, `.add` on
       // Dart), and a plain operator everywhere else.  The seam returns null —
       // and a target that omits it stays byte-identical — for every pair it has

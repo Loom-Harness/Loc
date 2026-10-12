@@ -21,6 +21,7 @@
 
 import type { EnrichedBoundedContextIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
+import { usesValueEquals } from "../_frontend/value-equals.js";
 import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { usesMoney } from "./money-runtime.js";
@@ -206,6 +207,7 @@ export function renderFlutterStores(
     header.push("", "import 'dart:convert';");
   }
   if (usesMoney(body)) header.push("", "import 'money.dart';");
+  if (usesValueEquals(body)) header.push("", "import 'value_equals.dart';");
   // A store action that navigates pushes through the out-of-tree bridge — a
   // Riverpod `Notifier` has no `BuildContext` (F2-CFE-1).
   if (body.includes(FLUTTER_NAV_MARKER)) header.push("", "import 'nav.dart';");

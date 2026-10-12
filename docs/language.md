@@ -480,6 +480,45 @@ diagnostic points you at `Order.create({ … })` rather than the older generic
 of the [access-modifier matrix](#field-access-modifiers): a `managed` field
 like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
 
+##### Comparing value objects
+
+Two value objects are equal when their fields are.  `a == b` and
+`a.equals(b)` are the same comparison — `equals` is an intrinsic every value
+object answers ([`stdlib.md`](stdlib.md#value-object-equality)), lowered to
+`==` and rendered as each backend's value equality:
+
+```ddd
+function isAt(pier: string, position: int): bool = berth.equals(Berth { pier: pier, position: position })
+```
+
+```ts
+public isAt(pier: string, position: number): boolean { return (this._berth.equals(new Berth(pier, position))); }
+```
+```python
+def is_at(self, pier: str, position: int) -> bool:
+    return (self._berth == Berth(pier, position))
+```
+
+Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
+`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+
+The same holds in a `ui` page expression.  A page-side value object on the JS
+frontends is the plain JSON the wire delivered, so `===` would compare
+references; the comparison renders through a `loomValueEquals` helper emitted
+into the file that uses it (Flutter: `lib/value_equals.dart`):
+
+```ddd
+Column { "Ship", o => Text { o.shipTo == o.billTo ? "same" : "split" } }
+```
+
+```tsx
+<Text>{(loomValueEquals(row.shipTo, row.billTo) ? "same" : "split")}</Text>
+```
+
+Feliz renders F#'s structural record `=` (an optional/plain pair compares as
+`row.alt = (Some row.shipTo)`), HEEx Elixir's structural `==`.  A comparison
+with `null` stays a presence test on every frontend.
+
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
 An aggregate marked `persistedAs: eventLog` in its header is **event-sourced**:
