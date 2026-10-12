@@ -35,7 +35,7 @@ import {
   localizedPageChromeValue,
   localizedText,
 } from "../i18n-emit.js";
-import { opGateFor } from "../op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
   addImport,
@@ -1117,6 +1117,7 @@ export function emitModal(
   // their module component (shadcn/mui/chakra) can render it.
   let recordVar: string | undefined;
   let gate: OpGateState | undefined;
+  let clientGate: string | null = null;
   for (let i = ctx.formOfs.length - 1; i >= 0; i--) {
     const st = ctx.formOfs[i]!;
     if (st.kind === "operation" && st.op.name === opName) {
@@ -1133,10 +1134,11 @@ export function emitModal(
       // in-scope instance var the trigger must pass as the `record` prop.
       recordVar = st.recordVar;
       gate = st.gate;
+      clientGate = opRequiresClientGate(st.op, ctx);
       break;
     }
   }
-  return renderPrimitive(ctx, "primitive-modal", {
+  const modal = renderPrimitive(ctx, "primitive-modal", {
     label,
     emphasisPrimary: triggerPrimary,
     opPascal: upperFirst(opName),
@@ -1148,4 +1150,10 @@ export function emitModal(
     gateDisabled: gate?.disabledExpr,
     gateReason: gate?.reasonExpr,
   });
+  // The `when` gate above DISABLES the trigger (the state may change); a
+  // currentUser-only `requires` HIDES it (this principal can never run the op),
+  // exactly as an `Action` button is hidden.
+  return clientGate === null
+    ? modal
+    : ctx.target.renderConditionalChild(clientGate, modal, "null", depth);
 }

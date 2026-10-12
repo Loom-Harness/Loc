@@ -92,6 +92,7 @@ system Sales {
     context C {
       aggregate Order {
         code: string
+        qty: int
         derived display: string = code
       }
       repository Orders for Order {
@@ -153,9 +154,11 @@ describe("HEEx table controls — the markup", () => {
   it("passes the active sort to the table and marks sortable columns", async () => {
     const live = await liveView(SCAFFOLD_SRC, "product_list_live.ex");
     expect(live).toContain('<.table id="data-table" sort_key={@sort_key} sort_dir={@sort_dir}');
-    // Each scaffold column is sortable, keyed by the row field it reads.
-    expect(live).toContain('sort_field="sku"');
+    // Each stored scaffold column is sortable, keyed by the row field it reads.
+    // The label column (`display`, which absorbs `sku`) is derived — no struct
+    // key to sort by — so it is not.
     expect(live).toContain('sort_field="name"');
+    expect(live).not.toContain('sort_field="display"');
   });
 
   it("renders a pager reading the envelope's camelCase totalPages", async () => {
@@ -238,7 +241,7 @@ describe("HEEx table controls — gated off", () => {
     expect(live).toContain("<.table ");
     // The controls render (F2-MT640-SORT-DEAD's fix) …
     expect(live).toContain("sort_key={@sort_key}");
-    expect(live).toContain('sort_field="code"');
+    expect(live).toContain('sort_field="qty"');
     expect(live).toContain("<.pager");
     // … but the clause bodies must NOT re-run the read: `list_orders/0` takes
     // no page or sort argument, so a refetch answers the identical rows and

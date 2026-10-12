@@ -156,7 +156,9 @@ describe("HEEx client table controls — the rows expression", () => {
 
   it("passes a {wire key, struct field} whitelist, never the raw event key", async () => {
     const live = await one(CLIENT_SRC, "/order_list_live.ex");
-    expect(live).toContain('[{"id", :id}, {"code", :code}, {"total", :total}');
+    // `code` is inside the derived `display` label, which is not sortable (a
+    // LiveView row is an Ecto struct with no key for it).
+    expect(live).toContain('@sort_dir, [{"total", :total}]');
     // The sort key arrives as `phx-value-key` from the browser.  Turning it
     // into an atom at runtime is an unbounded atom-table leak from an
     // unauthenticated event; the emitter's whitelist is what prevents it.
@@ -184,7 +186,7 @@ describe("HEEx client table controls — the rows expression", () => {
       for (const m of c.matchAll(/setSortKey\("(\w+)"\)/g)) reactFields.add(m[1]!);
     }
     // no `version`: the optimistic-concurrency counter is not a scaffold column.
-    expect([...reactFields].sort()).toEqual(["code", "id", "total"]);
+    expect([...reactFields].sort()).toEqual(["total"]);
     const live = await one(CLIENT_SRC, "/order_list_live.ex");
     for (const f of reactFields) expect(live).toContain(`{"${f}", `);
   });

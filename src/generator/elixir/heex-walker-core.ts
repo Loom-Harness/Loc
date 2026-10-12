@@ -56,6 +56,7 @@ import type {
   ValueObjectIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import {
   listShapedProjectionNames,
@@ -73,7 +74,7 @@ import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { elixirI18nString } from "./i18n.js";
-import { ELIXIR_INTRINSIC_RENDERERS } from "./render-expr.js";
+import { ELIXIR_INTRINSIC_RENDERERS, renderExpr as renderDomainExpr } from "./render-expr.js";
 
 export type RenderPosition = "template" | "handler";
 
@@ -959,7 +960,37 @@ function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContex
   ) {
     return renderExpr(expr.receiver, ctx);
   }
+  // A `derived` read off a loaded aggregate.  The JSON frontends find it on
+  // the wire (the controller's `serialize/1` computes it); a LiveView holds
+  // the Ecto struct, which has no key for it — `@data.is_open` raises.  So
+  // compute it here from the same expression `serialize/1` renders, rooted at
+  // the record the page holds.
+  const derived = derivedOfReceiver(expr, ctx);
+  if (derived) {
+    return `(${renderDomainExpr(derived.expr, {
+      thisName: renderExpr(expr.receiver, ctx),
+      contextModule: ctx.contextModuleByAggName.get(derived.agg.name) ?? ctx.appModule,
+      agg: derived.agg as EnrichedAggregateIR,
+    })})`;
+  }
   return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+}
+
+/** The aggregate `derived` a member read names, when its receiver is a loaded
+ *  aggregate record and the expression can be computed in the template (it
+ *  reads no `currentUser`, which a domain expression takes as a parameter). */
+function derivedOfReceiver(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): { agg: AggregateIR; expr: ExprIR } | undefined {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return undefined;
+  const agg = ctx.aggregatesByName.get(t.name);
+  if (!agg || agg.fields.some((f) => f.name === expr.member)) return undefined;
+  const d = agg.derived.find((x) => x.name === expr.member);
+  if (!d || exprUsesCurrentUser(d.expr)) return undefined;
+  return { agg, expr: d.expr };
 }
 
 /** JS-frontend collection ops that aren't in the shared `isCollectionOp`
@@ -1131,7 +1162,7 @@ export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  touches `this.<field>` / params (not currentUser-only — `tryRenderGate`
  *  returns null), is also left ungated; the operation still enforces the
  *  gate server-side regardless (defence-in-depth). */
-function gateActionButton(
+export function gateActionButton(
   button: string,
   op: import("../../ir/types/loom-ir.js").OperationIR,
   ctx: WalkContext,
