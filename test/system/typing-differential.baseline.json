@@ -11,7 +11,7 @@
     "new-only": 0,
     "new=ir": 3313,
     "new=lang": 6099,
-    "nobody-knows": 3111,
+    "nobody-knows": 3211,
     "not-lowered-agree": 2557,
     "not-lowered-differ": 20,
     "unreached": 0
@@ -19,7 +19,7 @@
   "unknownCauses": {
     "not-a-value": 62297,
     "no-rule": 2393,
-    "unresolved-member": 739,
+    "unresolved-member": 780,
     "unresolved-name": 492,
     "contextual-lambda": 127,
     "unresolved-type": 89,
