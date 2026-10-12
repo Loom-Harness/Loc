@@ -449,7 +449,11 @@ function emitSystem(
   if (options.sourcemap) {
     const debugConfigs = sys.deployables
       .map((d) =>
-        platformFor(d.platform).debugLaunch?.({ deployable: d, slug: serviceSlug(d.name) }),
+        platformFor(d.platform).debugLaunch?.({
+          deployable: d,
+          slug: serviceSlug(d.name),
+          contexts: collectContextsFor(d, modulesByName),
+        }),
       )
       .filter((c): c is Record<string, unknown> => c !== undefined);
     if (debugConfigs.length > 0) {
