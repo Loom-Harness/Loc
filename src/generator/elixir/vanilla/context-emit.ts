@@ -31,7 +31,7 @@ import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/o
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -70,9 +70,10 @@ import {
   renderEsContextBlock,
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
-import { renderAggregateFunctions } from "./function-emit.js";
+import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { paramGuardClause } from "./op-param-guards.js";
 import {
   collectOpGuardClauses,
   isReturningOperation,
@@ -278,45 +279,6 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   }
 }
 
-/** Op params whose WIRE form can be malformed, and which therefore have to be
- *  REFUSED rather than coerced-and-hoped.  `coerceOpParam` above makes the
- *  well-formed cases total; this makes the ill-formed ones a 422 instead of a
- *  500 (M-T6.48, the elixir arm).
- *
- *  Why a `with` clause and not a bind: the coercion can FAIL, and a failure has
- *  to reach the response.  Returning `{:error, changeset}` puts it on the path
- *  `ProblemDetails.validation_error_response/2` already renders — 422 with
- *  `errors: [{"pointer": "/<param>", "message": …}]` — so this reuses the
- *  envelope the backend already sends instead of inventing a second one, the
- *  same move the .NET and python arms made.
- *
- *  `null` for a param that needs no guard, so an op with none keeps the flat
- *  bind layout byte-identical. */
-function paramGuardClause(wireName: string, type: TypeIR | undefined): string | null {
-  const t = type?.kind === "optional" ? type.inner : type;
-  if (t?.kind !== "primitive") return null;
-  const access = `Map.get(params, ${JSON.stringify(wireName)})`;
-  const field = `:${snake(wireName)}`;
-  switch (t.name) {
-    case "money":
-    case "decimal":
-      return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
-    // An `int` is an int4 COLUMN, so the guard carries its declared range as
-    // well as its type: without it a contract-conforming-looking value like
-    // 9543751572142 cast cleanly, reached the column and the DATABASE refused
-    // it — a 500 for a client fault, the same shape as the money-range guard
-    // beside it (Schemathesis F11).  `long` keeps the type-only guard: its
-    // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
-    // moving it is a five-backend ruling rather than this row.
-    case "int":
-      return `{:ok, ${snake(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
-    case "long":
-      return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
-    default:
-      return null;
-  }
-}
-
 /** The `defp`s `paramGuardClause` emits calls to.  Appended to the context
  *  module on demand, like `__truncate_dt` — a context with no guarded op param
  *  is byte-identical to before.
@@ -436,6 +398,14 @@ function renderContextModule(
   extraChannels: ChannelIR[] = [],
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
+  // Same-`name/arity` aggregate `function`s across the aggregates whose façade
+  // block renders them (the event-sourced and abstract-base blocks below return
+  // early) — emitted as one grouped definition, see `collidingFacadeFunctions`.
+  const collidingFns = collidingFacadeFunctions(
+    ctx.aggregates
+      .filter((a) => !isEventSourced(a) && !isAbstractBase(a))
+      .map((a) => ({ agg: a, doc: isVanillaDocAgg(a, ctx, sys) })),
+  );
   const blocks = ctx.aggregates.map((agg) => {
     // Event-sourced aggregates expose create/get/list + per-op command
     // runners (emit→append→fold) instead of the CRUD defdelegates.
@@ -549,7 +519,7 @@ function renderContextModule(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const findLines = customFindsOf(repo).map((f) => {
       const findSnake = snake(f.name);
-      const baseArgs = f.params.map((p) => snake(p.name));
+      const baseArgs = f.params.map((p) => escapeElixirIdent(snake(p.name)));
       // A `paged` find carries the same `page`/`page_size` + `sort`/`dir` arity
       // (with defaults) the repository fn declares, so the defdelegate matches
       // and the controller's paged call routes through (M-T2.6).
@@ -714,7 +684,7 @@ ${body}
     // op / precondition / derived bodies emitted above.  Each renders as a
     // struct-guarded `def <fn>(%Agg{} = record, …)` so the lowered call site
     // (`<fn>(record, …)`) resolves in THIS module.
-    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc);
+    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc, collidingFns);
     const functionBlock = fnLines.length > 0 ? `${fnLines.join("\n")}\n` : "";
     // The CRUD `delete_<agg>` defdelegate is emitted only when the aggregate
     // exposes a REST delete surface (a reachable `destroy`).  Without it the
@@ -812,7 +782,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       const retMod = `${facadeMod}.Retrievals.${upperFirst(r.name)}`;
       // `defdelegate` carries the function arity through to the target.
       // `\\\\ []` is the default for the trailing `opts` arg.
-      const args = r.params.map((p) => snake(p.name));
+      const args = r.params.map((p) => escapeElixirIdent(snake(p.name)));
       const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
       return `  defdelegate run_${retSnake}_${aggSnake}(${argList}), to: ${retMod}, as: :run`;
     });
@@ -1220,7 +1190,7 @@ function renderExternOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
@@ -1315,7 +1285,7 @@ function renderNamedOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-

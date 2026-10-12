@@ -188,12 +188,20 @@ function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
   return null;
 }
 
+/** `""` for an `int`/`long` stamp, `"?"` for its nullable form, null for
+ *  anything else. */
+function integralOperand(t: TypeIR | undefined): "" | "?" | null {
+  const inner = t?.kind === "optional" ? t.inner : t;
+  if (inner?.kind !== "primitive" || (inner.name !== "int" && inner.name !== "long")) return null;
+  return t?.kind === "optional" ? "?" : "";
+}
+
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
   // char escaping (src/util/naming.ts; F2-ELX-ESCAPE-FUNNEL).
   escapeStringLiteral: elixirString,
-  literal: renderLiteral,
+  literal: (lit, value) => renderLiteral(lit, value),
   id: (ctx) => ctx.idLocal ?? `${ctx.thisName}.id`,
   ref: renderRef,
   member: renderMember,
@@ -216,7 +224,7 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // expression bodies.
   object: (fields) => `%{${fields.map((f) => `${snake(f.name)}: ${f.value}`).join(", ")}}`,
   unary: (op, operand, e) => renderUnary(op, operand, e),
-  binary: renderBinary,
+  binary: (l, r, e) => renderBinary(l, r, e),
   // Lower to the keyword `if cond, do: …, else: …` form — SELF-PARENTHESIZED,
   // like the Python leaf and for the same reason.  Elixir's keyword-list `if`
   // swallows everything after it up to the enclosing terminator, so a bare one
@@ -296,15 +304,19 @@ const ELIXIR_FILTER_TARGET: ExprTarget<RenderCtx> = {
 };
 
 // Document-shape STRUCT rendering target (`docStruct` — Route A).
-// Shares the FILTER target's native-value leaves (the jsonb blob keeps enums
-// as strings and money/decimal as native JSON numbers), but its predicates
-// run IN-MEMORY (`Enum.filter` over rehydrated `%<Agg>.Data{}` embeds), so
-// temporal arithmetic must take the in-memory `DateTime.add/diff` arms — an
-// Ecto `fragment(...)` would be invalid outside a query.  Before A5 the two
-// paths shared one table; the duration/temporal split is the only divergence.
+// Its predicates and op bodies run IN-MEMORY (`Enum.filter` / the op fn over the
+// rehydrated `%<Agg>.Data{}` embed), and the embed declares money/decimal as
+// `field :x, :decimal` — so a money value is a `%Decimal{}` struct here exactly
+// as on the relational op-body path, and takes the SAME `Decimal.*` leaves
+// (`Decimal.compare`/`Decimal.add`, `Decimal.new` literals, `Decimal.negate`).
+// The native-operator FILTER leaves it used to borrow compared the structs by
+// Erlang TERM order (`-5 > 0` held) and raised `ArithmeticError` on `+`.
+// Enums stay their stored strings (the `docStruct` flag on the ctx selects
+// that in the enum arm), and temporal arithmetic takes the in-memory
+// `DateTime.add/diff` arms — an Ecto `fragment(...)` would be invalid outside a
+// query.
 const ELIXIR_DOC_TARGET: ExprTarget<RenderCtx> = {
-  ...ELIXIR_FILTER_TARGET,
-  binary: (l, r, e) => renderBinary(l, r, e, /* inFilter */ true, /* ectoQuery */ false),
+  ...ELIXIR_TARGET,
   duration: renderDurationInMemory,
 };
 
@@ -450,9 +462,9 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // param is a bare local.  (`let`/`lambda` are always locals.)
       if (ctx.filterArgs) {
         // Ecto query filter — pin the bound local.
-        return `^${snake(e.name)}`;
+        return `^${escapeElixirIdent(snake(e.name))}`;
       }
-      return snake(e.name);
+      return escapeElixirIdent(snake(e.name));
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the
@@ -549,7 +561,7 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return snake(e.member);
+    return escapeElixirIdent(snake(e.member));
   }
   // PRINCIPAL CLAIM INSIDE AN ECTO QUERY (`ctx.filterArgs`).  `current_user` is
   // an ordinary Elixir local, and Ecto's `where:` admits no unbound locals — a
@@ -1445,25 +1457,37 @@ function renderBinary(
   // order over the struct maps), and a nullable RIGHT reached
   // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
   // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
-  // ordering dispatches through `Decimal.compare` (a guarded
-  // `x == null || x > …` never reaches it absent).
+  // ordering dispatches through `Decimal.compare` and answers false when
+  // either side is absent (SQL's UNKNOWN, .NET's lifted operators).
   if (!inFilter) {
     const lt = decimalStructOperand(e.leftType);
     const rt = decimalStructOperand(e.rightType);
-    if (lt !== null && rt !== null && (lt === "?" || rt === "?")) {
+    const isOrdering = e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=";
+    // A nullable INTEGRAL against a decimal struct (`qty > rate`, `qty: int?`)
+    // orders through `Decimal.compare` too — it coerces the integer — and the
+    // absent side must answer false, not Erlang term order (`nil < %Decimal{}`).
+    const li = lt ?? (rt !== null ? integralOperand(e.leftType) : null);
+    const ri = rt ?? (lt !== null ? integralOperand(e.rightType) : null);
+    if (isOrdering && li !== null && ri !== null && (li === "?" || ri === "?")) {
+      // Only the nullable side gets a `nil` clause (no statically unreachable
+      // clause for Elixir 1.18's type checker to warn about).
+      const nilClauses = [
+        ...(li === "?" ? ["{nil, _} -> false"] : []),
+        ...(ri === "?" ? ["{_, nil} -> false"] : []),
+      ];
+      return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
+    }
+    if (li !== null && ri !== null && (li === "?" || ri === "?")) {
       if (e.op === "==" || e.op === "!=") {
         // Only the nullable side gets a `nil` clause, so no clause is
         // statically unreachable (Elixir 1.18's type checker would warn).
         const nilClauses = [
-          ...(lt === "?" && rt === "?" ? ["{nil, nil} -> true"] : []),
-          ...(lt === "?" ? ["{nil, _} -> false"] : []),
-          ...(rt === "?" ? ["{_, nil} -> false"] : []),
+          ...(li === "?" && ri === "?" ? ["{nil, nil} -> true"] : []),
+          ...(li === "?" ? ["{nil, _} -> false"] : []),
+          ...(ri === "?" ? ["{_, nil} -> false"] : []),
         ];
         const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
         return e.op === "==" ? eq : `not ${eq}`;
-      }
-      if (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") {
-        return renderDecimalBinary(e.op, l, r);
       }
     }
   }

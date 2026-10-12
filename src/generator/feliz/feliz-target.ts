@@ -25,6 +25,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsMoneyBinary,
   fsNumericBinary,
   fsString,
   fsTemporalBinary,
@@ -1205,7 +1206,7 @@ export const felizTarget: WalkerTarget = {
   renderFilteredRows({ rowsExpr, filter, columns }) {
     const q = `model.${upperFirst(filter.name)}`;
     if (columns.length === 0) return rowsExpr;
-    const vals = columns.map((f) => `string r.${f}`).join("; ");
+    const vals = columns.map((f) => `string r.${fsIdent(f)}`).join("; ");
     return (
       `(${rowsExpr} |> List.filter (fun r -> let __q = (${q}).Trim().ToLower() in ` +
       `__q = "" || ([ ${vals} ] |> List.exists (fun v -> v.ToLower().Contains(__q)))))`
@@ -1251,6 +1252,9 @@ export const felizTarget: WalkerTarget = {
   // `qty * price`).  The seam converts the operands; it forwards to the SAME
   // shared function the MVU update path uses, so a numeric op cannot mean one
   // thing in a page body and another in an action body.
+  // A `money?` side: lift it (`decimal option` vs `decimal` is an F# type
+  // error, and option ORDER puts `None` below every value) — `fsMoneyBinary`.
+  exprMoneyBinary: (left, right, e) => fsMoneyBinary(left, right, e),
   exprNumericBinary: (left, right, e) => fsNumericBinary(left, right, e),
 
   // Scalar intrinsics — the SAME F# table the MVU update path uses

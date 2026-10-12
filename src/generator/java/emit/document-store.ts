@@ -9,12 +9,15 @@ import { plural, snake } from "../../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
+import { javaLocals, localOf } from "../java-ident.js";
 import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
   declaredFinds,
+  IN_MEMORY_READ_NAMES,
   inMemoryPagedSortLines,
+  inMemoryParamExpr,
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
@@ -178,9 +181,15 @@ export function renderJavaDocumentRepositoryImpl(
   const findExecutedLog = (name: string, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${name}", "rows", ${rowsExpr});`;
   const findLines = finds.flatMap((f) => {
-    const params = f.params.map((p) => `${renderJavaType(p.type)} ${p.name}`);
+    // Keyword-escaped (`jid`), and moved off the `x` predicate lambda / the
+    // method's own locals on a collision.
+    const locals = javaLocals(
+      f.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
+    const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
     const ownFilter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true })})`
+      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
     // — empty in the no-bypass shape, where `findAll()` already applied them.
@@ -228,9 +237,13 @@ export function renderJavaDocumentRepositoryImpl(
   const methodLines = [...findLines, ...retrievalLines];
   while (methodLines.length > 0 && methodLines[methodLines.length - 1] === "") methodLines.pop();
 
+  // A `money`/`decimal` find parameter (`over(BigDecimal min)`) or a
+  // `new BigDecimal("…")` literal in a predicate names the simple type.
+  const usesBigDecimal = methodLines.some((l) => /(?<!\.)\bBigDecimal\b/.test(l));
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
+    usesBigDecimal ? `import java.math.BigDecimal;` : null,
     `import java.util.ArrayList;`,
     exprImports.has("java.util.Comparator") ? `import java.util.Comparator;` : null,
     `import java.util.List;`,
@@ -275,6 +288,11 @@ export function renderJavaDocumentRepositoryImpl(
     `            .withVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)`,
     `            .withVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE)`,
+    // SETTER detection off too: a domain operation named `setX(…)` (`setLimit`)
+    // is a Jackson setter by name, so rehydrating the document RAN the
+    // operation — its preconditions threw out of the deserializer (a 500 on
+    // every read of the row).  Fields are the only property source.
+    `            .withVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY))`,
     `        .build();`,
     ``,

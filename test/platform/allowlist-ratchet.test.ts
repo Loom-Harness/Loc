@@ -132,6 +132,16 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The same leg's xUnit waivers: corpus projects whose emitted test project
+  // fails `dotnet build /warnaserror` or `dotnet test` while the API project
+  // compiles.  The leg itself fails a waived project that passes (stale), so
+  // this pin and that check ratchet the register from both sides.
+  {
+    file: "test/e2e/corpus-dotnet-build.test.ts",
+    name: "DOTNET_TEST_WAIVERS",
+    kind: "record",
+    max: 0,
+  },
   { file: "test/e2e/corpus-tsc-build.test.ts", name: "TS_COMPILE_SKIP", kind: "record", max: 0 },
   // The .NET Dapper adapter's compile tier.  Lowered 3 -> 2 by M-T6.29, which
   // drained `policy-deny`: the `deny` authz sentinel got its `whereToSql` arm

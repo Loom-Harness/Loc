@@ -251,6 +251,49 @@ export function fsTemporalBinary(
   return null;
 }
 
+/** A `money?` / `decimal?` comparison, or `null` to fall through.  Money is
+ *  an F# `decimal` here, whose `=` and `<` already compare by VALUE
+ *  (`10.00m = 10m`), so a pair of plain operands needs nothing.  What F# does
+ *  not do is compare a `decimal option` with a `decimal` — a type error — and
+ *  its structural ORDER on options puts `None` below every `Some`, so even a
+ *  `decimal option` pair would answer `absent < x` as true.  Loom's rule (the
+ *  backends' rule) is that an ordering with an absent side is false and an
+ *  equality is null-safe:
+ *    - `==` / `!=` lift the plain side into `Some` (option equality: both
+ *      absent equal, one absent unequal);
+ *    - `<` / `<=` / `>` / `>=` go through `Option.map2`, which yields `None`
+ *      when either side is absent, defaulted to `false`.
+ *
+ *  Shared by both feliz paths: the view walker reaches it through
+ *  `felizTarget.exprMoneyBinary`, the MVU update path through `renderFsExpr`'s
+ *  binary arm. */
+export function fsMoneyBinary(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  const operand = (t: TypeIR | undefined): "" | "?" | null => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    if (inner?.kind !== "primitive" || (inner.name !== "money" && inner.name !== "decimal")) {
+      return null;
+    }
+    return t?.kind === "optional" ? "?" : "";
+  };
+  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+  if (isNull(e.left) || isNull(e.right)) return null;
+  const lt = operand(e.leftType);
+  const rt = operand(e.rightType);
+  if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+  const opt = (text: string, t: "" | "?") => (t === "?" ? text : `(Some (${text}))`);
+  if (e.op === "==" || e.op === "!=") {
+    return FS_LEAVES.binary(opt(left, lt), opt(right, rt), e.op);
+  }
+  if (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") {
+    return `(Option.map2 (fun loomL loomR -> loomL ${e.op} loomR) ${opt(left, lt)} ${opt(right, rt)} |> Option.defaultValue false)`;
+  }
+  return null;
+}
+
 /** The numeric binary-operand arms, or `null` to fall through to the plain
  *  operator leaf.  F# performs NO implicit numeric conversion, but Loom's type
  *  system widens along `int → long → decimal` — three cases diverge:
@@ -448,6 +491,11 @@ export interface FsExprCtx {
    *  action body resolves its destination here (`update-emit.ts`); absent on a
    *  non-routed ui, where the arm degrades to the root path. */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** Component param name -> the rendered F# value it takes — `init` seeding a
+   *  component `state {}` cell whose initializer reads a param, which `init`
+   *  has no props to bind (`component-state-init.ts`).  Absent everywhere
+   *  else. */
+  paramValues?: ReadonlyMap<string, string>;
 }
 
 /** The empty route id — what an `id` read resolves to on a ui with no routing
@@ -546,11 +594,6 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       if (e.refKind === "store-field" && e.storeName) {
         return `${ctx.modelExpr ?? "model"}.${storeModelField(e.storeName, e.name)}`;
       }
-      // Inside a store action body the store's own fields are `let` locals; a
-      // bare ref to one resolves to its namespaced Model field.
-      if (ctx.storeScope?.fields.has(e.name)) {
-        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
-      }
       // An enum VALUE (`Visibility.Public`) is a string on the Feliz wire
       // (`wireFieldType` spells every enum `string`), so it renders as its
       // quoted name — the same answer `auth-gate.ts` gives.  The bare name this
@@ -560,8 +603,19 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // an F#-keyword name needs the double-backtick spelling at every use, the
       // same one `component-emit.ts` gives the binding site.  (`upperFirst` on
       // the state branch is already keyword-safe: every F# keyword is
-      // lowercase.)  F-022.
+      // lowercase.)  F-022.  Checked BEFORE the Model-field scopes below: a
+      // local (an action param, a `let` earlier in the arm) SHADOWS a
+      // same-named state cell or store field, exactly as lowering resolved it.
       if (ctx.locals.has(e.name)) return fsIdent(e.name);
+      if (e.refKind === "param") {
+        const value = ctx.paramValues?.get(e.name);
+        if (value !== undefined) return value;
+      }
+      // Inside a store action body the store's own fields are `let` locals; a
+      // bare ref to one resolves to its namespaced Model field.
+      if (ctx.storeScope?.fields.has(e.name)) {
+        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
+      }
       if (ctx.stateNames.has(e.name)) return `${ctx.modelExpr ?? "model"}.${upperFirst(e.name)}`;
       return fsIdent(e.name);
     case "binary": {
@@ -572,6 +626,7 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // the same two seams the view path consults through `felizTarget`.
       return (
         fsTemporalBinary(left, right, e) ??
+        fsMoneyBinary(left, right, e) ??
         fsNumericBinary(left, right, e) ??
         FS_LEAVES.binary(left, right, e.op)
       );

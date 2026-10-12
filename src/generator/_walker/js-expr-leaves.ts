@@ -11,7 +11,7 @@
 // language, mirroring the backend `_expr/target.ts` design.  The strings below
 // are byte-for-byte what `emitExpr` produced inline before the extraction.
 
-import type { BinOp, ExprIR, LiteralKind, PrimitiveName } from "../../ir/types/loom-ir.js";
+import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { FRONTEND_RENDERED_COLLECTION_OPS } from "../../ir/util/collection-op-site.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { renderJsIntrinsic } from "../_expr/js-intrinsics.js";
@@ -24,6 +24,7 @@ type ExprLeaves = Pick<
   WalkerTarget,
   | "exprLiteral"
   | "exprBinary"
+  | "exprMoneyBinary"
   | "exprUnary"
   | "exprTernary"
   | "exprConvert"
@@ -58,6 +59,14 @@ export const jsExprLeaves: ExprLeaves = {
     // emitted TSX clean under Biome's `noDoubleEquals`.
     const o = op === "==" ? "===" : op === "!=" ? "!==" : op;
     return `(${left} ${o} ${right})`;
+  },
+  // `money` is a decimal.js `Decimal` here, and the host operators on one are
+  // wrong in a way nothing reports: `===` compares REFERENCES (`10` vs `10.00`
+  // is unequal, and so is `10` vs `10`), `<`/`>` coerce through `valueOf()` to
+  // STRINGS and order lexicographically (`9 < 10` is false), and an absent
+  // `money?` coerces to `0`.  See `renderJsMoneyBinary`.
+  exprMoneyBinary(left, right, e) {
+    return renderJsMoneyBinary(left, right, e);
   },
   exprUnary(op: string, operand: string): string {
     return `(${op}${operand})`;
@@ -109,6 +118,65 @@ export const jsExprLeaves: ExprLeaves = {
   renderCollectionOp: renderJsCollectionOp,
 };
 
+/** `""` for a `money` stamp, `"?"` for a `money?`, null for anything else. */
+function jsMoneyOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "money") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
+    return "?";
+  return null;
+}
+
+const JS_MONEY_ORDERING: Partial<Record<BinOp, string>> = {
+  "<": "lt",
+  "<=": "lte",
+  ">": "gt",
+  ">=": "gte",
+};
+
+/** A money comparison on the JS frontends, by VALUE and null-safe, or `null`
+ *  to fall through to `exprBinary` (no money side, the `null` literal on one
+ *  side — `x == null` is already a null check — or a non-comparison operator).
+ *
+ *  Every form goes through the STATIC `Decimal.sub(a, b)`, never `new
+ *  Decimal(…)` or an arrow: Angular's template grammar admits neither, and the
+ *  page shells already hoist the `Decimal` binding for a `Decimal.<member>`
+ *  reference (`usesDecimalBinding`).  The static form also accepts a wire
+ *  STRING as well as a `Decimal`, so it does not depend on which side of the
+ *  `moneySchema` transform a value came from.
+ *
+ *  An absent operand becomes `"NaN"` (a string: Angular's template grammar
+ *  has no `NaN` global, and decimal.js parses the string to its NaN value),
+ *  and decimal.js orders `NaN` against nothing
+ *  and `NaN.isZero()` is false, so an ordering with an absent side answers
+ *  false (SQL's UNKNOWN — the backends' rule) and an equality with exactly one
+ *  absent side answers unequal.  Both sides nullable: both absent are equal,
+ *  the null-safe equality every backend uses. */
+export function renderJsMoneyBinary(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  const lt = jsMoneyOperand(e.leftType);
+  const rt = jsMoneyOperand(e.rightType);
+  if (lt === null && rt === null) return null;
+  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+  if (isNull(e.left) || isNull(e.right)) return null;
+  // The other side of a money comparison is money too (`comparable` keeps
+  // money closed); a non-money side here is an operator this arm does not own.
+  if (lt === null || rt === null) return null;
+  const side = (text: string, t: "" | "?") => (t === "?" ? `(${text}) ?? "NaN"` : text);
+  const diff = `Decimal.sub(${side(left, lt)}, ${side(right, rt)})`;
+  if (e.op === "==" || e.op === "!=") {
+    const eq =
+      lt === "?" && rt === "?"
+        ? `((${left}) == null ? (${right}) == null : ${diff}.isZero())`
+        : `${diff}.isZero()`;
+    return e.op === "==" ? `(${eq})` : `(!${eq})`;
+  }
+  const method = JS_MONEY_ORDERING[e.op];
+  return method === undefined ? null : `${diff}.${method}(0)`;
+}
+
 /** Render a collection op to JavaScript, or `undefined` when the frontends
  *  don't render this op (`FRONTEND_RENDERED_COLLECTION_OPS` — the ONE
  *  definition, shared with the gate that refuses the rest).  The receiver is
@@ -140,6 +208,7 @@ export const unreachableExprLeaves: ExprLeaves = {
   // ops in its own engine, so it never consults either seam.
   renderIntrinsic: undefined,
   renderCollectionOp: undefined,
+  exprMoneyBinary: undefined,
   exprLiteral: unreachedExprLeaf("exprLiteral"),
   exprBinary: unreachedExprLeaf("exprBinary"),
   exprUnary: unreachedExprLeaf("exprUnary"),
