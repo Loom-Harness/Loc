@@ -1360,7 +1360,8 @@ describe("typescript generator", () => {
       const mw = files.get("auth/middleware.ts")!;
       // The principal is written onto the carrier (read by non-HTTP code)
       // as well as the Hono context (read by route handlers).
-      expect(mw).toMatch(/import \{ requestContext \} from "\.\.\/obs\/als"/);
+      // (`requestContextStore` opens a reactor's event-origin frame — ruling D1.)
+      expect(mw).toMatch(/import \{ requestContext, requestContextStore \} from "\.\.\/obs\/als"/);
       expect(mw).toMatch(
         /const ctx = requestContext\(\);\s*\n\s*if \(ctx\) ctx\.currentUser = user;/,
       );

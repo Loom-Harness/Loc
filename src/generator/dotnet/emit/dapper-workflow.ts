@@ -44,6 +44,7 @@ import {
 } from "../workflow-state-emit.js";
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
+import { outboxOriginFrame, outboxPayloadExpr } from "./outbox.js";
 
 /** A projection that persists a KEYED read-model row (the IReadModelStore /
  *  DbSchema-table users) — materialized + keyed.  Query-time / singleton
@@ -493,8 +494,11 @@ export function renderDapperOutboxDispatcher(
   ns: string,
   durableTypes: readonly string[],
   inner = "InProcessDomainEventDispatcher",
+  /** The deployable carries auth: the row records the EVENT ORIGIN (D1). */
+  carriesOrigin = false,
 ): string {
   const set = durableTypes.map((t) => `"${t}"`).join(", ");
+  const payload = outboxPayloadExpr(ns, carriesOrigin);
   return `// Auto-generated.
 using System.Collections.Generic;
 using System.Text.Json;
@@ -532,7 +536,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
             await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                new { type, payload = JsonSerializer.Serialize((object)ev) }, cancellationToken: cancellationToken));
+                new { type, payload = ${payload} }, cancellationToken: cancellationToken));
             return; // the relay delivers
         }
         await _inner.DispatchAsync(ev, cancellationToken);
@@ -564,7 +568,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 {
                     await txConn.ExecuteAsync(new CommandDefinition(
                         "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                        new { type = ev.GetType().Name, payload = JsonSerializer.Serialize((object)ev) },
+                        new { type = ev.GetType().Name, payload = ${payload} },
                         transaction: transaction, cancellationToken: cancellationToken));
                 }
             }
@@ -575,7 +579,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 {
                     await conn.ExecuteAsync(new CommandDefinition(
                         "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                        new { type = ev.GetType().Name, payload = JsonSerializer.Serialize((object)ev) },
+                        new { type = ev.GetType().Name, payload = ${payload} },
                         cancellationToken: cancellationToken));
                 }
             }
@@ -598,11 +602,12 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
 export function renderDapperOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean } = {
+  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
 ): string {
+  const originFrame = outboxOriginFrame(ns, opts.carriesOrigin ?? false, "row.payload");
   const arms = durableTypes
     .map((t) => `            "${t}" => (IDomainEvent?)JsonSerializer.Deserialize<${t}>(payload),`)
     .join("\n");
@@ -722,7 +727,7 @@ public sealed class OutboxRelayService : BackgroundService
             await using var scope = _scopes.CreateAsyncScope();${innerResolve}
             try
             {
-                var ev = Deserialize(row.type, row.payload);
+                var ev = Deserialize(row.type, row.payload);${originFrame}
                 ${dispatchBlock}
                 await using var mark = await _db.OpenConnectionAsync(cancellationToken);
                 await mark.ExecuteAsync(new CommandDefinition(

@@ -7,6 +7,7 @@ import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { renderPyType } from "./render-expr.js";
 
@@ -253,6 +254,8 @@ function renderUserModule(
     '"""',
     "",
     "import uuid",
+    "from collections.abc import Iterator, Mapping",
+    "from contextlib import contextmanager",
     "from contextvars import ContextVar",
     "from dataclasses import dataclass",
     "",
@@ -305,10 +308,12 @@ function renderUserModule(
 /** `system_principal()` — the principal an event reactor runs as (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
  *  the dev stub's `"admin"`), `is_system=True`, the tenancy claim (and, under
- *  hierarchy, the resolved `org_path`) copied from the dispatching principal —
- *  the event was raised inside its request — and `caused_by` its id (or its
- *  own `caused_by` when it is itself a reactor).  No dispatching principal (a
- *  timer tick) ⇒ an empty tenant, which matches no tenant-owned row. */
+ *  hierarchy, the resolved `org_path`) taken from the EVENT ORIGIN — the
+ *  ambient principal's `{tenant, orgPath, causedBy}` snapshot, which in-process
+ *  is the request that raised the event, and on the outbox relay / a channel
+ *  consumer the origin the row / envelope carried (`event_origin_frame`).
+ *  No origin (a timer tick) ⇒ an empty tenant, which matches no tenant-owned
+ *  row. */
 function renderPySystemPrincipal(
   user: UserIR,
   tenantClaim: string | undefined,
@@ -321,37 +326,95 @@ function renderPySystemPrincipal(
     if (f.type.kind === "primitive" && f.type.name === "string") return '""';
     return stubValueForType(f.type);
   };
-  const kwargs = user.fields.map((f) =>
-    f.name === tenantClaim
-      ? `        ${snake(f.name)}=${empty(f)} if origin is None else origin.${snake(f.name)},`
-      : `        ${snake(f.name)}=${empty(f)},`,
-  );
-  const causedBy = idField
-    ? `None if origin is None else origin.caused_by if origin.is_system else str(origin.${snake(idField.name)})`
-    : "None if origin is None else origin.caused_by";
+  // `tenant` is bound only when something reads it — an auth-less-tenancy
+  // principal never does, and ruff's F841 rejects an unused local.
+  let kwargsReadTenant = false;
+  const kwargs = user.fields.map((f) => {
+    if (f.name !== tenantClaim) return `        ${snake(f.name)}=${empty(f)},`;
+    const rebuilt = claimFromOriginString(f.type, "tenant", "python");
+    if (rebuilt !== null) kwargsReadTenant = true;
+    return rebuilt === null
+      ? `        ${snake(f.name)}=${empty(f)},`
+      : `        ${snake(f.name)}=${empty(f)} if tenant is None else ${rebuilt},`;
+  });
+  const claim = tenantClaim ? snake(tenantClaim) : undefined;
   const hierarchy = tenantClaim && readsRegistry;
   return [
     "",
     "",
-    "def system_principal() -> User:",
-    '    """The principal an event reactor runs as: no claims, `is_system`, the',
-    "    dispatching principal's tenant, `caused_by` for audit.  Gates are evaluated",
-    '    against it normally — one that admits it says `currentUser.isSystem || …`."""',
-    "    origin = current_user_var.get()",
+    "def current_event_origin() -> dict[str, str | None] | None:",
+    '    """Where an event came from (ruling D1): the ambient principal\'s tenant',
+    "    claim and materialized path, and the originating user id (`causedBy`,",
+    "    audit only).  Captured onto the outbox row and the channel envelope so",
+    "    a reactor that runs after the request is gone still runs as the system",
+    "    principal OF THAT TENANT.  A system principal propagates its own origin;",
+    '    None outside any principal (a timer tick, boot)."""',
+    "    user = current_user_var.get()",
+    "    if user is None:",
+    "        return None",
+    "    return {",
+    claim
+      ? `        "tenant": None if user.${claim} is None or str(user.${claim}) == "" else str(user.${claim}),`
+      : '        "tenant": None,',
+    claim ? '        "orgPath": user.org_path or None,' : '        "orgPath": None,',
+    idField
+      ? `        "causedBy": user.caused_by if user.is_system else str(user.${snake(idField.name)}),`
+      : '        "causedBy": user.caused_by,',
+    "    }",
+    "",
+    "",
+    "def system_principal_for(origin: Mapping[str, object] | None) -> User:",
+    '    """The system principal of an event origin: no claims, `is_system`, the',
+    "    origin's tenant, `caused_by` for audit.  Gates are evaluated against it",
+    '    normally — one that admits it says `currentUser.isSystem || …`."""',
+    ...(kwargsReadTenant || hierarchy
+      ? [
+          '    raw_tenant = None if origin is None else origin.get("tenant")',
+          "    tenant = raw_tenant if isinstance(raw_tenant, str) else None",
+        ]
+      : []),
+    '    raw_caused_by = None if origin is None else origin.get("causedBy")',
+    ...(hierarchy
+      ? [
+          '    raw_org_path = None if origin is None else origin.get("orgPath")',
+          '    org_path = raw_org_path if isinstance(raw_org_path, str) else (tenant or "")',
+        ]
+      : []),
     `    ${hierarchy ? "user =" : "return"} User(`,
     ...kwargs,
     "        is_system=True,",
-    `        caused_by=${causedBy},`,
+    "        caused_by=raw_caused_by if isinstance(raw_caused_by, str) else None,",
     "    )",
     ...(hierarchy
       ? [
-          '    object.__setattr__(user, "org_path", "" if origin is None else origin.org_path)',
-          ...(orgContext
-            ? ['    object.__setattr__(user, "org_context_path", user.org_path)']
-            : []),
+          '    object.__setattr__(user, "org_path", org_path)',
+          ...(orgContext ? ['    object.__setattr__(user, "org_context_path", org_path)'] : []),
           "    return user",
         ]
       : []),
+    "",
+    "",
+    "def system_principal() -> User:",
+    '    """The principal an event reactor binds `current_user` to — the system',
+    '    principal of the dispatching frame\'s event origin."""',
+    "    return system_principal_for(current_event_origin())",
+    "",
+    "",
+    "@contextmanager",
+    "def event_origin_frame(origin: object) -> Iterator[None]:",
+    '    """Make the system principal of `origin` the ambient principal for the',
+    "    block — the outbox relay and the channel consumer open one per delivered",
+    "    event, so the reactor (and every ambient-principal reader under it) sees",
+    "    the triggering event's tenant.  No origin ⇒ the block runs as before",
+    '    (no principal, tenant-less, fail-closed)."""',
+    "    if not isinstance(origin, Mapping):",
+    "        yield",
+    "        return",
+    "    token = current_user_var.set(system_principal_for(origin))",
+    "    try:",
+    "        yield",
+    "    finally:",
+    "        current_user_var.reset(token)",
   ];
 }
 

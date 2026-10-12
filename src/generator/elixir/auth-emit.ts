@@ -20,6 +20,7 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 
 // ---------------------------------------------------------------------------
@@ -918,12 +919,13 @@ function renderDevStubVerifier(user: UserIR | undefined): string {
 /** `system_principal/0` — the principal an event reactor runs as (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
  *  the dev stub's `"admin"`), `is_system: true`, the tenancy claim and the
- *  derived tenant paths (`org_path` / `root_org` / `org_context_path`) copied
- *  from the ORIGIN — the principal of the request that raised the event, which
- *  the auth plug stashed in the process dictionary — and `caused_by` its id
- *  (or its own `caused_by` when it is itself a reactor).  No origin (a timer
- *  tick, a LiveView-raised event) ⇒ an empty tenant, which matches no
- *  tenant-owned row. */
+ *  derived tenant paths (`org_path` / `root_org` / `org_context_path`) taken
+ *  from the EVENT ORIGIN — the ambient principal's `{tenant, orgPath,
+ *  causedBy}` snapshot: in-process the request that raised the event (the auth
+ *  plug stashed it in the process dictionary), on the outbox relay / a channel
+ *  consumer the origin the row / envelope carried (`with_event_origin/2`).
+ *  No origin (a timer tick, a LiveView-raised event) ⇒ an empty tenant, which
+ *  matches no tenant-owned row. */
 function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: string): string {
   if (!user) return "";
   const idKey = actorIdKey(user);
@@ -935,39 +937,101 @@ function renderElixirSystemPrincipal(user: UserIR | undefined, tenantClaim?: str
       : f.type.kind === "primitive" && f.type.name === "string"
         ? `""`
         : elixirStubValueForType(f.type);
-    return k === tenantKey
-      ? `      ${k}: origin_claim(origin, :${k}) || ${empty},`
-      : `      ${k}: ${empty},`;
+    if (k !== tenantKey) return `      ${k}: ${empty},`;
+    const rebuilt = claimFromOriginString(f.type, "tenant", "elixir");
+    return rebuilt === null
+      ? `      ${k}: ${empty},`
+      : `      ${k}: if(tenant in [nil, ""], do: ${empty}, else: ${rebuilt}),`;
   });
   const derived = tenantKey
     ? `
-    |> Map.merge(Map.take(origin || %{}, [:org_path, :root_org, :org_context_path]))
-    |> Map.put_new(:org_path, "")
-    |> Map.put_new(:root_org, "")`
+    |> Map.put(:org_path, org_path)
+    |> Map.put(:root_org, org_path |> String.split(".") |> hd())
+    |> Map.put(:org_context_path, org_path)`
     : "";
   return `
+  @doc """
+  Where an event came from (ruling D1): the ambient principal's tenant claim and
+  materialized path, and the originating user id (\`causedBy\`, audit only) —
+  captured onto the outbox row and the channel envelope so a reactor that runs
+  after the request is gone still runs as the system principal OF THAT TENANT.
+  A system principal propagates its own origin; nil outside any principal.
+  """
+  def current_event_origin do
+    case Process.get(:loom_current_user) do
+      nil ->
+        nil
+
+      user ->
+        %{
+          "tenant" => ${tenantKey ? `blank_to_nil(origin_claim(user, :${tenantKey}))` : "nil"},
+          "orgPath" => ${tenantKey ? "blank_to_nil(origin_claim(user, :org_path))" : "nil"},
+          "causedBy" =>
+            if(origin_claim(user, :is_system) == true,
+              do: origin_claim(user, :caused_by),
+              else: blank_to_nil(origin_claim(user, :${idKey}))
+            )
+        }
+    end
+  end
+
   @doc """
   The principal an event reactor runs as: no claims, \`is_system\`, the
   originating request's tenant, \`caused_by\` for audit.  Gates are evaluated
   against it normally — one that admits it says \`currentUser.isSystem || …\`.
   """
-  def system_principal do
-    origin = Process.get(:loom_current_user)
+  def system_principal, do: system_principal_for(current_event_origin())
+
+  @doc "The system principal of an event origin map (or nil)."
+  def system_principal_for(origin) do
+    origin = origin || %{}${
+      // `tenant` is bound only under tenancy: unbound otherwise, it is an
+      // unused-variable warning that `--warnings-as-errors` rejects.
+      tenantKey
+        ? `
+    tenant = string_or_nil(Map.get(origin, "tenant"))
+    org_path = string_or_nil(Map.get(origin, "orgPath")) || tenant || ""`
+        : ""
+    }
 
     %{
 ${entries.join("\n")}
       is_system: true,
-      caused_by:
-        cond do
-          origin == nil -> nil
-          origin_claim(origin, :is_system) == true -> origin_claim(origin, :caused_by)
-          true -> to_string(origin_claim(origin, :${idKey}))
-        end
+      caused_by: string_or_nil(Map.get(origin, "causedBy"))
     }${derived}
   end
 
-  defp origin_claim(nil, _key), do: nil
+  @doc """
+  Run \`fun\` with the system principal of \`origin\` as the ambient principal —
+  the outbox relay and the channel consumer open one per delivered event, so
+  the reactor (and every ambient-principal reader under it) sees the
+  triggering event's tenant.  No origin ⇒ \`fun\` runs as before.
+  """
+  def with_event_origin(nil, fun), do: fun.()
+
+  def with_event_origin(origin, fun) when is_map(origin) do
+    prev = Process.get(:loom_current_user)
+    Process.put(:loom_current_user, system_principal_for(origin))
+
+    try do
+      fun.()
+    after
+      if prev == nil,
+        do: Process.delete(:loom_current_user),
+        else: Process.put(:loom_current_user, prev)
+    end
+  end
+
+  def with_event_origin(_origin, fun), do: fun.()
+
   defp origin_claim(origin, key), do: Map.get(origin, key, Map.get(origin, Atom.to_string(key)))
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(v), do: to_string(v)
+
+  defp string_or_nil(v) when is_binary(v) and v != "", do: v
+  defp string_or_nil(_), do: nil
 `;
 }
 
