@@ -66,6 +66,45 @@
     },
     {
       "seq": 6,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "text": "second",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/notes",
       "status": 405,
@@ -78,7 +117,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -91,7 +130,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/notes",
       "status": 400,

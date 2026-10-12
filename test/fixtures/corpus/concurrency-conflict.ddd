@@ -54,5 +54,14 @@ system ConcurrencyConflictSystem {
     let kept = api.notes.getById(n)
     expect(kept.text).toBe("second")
     expect(kept.version).toBe(moved.version)
+
+    // The two crudish routes the case does not otherwise reach (the api-caller
+    // census wants every derived route driven): the collection read sees the
+    // one row, and the delete takes it away.
+    let listed = api.notes.all()
+    expect(listed.total).toBe(1)
+    api.notes.destroy(n)
+    let gone = api.notes.all()
+    expect(gone.total).toBe(0)
   }
 }

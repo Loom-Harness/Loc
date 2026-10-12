@@ -71,13 +71,13 @@ describe("M-T6.27 — elixir named-operation optimistic lock", () => {
     const touch = controller.slice(controller.indexOf("def touch(conn"));
     const action = touch.slice(0, touch.indexOf("\n  end"));
     expect(action).toContain("{:error, :conflict} ->");
-    expect(action).toContain("ProblemDetails.conflict_response(conn)");
+    expect(action).toContain('ProblemDetails.conflict_response(conn, "Order", id)');
   });
 
   it("a RETURNING op's result mapper carries the :conflict → 409 clause", async () => {
     const controller = get(await generateSystemFiles(SRC), "order_controller.ex");
     expect(controller).toContain(
-      "def accept_order_result(conn, {:error, :conflict}),\n    do: ProblemDetails.conflict_response(conn)",
+      'def accept_order_result(conn, {:error, :conflict}),\n    do: ProblemDetails.conflict_response(conn, "Order", conn.path_params["id"])',
     );
   });
 });
