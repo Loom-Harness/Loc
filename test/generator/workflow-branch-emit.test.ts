@@ -84,7 +84,8 @@ describe("workflow emit inside a branch (D4)", () => {
     const wf = (await build("node")).get("api/http/workflows.ts")!;
     const route = slice(wf, `workflow: "ThenEmit" });`, "app.openapi(");
     const push = route.indexOf('workflowEvents.push({ type: "Hit"');
-    const commit = route.indexOf("});\n      await __deferred.flush();");
+    // The `db.transaction(...)` callback closes (the commit) after the push.
+    const commit = route.indexOf("\n      });\n", push);
     const drain = route.indexOf("for (const ev of workflowEvents) await events.dispatch(ev);");
     // The push is inside the tx callback (it runs only when the branch did);
     // the drain is outside it, after the transaction resolved.
