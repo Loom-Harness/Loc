@@ -63,7 +63,13 @@ import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/reso
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { elixirString, escapeElixirIdent, plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirString,
+  escapeElixirIdent,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
