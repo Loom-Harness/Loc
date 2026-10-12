@@ -17,6 +17,7 @@ import {
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../ir/util/repo-finds.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -66,7 +67,8 @@ export function buildDocumentRepositoryFile(
   // is a second reason this file needs the import — exactly as on the
   // relational builder (repository-builder.ts).  Masking is a WIRE-PROJECTION
   // concern, independent of the saving shape.
-  const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
+  const repoUsesUser =
+    repositoryMethodFinds(repo).some(findUsesCurrentUser) || aggHasFieldMask(agg);
   // A principal-referencing (tenancy) capability filter evaluates the request
   // actor IN-APP over the rehydrated document: each read binds
   // `requireCurrentUser()` so the in-app predicate (`currentUser.tenantId`) can
@@ -102,8 +104,8 @@ export function buildDocumentRepositoryFile(
   // parameterless array reads whose `filter` is the projection's own `where`, so
   // `documentFindMethod` renders them exactly like a declared filtered find:
   // load the table, rehydrate, narrow in-app.
-  const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((find) =>
-    documentFindMethod(agg, find, ctx),
+  const findMethods = [...repositoryMethodFinds(repo), ...synthProjectionFinds(agg.name, ctx)].map(
+    (find) => documentFindMethod(agg, find, ctx),
   );
 
   // Capability filter (e.g. soft-delete / tenancy) applied in-app on the by-id

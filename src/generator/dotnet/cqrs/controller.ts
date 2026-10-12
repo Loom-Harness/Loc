@@ -26,7 +26,7 @@ import {
   wireType,
 } from "../dto-mapping.js";
 import type { ControllerShape } from "../emit/api.js";
-import { CS_PAGED_QUERY_PARAMS } from "../emit/common.js";
+import { CS_PAGED_QUERY_PARAMS, CS_RETRIEVAL_WINDOW_PARAMS } from "../emit/common.js";
 import { renderController } from "../emit.js";
 import { AMBIENT_CURRENT_USER, renderCsExpr } from "../render-expr.js";
 import { requestVoValidatorName } from "../validator-emit.js";
@@ -343,6 +343,7 @@ export function emitController(
             // Paged finds auto-gain 1-based page/pageSize + sort/dir query
             // params with defaults (P3b / M-T2.6), mirroring the Hono contract.
             ...(paged ? CS_PAGED_QUERY_PARAMS : []),
+            ...(find.retrieval ? CS_RETRIEVAL_WINDOW_PARAMS : []),
           ].join(", "),
           queryConstructorArgs: [
             ...find.params.map((p) =>
@@ -352,6 +353,7 @@ export function emitController(
               }),
             ),
             ...(paged ? ["page", "pageSize", "sort", "dir"] : []),
+            ...(find.retrieval ? ["offset", "limit"] : []),
           ].join(", "),
           guarded: find.requires !== undefined,
           returnShape: (paged

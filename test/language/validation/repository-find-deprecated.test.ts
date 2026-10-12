@@ -1,8 +1,8 @@
 // loom.repository-find-deprecated (read-path-architecture.md, migration slice 6).
 //
 // A wire-shaped LIST `find` on a repository (returns `T[]` or `T paged`) is a
-// bespoke list finder — deprecated in favour of `Repo.run(<Criterion>)` /
-// `retrieval`.  A WARNING (existing `.ddd` keeps parsing).  A unique-key
+// bespoke list finder — deprecated in favour of a `criterion` + `retrieval`
+// pair (served as its own GET route).  A WARNING (existing `.ddd` keeps parsing).  A unique-key
 // reconstitution find (single `T` / `T?`) is NOT a list query and stays clean.
 
 import { describe, expect, it } from "vitest";
@@ -62,16 +62,12 @@ describe("loom.repository-find-deprecated", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Interim scope (audit 2026-09-10 §D7 / G2): the warning names two
-// replacements — `Repo.run(<Criterion>)` and a named `retrieval` — and neither
-// is at parity with a `find` yet (no HTTP route, no client hook, no scaffolded
-// filter bar).  So it only fires in a context that has already adopted one of
-// them.  Every fixture above declares `criterion InRegion`, which is why they
-// still warn; a context with neither must stay silent, or the tool disagrees
-// with its own `ddd new --template crud` starter on first run.
+// Full strength: the replacement is at parity (a retrieval has its own GET
+// route, client method and filter bar), so the warning no longer waits for the
+// context to adopt a criterion or retrieval first.
 // ---------------------------------------------------------------------------
 
-describe("loom.repository-find-deprecated — only where a replacement is in reach", () => {
+describe("loom.repository-find-deprecated — fires in every context", () => {
   const NO_REPLACEMENT = `
 system S {
   subdomain Sales {
@@ -88,56 +84,16 @@ system S {
   deployable d { platform: node  contexts: [Orders]  dataSources: [s]  serves: A  port: 3000 }
 }`;
 
-  async function codes(src: string): Promise<(string | number | undefined)[]> {
-    const { diagnostics } = await parseString(src);
-    return (diagnostics as Diagnostic[]).map((d) => d.code);
-  }
-
-  it("stays silent in a context that declares neither a criterion nor a retrieval", async () => {
-    expect(await codes(NO_REPLACEMENT)).not.toContain("loom.repository-find-deprecated");
-  });
-
-  it("fires once the same context declares a retrieval", async () => {
-    const src = NO_REPLACEMENT.replace(
-      "      repository Orders for Order {",
-      `      retrieval ByRegion(rgn: string) of Order { where: this.region == rgn }
-      repository Orders for Order {`,
+  it("warns in a context that declares neither a criterion nor a retrieval", async () => {
+    const { diagnostics } = await parseString(NO_REPLACEMENT);
+    const hit = (diagnostics as Diagnostic[]).find(
+      (d) => d.code === "loom.repository-find-deprecated",
     );
-    expect(await codes(src)).toContain("loom.repository-find-deprecated");
-  });
-
-  it("fires once the same context declares a criterion", async () => {
-    const src = NO_REPLACEMENT.replace(
-      "      repository Orders for Order {",
-      `      criterion InRegion(rgn: string) of Order = region == rgn
-      repository Orders for Order {`,
-    );
-    expect(await codes(src)).toContain("loom.repository-find-deprecated");
-  });
-
-  it("is scoped per context — a sibling context's criterion does not nag this one", async () => {
-    const src = `
-system S {
-  subdomain Sales {
-    context Orders {
-      aggregate Order { code: string  region: string }
-      repository Orders for Order {
-        find byRegion(rgn: string): Order[] where this.region == rgn
-      }
-    }
-    context Catalog {
-      aggregate Item { sku: string }
-      repository Items for Item { }
-      criterion Anything of Item = sku != ""
-    }
-  }
-  api A from Sales
-  storage pg { type: postgres }
-  resource s { for: Orders, kind: state, use: pg }
-  resource s2 { for: Catalog, kind: state, use: pg }
-  deployable d { platform: node  contexts: [Orders, Catalog]  dataSources: [s, s2]  serves: A  port: 3000 }
-}`;
-    expect(await codes(src)).not.toContain("loom.repository-find-deprecated");
+    expect(hit).toBeDefined();
+    // The message names the replacement as it now ships — a retrieval is a
+    // routed read, not only an in-process `run`.
+    expect(String(hit?.message)).toContain("'criterion' + 'retrieval' pair");
+    expect(String(hit?.message)).toContain("own GET route");
   });
 });
 

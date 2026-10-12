@@ -8,6 +8,8 @@ import {
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
 } from "../../../ir/stdlib/generics.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -37,6 +39,13 @@ export const JAVA_PAGED_QUERY_PARAMS: readonly string[] = [
   `@RequestParam(defaultValue = "${PAGED_DEFAULT_PAGE_SIZE}") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${PAGED_MAX_PAGE_SIZE}) int pageSize`,
   `@RequestParam(defaultValue = "id") String sort`,
   `@RequestParam(defaultValue = "asc") String dir`,
+];
+
+/** A retrieval route's optional `?offset=&limit=` row window, as Spring
+ *  controller parameters (same enforced-and-published bound reasoning). */
+export const JAVA_RETRIEVAL_WINDOW_PARAMS: readonly string[] = [
+  `@RequestParam(required = false) @jakarta.validation.constraints.Min(0) @jakarta.validation.constraints.Max(${RETRIEVAL_MAX_OFFSET}) Integer offset`,
+  `@RequestParam(required = false) @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${RETRIEVAL_MAX_LIMIT}) Integer limit`,
 ];
 
 /** A value object's invariant refused a value (M-T5.1) — a DomainException

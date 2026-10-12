@@ -8,6 +8,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../ir/util/repo-finds.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -61,7 +62,8 @@ export function buildEventSourcedRepositoryFile(
   const streamType = agg.name;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
-  const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
+  const repoUsesUser =
+    repositoryMethodFinds(repo).some(findUsesCurrentUser) || aggHasFieldMask(agg);
 
   // Every event type that can appear in this aggregate's stream — the
   // events its appliers fold.  Looked up in the context for field types.
@@ -69,7 +71,9 @@ export function buildEventSourcedRepositoryFile(
     .map((ap) => ctx.events.find((e) => e.name === ap.event))
     .filter((e): e is EventIR => e != null);
 
-  const findMethods = (repo?.finds ?? []).map((find) => eventSourcedFindMethod(agg, find, ctx));
+  const findMethods = repositoryMethodFinds(repo).map((find) =>
+    eventSourcedFindMethod(agg, find, ctx),
+  );
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,

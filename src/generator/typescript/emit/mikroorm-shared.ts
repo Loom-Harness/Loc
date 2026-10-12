@@ -8,6 +8,7 @@
 
 import type { EnrichedAggregateIR, RepositoryIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
 
 /**
@@ -45,7 +46,7 @@ export const maskUserImport = (agg: EnrichedAggregateIR, repo?: RepositoryIR): s
   // `currentUser: User` parameter.  The event-sourced variant already spelled
   // this out (`repoUsesUser`); folding it in here keeps the other three from
   // rediscovering it one at a time.
-  (aggHasFieldMask(agg) || (repo?.finds ?? []).some(findUsesCurrentUser)) &&
+  (aggHasFieldMask(agg) || repositoryMethodFinds(repo).some(findUsesCurrentUser)) &&
   `import type { User } from "../../auth/user-types";`;
 
 /** TS type for a find parameter (id params are branded; scalars pass through). */

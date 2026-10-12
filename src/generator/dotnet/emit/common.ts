@@ -9,6 +9,8 @@ import {
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
+  RETRIEVAL_MAX_LIMIT,
+  RETRIEVAL_MAX_OFFSET,
 } from "../../../ir/stdlib/generics.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 
@@ -523,4 +525,11 @@ export const CS_PAGED_QUERY_PARAMS: readonly string[] = [
   `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
   '[FromQuery] string sort = "id"',
   '[FromQuery] string dir = "asc"',
+];
+
+/** A retrieval route's optional `?offset=&limit=` row window, as C#
+ *  action-parameter declarations (same `[Range]` reasoning as above). */
+export const CS_RETRIEVAL_WINDOW_PARAMS: readonly string[] = [
+  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(0, ${RETRIEVAL_MAX_OFFSET})] int? offset = null`,
+  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${RETRIEVAL_MAX_LIMIT})] int? limit = null`,
 ];

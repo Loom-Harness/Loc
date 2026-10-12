@@ -11,6 +11,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../ir/util/repo-finds.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
@@ -124,7 +125,8 @@ export function buildRepositoryFile(
   // the verifier hook isn't wired yet.
   // A find that threads `currentUser`, OR a `mask unless` field (whose
   // `toWireMasked` takes a `currentUser: User` param), needs the `User` import.
-  const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
+  const repoUsesUser =
+    repositoryMethodFinds(repo).some(findUsesCurrentUser) || aggHasFieldMask(agg);
   // A principal-referencing capability `filter` (`filter this.tenantId ==
   // currentUser.tenantId`) reads the ambient principal via `requireCurrentUser()`
   // inside every root read's predicate — so the repo imports that accessor
@@ -159,7 +161,9 @@ export function buildRepositoryFile(
   // (declared or via `crudish`), so plain aggregates' repos are unchanged.
   const deleteM = agg.canonicalDestroy ? deleteMethod(agg, ctx) : null;
   // Find queries — capability filter AND-ed into each read.
-  const findMs = (repo?.finds ?? []).map((find) => findQueryMethod(agg, find, ctx, filterPred));
+  const findMs = repositoryMethodFinds(repo).map((find) =>
+    findQueryMethod(agg, find, ctx, filterPred),
+  );
   const viewFindMs = [...projectionFinds].map((find) =>
     findQueryMethod(agg, find, ctx, filterPred),
   );

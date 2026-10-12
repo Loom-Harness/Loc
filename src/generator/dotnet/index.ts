@@ -42,6 +42,7 @@ import {
 } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../ir/util/repo-finds.js";
 import {
   effectiveSavingShape,
   isDocumentShaped,
@@ -1605,7 +1606,13 @@ function emitAggregate(
   // filtered, list-returning finds on the repository.  Synthesised
   // here so all the existing find emission paths (interface,
   // implementation, EF Core configuration) pick them up uniformly.
-  const repoWithViews = mergeViewsAsFinds(agg, repo, ctx);
+  // A retrieval route's find is answered by `Run<Retrieval>Async`, so the
+  // repository emitters never see it.
+  const repoWithViews = mergeViewsAsFinds(
+    agg,
+    repo && { ...repo, finds: repositoryMethodFinds(repo) },
+    ctx,
+  );
   // Context retrievals (retrieval.md) targeting this aggregate emit a
   // `Run<Name>Async` repository method.  Document-shaped aggregates skip
   // them in v1 (the in-memory document impl doesn't compose LINQ query

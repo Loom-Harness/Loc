@@ -30,7 +30,7 @@ import {
   type AggregateReadShape,
   aggHasFieldMask,
   authUserImport,
-  emittableFinds,
+  emittableMethodFinds,
   findExecutedLine,
   PY_PAGED_FIND_PARAMS,
   partWireMethod,
@@ -73,7 +73,7 @@ export function buildPyDocumentRepositoryFile(
   // `repo.delete(id)` regardless of saving shape.  No cascade rows: contained
   // parts / references live inside the jsonb document, so one row is deleted.
   const emitsDelete = !!agg.canonicalDestroy;
-  const findUser = emittableFinds(repo).some(findUsesCurrentUser);
+  const findUser = emittableMethodFinds(repo).some(findUsesCurrentUser);
   // Capability `filter` on a document aggregate (DEBT-02 tail): the jsonb blob
   // isn't per-field queryable, so the predicate is evaluated IN-APP over the
   // rehydrated instance, mirroring node's `documentCapabilityBody` `.filter`.
@@ -142,7 +142,7 @@ export function buildPyDocumentRepositoryFile(
           `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
         ]
       : [`        return [${fromDocCall("r")} for r in rows]`]),
-    ...emittableFinds(repo).flatMap((f) => ["", findMethod(agg, f, ctx, capX != null)]),
+    ...emittableMethodFinds(repo).flatMap((f) => ["", findMethod(agg, f, ctx, capX != null)]),
     // Query-time projections sourced from this aggregate synthesise the same
     // parameterless `repo.<snake(projName)>()` read the RELATIONAL builder emits
     // (`queryProjectionViews` → `viewFindMethod`).  The projection route calls it

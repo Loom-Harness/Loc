@@ -12,6 +12,7 @@ import {
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../ir/util/repo-finds.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -105,7 +106,8 @@ export function buildEmbeddedRepositoryFile(
   const idVar = `Ids.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
-  const repoUsesUser = (repo?.finds ?? []).some(findUsesCurrentUser) || aggHasFieldMask(agg);
+  const repoUsesUser =
+    repositoryMethodFinds(repo).some(findUsesCurrentUser) || aggHasFieldMask(agg);
 
   // The `drizzle-orm` import is derived from the RENDERED BODY below
   // (`drizzleImportLine`), not from a candidate walk here — see the header of
@@ -175,8 +177,8 @@ export function buildEmbeddedRepositoryFile(
   // `http/query-projections.ts` named a method the repository never declared
   // (**TS2339** on `tsc`, i.e. a project that does not compile).  Same fix, and
   // for the same reason, as the document builder's.
-  const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((find) =>
-    embeddedFindMethod(agg, find, ctx, filterPred),
+  const findMethods = [...repositoryMethodFinds(repo), ...synthProjectionFinds(agg.name, ctx)].map(
+    (find) => embeddedFindMethod(agg, find, ctx, filterPred),
   );
 
   const bodyStr = lines(

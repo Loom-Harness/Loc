@@ -492,6 +492,31 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A retrieval's read name (`lowerFirst(name)`) is already a declared find on
+  // its aggregate's repository — the two GET routes would shadow each other.
+  "loom.retrieval-route-collision": `
+system RetrievalClash {
+  subdomain S { context C {
+    aggregate Order with crudish { region: string }
+    repository Orders for Order { find byRegion(r: string): Order? }
+    retrieval ByRegion(r: string) of Order = region == r
+  } }
+}`,
+  // An event-sourced aggregate has no `run<Retrieval>` on every backend, so its
+  // retrieval is refused a GET route rather than half-served.
+  "loom.retrieval-unrouted": `
+system RetrievalUnrouted {
+  subdomain S { context C {
+    event Opened { acct: Acct id, owner: string }
+    aggregate Acct persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { acct: id, owner: owner } }
+      apply(e: Opened) { owner := e.owner }
+    }
+    repository Accts for Acct { }
+    retrieval OwnedBy(o: string) of Acct = owner == o
+  } }
+}`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
   // branch text ("items") is dropped.  The warning says so where it happens.

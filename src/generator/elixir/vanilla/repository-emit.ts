@@ -28,6 +28,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
@@ -95,9 +96,10 @@ export function emitVanillaRepositories(
 
 /** Custom finds the repository module emits — the enrichment-synthesized
  *  `all` find is dropped (the existing `list/0` CRUD seam already covers
- *  it; emitting `all/0` would collide with the defdelegate). */
+ *  it; emitting `all/0` would collide with the defdelegate), and so is a
+ *  retrieval route's find (its retrieval module's `run` answers it). */
 export function customFindsOf(repo: RepositoryIR | undefined): FindIR[] {
-  return (repo?.finds ?? []).filter((f) => f.name !== "all");
+  return repositoryMethodFinds(repo).filter((f) => f.name !== "all");
 }
 
 /** Does the find's declared return type produce ZERO-OR-ONE record

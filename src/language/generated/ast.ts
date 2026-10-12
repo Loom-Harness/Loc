@@ -3250,6 +3250,7 @@ export function isResourceTarget(item: unknown): item is ResourceTarget {
 export interface Retrieval extends langium.AstNode {
     readonly $container: BoundedContext;
     readonly $type: 'Retrieval';
+    gate?: Expression;
     loads: Array<LoadPath>;
     name: string;
     params: Array<Parameter>;
@@ -3260,6 +3261,7 @@ export interface Retrieval extends langium.AstNode {
 
 export const Retrieval = {
     $type: 'Retrieval',
+    gate: 'gate',
     loads: 'loads',
     name: 'name',
     params: 'params',
@@ -7204,6 +7206,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         Retrieval: {
             name: Retrieval.$type,
             properties: {
+                gate: {
+                    name: Retrieval.gate,
+                    optional: true
+                },
                 loads: {
                     name: Retrieval.loads,
                     defaultValue: [],

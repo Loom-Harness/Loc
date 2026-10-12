@@ -16,6 +16,7 @@ import { variantTag } from "../../../ir/stdlib/unions.js";
 import type { AggregateIR, BoundedContextIR, FindIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
+import { findGateDetail } from "../../../ir/util/read-gates.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -30,6 +31,10 @@ import {
   PAGE_PARAM_HELPER,
   PAGE_WITH_CLAUSES,
   pagingElseArm,
+  WINDOW_LIMIT_VAR,
+  WINDOW_OFFSET_VAR,
+  WINDOW_PARAM_HELPER,
+  WINDOW_WITH_CLAUSES,
 } from "./page-param.js";
 
 /** Non-`all` custom finds an aggregate's repository declares — the ones that
@@ -212,15 +217,21 @@ export function renderFindActions(
     // argument too (see `findUsesPrincipal`), so it binds + passes one exactly
     // like a principal-scoped find.  Orthogonal to the gate above — a find can
     // need the actor for its `where` while carrying no `requires` at all.
-    const findActor = principal || findUsesPrincipal(f);
+    const findActor = !f.retrieval && (principal || findUsesPrincipal(f));
+    // A retrieval route threads the actor exactly when its `run` reads one —
+    // the retrieval module's own rule (principal filter or a `currentUser`
+    // in its `where`).
+    const retrievalActor = !!f.retrieval && (principal || exprUsesCurrentUser(f.filter));
     // Bind `current_user` when the find is principal-scoped (repo arg) or its
     // gate reads the actor; `requires true` on a non-principal find binds none.
     const cuLine =
-      findActor || gateUsesUser ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
+      findActor || retrievalActor || gateUsesUser
+        ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+        : "";
     // A find that reads NO params (param-less and non-paged) binds `_params` so
     // it doesn't trip the unused-variable check; a paged find always reads
-    // `page`/`pageSize` off `params`.
-    const paramArg = f.params.length > 0 || paged ? "params" : "_params";
+    // `page`/`pageSize` off `params`, a retrieval route its row window.
+    const paramArg = f.params.length > 0 || paged || f.retrieval ? "params" : "_params";
     const argReads = [
       ...f.params.map((p) => findParamRead(p)),
       // Paged: 1-based `page`/`pageSize` query controls, defaulted + coerced to
@@ -260,7 +271,7 @@ ${cuLine}${innerBody}
 ${cuLine}    if not (${gate}) do
       ${denialResponse(
         "forbidden",
-        JSON.stringify(`Forbidden: find ${f.name}`),
+        JSON.stringify(findGateDetail(f)),
         denialOverrides(ctx),
         `${webModule}.ProblemDetails`,
       )}
@@ -269,6 +280,24 @@ ${innerBody}
     end
   end`;
     };
+
+    if (f.retrieval) {
+      // A retrieval route answers through the retrieval module's `run`
+      // (declared `sort:`), with the validated row window as its opts; a
+      // principal-scoped retrieval reads the actor off `opts[:current_user]`.
+      const runOpts = [
+        `limit: ${WINDOW_LIMIT_VAR}`,
+        `offset: ${WINDOW_OFFSET_VAR}`,
+        ...(retrievalActor ? ["current_user: current_user"] : []),
+      ].join(", ");
+      const runArgs = [...f.params.map((p) => findParamRead(p)), runOpts].join(", ");
+      const runCall = `${ctxModule}.run_${snake(f.retrieval)}_${aggSnake}(${runArgs})`;
+      const clauses = [...WINDOW_WITH_CLAUSES, `{:ok, records} <- ${runCall}`].join(",\n         ");
+      return wrap(`    with ${clauses} do
+      json(conn, Enum.map(records, &serialize/1))
+${pagingElseArm(`${webModule}.ProblemDetails`, "    ")}
+    end`);
+    }
 
     if (paged) {
       // The repository already returns the `%{items, page, pageSize, total,
@@ -356,7 +385,10 @@ ${absentArm}
   const indexPaged =
     !isAbstractBase(agg) && !!(indexAllFind && pagedReturn(indexAllFind.returnType));
   const hasPaged = indexPaged || httpFindsOf(ctx, agg).some((f) => pagedReturn(f.returnType));
-  const pageParamHelper = hasPaged ? PAGE_PARAM_HELPER : "";
+  const pageParamHelper = [
+    hasPaged ? PAGE_PARAM_HELPER : "",
+    httpFindsOf(ctx, agg).some((f) => f.retrieval) ? WINDOW_PARAM_HELPER : "",
+  ].join("");
 
   // Typed query-param coercion for the finds' OWN params — same reason
   // `page_param/3` exists (Phoenix delivers query params as strings), applied to

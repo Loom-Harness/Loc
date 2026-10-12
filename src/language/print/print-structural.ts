@@ -934,11 +934,12 @@ function printDomainServiceOperation(
   );
 }
 
-/** `retrieval <Name>[(<params>)] of <T>` — single-line `= <where>` when no
+/** `retrieval <Name>[(<params>)] of <T> [requires <gate>]` — single-line `= <where>` when no
  *  `sort`/`loads`, otherwise the `{ where: … sort: … loads: … }` block. */
 function printRetrieval(node: import("../generated/ast.js").Retrieval): string {
   const params = node.params.length > 0 ? `(${node.params.map(printParameter).join(", ")})` : "";
-  const head = `retrieval ${node.name}${params} of ${printTypeRef(node.target)}`;
+  const requires = node.gate ? ` requires ${printExpr(node.gate)}` : "";
+  const head = `retrieval ${node.name}${params} of ${printTypeRef(node.target)}${requires}`;
   if (node.sort.length === 0 && node.loads.length === 0) {
     return `${head} = ${printExpr(node.where)}`;
   }

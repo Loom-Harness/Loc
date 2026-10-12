@@ -14,7 +14,7 @@ import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../rende
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
-  declaredFinds,
+  declaredMethodFinds,
   IN_MEMORY_READ_NAMES,
   inMemoryPagedSortLines,
   inMemoryParamExpr,
@@ -49,7 +49,7 @@ export function renderJavaDocumentRepositoryImpl(
 ): string {
   const bare = plural(snake(agg.name));
   const table = schema ? `${schema}.${bare}` : bare;
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredMethodFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 
   // A document aggregate's every field lives in the `data` jsonb column, so a
   // capability `filter` is applied in-app over the rehydrated aggregate (the

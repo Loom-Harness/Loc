@@ -181,10 +181,11 @@ function crudDomain(): DomainBlock {
         project: Project id
       }
 
-      // A list read is a criterion + retrieval pair, not a bespoke repository
-      // find: a list-returning "find byX(...)" is deprecated
-      // (loom.repository-find-deprecated), and the starter used to ship one — so
-      // a fresh "ddd new" warned on its own first parse.
+      // A list read is a criterion + retrieval pair.  The retrieval is served as
+      // GET /api/tasks/tasks_in_project?p=<project id> (sorted by title, with
+      // optional ?offset= / ?limit=), gets a client method, and gives the
+      // scaffolded Tasks list a "P" filter box.  Add "requires <expr>" after
+      // "of Task" to gate it.
       criterion InProject(p: Project id) of Task = project == p
       retrieval TasksInProject(p: Project id) of Task {
         where: InProject(p)

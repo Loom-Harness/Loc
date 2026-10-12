@@ -930,6 +930,15 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** Set on the enrich-derived find that EXPOSES an author-declared
+   *  `retrieval` over HTTP (`GET /<aggs>/<snake(name)>`): the retrieval's
+   *  name.  The find is the route's contract only — params, list return,
+   *  `requires` gate, `where` as `filter` — so every route builder, OpenAPI
+   *  emitter and frontend client renders it like any find.  The repository
+   *  emits NO find method for it: the route calls the retrieval's own
+   *  `run<Retrieval>` method, which carries the declared `sort:` and takes the
+   *  route's optional `offset` / `limit` paging. */
+  retrieval?: string;
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto
@@ -1065,6 +1074,10 @@ export interface RetrievalIR {
   params: ParamIR[];
   /** The `of <T>` candidate type (entity aggregate). */
   targetType: TypeIR;
+  /** The `requires <expr>` endpoint gate on the retrieval's GET route — the
+   *  same slot, scope (bare context env: `currentUser` + constants, no row,
+   *  no params) and 403 semantics as `FindIR.requires`. */
+  requires?: ExprIR;
   /** The lowered `where` predicate, in the retrieval's own scope
    *  (parameters as `param` refs, candidate fields as `this-prop`).
    *  Composes criteria + bare predicates like a `find … where`. */
@@ -4223,8 +4236,10 @@ function workflowStmtUsesCurrentUser(s: WorkflowStmtIR): boolean {
 /** True when the find's `where` filter references `currentUser`.
  *  Such finds gain a `currentUser: User` parameter on the generated
  *  repository method, threaded through CQRS handler / Hono route call
- *  sites. */
+ *  sites.  A retrieval route's find never does: its route calls the
+ *  retrieval's `run<Retrieval>`, which binds the principal itself. */
 export function findUsesCurrentUser(find: FindIR): boolean {
+  if (find.retrieval !== undefined) return false;
   return exprUsesCurrentUser(find.filter);
 }
 

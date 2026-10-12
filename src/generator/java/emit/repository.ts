@@ -239,6 +239,12 @@ export function declaredFinds(repo: RepositoryIR | undefined): FindIR[] {
   return (repo?.finds ?? []).filter((f) => !isAutoAllFind(f));
 }
 
+/** The declared finds the repository implements as its own methods — every
+ *  declared find but a retrieval route's, which `run<Retrieval>` answers. */
+export function declaredMethodFinds(repo: RepositoryIR | undefined): FindIR[] {
+  return declaredFinds(repo).filter((f) => f.retrieval === undefined);
+}
+
 /** `find x(): T paged` — the carrier-bounded paged find. */
 export function isPagedFind(f: FindIR): boolean {
   return f.returnType.kind === "genericInstance" && f.returnType.ctor === "paged";
@@ -377,7 +383,7 @@ export function renderJavaRepositoryInterface(
   idClass: string,
 ): string {
   const imports = new Set<string>(["java.util.List", "java.util.Optional"]);
-  const findLines = declaredFinds(repo).map(
+  const findLines = declaredMethodFinds(repo).map(
     (f) => `    ${findSignature(unionFindAsOptionalTwin(f, agg.name), imports)};`,
   );
   // Two overloads per retrieval, mirroring .NET's optional call-site
@@ -404,7 +410,7 @@ export function renderJavaRepositoryInterface(
     ];
   });
   const pagedAll = isPagedAutoAll(repo);
-  const anyPaged = declaredFinds(repo).some(isPagedFind) || pagedAll;
+  const anyPaged = declaredMethodFinds(repo).some(isPagedFind) || pagedAll;
   return lines(
     `package ${ctx.domainPkg};`,
     ``,
@@ -455,7 +461,7 @@ export function renderJavaSpringDataRepository(
   idClass: string,
 ): string {
   const imports = new Set<string>(["org.springframework.data.jpa.repository.JpaRepository"]);
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredMethodFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   if (anyReified) {
@@ -689,7 +695,7 @@ export function renderJavaRepositoryImpl(
   idClass: string,
 ): string {
   const imports = new Set<string>(["java.util.List", "java.util.Optional"]);
-  const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
+  const finds = declaredMethodFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   // A reified retrieval reads via JpaSpecificationExecutor.findAll(spec), which

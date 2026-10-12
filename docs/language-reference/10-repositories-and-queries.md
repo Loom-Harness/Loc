@@ -2,7 +2,7 @@
 
 Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*` (incl. `loom.retrieval-route-collision`, `loom.retrieval-unrouted`), `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -93,7 +93,7 @@ The comparison binds **one column against one value** (a parameter, literal, or 
 
 ### List finds are deprecated
 
-`pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — pass a criterion to 'run' (`Repo.run(<Criterion>(args))`) or name a 'retrieval' instead of accreting a bespoke list finder on the repository." Every find returning `T[]` or `T paged` gets it — but only inside a context that already declares a `criterion` or a `retrieval`, since the replacement is not yet at route parity and a model that has adopted neither has nothing equal-powered to migrate to ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine. The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
+`pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — declare it as a 'criterion' + 'retrieval' pair instead of accreting a bespoke list finder on the repository: a retrieval is served as its own GET route (same query params, 'requires' gate, client method and scaffold filter bar) and is callable in-process as Repo.run(<Retrieval>(args))." Every find returning `T[]` or `T paged` gets it ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)); the replacement is at parity — §[The GET route](#the-get-route). A unique-key reconstitution find returning `T` / `T?` stays fine. The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
 
 ## The queryable subset
 
@@ -327,6 +327,63 @@ def run(min, opts \\ []) do
 end
 ```
 ::: end
+
+### The GET route
+
+Every retrieval over a repository-backed, single-table relational aggregate is also served over HTTP — `GET /api/<aggs>/<snake name>`, with the retrieval's params as query params plus an optional `?offset=` (0–499 999 500) / `?limit=` (1–500) window, answering the aggregate list in the declared `sort:` order. It is answered by the same `run<Name>` method, so it is the in-process read and the HTTP read at once; the generated frontend API clients get a method for it (`useBigActiveOrder` on React), the `scaffold` list page grows a filter box per param of a parameterised retrieval, and a page body can call it as `<api>.<Agg>.<readName>(…)`, where the read name is the retrieval name lower-camel-cased (`bigActive`).
+
+An optional `requires <expr>` after `of <Agg>` gates the route exactly like `find … requires` — evaluated before the read in the bare context scope (`currentUser` + constants), a 403 on failure, and under `enforcement: denyByDefault` an ungated retrieval route is `loom.default-deny-ungated`:
+
+```ddd
+retrieval DoctorAgenda(d: Doctor id) of Appointment requires currentUser.isStaff {
+  where: ForDoctor(d)
+  sort:  [startsAt asc]
+}
+```
+
+::: tabs backend
+== node
+```ts
+const DoctorAgendaQuery = z.object({
+  d: z.string().uuid(),
+  offset: z.coerce.number().int().min(0).max(499999500).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+}).openapi("DoctorAgendaQuery");
+// app.openapi(createRoute({ method: "get", path: "/doctor_agenda", … }), async (c) => {
+    if (!(currentUser.isStaff)) throw new ForbiddenError("Forbidden: find doctorAgenda");
+    const result = await repo.runDoctorAgenda(Ids.DoctorId(params.d), { offset: params.offset, limit: params.limit });
+```
+== dotnet
+```csharp
+[HttpGet("doctor_agenda")]
+public async Task<ActionResult<IReadOnlyList<AppointmentResponse>>> DoctorAgendaAppointment([FromQuery] [BindRequired] Guid d,
+    [FromQuery] [Range(0, 499999500)] int? offset = null, [FromQuery] [Range(1, 500)] int? limit = null)
+// handler: var domain = await _repo.RunDoctorAgendaAsync(new DoctorId(query.D), (query.Offset, query.Limit), cancellationToken: cancellationToken);
+```
+== python
+```python
+@router.get("/doctor_agenda", response_model=AppointmentListResponse, operation_id="doctorAgendaAppointment", …)
+async def doctor_agenda_appointments(d: …, session: SessionDep, offset: Annotated[int | None, Query(ge=0, le=499999500)] = None, limit: Annotated[int | None, Query(ge=1, le=500)] = None):
+    return [repo.to_wire(r) for r in await repo.run_doctor_agenda(d, offset, limit)]
+```
+== java
+```java
+@GetMapping("/doctor_agenda")
+public List<AppointmentResponse> doctorAgendaAppointment(@RequestParam UUID d, @RequestParam(required = false) @Min(0) @Max(499999500) Integer offset, …) {
+    return service.doctorAgenda(new DoctorId(d), offset, limit);   // → repository.runDoctorAgenda(d, offset, limit)
+}
+```
+== elixir
+```elixir
+def doctor_agenda(conn, params) do
+  with {:ok, offset_arg} <- window_param(params, "offset", 0, 499999500),
+       {:ok, limit_arg} <- window_param(params, "limit", 1, 500),
+       {:ok, records} <- Scheduling.run_doctor_agenda_appointment(params["d"], limit: limit_arg, offset: offset_arg) do
+    json(conn, Enum.map(records, &serialize/1))
+```
+::: end
+
+An event-sourced, `document`/`embedded`-shaped or inheritance-subtype aggregate gets no retrieval route (`loom.retrieval-unrouted`, a warning); a read name that is already a declared find, a public operation or a standard read (`all`, `byId`, `history`, `prepare`, `create`, `update`, `delete`) on the aggregate is refused (`loom.retrieval-route-collision`). The route returns a windowed list, not the `paged` envelope — for a `total`/`totalPages` page, use the paged `queryHandler` below.
 
 `Repo.run(retrieval { where: <Criterion> sort: […] }, page?)` is the anonymous, call-site twin accepted from workflow / handler bodies (`RetrievalLiteral` in the grammar) — **its** `where:` must be a criterion reference in this release. See [`../workflow.md`](../workflow.md) and [`../criterion.md`](../criterion.md).
 

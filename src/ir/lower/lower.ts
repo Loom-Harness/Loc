@@ -1612,10 +1612,15 @@ function lowerRetrieval(r: Retrieval, env: Env): RetrievalIR {
     r.loads.length > 0
       ? { kind: "explicit", paths: r.loads.map(lowerLoadPath) }
       : { kind: "whole" };
+  // The `requires` gate is lowered in the bare context env — the find-gate
+  // rule: it decides endpoint access before any row exists, so `currentUser`
+  // resolves but neither the candidate's fields nor the params do.
+  const gateEnv: Env = { ...env, locals: new Map() };
   return {
     name: r.name,
     params: r.params.map((p) => ({ name: p.name, type: lowerType(p.type) })),
     targetType,
+    ...(r.gate ? { requires: lowerExpr(r.gate, gateEnv) } : {}),
     where: lowerExpr(r.where, bodyEnv),
     criterionRef: criterionRefOf(r.where, bodyEnv),
     sort,

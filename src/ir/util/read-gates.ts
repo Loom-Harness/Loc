@@ -46,3 +46,13 @@ export function listReadFind(repo: RepositoryIR | undefined): FindIR | undefined
 export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
   return listReadFind(repo)?.requires;
 }
+
+/** The 403 `detail` a gated read's route answers with — the source label in
+ *  the `Forbidden: <kind> <Name>` form every gated read uses (`projection X`,
+ *  an operation's `requires …` source).  A retrieval route names the
+ *  retrieval the author declared, not its derived read name. */
+export function findGateDetail(find: FindIR): string {
+  return find.retrieval !== undefined
+    ? `Forbidden: retrieval ${find.retrieval}`
+    : `Forbidden: find ${find.name}`;
+}

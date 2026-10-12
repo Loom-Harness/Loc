@@ -21,6 +21,8 @@ import type { AstNode } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { aggregateServesHistory } from "../../util/audit-ast.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { retrievalReadName } from "../../util/retrieval-route.js";
+import { routedRetrievalsOf } from "../../util/retrieval-route-ast.js";
 import {
   type Aggregate,
   type DerivedProp,
@@ -325,6 +327,8 @@ export function listValidApiOperations(agg: Aggregate): string[] {
       for (const f of m.finds ?? []) ops.add(f.name);
     }
   }
+  // Each routed `retrieval` over the aggregate is a read under its own name.
+  for (const r of routedRetrievalsOf(agg)) ops.add(retrievalReadName(r.name));
   return [...ops].sort();
 }
 

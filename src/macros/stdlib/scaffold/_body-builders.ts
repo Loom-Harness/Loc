@@ -32,6 +32,8 @@ import { CAPABILITIES_TAG } from "../../../util/capability-tag.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { PRINCIPAL_TYPE_NAME } from "../../../util/principal.js";
 import { PROVENANCE_VALUE_FIELD } from "../../../util/provenance-carrier.js";
+import { retrievalReadName } from "../../../util/retrieval-route.js";
+import { routedRetrievalsOf } from "../../../util/retrieval-route-ast.js";
 import {
   binaryExpr,
   boolLit,
@@ -1178,17 +1180,19 @@ export interface FilterParam {
   type: TypeRef;
 }
 
-/** A repository `find` the list filter-bar turns into an input arm — its name
- *  and the params the inputs bind to. */
+/** A list read the filter bar turns into an input arm — a repository `find`
+ *  or a routed `retrieval` (by its read name) — and the params the inputs
+ *  bind to. */
 export interface FilterFind {
   name: string;
   params: readonly FilterParam[];
 }
 
-/** Resolve a list's filter finds from the aggregate's repository in the same
- *  context: each `find` (excluding the synthetic `all`) whose return is an
- *  unwrapped list and whose params are ALL renderable by `filterParamKind`
- *  (non-array, non-optional, and one of the kinds tabulated there).
+/** Resolve a list's filter reads in the same context: each repository `find`
+ *  (excluding the synthetic `all`) whose return is an unwrapped list, then each
+ *  parameterised routed `retrieval` — every one whose params are ALL renderable
+ *  by `filterParamKind` (non-array, non-optional, and one of the kinds
+ *  tabulated there).
  *  Filters the aggregate's repository finds to the bar-eligible ones — the repository
  *  is a sibling `ContextMember`, so it's reachable from the aggregate's AST
  *  without lowering. */
@@ -1235,6 +1239,21 @@ export function filterFindsForAggregate(agg: Aggregate): FilterFind[] {
         })),
       });
     }
+  }
+  // A parameterised `retrieval` served as a GET route is a list read under its
+  // read name, on the same all-or-nothing param rule.
+  for (const r of routedRetrievalsOf(agg)) {
+    if (r.params.length === 0) continue;
+    const kinds = r.params.map((p) => filterParamKind(p.type));
+    if (kinds.some((k) => k === null)) continue;
+    out.push({
+      name: retrievalReadName(r.name),
+      params: r.params.map((p, i) => ({
+        name: String(p.name),
+        kind: kinds[i]!,
+        type: cloneTypeRef(p.type),
+      })),
+    });
   }
   return out;
 }

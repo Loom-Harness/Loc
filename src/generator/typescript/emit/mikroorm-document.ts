@@ -14,6 +14,7 @@ import {
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { repositoryMethodFinds } from "../../../ir/util/repo-finds.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
@@ -81,7 +82,8 @@ export function renderMikroDocumentRepository(
   // deserialises every row), narrowed first by the capability filter then by
   // the find's own predicate — same selector shape as the drizzle document
   // builder's `documentFindMethod`.
-  const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((f) => {
+  const methodFinds = repositoryMethodFinds(repo);
+  const findMethods = [...methodFinds, ...synthProjectionFinds(agg.name, ctx)].map((f) => {
     // A find whose own `where` names `currentUser` gains a trailing
     // `currentUser: User` parameter — the same contract the drizzle repository
     // has, and the one every call site already assumes: the Hono route emits

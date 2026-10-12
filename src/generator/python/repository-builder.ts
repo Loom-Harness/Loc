@@ -103,6 +103,12 @@ export function emittableFinds(repo: RepositoryIR | undefined): FindIR[] {
   return (repo?.finds ?? []).filter((f) => f.name !== "all");
 }
 
+/** The named finds a repository implements as its own methods — every
+ *  emittable find but a retrieval route's, which `run_<retrieval>` answers. */
+export function emittableMethodFinds(repo: RepositoryIR | undefined): FindIR[] {
+  return emittableFinds(repo).filter((f) => f.retrieval === undefined);
+}
+
 /** The `from app.auth.user import …` line for a repository module, or null when
  *  it references no symbol.  `User` is needed for a per-find currentUser param;
  *  `require_current_user` is the ambient accessor a principal capability filter
@@ -357,7 +363,10 @@ export function buildPyRepositoryFile(
     ...writeGuardMethod(agg, root, writePred),
     "",
     ...allMethodLines,
-    ...emittableFinds(repo).flatMap((f) => ["", relationalFindMethod(agg, f, ctx, filterPred)]),
+    ...emittableMethodFinds(repo).flatMap((f) => [
+      "",
+      relationalFindMethod(agg, f, ctx, filterPred),
+    ]),
     "",
     `    async def find_many_by_ids(self, ids: list[${agg.name}Id]) -> list[${agg.name}]:`,
     `        rows = (await self._session.execute(select(${root})${rootWhere(
@@ -488,7 +497,7 @@ export function buildPyRepositoryFile(
     // capability filter weaves the ambient accessor into every root read
     // (DEBT-02).  One sorted import covers whichever (or both) apply.
     authUserImport(
-      emittableFinds(repo).some(findUsesCurrentUser),
+      emittableMethodFinds(repo).some(findUsesCurrentUser),
       // Gate the `require_current_user` accessor import on ACTUAL principal usage,
       // not mere `writeScopeFilter` presence: a `deny write` carve-out
       // sets an always-false write scope that references NO principal, so an

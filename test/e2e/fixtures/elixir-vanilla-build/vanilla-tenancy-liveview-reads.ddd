@@ -1,0 +1,55 @@
+// The LiveView twin of `vanilla-tenancy.ddd`: every scaffolded LiveView read
+// over a principal-filtered aggregate — the paged list, the by-id detail, the
+// declared find and the retrieval behind the list's filter bar — threads the
+// socket's `current_user` into its context function (positionally, or as the
+// retrieval's `current_user:` opt), so `mix compile --warnings-as-errors`
+// checks every call against the arity the context module declares.
+system TenancyShopLive {
+  user {
+    id: string
+    tenantId: string
+  }
+
+  auth {
+    enforcement: opt
+    provider: keycloak
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+    claims: { tenantId: "tenant_id" }
+  }
+
+  subdomain Core {
+    context Ledger {
+      aggregate Account with crudish {
+        tenantId: string
+        balance: int
+        // Always-on row scoping: every read is constrained to the principal's tenant.
+        filter this.tenantId == currentUser.tenantId
+      }
+      // A custom find exercises the threaded-actor find path.
+      repository Accounts for Account {
+        find byMinBalance(min: int): Account[] where this.balance >= min
+      }
+
+      // A retrieval (workflow-internal; fail-closed when no actor is threaded).
+      retrieval RichAccounts(min: int) of Account { where: balance >= min  sort: [balance desc] }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary, index: [Account.tenantId, Account.balance] }
+
+  api LedgerApi from Core
+  ui Web with scaffold(subdomains: [Core]) { }
+  deployable api {
+    platform: elixir
+    contexts: [Ledger]
+    serves: LedgerApi
+    dataSources: [ledgerState]
+    port: 4000
+    auth: required
+    ui: Web
+  }
+}

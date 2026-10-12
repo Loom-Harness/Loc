@@ -34,6 +34,8 @@ import {
   PRINCIPAL_ROOT_ORG,
 } from "../../util/principal.js";
 import { findVerb } from "../../util/resource-verbs.js";
+import { retrievalReadName } from "../../util/retrieval-route.js";
+import { routedRetrievalsOf } from "../../util/retrieval-route-ast.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
@@ -976,6 +978,9 @@ export class Elaborator {
         if (verb === "byId") return row;
         const find = repo?.finds.find((f) => f.name === verb);
         if (find) return this.resolveType(find.returnType, scope);
+        // A routed retrieval's read answers the aggregate list.
+        if (routedRetrievalsOf(agg).some((r) => retrievalReadName(r.name) === verb))
+          return Ty.array(row);
         // An operation invoked through the handle (`match await
         // Sales.Order.placeOrder()`) answers its declared return type — the
         // `or`-union a variant match discriminates; a void one, nothing.
@@ -1047,6 +1052,9 @@ export class Elaborator {
         for (const f of repo?.finds ?? []) {
           if (opId === camelId(opFind(agg.name, f.name)))
             return this.resolveType(f.returnType, scope);
+        }
+        for (const r of routedRetrievalsOf(agg)) {
+          if (opId === camelId(opFind(agg.name, retrievalReadName(r.name)))) return Ty.array(row);
         }
         if (opId === camelId(opList(agg.name))) {
           // The implicit `all` is paged by default, except for the shapes the

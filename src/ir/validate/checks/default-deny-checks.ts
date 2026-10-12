@@ -258,15 +258,27 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
           origin: c.origin,
         });
       }
-      // Repository finds: each author-declared named find is its own GET route
-      // and carries the same optional `requires <expr>` gate.  The list read
+      // Repository finds: each author-declared named find — and each routed
+      // retrieval's derived find — is its own GET route and carries the same
+      // optional `requires <expr>` gate.  The list read
       // (`find all`, injected or declared) is reported by the
       // `loom.default-deny-list-ungated` warning above, not here.  Internal
       // synthesized finds (paged-run helpers) are never their own route.
       for (const repo of c.repositories) {
         for (const find of repo.finds) {
           if (find.synthesized || find.name === "all") continue;
-          if (!find.requires) {
+          if (!find.requires && find.retrieval) {
+            diags.push({
+              severity: "error",
+              code: "loom.default-deny-ungated",
+              message: diagMessage(
+                "loom.default-deny-ungated#denybydefault-retrieval-is-reachable",
+                { name: find.retrieval, aggName: repo.aggregateName },
+              ),
+              source: `retrieval/${find.retrieval}`,
+              origin: repo.origin,
+            });
+          } else if (!find.requires) {
             diags.push({
               severity: "error",
               code: "loom.default-deny-ungated",

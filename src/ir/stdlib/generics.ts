@@ -210,6 +210,13 @@ export const PAGED_MAX_PAGE_SIZE = 500;
  *  query key and a duplicate parameter in every generated repository / service
  *  / controller signature. */
 export const PAGED_QUERY_PARAMS: readonly string[] = ["page", "pageSize", "sort", "dir"];
+/** A `retrieval` route's optional row window, `?offset=&limit=` — the HTTP
+ *  face of `Repo.run(R(args), page)`.  Both are optional (absent = the whole
+ *  result, in the retrieval's declared `sort:` order); declared bounds keep
+ *  an in-contract value inside a 32-bit int on every backend, by the same
+ *  reasoning as the paged pair above. */
+export const RETRIEVAL_MAX_OFFSET = (PAGED_MAX_PAGE - 1) * PAGED_MAX_PAGE_SIZE;
+export const RETRIEVAL_MAX_LIMIT = PAGED_MAX_PAGE_SIZE;
 
 /** If `t` is a top-level `envelope(arg)` instantiation, return its carried
  *  `arg`; otherwise null.
