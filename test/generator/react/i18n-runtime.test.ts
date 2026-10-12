@@ -120,7 +120,9 @@ describe("React i18n runtime", () => {
     const files = await generateSystemFiles(SYSTEM(`Heading { "Hi" }`));
     const i18n = [...files].find(([p]) => p.endsWith("src/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain("new IntlMessageFormat(message, locale).format(values)");
+    expect(i18n).toContain(
+      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
+    );
     // `values` widened to admit Date (for `, date`) + boolean alongside string/number.
     expect(i18n).toMatch(/values\?: Record<string, string \| number \| boolean \| Date>/);
     // No leftover regex shim.

@@ -35,8 +35,9 @@ export function wireCalendarDateImport(out: Map<string, string>): void {
 /** Splice the import in at the head of the module's import block — the first
  *  top-level `import` / `from` line that is not `from __future__` (which must
  *  stay the first statement) — so it lands after any module docstring, however
- *  many lines that spans.  A module with no import block gets it after a
- *  closed leading docstring, else at the very top. */
+ *  many lines that spans.  A module with no other import gets it after its
+ *  `from __future__` line, else after a closed leading docstring, else at the
+ *  very top. */
 function insertImport(content: string): string {
   const lines = content.split("\n");
   const first = lines.findIndex(
@@ -44,6 +45,11 @@ function insertImport(content: string): string {
   );
   if (first >= 0) {
     lines.splice(first, 0, IMPORT_LINE);
+    return lines.join("\n");
+  }
+  const future = lines.findIndex((l) => l.startsWith("from __future__"));
+  if (future >= 0) {
+    lines.splice(future + 1, 0, IMPORT_LINE);
     return lines.join("\n");
   }
   let after = 0;

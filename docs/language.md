@@ -50,7 +50,9 @@ expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
 `return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
 `extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
 `true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`,
+type names `int long decimal money string bool datetime guid json File`
+(`date` is a primitive type name too, but a SOFT one — a field may still be
+named `date`),
 plus the system-level heads — `system`, `subdomain`, `deployable`,
 `storage`, `api`, `ui`, `component`, `theme`, `user`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
@@ -731,7 +733,7 @@ BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | Name
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
 SelfType      = 'Self'                         // the host aggregate, inside a capability
-PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File'
+PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
 // `money("10.50")` — the precise-decimal literal — has no rule of its own: it
@@ -1038,7 +1040,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   `{at, date}` / `{at, time}`, `{n, plural, one {# item} other {# items}}`,
   `{n, selectordinal, …}`, `{kind, select, a {…} other {…}}`.  An unknown
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
-  type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
+  type (a `date` on anything but a `datetime` or `date`, a `time` on a
+  non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
@@ -1120,6 +1123,13 @@ width per unit — no calendar-relative `months` / `years`):
 - `duration ± duration → duration`, `duration × int → duration`
 - everything else (`duration ÷ x`, `datetime × …`, mixing with a
   non-`int` numeric) is rejected.
+
+A calendar `date` stays outside this algebra: two dates compare, and
+`a.daysUntil(b)` / `.year()` / `.month()` / `.day()` / `datetime.toDate()` /
+`today()` cover the rest — see
+[the type-system chapter](language-reference/04-type-system.md#date--a-calendar-day).
+There is no `time` (time-of-day) type, by decision: without a date it has no
+ordering across a daylight-saving change.
 
 ```ddd
 aggregate Invoice {
