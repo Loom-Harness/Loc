@@ -78,7 +78,11 @@ function emittedToUser(oidc: string): (payload: Record<string, unknown>) => unkn
     oidc.indexOf("const REQUIRED_CLAIMS"),
     oidc.indexOf("];", oidc.indexOf("const REQUIRED_CLAIMS")) + 2,
   );
-  const src = `type JWTPayload = Record<string, unknown>; type UserClaims = unknown;\n${pick("function claim(")}\n${required}\n${pick("function toUser(")}\nreturn toUser;`;
+  // The identifier-claim decoders are emitted only when a claim needs one.
+  const formats = oidc.includes("const CLAIM_FORMATS")
+    ? `${oidc.slice(oidc.indexOf("const CLAIM_FORMATS"), oidc.indexOf("type ClaimFormat"))}type ClaimFormat = keyof typeof CLAIM_FORMATS;\n${pick("function claimAs(")}\n${pick("function claimList(")}\n`
+    : "";
+  const src = `type JWTPayload = Record<string, unknown>; type UserClaims = unknown;\n${pick("function claim(")}\n${formats}${required}\n${pick("function toUser(")}\nreturn toUser;`;
   const js = ts.transpileModule(src, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -132,12 +136,48 @@ describe("hono OIDC turnkey auth — codegen", () => {
     expect(user.customerId).toBeNull();
     // The gate the emitter writes for `requires currentUser.agentId != null`.
     expect(user.agentId !== null).toBe(false);
-    const agent = toUser({ ...base, agentId: "ag-1", customerId: "c-1" }) as Record<
-      string,
-      unknown
-    >;
+    const agent = toUser({
+      ...base,
+      agentId: "ag-1",
+      customerId: "00000000-0000-0000-0000-0000000000c1",
+    }) as Record<string, unknown>;
     expect(agent.agentId).toBe("ag-1");
-    expect(agent.customerId).toBe("c-1");
+    expect(agent.customerId).toBe("00000000-0000-0000-0000-0000000000c1");
+  });
+
+  // An identifier claim is checked against its wire format: a value that is
+  // present but not a UUID is non-null, so passed through raw it would satisfy
+  // `requires currentUser.x != null` and fail the first query that uses it.
+  it("a malformed id claim is null when optional, rejects the token when required, and is dropped from a list", async () => {
+    const files = await generateSystemFiles(
+      OIDC.replace(
+        "user { id: string role: string email: string permissions: string[] }",
+        "user { id: string role: string email: string permissions: string[] owner: Ticket id watched: Ticket id[] customerId: Ticket id? }",
+      ),
+    );
+    const toUser = emittedToUser(findFile(files, /auth\/oidc\.ts$/));
+    const base = {
+      sub: "u1",
+      realm_access: { roles: "agent" },
+      email: "a@b.c",
+      owner: "00000000-0000-0000-0000-0000000000c1",
+    };
+    const ok = toUser({
+      ...base,
+      customerId: "c-1",
+      watched: ["00000000-0000-0000-0000-0000000000c1", "nope", 7],
+    }) as Record<string, unknown>;
+    expect(ok.customerId).toBeNull();
+    expect(ok.watched).toEqual(["00000000-0000-0000-0000-0000000000c1"]);
+    expect(
+      toUser({ ...base, customerId: "00000000-0000-0000-0000-0000000000c1\n" }) as Record<
+        string,
+        unknown
+      >,
+    ).toMatchObject({ customerId: null });
+    expect(toUser({ ...base, owner: "demo-owner" }), "required id malformed").toBeNull();
+    expect(toUser({ ...base, owner: undefined }), "required id absent").toBeNull();
+    expect((toUser(base) as Record<string, unknown>).watched).toEqual([]);
   });
 
   it("a verified token missing a REQUIRED scalar claim is rejected; a missing required array is not", async () => {
