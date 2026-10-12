@@ -1368,8 +1368,10 @@ describe(".NET generator", () => {
       expect(verifier).toContain("ConfigurationManager<OpenIdConnectConfiguration>");
       expect(verifier).toContain("ValidateTokenAsync");
       // explicit claim mapping wins; id defaults to `sub`; dotted paths resolve
-      expect(verifier).toContain('Role: ClaimString(payload, "realm_access.roles")');
-      expect(verifier).toContain('Id: ClaimString(payload, "sub")');
+      expect(verifier).toContain(
+        'if (ClaimString(payload, "realm_access.roles") is not { } claimRole)',
+      );
+      expect(verifier).toContain('if (ClaimString(payload, "sub") is not { } claimId)');
       expect(verifier).toContain('Permissions: ClaimStringList(payload, "permissions")');
       // The verifier also reads the session cookie issued by the handshake.
       expect(verifier).toContain('request.Cookies["session"]');

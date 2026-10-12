@@ -13,7 +13,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
-import { claimPathFor } from "../_auth/claim-types.js";
+import { claimPathFor, requiredClaimPaths } from "../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   devClaimFields,
@@ -423,7 +423,9 @@ ${indentElixir(authedTail, 4)}
     : authedTail;
   // OIDC verifier vs dev stub.  The OIDC path additionally needs the JWKS
   // discovery/verification helpers; the dev stub needs none.
-  const verifierSection = auth ? renderOidcVerifier(auth, webModule) : renderDevStubVerifier(user);
+  const verifierSection = auth
+    ? renderOidcVerifier(auth, webModule, user)
+    : renderDevStubVerifier(user);
   const verifierDoc = auth
     ? "validates the inbound JWT via joken + joken_jwks against the issuer's JWKS"
     : "is a permissive DEV STUB — replace verify_token/1 for production";
@@ -663,7 +665,7 @@ function indentElixir(block: string, n: number): string {
 // compile-time env into the release).
 // ---------------------------------------------------------------------------
 
-function renderOidcVerifier(auth: AuthIR, webModule: string): string {
+function renderOidcVerifier(auth: AuthIR, webModule: string, user: UserIR | undefined): string {
   // Audience parity: the token's `aud` must CARRY the configured audience —
   // the other four backends validate it, and a verifier that skips the check
   // accepts tokens the rest of the system rejects.  The value check rides
@@ -680,6 +682,24 @@ function renderOidcVerifier(auth: AuthIR, webModule: string): string {
   // `System.get_env("OIDC_AUDIENCE", "")`, i.e. unset is still the no-check
   // default, so nothing changes for a stack that sets nothing.
   const audiencePresence = ` and aud_present?(claims)`;
+  // REQUIRED user-claim presence (node's REQUIRED_CLAIMS): a verified token
+  // missing a required scalar `user { … }` claim does not describe a
+  // principal — reject it (→ 401) rather than build a user whose required
+  // field is nil.
+  const requiredPaths = requiredClaimPaths(user?.fields ?? [], auth);
+  const requiredUserClaims = requiredPaths.length > 0 ? ` and required_user_claims?(claims)` : "";
+  const requiredUserClaimsDef =
+    requiredPaths.length > 0
+      ? `
+  # The claim paths of every REQUIRED scalar \`user { … }\` field — a verified
+  # token missing one of these does not describe a principal (→ 401).
+  @required_user_claims ${"["}${requiredPaths.map((p) => JSON.stringify(p)).join(", ")}${"]"}
+
+  defp required_user_claims?(claims) do
+    Enum.all?(@required_user_claims, &(get_claim(claims, &1) != nil))
+  end
+`
+      : "";
   const audPresentDef = `
   # Enforce aud PRESENCE only when an audience is actually configured — an
   # empty runtime \`audience()\` disables the aud check (the escape hatch the
@@ -740,11 +760,11 @@ ${audienceFn}
   # required-claim presence the other backends do — a token missing iss / exp
   # (or aud when an audience is configured) is rejected, not silently accepted.
   defp require_claims(claims) do
-    if is_binary(Map.get(claims, "iss")) and is_integer(Map.get(claims, "exp"))${audiencePresence},
+    if is_binary(Map.get(claims, "iss")) and is_integer(Map.get(claims, "exp"))${audiencePresence}${requiredUserClaims},
       do: :ok,
       else: :error
   end
-${audPresentDef}
+${audPresentDef}${requiredUserClaimsDef}
   # Reads a dotted claim path off the (string-keyed) claims map; nil when any
   # segment is missing.  Only the OIDC build_user maps via paths, so this lives
   # in the OIDC section (the dev stub reads flat claim keys directly).

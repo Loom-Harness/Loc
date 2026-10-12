@@ -857,10 +857,28 @@ function javaClaimRead(f: FieldIR, auth: AuthIR): JavaClaimRead {
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return plain(`claimStringList(payload, ${path})`);
   }
+  const rejectUnless = (boxed: string, read: string, typed: boolean): JavaClaimRead => {
+    const local = `claim${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [
+        `${boxed} ${local} = ${read};`,
+        `if (${local} == null) {`,
+        `    CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${reason});`,
+        `    return null;`,
+        `}`,
+      ],
+      arg: local,
+      typed,
+    };
+  };
   if (t.kind === "primitive" && t.name === "string") {
-    return plain(
-      optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`,
-    );
+    // A REQUIRED string claim absent from the token rejects it, exactly like a
+    // required typed claim below (node's `REQUIRED_CLAIMS`).  It used to read
+    // `claimStringOrEmpty`, so a token without `team` authenticated as a
+    // principal whose team was "" — a value no IdP ever minted.
+    const read = `claimString(payload, ${path})`;
+    return optional ? plain(read) : rejectUnless("String", read, false);
   }
   // D16: every other declared claim type used to be the stub value — an id /
   // guid / int / bool / datetime claim was null (or the zero id) for EVERY
@@ -880,19 +898,7 @@ function javaClaimRead(f: FieldIR, auth: AuthIR): JavaClaimRead {
     // is non-null, and `requires currentUser.x != null` would pass for every
     // token.
     if (optional) return { pre: [], arg: read, typed: true };
-    const local = `claim${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
-    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
-    return {
-      pre: [
-        `${dec.boxed} ${local} = ${read};`,
-        `if (${local} == null) {`,
-        `    CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${reason});`,
-        `    return null;`,
-        `}`,
-      ],
-      arg: local,
-      typed: true,
-    };
+    return rejectUnless(dec.boxed, read, true);
   }
   // An unmapped OPTIONAL claim is null — never the stub default: the zero id
   // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
@@ -1188,11 +1194,6 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        return value == null ? null : String.valueOf(value);`,
     `    }`,
     ``,
-    `    private static String claimStringOrEmpty(Map<String, Object> payload, String path) {`,
-    `        String value = claimString(payload, path);`,
-    `        return value == null ? "" : value;`,
-    `    }`,
-    ``,
     `    private static List<String> claimStringList(Map<String, Object> payload, String path) {`,
     `        List<String> out = new ArrayList<>();`,
     `        Object value = navigate(payload, path);`,
@@ -1322,13 +1323,31 @@ import org.springframework.http.ResponseEntity;`,
     // tenancy members (`orgPath()` / `rootOrg()`) are per-request scoping
     // state, not part of the declared principal, so they stay off the wire.
     `        var body = new java.util.LinkedHashMap<String, Object>();`,
-    ...userFields.map((f) => `        body.put("${f.name}", user.${jid(f.name)}());`),
+    ...userFields.map((f) => `        body.put("${f.name}", ${meClaimValue(f)});`),
     `        return ResponseEntity.ok(body);`,
     `    }`,
     ...handshake,
     `}`,
     ``,
   );
+}
+
+/** One `/auth/me` value: the declared claim, with an `X id` (or `X id[]`)
+ *  claim projected onto its raw value.  The strong-id record has no Jackson
+ *  `@JsonValue` (the wire DTOs carry the raw `UUID`), so serialising it
+ *  shipped `{"value": "…"}` where node / python / elixir answer the bare id
+ *  string the token carried.  Lambdas, not `AgentId::value`, so the
+ *  controller needs no domain-ids import. */
+function meClaimValue(f: FieldIR): string {
+  const access = `user.${jid(f.name)}()`;
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return `${access} == null ? null : ${access}.value()`;
+  if (t.kind === "array" && t.element.kind === "id") {
+    const mapped = `${access}.stream().map(v -> v.value()).toList()`;
+    return optional ? `${access} == null ? null : ${mapped}` : mapped;
+  }
+  return access;
 }
 
 function renderHandshakeMethods(auth: AuthIR): string[] {

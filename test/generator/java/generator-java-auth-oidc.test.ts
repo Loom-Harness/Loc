@@ -102,9 +102,9 @@ describe("java generator — OIDC verifier (D-AUTH-OIDC)", () => {
   it("maps the configured claims (incl. the dotted realm_access.roles path)", async () => {
     const v = (await generateSystemFiles(OIDC_SRC)).get(`${ROOT}/auth/OidcUserVerifier.java`)!;
     // id ← sub (default), roles ← realm_access.roles (dotted), email ← email.
-    expect(v).toContain('claimStringOrEmpty(payload, "sub")');
+    expect(v).toContain('String claimId = claimString(payload, "sub");');
     expect(v).toContain('claimStringList(payload, "realm_access.roles")');
-    expect(v).toContain('claimStringOrEmpty(payload, "email")');
+    expect(v).toContain('String claimEmail = claimString(payload, "email");');
     // Dotted paths navigate nested objects.
     expect(v).toContain('path.split("\\\\.")');
   });

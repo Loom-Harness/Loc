@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
@@ -1151,7 +1152,7 @@ function emitProjectFromContexts(
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
     authRequired,
-    userFields: (userFields ?? []).map((f) => f.name),
+    userFields: userFields ?? [],
     actorIdProp,
     usesValidators,
     usesStamping,
@@ -1917,7 +1918,7 @@ function emitProject(
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     usesStamping?: boolean;
     hasEmbeddedSpa?: boolean;

@@ -4,7 +4,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
+import { claimIdTargets, claimPathFor, requiredClaimPaths } from "../_auth/claim-types.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { LogEvents } from "../_obs/log-events.js";
@@ -740,6 +740,13 @@ def _claim(payload: dict[str, Any], path: str) -> Any:
     return current
 
 
+# The claim paths of every REQUIRED scalar field — a verified token missing one
+# of these does not describe a principal, so it is rejected (→ 401).
+_REQUIRED_CLAIMS: list[str] = [${requiredClaimPaths(user.fields, auth)
+    .map((p) => JSON.stringify(p))
+    .join(", ")}]
+
+
 def _token_from(request: Request) -> str | None:
     header = request.headers.get("authorization")
     if header is not None and header.lower().startswith("bearer "):
@@ -767,6 +774,13 @@ async def _oidc_verifier(request: Request) -> User | None:
         # misconfigured issuer / audience is diagnosable from the log stream.
         log("debug", "auth_token_rejected", reason=str(err))
         return None
+    # A verified token missing a REQUIRED claim does not describe a principal —
+    # reject it (→ 401) rather than build a User whose required field is None
+    # (node's REQUIRED_CLAIMS).
+    for path in _REQUIRED_CLAIMS:
+        if _claim(payload, path) is None:
+            log("debug", "auth_token_rejected", reason=f"required claim '{path}' is absent")
+            return None
     return User(
 ${buildUser}
     )
