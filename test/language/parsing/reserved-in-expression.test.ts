@@ -65,14 +65,14 @@ describe("a keyword where a name was legal", () => {
   });
 
   it("a keyword reserved EVERYWHERE keeps the plain reserved-word message", async () => {
-    // `aggregate` is not admitted in either name position, so the asymmetric
+    // `match` is not admitted in either name position, so the asymmetric
     // half would be a lie: there is no declaration of it to point back at.
     const e = await errorsOf(`context C {
       aggregate A { startAt: datetime }
-      criterion InWindow(x: datetime) of A = startAt >= aggregate
+      criterion InWindow(x: datetime) of A = startAt >= match
       repository As for A { }
     }`);
-    expect(e).toContain("'aggregate' is a Loom keyword, so it cannot be used as a name here");
+    expect(e).toContain("'match' is a Loom keyword, so it cannot be used as a name here");
     expect(e).not.toContain("cannot be READ as a name");
   });
 
