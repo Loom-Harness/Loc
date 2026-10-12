@@ -98,3 +98,61 @@ system Ship {
     expect(f).toContain("await repos.order.save(o);");
   });
 });
+
+// A context-level test body may construct a value object and name an enum; the
+// emitted file must import them (it imported only the repo'd aggregates + Ids:
+// TS2304).  Derived from the names the rendered body spells — a body naming
+// neither imports neither, so the header stays unused-import clean.
+const DOCKING = (body: string) => `
+system Ports {
+  subdomain Harbour { context Docking {
+    enum Size { Small, Large }
+    aggregate Ship with crudish { name: string  size: Size }
+    valueobject Berth { ship: Ship id  position: int }
+    aggregate Dock with crudish { name: string  berth: Berth }
+    repository Ships for Ship { }
+    repository Docks for Dock { }
+    aggregate Crew with crudish { name: string }
+    repository Crews for Crew { }
+    test "a dock holds a berth naming a ship" {
+${body}
+    }
+  } }
+  api DockingApi from Harbour
+  storage primary { type: postgres }
+  resource dState { for: Docking, kind: state, use: primary }
+  deployable d { platform: node contexts: [Docking] dataSources: [dState] serves: DockingApi port: 4000 }
+}`;
+
+describe("Hono: context integration test imports the value objects / enums its body uses", () => {
+  it("imports a constructed value object and a named enum from domain/value-objects", async () => {
+    const f =
+      get(
+        await generateSystemFiles(
+          DOCKING(`      let s = Ship.create({ name: "Aurora", size: Size.Large })
+      let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+      let found = Dock.findById(d.id)
+      expect(found.berth.position).toBe(3)`),
+        ),
+        "test/docking.integration.test.ts",
+      ) ?? "";
+    expect(f).toContain("new Berth(s.id, 3)");
+    expect(f).toContain("Size.Large");
+    expect(f).toContain('import { Berth } from "../domain/value-objects";');
+    expect(f).toContain('import { Size } from "../domain/value-objects";');
+  });
+
+  it("imports neither when the body names neither", async () => {
+    const f =
+      get(
+        await generateSystemFiles(
+          DOCKING(`      let c = Crew.create({ name: "Aurora" })
+      let found = Crew.findById(c.id)
+      expect(found.name).toBe("Aurora")`),
+        ),
+        "test/docking.integration.test.ts",
+      ) ?? "";
+    expect(f).toContain("Crew.create(");
+    expect(f).not.toContain("value-objects");
+  });
+});
