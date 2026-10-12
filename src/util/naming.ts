@@ -1,3 +1,5 @@
+import { escapeTargetIdent } from "./target-identifiers.js";
+
 /** Uppercase the first character only — the rest is left untouched.
  *  Intended for identifiers that are already camelCase / PascalCase
  *  (`"addLine" → "AddLine"`), NOT a full case converter: a snake_case
@@ -78,303 +80,29 @@ export function humanize(input: string): string {
 // consumers), so it lives here alongside the other casing helpers.
 // ---------------------------------------------------------------------------
 
-/** C# reserved keywords.  Escaped with the verbatim-identifier prefix
- *  (`@base`), the idiomatic C# escape. */
-const CSHARP_KEYWORDS = new Set([
-  "abstract",
-  "as",
-  "base",
-  "bool",
-  "break",
-  "byte",
-  "case",
-  "catch",
-  "char",
-  "checked",
-  "class",
-  "const",
-  "continue",
-  "decimal",
-  "default",
-  "delegate",
-  "do",
-  "double",
-  "else",
-  "enum",
-  "event",
-  "explicit",
-  "extern",
-  "false",
-  "finally",
-  "fixed",
-  "float",
-  "for",
-  "foreach",
-  "goto",
-  "if",
-  "implicit",
-  "in",
-  "int",
-  "interface",
-  "internal",
-  "is",
-  "lock",
-  "long",
-  "namespace",
-  "new",
-  "null",
-  "object",
-  "operator",
-  "out",
-  "override",
-  "params",
-  "private",
-  "protected",
-  "public",
-  "readonly",
-  "ref",
-  "return",
-  "sbyte",
-  "sealed",
-  "short",
-  "sizeof",
-  "stackalloc",
-  "static",
-  "string",
-  "struct",
-  "switch",
-  "this",
-  "throw",
-  "true",
-  "try",
-  "typeof",
-  "uint",
-  "ulong",
-  "unchecked",
-  "unsafe",
-  "ushort",
-  "using",
-  "virtual",
-  "void",
-  "volatile",
-  "while",
-]);
-
-/** TypeScript / JavaScript reserved words (the strict-mode + module set that
- *  cannot be a binding name).  Escaped with a trailing underscore. */
-const TS_KEYWORDS = new Set([
-  "break",
-  "case",
-  "catch",
-  "class",
-  "const",
-  "continue",
-  "debugger",
-  "default",
-  "delete",
-  "do",
-  "else",
-  "enum",
-  "export",
-  "extends",
-  "false",
-  "finally",
-  "for",
-  "function",
-  "if",
-  "import",
-  "in",
-  "instanceof",
-  "new",
-  "null",
-  "return",
-  "super",
-  "switch",
-  "this",
-  "throw",
-  "true",
-  "try",
-  "typeof",
-  "var",
-  "void",
-  "while",
-  "with",
-  "yield",
-  "let",
-  "static",
-  "implements",
-  "interface",
-  "package",
-  "private",
-  "protected",
-  "public",
-  "await",
-]);
-
-/** Java reserved words.  Escaped with a trailing underscore. */
-const JAVA_KEYWORDS = new Set([
-  "abstract",
-  "assert",
-  "boolean",
-  "break",
-  "byte",
-  "case",
-  "catch",
-  "char",
-  "class",
-  "const",
-  "continue",
-  "default",
-  "do",
-  "double",
-  "else",
-  "enum",
-  "extends",
-  "final",
-  "finally",
-  "float",
-  "for",
-  "goto",
-  "if",
-  "implements",
-  "import",
-  "instanceof",
-  "int",
-  "interface",
-  "long",
-  "native",
-  "new",
-  "package",
-  "private",
-  "protected",
-  "public",
-  "return",
-  "short",
-  "static",
-  "strictfp",
-  "super",
-  "switch",
-  "synchronized",
-  "this",
-  "throw",
-  "throws",
-  "transient",
-  "try",
-  "void",
-  "volatile",
-  "while",
-  "var",
-  "true",
-  "false",
-  "null",
-]);
-
-/** Python's HARD keywords — the words that cannot be an identifier anywhere.
- *  Escaped with a trailing underscore.  The soft keywords (`match`, `case`,
- *  `type`, `_`) are deliberately absent: PEP 634/695 keep them legal as a
- *  binding, attribute, parameter and `def` name, so `case: string` stays
- *  `case` on python exactly as it does on node/elixir (pinned by
- *  `java-reserved-identifier.test.ts`), and a declaration and its reads —
- *  `pythonIdent` vs `escapePythonIdent` — always agree. */
-const PYTHON_KEYWORDS = new Set([
-  "False",
-  "None",
-  "True",
-  "and",
-  "as",
-  "assert",
-  "async",
-  "await",
-  "break",
-  "class",
-  "continue",
-  "def",
-  "del",
-  "elif",
-  "else",
-  "except",
-  "finally",
-  "for",
-  "from",
-  "global",
-  "if",
-  "import",
-  "in",
-  "is",
-  "lambda",
-  "nonlocal",
-  "not",
-  "or",
-  "pass",
-  "raise",
-  "return",
-  "try",
-  "while",
-  "with",
-  "yield",
-]);
-
-/** Elixir reserved words / special forms unsafe as a plain variable binding.
- *  Escaped with a trailing underscore. */
-const ELIXIR_KEYWORDS = new Set([
-  "true",
-  "false",
-  "nil",
-  "when",
-  "and",
-  "or",
-  "not",
-  "in",
-  "fn",
-  "do",
-  "end",
-  "catch",
-  "rescue",
-  "after",
-  "else",
-  "def",
-  "defp",
-  "defmodule",
-  "if",
-  "unless",
-  "case",
-  "cond",
-  "with",
-  "for",
-  "receive",
-  "try",
-  "raise",
-  "import",
-  "alias",
-  "require",
-  "use",
-  "quote",
-  "unquote",
-]);
-
 /** Escape a local identifier that collides with a C# keyword using the
  *  verbatim-identifier prefix (`base` → `@base`); pass through otherwise. */
 export function escapeCsharpIdent(name: string): string {
-  return CSHARP_KEYWORDS.has(name) ? `@${name}` : name;
+  return escapeTargetIdent("csharp", name);
 }
 
 /** Escape a local identifier that collides with a TS/JS reserved word with a
  *  trailing underscore (`new` → `new_`); pass through otherwise. */
 export function escapeTsIdent(name: string): string {
-  return TS_KEYWORDS.has(name) ? `${name}_` : name;
+  return escapeTargetIdent("ts", name);
 }
 
 /** Escape a local identifier that collides with a Java reserved word with a
  *  trailing underscore (`class` → `class_`); pass through otherwise. */
 export function escapeJavaIdent(name: string): string {
-  return JAVA_KEYWORDS.has(name) ? `${name}_` : name;
+  return escapeTargetIdent("java", name);
 }
 
 /** Escape a (already snake_cased) local identifier that collides with a
  *  Python keyword with a trailing underscore (`class` → `class_`); pass
  *  through otherwise. */
 export function escapePythonIdent(name: string): string {
-  return PYTHON_KEYWORDS.has(name) ? `${name}_` : name;
+  return escapeTargetIdent("python", name);
 }
 
 /** The python MEMBER-identifier funnel (eval item 6, ruling D2 — the python
@@ -411,7 +139,27 @@ export function pythonWireNeedsAlias(name: string): boolean {
  *  Elixir reserved word with a trailing underscore (`end` → `end_`); pass
  *  through otherwise. */
 export function escapeElixirIdent(name: string): string {
-  return ELIXIR_KEYWORDS.has(name) ? `${name}_` : name;
+  return escapeTargetIdent("elixir", name);
+}
+
+/** The elixir LOCAL-variable funnel for a `.ddd` name — a parameter, a
+ *  function argument, a bound op input: the snake spelling, escaped when it is
+ *  an elixir reserved word (`do` → `do_`, `end` → `end_`).  Atoms and map keys
+ *  (`:do`, `"do" =>`, `do:` in an Ecto `cast`) keep the plain snake name — the
+ *  escape is a host-binding concern only, never a wire or column name. */
+export function elixirLocal(name: string): string {
+  return escapeElixirIdent(snake(name));
+}
+
+/** The Phoenix CONTROLLER ACTION an aggregate operation is served by: the
+ *  escaped local spelling (`do` → `do_`), stepped aside from the read actions
+ *  every resource controller already defines.  An operation named `show` /
+ *  `index` would otherwise add a second `def show/2` clause the CRUD read
+ *  shadows ("this clause cannot match"), silently unreachable.  The route PATH
+ *  keeps the declared name; only the action atom moves. */
+export function elixirOpAction(name: string): string {
+  const a = elixirLocal(name);
+  return a === "index" || a === "show" ? `${a}_op` : a;
 }
 
 // ---------------------------------------------------------------------------

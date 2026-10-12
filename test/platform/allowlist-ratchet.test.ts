@@ -743,7 +743,13 @@ const REGISTERED: Ratchet[] = [
     // three) and 3g's six drains come off that — the merged register holds
     // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
     // both ways (19 fails naming 20; 999 fails as slack).
-    max: 20,
+    //
+    // 20 -> 21 (2026-10-12): `target-reserved-words`, the all-targets
+    // identifier-legality fixture.  Like `dotnet-bcl-type-collision` it is not
+    // a tier gap: its defect IS a compile failure, which the five corpus
+    // compile legs read directly, and the escape is invisible on the wire by
+    // ruling D-TARGET-RESERVED-NAMES.
+    max: 21,
   },
 ];
 

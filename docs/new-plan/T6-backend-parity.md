@@ -749,3 +749,14 @@ Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `
 
 Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
 
+
+## M-T6.97 — Target-reserved names the adversarial fixture does not yet reach: a TS field `constructor`, type names that shadow target globals, the frontends — `open` · **M** · P2
+
+*Minted 2026-10-12 by the per-target reserved-identifier consolidation, which made `test/fixtures/corpus/target-reserved-words.ddd` compile on all five backends and recorded what it deliberately left out.* Re-verify on fresh `main` before building (RUNBOOK §1).
+
+1. **A FIELD named `constructor` on node.** Its getter cannot carry that name (`TS1341: Class constructor may not be an accessor`), and escaping it moves every aggregate read site (`aggregate.<field>` across the routes, repositories and wire mappers — ~24 spellings). Pinned as a named `KNOWN_GAPS.field` entry in `test/util/target-identifiers.test.ts`; the fix deletes it.
+2. **Type names that shadow a target's globals.** `valueobject Promise` / `String` / `Symbol` break node (`TS2315: Type 'Promise' is not generic`, `TS1361: 'String' cannot be used as a value`, `Symbol.for` missing), because the emitted code uses those globals unqualified in the same module. .NET's form of this (`Task`, `Queue`, `Type`) is handled by the `dotnet-bcl-type-collision` row; the other backends were never measured. A second fixture naming value objects after each target's globals / BCL / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, `Kernel`, …) is the gate, and it needs a type-position table in `src/util/target-identifiers.ts` (e.g. qualify through `globalThis.` on node only when a declared type shadows a used global).
+3. **The frontends.** The fixture declares no `ui`, so React / Vue / Svelte / Angular / Feliz / Flutter never see these names. Flutter has no identifier escaping at all; the `dart` table exists in `target-identifiers.ts` for it to consume.
+4. **A field and an operation of the same name** (`yield: string` + `operation yield(…)`) validate clean and collide on node (`TS2300: Duplicate identifier`, and the field getter becomes uncallable). That is a member-namespace collision, not a keyword one — a validator refusal (one member namespace per aggregate) is likely the right fix.
+
+**Verification.** Each item lands as a fixture position or a new fixture on every compile leg; item 1 deletes its `KNOWN_GAPS` entry.

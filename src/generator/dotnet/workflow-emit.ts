@@ -1307,7 +1307,9 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
     `${ns}.Domain.Enums`,
   ]);
   const methods = fns.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .join(", ");
     const head = `    public static ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       collectCsExprUsings(fn.body.expr, usings, ns);
