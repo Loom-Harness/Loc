@@ -1501,6 +1501,9 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<workflow>.run({ … })` | `POST /workflows/<wf_snake>` with the body — the workflow's command `create`, answering `204`. |
+| `api.<workflow>.instances()` | `GET /workflows/<wf_snake>/instances` — every persisted instance row. |
+| `api.<workflow>.instance(keyExpr)` | `GET /workflows/<wf_snake>/instances/{key}` — one instance row by its correlation key. |
 | `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
@@ -1524,6 +1527,44 @@ The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
+
+The workflow verbs reach the orchestration tier through the workflow's own
+name in the slug position (an aggregate slug wins a collision):
+
+```ddd
+test e2e "shipping folds into the saga row" against api {
+    let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+    api.fulfillment.run({ orderId: ord.id })
+    let running = api.fulfillment.instances()
+    expect(running.length).toBe(1)
+    api.orders.ship(ord)
+    let row = api.fulfillment.instance(ord)
+    expect(row.status).toBe("Shipped")
+}
+```
+
+```ts
+// e2e/Shop.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+await __post(`${base}/api/orders/${ord.id}/ship`, {});
+const row = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(row.status).toBe("Shipped");
+```
+
+`run`'s single argument is the workflow `create`'s params by name. A key
+the workflow does not declare is `loom.e2e-unknown-body-key`, and an
+omitted one `loom.e2e-missing-required-field`.  `instance` and `instances`
+return the instance wire shape: the correlation field, then the state
+fields.  Reading any other field off an `instance` result is
+`loom.e2e-unknown-response-field`.  Both routes are conditional.  An
+event-triggered workflow mounts no `POST`, so `.run()` on it is
+`loom.e2e-unrouted-verb`.  A workflow with no correlation field persists
+no row, so `.instances()` / `.instance(key)` on it is refused the same
+way.  The full rules are in
+[`language-reference/18-testing.md`](language-reference/18-testing.md).
 
 **Every verb must resolve to a route this same compilation emits.**  The
 table above is what a verb *lowers to*, not a promise that the route is
