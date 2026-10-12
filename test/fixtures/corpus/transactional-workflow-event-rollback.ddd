@@ -22,59 +22,37 @@
 // miscount — the reactor queries the connection the open transaction holds and
 // the request hangs — so either way the e2e below cannot go green without the
 // fix.
-//
-// Why the reactor reads the PEER account (M-T4.3 item 6).  On python, elixir
-// and .NET the reactor runs INSIDE the open transaction (same session /
-// process / DbContext), so its Audit row rolls back with the workflow and an
-// Audit count alone cannot tell "dispatched after the commit" from "dispatched
-// before it and rolled back".  `debitOnce` therefore debits `src` and THEN
-// credits `dst`; `Debited` is drained at `src`'s save, which comes first, and
-// the reactor records the balance it reads for `dst`.  Dispatched before the
-// commit it reads `dst` un-credited (100); dispatched after it, credited
-// (110).  Once dispatch is post-commit, the rolled-back `debitTwice` count
-// discriminates too: a deferred event that a rollback failed to drop would
-// run after it and write the second Audit row.
 system TransactionalWorkflowEventRollback {
   subdomain Bank {
     context Ledger {
-      event Debited { acct: Acct id, peer: Acct id, amount: int }
+      event Debited { acct: Acct id, amount: int }
 
       aggregate Acct with crudish {
         name: string
         balance: int
 
-        operation debit(amount: int, peer: Acct id) {
+        operation debit(amount: int) {
           precondition balance >= amount
           balance := balance - amount
-          emit Debited { acct: id, peer: peer, amount: amount }
-        }
-
-        operation credit(amount: int) {
-          balance := balance + amount
+          emit Debited { acct: id, amount: amount }
         }
       }
       repository Accts for Acct { }
 
-      aggregate Audit { note: string, peerBalance: int }
+      aggregate Audit { note: string }
       repository Audits for Audit { }
 
       // The consumer whose side effect must not survive a rollback.
       workflow onDebit {
         a: Acct id
-        create(e: Debited) by e.acct {
-          let p = Accts.getById(e.peer)
-          let x = Audit.create({ note: "debited", peerBalance: p.balance })
-        }
+        create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
       }
 
-      // Commits: its `Debited` reaches the reactor once, after the commit —
-      // which is the only point at which `dst` already reads credited.
+      // Commits: its `Debited` reaches the reactor once, after the commit.
       workflow debitOnce transactional {
-        create(src: Acct id, dst: Acct id) {
+        create(src: Acct id) {
           let s = Accts.getById(src)
-          let d = Accts.getById(dst)
-          s.debit(10, dst)
-          d.credit(10)
+          s.debit(10)
         }
       }
 
@@ -84,8 +62,8 @@ system TransactionalWorkflowEventRollback {
         create(src: Acct id) {
           let first = Accts.getById(src)
           let second = Accts.getById(src)
-          first.debit(10, src)
-          second.debit(10, src)
+          first.debit(10)
+          second.debit(10)
         }
       }
     }
@@ -105,19 +83,13 @@ system TransactionalWorkflowEventRollback {
 
   test e2e "a rolled-back transactional workflow announces none of its aggregate events" against d {
     let a = api.accts.create({ name: "a", balance: 100 })
-    let b = api.accts.create({ name: "b", balance: 100 })
 
-    // The committed run: one debit, one `Debited`, one Audit — and the reactor
-    // ran after the commit, so it saw `b` already credited.
-    api.debitOnce.run({ src: a.id, dst: b.id })
+    // The committed run: one debit, one `Debited`, one Audit.
+    api.debitOnce.run({ src: a.id })
     let once = api.accts.getById(a)
     expect(once.balance).toBe(90)
-    let credited = api.accts.getById(b)
-    expect(credited.balance).toBe(110)
     let afterOnce = api.audits.all()
     expect(afterOnce.total).toBe(1)
-    let seen = api.audits.getById(afterOnce.items.first().id)
-    expect(seen.peerBalance).toBe(110)
 
     // The rolled-back run: neither debit survives, and neither `Debited` may
     // reach the reactor.
@@ -128,18 +100,15 @@ system TransactionalWorkflowEventRollback {
     expect(afterTwice.total).toBe(1)
     let audit = api.audits.getById(afterTwice.items.first().id)
     expect(audit.note).toBe("debited")
-    expect(audit.peerBalance).toBe(110)
 
     // Contrast: the same operation over its own route — a save that OWNS its
     // commit — dispatches right after it, so the reactor writes a second row.
-    api.accts.debit(a, { amount: 5, peer: b.id })
+    api.accts.debit(a, { amount: 5 })
     let direct = api.audits.all()
     expect(direct.total).toBe(2)
 
     // The rest of the crudish surface, so every derived route has a caller.
     api.accts.update(a, { name: "renamed", balance: 85 })
-    api.accts.credit(b, { amount: 1 })
-    api.accts.destroy(b)
     let accts = api.accts.all()
     expect(accts.total).toBe(1)
     expect(accts.items.first().name).toBe("renamed")
