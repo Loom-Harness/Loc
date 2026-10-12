@@ -4,6 +4,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { nearestName } from "../../util/edit-distance.js";
 import { isInferredContainment } from "../containment.js";
 import type { DddServices } from "../ddd-module.js";
 import type {
@@ -365,6 +366,7 @@ export function checkConstructionFields(model: Model, accept: ValidationAcceptor
             name: entry.name,
             size: fields.size > 0,
             fields: [...fields].join(", "),
+            suggestion: nearestName(entry.name, fields),
           }),
           { node: entry, property: "name", code: "loom.unknown-construction-field" },
         );
@@ -476,6 +478,7 @@ export function checkFactoryCreateFields(model: Model, accept: ValidationAccepto
             name2: name,
             size: createInput.size > 0,
             createInput: [...createInput].join(", "),
+            suggestion: nearestName(name, createInput),
           }),
           { node: entry, property: "name", code: "loom.create-unknown-field" },
         );

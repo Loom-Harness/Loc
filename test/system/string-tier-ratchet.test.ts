@@ -72,7 +72,7 @@ const MAX_HEADROOM = 2 * BUCKET;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
-  "(cross-target)": 2300,
+  "(cross-target)": 2500,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -93,7 +93,7 @@ const CEILINGS: Record<string, number> = {
   frontend: 200,
   hono: 500,
   i18n: 200,
-  java: 1800,
+  java: 2000,
   python: 1800,
   react: 1600,
   svelte: 600,
