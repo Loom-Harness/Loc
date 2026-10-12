@@ -83,6 +83,8 @@ describe("M-T6.93 — JPA loads a second handle of a managed row detached", () =
     const managed = method(repo, "private boolean _isManaged(CartId id) {");
     expect(managed).toContain("isActualTransactionActive()");
     expect(managed).toContain("getManagedEntities(Cart.class).stream()");
+    // Hibernate 7.4 NPEs in getManagedEntities on a never-populated context (every create).
+    expect(managed).toContain("if (__session.getStatistics().getEntityCount() == 0) return false;");
   });
 
   it("save writes a second handle through a child Session — never merged onto the managed first one — after the version CAS", async () => {

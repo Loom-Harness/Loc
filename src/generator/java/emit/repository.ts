@@ -1092,11 +1092,15 @@ function independentHandleLines(aggName: string, idClass: string): string[] {
     // managed under a subtype class still matches.  (`Session.contains(String,
     // Object)` is deprecated for removal in Hibernate 7, and the SPI
     // `EntityKey` route trips a javac classfile warning — both fatal under the
-    // -Werror build.)
+    // -Werror build.)  The entity-count guard is load-bearing: Hibernate 7.4's
+    // `getManagedEntities` NPEs on a persistence context that has never held
+    // an entity (its by-key map is created lazily) — i.e. on every create.
     `    /** True when this transaction's persistence context already manages the row. */`,
     `    private boolean _isManaged(${idClass} id) {`,
     `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
-    `        return em.unwrap(org.hibernate.Session.class).getManagedEntities(${aggName}.class).stream()`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        if (__session.getStatistics().getEntityCount() == 0) return false;`,
+    `        return __session.getManagedEntities(${aggName}.class).stream()`,
     `            .anyMatch(__e -> __e.id().equals(id));`,
     `    }`,
     ``,
