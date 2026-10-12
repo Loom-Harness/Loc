@@ -346,7 +346,7 @@ function renderPureFunction(
     ...(struct.docStruct ? { docStruct: true } : {}),
   };
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? escapeElixirIdent(snake(p.name)) : `_${snake(p.name)}`,
   );
   // Same rule the facade copy applies to its receiver: a body that never reads
   // the struct (`function inList(q: int): int { let xs = [q, 2, 3] … }`) must
@@ -391,7 +391,7 @@ function renderPureOp(
   const paramsArg = usedParams.length > 0 ? "params" : "_params";
   const guard = usedParams.length > 0 ? " when is_map(params)" : "";
   const paramBinds = usedParams.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   const bodyLines = stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
   // A void op returns the mutated struct; a value-returning op's `return`
