@@ -428,7 +428,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     menus: BOTH,
     key: /^chrome\.goBack$/,
     reason:
-      "FORM_CHROME: the op dialog's dismiss says \"Go back\" only for an operation itself " +
+      'FORM_CHROME: the op dialog\'s dismiss says "Go back" only for an operation itself ' +
       "named cancel (`opDialogDismissChrome`), and the fixture has none",
   },
   {
