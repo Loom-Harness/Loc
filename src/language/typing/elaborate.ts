@@ -35,6 +35,7 @@ import {
 } from "../../util/principal.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
   Aggregate,
@@ -1381,7 +1382,17 @@ export class Elaborator {
       case "valueobject": {
         if (!recv.ref) return Ty.unknown("unresolved-type");
         const t = this.memberOf(recv.ref, ms, scope);
-        return t ?? Ty.unknown("unresolved-member");
+        if (t) return t;
+        // `<vo>.equals(other)` — the value-equality intrinsic every value
+        // object answers when it declares no `equals` of its own (`memberOf`
+        // found none above).  Call form only: a bare `.equals` stays unresolved
+        // and `checkIntrinsicCalls` reports it.  Lowering turns the call into
+        // the `binary ==` a `vo == other` writes, whose type is this `bool`.
+        if (ms.call && isValueObjectEqualsIntrinsic(recv.ref.members, ms.member)) {
+          this.synthArgs(ms.args, scope);
+          return Ty.prim("bool");
+        }
+        return Ty.unknown("unresolved-member");
       }
       case "id": {
         if (name === "id") return recv;

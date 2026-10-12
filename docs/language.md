@@ -480,6 +480,28 @@ diagnostic points you at `Order.create({ … })` rather than the older generic
 of the [access-modifier matrix](#field-access-modifiers): a `managed` field
 like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
 
+##### Comparing value objects
+
+Two value objects are equal when their fields are.  `a == b` and
+`a.equals(b)` are the same comparison — `equals` is an intrinsic every value
+object answers ([`stdlib.md`](stdlib.md#value-object-equality)), lowered to
+`==` and rendered as each backend's value equality:
+
+```ddd
+function isAt(pier: string, position: int): bool = berth.equals(Berth { pier: pier, position: position })
+```
+
+```ts
+public isAt(pier: string, position: number): boolean { return (this._berth.equals(new Berth(pier, position))); }
+```
+```python
+def is_at(self, pier: str, position: int) -> bool:
+    return (self._berth == Berth(pier, position))
+```
+
+Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
+`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
 An aggregate marked `persistedAs: eventLog` in its header is **event-sourced**:
