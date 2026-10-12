@@ -345,7 +345,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     // Two services on purpose — the defect is only reachable on the deployable
     // that does not host the id's target aggregate.
-    deployables: ["policies", "claims"],
+    deployables: ["policies", "desk"],
     note: "D18 of eval-claims/FIX-PLAN.md — `pol: Pol id` (field / optional / list / op param / event field / find param) on a deployable hosting only `Claims`: the ids module declared hosted aggregates' brands plus foreign event / workflow / claim ids, so `PolId` was referenced and declared nowhere (node TS2694, python name-defined, .NET CS0246 x52, javac cannot find symbol).  The hosted declaration surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
   },
   {

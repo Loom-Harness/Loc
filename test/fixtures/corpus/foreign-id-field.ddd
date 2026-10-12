@@ -2,7 +2,7 @@
 // context the deployable does NOT host (D18 of `eval-claims/FIX-PLAN.md`).
 //
 // A cross-context id reference is legal and resolves at lowering, so
-// `claimDesk` below — hosting `Claims`, not `Policies` — names `PolId` from its
+// `desk` below — hosting `Claims`, not `Policies` — names `PolId` from its
 // domain class, schema, repository, routes and event.  The deployable's ids
 // module declared only its hosted aggregates' brands (plus foreign
 // event / workflow / user-claim ids), so `PolId` was referenced and declared
@@ -52,7 +52,7 @@ system Cover {
     dataSources: [polState]
     port: 4000
   }
-  deployable claimDesk {
+  deployable desk {
     platform: __PLATFORM__
     contexts: [Claims]
     dataSources: [clmState]
