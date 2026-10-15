@@ -1,0 +1,39 @@
+// B-04: inside a `transactional` workflow, an aggregate event raised by an
+// operation is dispatched when ITS repository save returns (a savepoint), not
+// after the workflow commits. A later failure (here: duplicate unique
+// `reference` on the Transfer insert → 409) rolls the debit back, but
+// `Debited` has already been dispatched to every consumer.
+system R {
+  subdomain S { context C {
+    event Debited { acct: Acct id, amount: money }
+    aggregate Acct with crudish {
+      name: string
+      balance: money
+      derived display: string = name
+      operation debit(amount: money) {
+        precondition balance >= amount
+        balance := balance - amount
+        emit Debited { acct: id, amount: amount }
+      }
+    }
+    aggregate Transfer { reference: string  source: Acct id  unique (reference) }
+    repository Accts for Acct { }
+    repository Transfers for Transfer { }
+    aggregate Audit with crudish { note: string }
+    repository Audits for Audit { }
+    workflow onDebit {
+      a: Acct id
+      create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
+    }
+    workflow pay transactional {
+      create(src: Acct id, reference: string) {
+        let s = Accts.getById(src)
+        s.debit(money("10"))
+        let t = Transfer.create({ reference: reference, source: src })
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

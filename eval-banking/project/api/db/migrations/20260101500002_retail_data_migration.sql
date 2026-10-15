@@ -1,0 +1,1 @@
+UPDATE banking.accounts SET number = lpad((9000000000 + floor(random()*999999999))::bigint::text, 10, $$0$$) WHERE id IN (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY number ORDER BY opened_at) rn FROM banking.accounts) x WHERE rn > 1);

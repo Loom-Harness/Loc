@@ -1,0 +1,188 @@
+%% Loom domain diagram — generated from the IR, do not edit by hand.
+%% System: NorthBank
+classDiagram
+  direction LR
+  %% Retail / Banking
+  class AccountStatus {
+    <<enumeration>>
+    +Active
+    +Frozen
+    +Closed
+  }
+  class AccountType {
+    <<enumeration>>
+    +Checking
+    +Savings
+  }
+  class EntryKind {
+    <<enumeration>>
+    +Deposit
+    +Withdrawal
+    +TransferIn
+    +TransferOut
+  }
+  class TransferStatus {
+    <<enumeration>>
+    +Pending
+    +Completed
+    +Rejected
+  }
+  class MoneyDeposited {
+    <<event>>
+    +Id~Account~ account
+    +money amount
+    +datetime at
+  }
+  class MoneyWithdrawn {
+    <<event>>
+    +Id~Account~ account
+    +money amount
+    +datetime at
+  }
+  class TransferCompleted {
+    <<event>>
+    +Id~Transfer~ transfer
+    +datetime at
+  }
+  class TransferRejected {
+    <<event>>
+    +Id~Transfer~ transfer
+    +string reason
+    +datetime at
+  }
+  class MonthEnd {
+    <<event>>
+    +Id~InterestRun~ run
+    +datetime at
+  }
+  class Customer {
+    <<aggregate>>
+    +Id~Customer~ id
+    +string firstName
+    +string lastName
+    +string email
+    +int version
+    +string /display
+    +string /inspect
+    +changeEmail(newEmail)
+  }
+  class Account {
+    <<aggregate>>
+    +Id~Account~ id
+    +string number
+    +Id~Customer~ owner
+    +AccountType accountType
+    +string currency
+    +AccountStatus status
+    +money balance
+    +decimal interestRate
+    +money dailyLimit
+    +money withdrawnToday
+    +datetime limitDay
+    +datetime openedAt
+    +int version
+    +string /display
+    +string /inspect
+    +sameDay(a, b) bool
+    +deposit(amount, memo)
+    +withdraw(amount, memo)
+    +debitForTransfer(amount, ref)
+    +creditForTransfer(amount, ref)
+    +accrueInterest(asOf)
+    +freeze()
+    +unfreeze()
+    +close()
+  }
+  class LedgerEntry {
+    <<entity>>
+    +EntryKind kind
+    +money amount
+    +money balanceAfter
+    +datetime at
+    +string memo
+  }
+  class Transfer {
+    <<aggregate>>
+    +Id~Transfer~ id
+    +string reference
+    +Id~Account~ source
+    +Id~Account~ target
+    +money amount
+    +TransferStatus status
+    +string requestedBy
+    +datetime requestedAt
+    +string?? decidedBy
+    +int version
+    +string /display
+    +string /inspect
+    +markCompleted()
+    +reject(reason)
+  }
+  class InterestRun {
+    <<aggregate>>
+    +Id~InterestRun~ id
+    +datetime startedAt
+    +int version
+    +string /inspect
+  }
+  class InterestRuns {
+    <<repository>>
+    +all() InterestRun[]
+  }
+  class Customers {
+    <<repository>>
+    +all() Customer[]
+  }
+  class Accounts {
+    <<repository>>
+    +all() Account[]
+    +byNumber(number) Account?
+    +mine() Account[]
+  }
+  class Transfers {
+    <<repository>>
+    +all() Transfer[]
+    +pending() Transfer[]
+  }
+  %% Engagement / Notifications
+  class Channel {
+    <<enumeration>>
+    +Email
+    +Push
+  }
+  class Notification {
+    <<aggregate>>
+    +Id~Notification~ id
+    +Id~Transfer~ recipient
+    +string text
+    +datetime sentAt
+    +Channel via
+    +int version
+    +string /inspect
+  }
+  class Notifications {
+    <<repository>>
+    +all() Notification[]
+  }
+  MoneyDeposited ..> Account : ref
+  MoneyWithdrawn ..> Account : ref
+  TransferCompleted ..> Transfer : ref
+  TransferRejected ..> Transfer : ref
+  MonthEnd ..> InterestRun : ref
+  Account ..> Customer : ref
+  Account ..> AccountType : uses
+  Account ..> AccountStatus : uses
+  Account *-- "*" LedgerEntry : entries
+  Account ..> MoneyDeposited : emits
+  Account ..> MoneyWithdrawn : emits
+  LedgerEntry ..> EntryKind : uses
+  Transfer ..> Account : ref
+  Transfer ..> TransferStatus : uses
+  Transfer ..> TransferRejected : emits
+  InterestRuns ..> InterestRun : manages
+  Customers ..> Customer : manages
+  Accounts ..> Account : manages
+  Transfers ..> Transfer : manages
+  Notification ..> Transfer : ref
+  Notification ..> Channel : uses
+  Notifications ..> Notification : manages

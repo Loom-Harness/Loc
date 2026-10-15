@@ -1,0 +1,42 @@
+// Loom architecture model (LikeC4) — generated from the IR, do not edit by hand.
+// System: NorthBank
+
+specification {
+  element system
+  element container
+  element component
+  element database
+}
+
+model {
+  NorthBank = system 'NorthBank' {
+    description 'Loom-generated system'
+    api = container 'api' {
+      technology 'node'
+      Banking = component 'Banking'
+    }
+    notify = container 'notify' {
+      technology 'python'
+      Notifications = component 'Notifications'
+    }
+    web = container 'web' {
+      technology 'react'
+    }
+    db = database 'PostgreSQL'
+
+    api -> db 'reads / writes'
+    notify -> db 'reads / writes'
+    web -> api 'calls'
+  }
+}
+
+views {
+  view index {
+    title 'NorthBank — landscape'
+    include *
+  }
+  view of NorthBank {
+    title 'NorthBank — containers'
+    include *
+  }
+}

@@ -1,0 +1,137 @@
+// NorthBank — iteration 1: core retail banking
+// Customers own accounts; accounts hold a money balance; money moves via
+// deposits, withdrawals and transfers between accounts.
+
+system NorthBank {
+
+  subdomain Retail {
+    context Banking {
+
+      enum AccountStatus { Active, Frozen, Closed }
+      enum AccountType { Checking, Savings }
+
+      event MoneyDeposited  { account: Account id, amount: money, at: datetime }
+      event MoneyWithdrawn  { account: Account id, amount: money, at: datetime }
+      event TransferCompleted { fromAccount: Account id, toAccount: Account id, amount: money, at: datetime }
+
+      aggregate Customer with crudish {
+        firstName: string
+        lastName: string
+        email: string
+        derived display: string = "${firstName} ${lastName}"
+        invariant email.length > 3
+
+        operation changeEmail(newEmail: string) {
+          precondition newEmail.length > 3
+          email := newEmail
+        }
+      }
+
+      aggregate Account {
+        number: string
+        owner: Customer id
+        kind: AccountType
+        status: AccountStatus
+        balance: money
+        openedAt: datetime
+        derived display: string = number
+
+        invariant balance >= money("0")
+        invariant number.length == 10
+
+        operation deposit(amount: money) {
+          precondition status == Active message "Account is not active"
+          precondition amount > money("0") message "Amount must be positive"
+          balance := balance + amount
+          emit MoneyDeposited { account: id, amount: amount, at: now() }
+        }
+
+        operation withdraw(amount: money) {
+          precondition status == Active message "Account is not active"
+          precondition amount > money("0") message "Amount must be positive"
+          precondition balance >= amount message "Insufficient funds"
+          balance := balance - amount
+          emit MoneyWithdrawn { account: id, amount: amount, at: now() }
+        }
+
+        operation freeze() {
+          precondition status == Active
+          status := Frozen
+        }
+
+        operation unfreeze() {
+          precondition status == Frozen
+          status := Active
+        }
+
+        operation close() {
+          precondition balance == money("0") message "Balance must be zero to close"
+          status := Closed
+        }
+
+        test "deposit increases balance" {
+          let a = Account.create({ number: "1234567890", owner: "c1", kind: Checking, status: Active, balance: money("10"), openedAt: now() })
+          a.deposit(money("5"))
+          expect(a.balance).toBe(money("15"))
+        }
+
+        test "cannot overdraw" {
+          let a = Account.create({ number: "1234567890", owner: "c1", kind: Checking, status: Active, balance: money("10"), openedAt: now() })
+          expect(a.withdraw(money("50"))).toThrow()
+        }
+      }
+
+      repository Customers for Customer { }
+      repository Accounts for Account {
+        find byNumber(number: string): Account?
+      }
+
+      criterion OwnedBy(c: Customer id) of Account = owner == c
+      retrieval AccountsOf(c: Customer id) of Account {
+        where: OwnedBy(c)
+        sort: [number asc]
+      }
+
+      workflow openAccount {
+        create(owner: Customer id, number: string, kind: AccountType) {
+          let customer = Customers.getById(owner)
+          let account = Account.create({
+            number: number, owner: owner, kind: kind, status: Active,
+            balance: money("0"), openedAt: now()
+          })
+        }
+      }
+
+      workflow transfer transactional {
+        create(fromAccount: Account id, toAccount: Account id, amount: money) {
+          precondition fromAccount != toAccount message "Cannot transfer to the same account"
+          let source = Accounts.getById(fromAccount)
+          let target = Accounts.getById(toAccount)
+          source.withdraw(amount)
+          target.deposit(amount)
+          emit TransferCompleted { fromAccount: fromAccount, toAccount: toAccount, amount: amount, at: now() }
+        }
+      }
+    }
+  }
+
+  ui BankApp with scaffold(subdomains: [Retail]) { }
+
+  storage primary { type: postgres }
+  resource bankState { for: Banking, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Banking],
+    dataSources: [bankState],
+    port: 3000
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: BankApp,
+    port: 3001,
+    design: mantine
+  }
+}

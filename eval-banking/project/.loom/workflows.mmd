@@ -1,0 +1,81 @@
+%% Loom workflow diagram — generated from the IR, do not edit by hand.
+%% System: NorthBank
+flowchart TD
+  subgraph wf_0["Banking · monthlyInterest(e)"]
+    direction TB
+    w0s0["accts = Accounts.run(ActiveSavings)"]
+    w0s1["for a in ..."]
+    w0s0 --> w0s1
+  end
+  subgraph wf_1["Banking · openAccount(owner, number, accountType, currency)"]
+    direction TB
+    w1s0{{"requires: IsStaff()"}}
+    w1s1["customer = Customers.getById()"]
+    w1s2["account = Account.create()"]
+    w1s0 --> w1s1
+    w1s1 --> w1s2
+  end
+  subgraph wf_2["Banking · transfer(sourceAccount, targetAccount, amount, reference) «tx»"]
+    direction TB
+    w2s0{{"requires: IsStaff() || currentUser.customerId != null"}}
+    w2s1{{"precondition: sourceAccount != targetAccount"}}
+    w2s2{{"precondition: amount > money(&quot;0&quot;)"}}
+    w2s3{{"precondition: amount <= money(&quot;10000&quot;)"}}
+    w2s4["source = Accounts.getById()"]
+    w2s5["target = Accounts.getById()"]
+    w2s6{{"precondition: source.currency == target.currency"}}
+    w2s7["t = Transfer.create()"]
+    w2s8["source.debitForTransfer()"]
+    w2s9["target.creditForTransfer()"]
+    w2s10(["emit TransferCompleted"])
+    w2s0 --> w2s1
+    w2s1 --> w2s2
+    w2s2 --> w2s3
+    w2s3 --> w2s4
+    w2s4 --> w2s5
+    w2s5 --> w2s6
+    w2s6 --> w2s7
+    w2s7 --> w2s8
+    w2s8 --> w2s9
+    w2s9 --> w2s10
+  end
+  subgraph wf_3["Banking · requestLargeTransfer(sourceAccount, targetAccount, amount, reference)"]
+    direction TB
+    w3s0{{"requires: IsStaff() || currentUser.customerId != null"}}
+    w3s1{{"precondition: sourceAccount != targetAccount"}}
+    w3s2{{"precondition: amount > money(&quot;10000&quot;)"}}
+    w3s3["source = Accounts.getById()"]
+    w3s4["target = Accounts.getById()"]
+    w3s5{{"precondition: source.currency == target.currency"}}
+    w3s6["t = Transfer.create()"]
+    w3s0 --> w3s1
+    w3s1 --> w3s2
+    w3s2 --> w3s3
+    w3s3 --> w3s4
+    w3s4 --> w3s5
+    w3s5 --> w3s6
+  end
+  subgraph wf_4["Banking · approveTransfer(transferId) «tx»"]
+    direction TB
+    w4s0{{"requires: currentUser.permissions.contains(permissions.transfersApprove)"}}
+    w4s1["t = Transfers.getById()"]
+    w4s2{{"precondition: t.requestedBy != currentUser.id"}}
+    w4s3["source = Accounts.getById()"]
+    w4s4["target = Accounts.getById()"]
+    w4s5["source.debitForTransfer()"]
+    w4s6["target.creditForTransfer()"]
+    w4s7["t.markCompleted()"]
+    w4s8(["emit TransferCompleted"])
+    w4s0 --> w4s1
+    w4s1 --> w4s2
+    w4s2 --> w4s3
+    w4s3 --> w4s4
+    w4s4 --> w4s5
+    w4s5 --> w4s6
+    w4s6 --> w4s7
+    w4s7 --> w4s8
+  end
+  subgraph wf_5["Notifications · notifyTransfer(e)"]
+    direction TB
+    w5s0["n = Notification.create()"]
+  end

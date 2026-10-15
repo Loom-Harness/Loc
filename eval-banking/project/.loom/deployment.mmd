@@ -1,0 +1,23 @@
+%% Loom deployment diagram — generated from the IR, do not edit by hand.
+%% System: NorthBank
+flowchart LR
+  subgraph domain["🗂️ Domain"]
+    direction TB
+    subgraph mod_Retail["📦 Retail"]
+      direction TB
+      ctx_Banking["📁 Banking"]
+    end
+    subgraph mod_Engagement["📦 Engagement"]
+      direction TB
+      ctx_Notifications["📁 Notifications"]
+    end
+  end
+  subgraph deployables["🚀 Deployables"]
+    direction TB
+    deploy_api{{"api · node"}}
+    deploy_notify{{"notify · python"}}
+    deploy_web{{"web · react"}}
+  end
+  deploy_api -->|serves| ctx_Banking
+  deploy_notify -->|serves| ctx_Notifications
+  deploy_web -.->|calls| deploy_api

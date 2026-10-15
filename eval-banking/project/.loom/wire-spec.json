@@ -1,0 +1,292 @@
+{
+  "system": "NorthBank",
+  "aggregates": {
+    "Customer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "number": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accountType": {
+          "type": "string",
+          "enum": [
+            "Checking",
+            "Savings"
+          ]
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Active",
+            "Frozen",
+            "Closed"
+          ]
+        },
+        "balance": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "interestRate": {
+          "type": "number"
+        },
+        "dailyLimit": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "withdrawnToday": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "limitDay": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "openedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/parts/LedgerEntry"
+          }
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "number",
+        "owner",
+        "accountType",
+        "currency",
+        "status",
+        "balance",
+        "interestRate",
+        "dailyLimit",
+        "withdrawnToday",
+        "limitDay",
+        "openedAt",
+        "version",
+        "entries",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "Transfer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Pending",
+            "Completed",
+            "Rejected"
+          ]
+        },
+        "requestedBy": {
+          "type": "string"
+        },
+        "requestedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "decidedBy": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "display": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reference",
+        "source",
+        "target",
+        "amount",
+        "status",
+        "requestedBy",
+        "requestedAt",
+        "version",
+        "display"
+      ],
+      "additionalProperties": false
+    },
+    "InterestRun": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "startedAt",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "Notification": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "recipient": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "text": {
+          "type": "string"
+        },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "via": {
+          "type": "string",
+          "enum": [
+            "Email",
+            "Push"
+          ]
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "recipient",
+        "text",
+        "sentAt",
+        "via",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "parts": {
+    "LedgerEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Deposit",
+            "Withdrawal",
+            "TransferIn",
+            "TransferOut"
+          ]
+        },
+        "amount": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "balanceAfter": {
+          "type": "string",
+          "format": "decimal"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "memo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "amount",
+        "balanceAfter",
+        "at",
+        "memo"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "valueObjects": {}
+}
