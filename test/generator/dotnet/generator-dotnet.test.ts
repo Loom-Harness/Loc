@@ -698,7 +698,7 @@ describe(".NET generator", () => {
       expect(repo).not.toMatch(/__txErr/);
       // The bare SaveChangesAsync + LogDebug stays exactly as before.
       expect(repo).toMatch(
-        /await _db\.SaveChangesAsync\(cancellationToken\);\n\s+_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} id=\{Id\}", "repository_save", "Order", aggregate\.Id\.Value\);/,
+        /await _db\.SaveChangesWithAsync\(__db, cancellationToken\);\n\s+_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} id=\{Id\}", "repository_save", "Order", aggregate\.Id\.Value\);/,
       );
     });
 
