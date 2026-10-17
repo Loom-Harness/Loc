@@ -1182,7 +1182,7 @@ function renderKeycloakRealm(sys: SystemIR): string {
         ? ["admin"]
         : f.name === demoTenantClaim(sys)
           ? [DEMO_TENANT_ID]
-          : [demoClaimValue(f)];
+          : [demoClaimValue(f, sys)];
   }
 
   // A SECOND seeded user, `demo-admin`, holding EVERY declared permission.
@@ -1711,16 +1711,61 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
  *  id parse (and the .NET/java UUID-backed id types outright); a numeric claim
  *  is `0` and a `bool` claim `false`, because Keycloak types the claim from the
  *  mapper's `jsonType.label` and a non-numeric seed is dropped from the token.
- *  Everything else keeps the obviously-synthetic `demo-<kebab-name>`. */
-function demoClaimValue(f: FieldIR): string {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "id") return DEV_STUB_ID_GUID;
-  if (t.kind === "primitive") {
-    if (t.name === "guid") return DEV_STUB_ID_GUID;
-    if (t.name === "int" || t.name === "long") return "0";
-    if (t.name === "bool") return "false";
+ *  Every TYPED claim must decode on all five backends: the .NET / java
+ *  verifiers decode typed claims (D16) and reject a token whose REQUIRED typed
+ *  claim does not decode, so a `demo-since` datetime would 401 the demo user.
+ *  Hence a fixed ISO-8601 instant for `datetime`, `"0"` for `decimal`/`money`,
+ *  an enum's first member, and a list claim seeded with ONE valid element of
+ *  its element type (it rides a `multivalued` mapper).  Only a `string` (or
+ *  an unmodelled shape) keeps the obviously-synthetic `demo-<kebab-name>`. */
+function demoClaimValue(f: FieldIR, sys: SystemIR): string {
+  const synthetic = `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+  const seed = (t: TypeIR): string => {
+    switch (t.kind) {
+      case "optional":
+        return seed(t.inner);
+      case "array":
+        return seed(t.element);
+      case "id":
+        return DEV_STUB_ID_GUID;
+      case "enum":
+        return enumFirstMember(sys, t.name) ?? synthetic;
+      case "primitive":
+        switch (t.name) {
+          case "guid":
+            return DEV_STUB_ID_GUID;
+          case "int":
+          case "long":
+          case "decimal":
+          case "money":
+            return "0";
+          case "bool":
+            return "false";
+          case "datetime":
+            return DEMO_CLAIM_INSTANT;
+          default:
+            return synthetic;
+        }
+      default:
+        return synthetic;
+    }
+  };
+  return seed(f.type);
+}
+
+/** The fixed instant a `datetime` claim is seeded with — ISO-8601 UTC, which
+ *  every backend's verifier decodes. */
+const DEMO_CLAIM_INSTANT = "2026-01-01T00:00:00Z";
+
+/** The first declared member of the enum `name`, searched across the system. */
+function enumFirstMember(sys: SystemIR, name: string): string | undefined {
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      const e = ctx.enums.find((x) => x.name === name);
+      if (e) return e.values[0];
+    }
   }
-  return `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+  return undefined;
 }
 
 /** The realm's declarative user profile (Keycloak 24+): Keycloak's own default
