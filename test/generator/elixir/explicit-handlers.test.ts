@@ -154,17 +154,17 @@ system Shop {
 `;
 
 describe("elixir — scaffolded destroy route does not collide with auto-CRUD", () => {
-  it("root-scopes the explicit DELETE so it never shadows the /api auto-CRUD delete", async () => {
+  it("serves the explicit DELETE from /api and drops the auto-CRUD delete it took over", async () => {
     const router = fileEndingWith(await generateSystemFiles(DESTROY_SRC), "lib/api_web/router.ex");
     const rootBlock = router.slice(router.indexOf('scope "/" do'), router.indexOf('scope "/api"'));
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
-    // Explicit destroy route: root scope, absolute declared path, Web-qualified.
-    expect(rootBlock).toContain(
-      'delete "/orders/:order_id", ApiWeb.SalesApiRoutesController, :destroy_order',
+    // The explicit route owns the slot (D-EXPLICIT-ROUTE-WINS) …
+    expect(apiBlock).toContain(
+      'delete "/orders/:order_id", SalesApiRoutesController, :destroy_order',
     );
-    // Auto-CRUD delete: distinct path, under /api — no shared clause with the above.
-    expect(apiBlock).toContain('delete "/orders/:id", OrderController, :delete');
-    expect(apiBlock).not.toContain("SalesApiRoutesController");
+    expect(rootBlock).not.toContain("SalesApiRoutesController");
+    // … so the derived delete is not registered: one clause per slot.
+    expect(apiBlock).not.toContain("OrderController, :delete");
   });
 });
 

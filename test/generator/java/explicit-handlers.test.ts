@@ -167,7 +167,7 @@ describe("java — explicit handler aggregate return → wire-shape Response (C2
       await generateSystemFiles(AGG_RETURN_SRC),
       "SalesApiRoutesController.java",
     );
-    expect(ctrl).toContain('@GetMapping("/orders/{orderId}")');
+    expect(ctrl).toContain('@GetMapping("/api/orders/{orderId}")');
     expect(ctrl).toContain("var result = getOrderHandler.handle(new OrderId(orderId));");
     // The domain Order is projected to its wire DTO — not serialised raw.
     expect(ctrl).toContain("return ResponseEntity.ok(OrderResponse.from(result));");
