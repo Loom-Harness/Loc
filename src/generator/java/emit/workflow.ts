@@ -476,7 +476,11 @@ export function javaWorkflowStmtTarget(
       // and branch.  Each branch's dirty bindings save inside it.
       for (const a of s.retrievalArgs) collectJavaExprImports(a, imports);
       const args = s.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
-      args.push("null", "1"); // offset null, limit 1 — single result
+      // A declared optional find (`findMethod`) is emitted on the repository
+      // under its own name and answers the aggregate or `null` directly.
+      const lookup = s.findMethod
+        ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+        : `${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.map(
         (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
@@ -485,7 +489,7 @@ export function javaWorkflowStmtTarget(
         (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const out = [
-        `${indent}var ${bound(s.var)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
+        `${indent}var ${bound(s.var)} = ${lookup};`,
         `${indent}if (${bound(s.var)} != null) {`,
         ...thenLines,
         ...thenSaves,
