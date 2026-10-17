@@ -842,6 +842,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.

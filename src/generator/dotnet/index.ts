@@ -34,8 +34,8 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -596,7 +596,7 @@ function emitProjectFromContexts(
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(merged.workflows),
+      ...hostedContextIdTypeSources([merged]),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
