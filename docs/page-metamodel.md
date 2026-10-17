@@ -614,13 +614,16 @@ backend `find` `where`-clause:
 
 ```ddd
 body: Stack {
-  For { each: orders.filter(o => o.status == Confirmed), o => OrderCard(o) }
+  For { each: orders.where(o => o.status == Confirmed), o => OrderCard(o) }
 }
 ```
 
-`filter` / `map` (native JS array methods) render verbatim through the body
-walker — the callback's parameter binds in scope exactly like a `For` item
-or a `Table` column accessor. Chains compose (`orders.filter(…).map(…)`).
+The ops are the stdlib collection ops — `where` to filter, `map` to project
+(table below) — and each frontend renders them through its own seam; there
+is no pass-through of host-language array methods, so `orders.filter(…)` is
+refused with `loom.unknown-member`. The callback's parameter binds in scope
+exactly like a `For` item or a `Table` column accessor. Chains compose
+(`orders.where(…).map(…)`).
 
 Three boundaries to know:
 
