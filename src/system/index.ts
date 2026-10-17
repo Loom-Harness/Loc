@@ -47,7 +47,7 @@ import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
-import { renderE2EFile } from "./e2e-render.js";
+import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
@@ -506,7 +506,7 @@ function emitSystem(
   // E2E test scaffolding — emitted only when the system declares
   // `test e2e` blocks.  Lives at the system root so it can run against
   // the whole compose stack with one `vitest run e2e/`.
-  const e2eFile = renderE2EFile(sys, modulesByName);
+  const e2eFile = renderE2EFile(sys, modulesByName, devIdpTokenSource(sys));
   if (e2eFile) {
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
     out.set("e2e/package.json", E2E_PACKAGE_JSON);
@@ -960,9 +960,9 @@ function renderDockerCompose(sys: SystemIR): string {
 
 // ---------------------------------------------------------------------------
 // Bundled dev Keycloak (D-AUTH-OIDC §4.2 — the zero-config quick-start).
-// Added when the system declares an OIDC `auth { … }` block whose provider is
-// self-hosted (keycloak / custom / a raw `oidc { issuer }`); hosted presets
-// (google / auth0 / …) use their own IdP and get no bundled service.
+// Added whenever the system declares an OIDC `auth { … }` block, hosted
+// presets (google / auth0 / …) included — see `bundlesDevKeycloak` for why the
+// local stack never depends on the real provider.
 // ---------------------------------------------------------------------------
 
 /** Host port the bundled Keycloak is published on.  Starts at 8081 (8080 is
@@ -999,6 +999,24 @@ function keycloakConfig(sys: SystemIR): {
     clientId: `${realm}-app`,
     issuer: `http://host.docker.internal:${hostPort}/realms/${realm}`,
     hostPort,
+  };
+}
+
+/** Where the generated e2e suite mints its bearer token when the runner hands
+ *  it none: the bundled realm's token endpoint as the HOST sees it, plus the
+ *  realm's public client.  `undefined` when no backend requires auth or no
+ *  realm is bundled — the suite then emits no minting code at all.
+ *
+ *  `localhost`, not `host.docker.internal`: the suite runs on the host.  The
+ *  token's `iss` is still the `KC_HOSTNAME` URL the backends verify against,
+ *  because Keycloak stamps its configured hostname, not the request's. */
+function devIdpTokenSource(sys: SystemIR): DevIdpTokenSource | undefined {
+  if (!bundlesKeycloak(sys)) return undefined;
+  if (!sys.deployables.some((d) => d.auth?.required)) return undefined;
+  const { realm, clientId, hostPort } = keycloakConfig(sys);
+  return {
+    tokenUrl: `http://localhost:${hostPort}/realms/${realm}/protocol/openid-connect/token`,
+    clientId,
   };
 }
 

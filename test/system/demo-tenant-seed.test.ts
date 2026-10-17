@@ -94,13 +94,17 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     expect(files.get("docker-compose.yml")!).not.toContain("LOOM_SEED");
   });
 
-  it("a hosted IdP preset (google) bundles no realm ⇒ no demo tenant", async () => {
+  it("a hosted IdP preset (google) bundles the same realm ⇒ the same demo tenant", async () => {
     const files = await generateSystemFiles(
       system(
         "node",
-        `auth { enforcement: opt  provider: google  oidc { clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") } }`,
+        `auth { enforcement: opt  provider: google  oidc { clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") }  claims: { orgId: "org_id" } }`,
       ),
     );
-    expect([...files.values()].join("\n")).not.toContain(DEMO_TENANT_ID);
+    const all = [...files.values()].join("\n");
+    expect(all).toContain(ROW);
+    expect(files.get("docker-compose.yml")!).toContain(
+      `LOOM_SEED: ${JSON.stringify(DEMO_TENANT_DATASET)}`,
+    );
   });
 });
