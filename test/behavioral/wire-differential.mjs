@@ -271,6 +271,9 @@ const __wire = [];
 // recorded \`path\` is TEMPLATED (\`/api/x/{id}\`), which is right for aligning
 // two runs and useless as a URL to request.  Not itself compared.
 const __urls = [];
+// The request bodies, index-aligned with \`__urls\` — what the empty-command-body
+// probe below reads to find a parameterless command.  Not itself compared.
+const __bodies = [];
 // The credentials the tier itself used.  Without them the probes below measure the
 // AUTH arm instead of the framework arm on any \`auth {}\` system — and the two
 // disagree across backends for a reason that has nothing to do with RS-9 (node
@@ -288,6 +291,7 @@ const __record = (dispatch) => {
       // entry in front of every block and shift every seq after it.
       if (r && !__isInfraRequest(req.url)) {
         __urls.push(req.url);
+        __bodies.push(req.body);
         for (const [k, v] of Object.entries(req.headers ?? {})) {
           if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
         }
@@ -441,6 +445,43 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
   // trailing ordinal — never shift one an existing golden aligns on.
   if (opts.files) {
     await dispatch({ method: "GET", url: origin + "/files/__loom_absent", headers: { ...__authHeaders } });
+  }
+  await __emptyCommandBodyProbes(dispatch);
+};
+
+// ── the empty-command-body probes (RS-39) ──────────────────────────────────
+// An emitted suite calls a parameterless command (\`operation confirm()\`, a
+// workflow started with no input) with the body \`{}\` — so no recording ever
+// sent what a caller with nothing to say actually sends: NO body.  Five
+// backends answered that request four ways (415, 400, 422, a 2xx, and a 500
+// for a body the action never read) with every golden green.
+//
+// The target is the FIRST instance command (\`/api/<aggs>/<id>/<op>\`) the tier
+// itself POSTed \`{}\` to and got a 2xx — evidence the route is served and
+// takes nothing — re-requested three ways AGAINST AN ABSENT ID: with no body
+// and no Content-Type, with \`Content-Type: application/json\` and zero bytes,
+// and with \`{}\` under a foreign media type.  The body is judged before the row
+// is loaded, so the first two answer the 404 a \`{}\` earns for that id and the
+// third the declared 415.  The absent id keeps the probe free of side effects:
+// re-running the command on the tier's own row would move its state, and with
+// it every authorization-ladder read recorded after this.
+//
+// Derived from the CASE (the tier's request sequence is one emitted file), so
+// every leg fires the same probes and the recordings keep the same length.
+// Fired LAST in this function, so it only appends trailing ordinals.
+const __emptyCommandBodyProbes = async (dispatch) => {
+  for (let i = 0; i < __wire.length; i++) {
+    const e = __wire[i];
+    if (e.method !== "POST" || e.status < 200 || e.status >= 300 || __bodies[i] !== "{}") continue;
+    let u;
+    try { u = new URL(__urls[i]); } catch { continue; }
+    const m = /^(\\/api\\/[^/]+)\\/([^/]+)\\/([^/]+)$/.exec(u.pathname);
+    if (!m || m[1] === "/api/workflows" || m[1] === "/api/projections") continue;
+    const url = u.origin + m[1] + "/" + __absentKey(m[2]) + "/" + m[3];
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders } });
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "" });
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "text/plain" }, body: "{}" });
+    return;
   }
 };
 

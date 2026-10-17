@@ -265,6 +265,45 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/items/{id}/soft_delete",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/items/{id}/soft_delete",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
     }
   ]
 }

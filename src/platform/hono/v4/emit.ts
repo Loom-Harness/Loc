@@ -124,6 +124,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -385,7 +386,7 @@ function problemDetailsTs(
   return `// Auto-generated.  Do not edit by hand.
 import { z } from "zod";
 import { OpenAPIHono } from "@hono/zod-openapi";
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 ${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../domain/errors";\n` : ""}${localizeMessages ? 'import { localizeMessage } from "./messages";\n' : ""}${valueObjectInvariants || domainFloorCodes ? domainFloorProblemTs(localizeMessages, valueObjectInvariants, domainFloorCodes) : ""}
 /** The wire schema for a \`guid\`-valued id — the canonical dashed-hex uuid
@@ -565,6 +566,7 @@ const REASON_PHRASES: Record<number, string> = {
   404: "Not Found",
   405: "Method Not Allowed",
   409: "Conflict",
+  415: "Unsupported Media Type",
   422: "Unprocessable Entity",
   500: "Internal Server Error",
 };
@@ -579,7 +581,10 @@ const REASON_PHRASES: Record<number, string> = {
  *  root handlers and every router's \`HTTPException\` arm so they can't drift. */
 export function frameworkProblemBody(status: number, detail: string, instance: string): string {
   const title = REASON_PHRASES[status] ?? "Error";
-  return JSON.stringify({ type: "about:blank", title, status, detail, instance });
+  // A 415 reads the same whether hono's own media-type gate or
+  // \`requireJsonContentType\` raised it (RS-39).
+  const said = status === 415 ? ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} : detail;
+  return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
 }
 
 /** Hono's OWN \`json\` media-type predicate (\`hono/validator/validator.ts\`'s
@@ -609,8 +614,50 @@ const JSON_MEDIA_TYPE = /^application\\/([a-z-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=
 export function requireJsonContentType(c: Context): void {
   const contentType = c.req.header("Content-Type");
   if (contentType && JSON_MEDIA_TYPE.test(contentType)) return;
-  throw new HTTPException(415, { message: "Content-Type must be application/json" });
+  throw new HTTPException(415, { message: ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} });
 }
+
+/** Does this request carry no content at all?  Read from the framing headers
+ *  when they answer it (\`Content-Length: 0\`, or a non-zero length), and from
+ *  the body itself otherwise — a chunked request and an in-process
+ *  \`app.fetch(new Request(…))\` both arrive without a length. */
+async function hasNoContent(raw: Request): Promise<boolean> {
+  if (raw.body === null) return true;
+  const length = raw.headers.get("Content-Length");
+  if (length !== null) return Number(length) === 0;
+  return (await raw.clone().arrayBuffer()).byteLength === 0;
+}
+
+/** An EMPTY request body is the empty JSON object — on every body-carrying
+ *  route, before any validator runs (RS-39).
+ *
+ *  A command with no parameters has nothing to send, so a client that sends
+ *  nothing (\`curl -X POST …/confirm\`, a \`fetch\` with no \`body\`) must be
+ *  answered exactly as \`{}\` would be: 2xx for \`operation confirm()\`, the
+ *  same 422 \`errors[]\` a \`{}\` earns where a field is required.  Without
+ *  this the media-type gate refuses the header-less request with 415 and the
+ *  JSON validator refuses \`Content-Type: application/json\` with zero bytes
+ *  as malformed (400) — two different answers for one request that carries
+ *  no defect.
+ *
+ *  Only an absent or JSON \`Content-Type\` is normalised.  A foreign media type
+ *  is still the caller's declared intent, and keeps its 415 whether or not
+ *  any bytes follow it — the answer hono's own media-type gate, Spring and
+ *  ASP.NET give. */
+export const emptyBodyAsEmptyObject: MiddlewareHandler = async (c, next) => {
+  const method = c.req.method;
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
+    const contentType = c.req.header("Content-Type");
+    const raw = c.req.raw;
+    if ((!contentType || JSON_MEDIA_TYPE.test(contentType)) && (await hasNoContent(raw))) {
+      const headers = new Headers(raw.headers);
+      headers.set("Content-Type", "application/json");
+      headers.delete("Content-Length");
+      c.req.raw = new Request(raw.url, { method, headers, body: "{}", signal: raw.signal });
+    }
+  }
+  await next();
+};
 `;
 }
 

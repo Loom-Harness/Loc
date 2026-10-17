@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import type { UiIR } from "../../../ir/types/loom-ir.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -985,8 +986,51 @@ defmodule ${appModule}Web.BodyParser do
   @impl true
   def init(opts), do: Plug.Parsers.init(opts)
 
+  # The request-body media-type contract every backend shares (RS-39), on the
+  # API surface (a LiveView form post elsewhere is urlencoded by design):
+  #
+  #   * an EMPTY body with no Content-Type, or a JSON one, is \`{}\` — which is
+  #     what \`Plug.Parsers\` already makes of it, so it passes through;
+  #   * a body under a foreign Content-Type — or content with none — is the
+  #     declared 415.  \`pass: ["*/*"]\` would otherwise hand it to the action
+  #     unparsed, where a parameterless command never looks at it.  An empty
+  #     body does not excuse a foreign media type: the caller declared it.
+  #
+  # Multipart is the file-upload transport and passes through untouched.
+  @body_methods ["POST", "PUT", "PATCH"]
+  @json_media_type ~r/^application\\/([a-z\\-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=([^;]+))*$/i
+
   @impl true
-  def call(conn, opts) do
+  def call(%Plug.Conn{method: method, request_path: "/api/" <> _} = conn, opts)
+      when method in @body_methods do
+    if acceptable_media_type?(conn), do: parse(conn, opts), else: unsupported_media_type(conn)
+  end
+
+  def call(conn, opts), do: parse(conn, opts)
+
+  defp acceptable_media_type?(conn) do
+    case Plug.Conn.get_req_header(conn, "content-type") do
+      [content_type | _] ->
+        Regex.match?(@json_media_type, content_type) or
+          String.starts_with?(String.downcase(content_type), "multipart/")
+
+      [] ->
+        not has_content?(conn)
+    end
+  end
+
+  defp has_content?(conn) do
+    case Plug.Conn.get_req_header(conn, "content-length") do
+      [length | _] -> String.trim(length) != "0"
+      [] -> Plug.Conn.get_req_header(conn, "transfer-encoding") != []
+    end
+  end
+
+  defp unsupported_media_type(conn) do
+    send_problem(conn, 415, ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)})
+  end
+
+  defp parse(conn, opts) do
     Plug.Parsers.call(conn, opts)
   rescue
     e in [
@@ -995,26 +1039,32 @@ defmodule ${appModule}Web.BodyParser do
       Plug.Parsers.RequestTooLargeError
     ] ->
       status = Plug.Exception.status(e)
-      title = Plug.Conn.Status.reason_phrase(status)
 
       # The exception message names the decoder and echoes the raw input, so it
       # is neither safe nor portable as a \`detail\`.  400 gets the one wording
       # every backend sends for this fault; the rest get the reason phrase.
-      detail = if status == 400, do: "Malformed JSON in request body", else: title
+      detail =
+        if status == 400,
+          do: "Malformed JSON in request body",
+          else: Plug.Conn.Status.reason_phrase(status)
 
-      body =
-        Jason.encode!(%{
-          type: "about:blank",
-          title: title,
-          status: status,
-          detail: detail,
-          instance: conn.request_path
-        })
+      send_problem(conn, status, detail)
+  end
 
-      conn
-      |> Plug.Conn.put_resp_content_type("application/problem+json")
-      |> Plug.Conn.send_resp(status, body)
-      |> Plug.Conn.halt()
+  defp send_problem(conn, status, detail) do
+    body =
+      Jason.encode!(%{
+        type: "about:blank",
+        title: Plug.Conn.Status.reason_phrase(status),
+        status: status,
+        detail: detail,
+        instance: conn.request_path
+      })
+
+    conn
+    |> Plug.Conn.put_resp_content_type("application/problem+json")
+    |> Plug.Conn.send_resp(status, body)
+    |> Plug.Conn.halt()
   end
 end
 `;

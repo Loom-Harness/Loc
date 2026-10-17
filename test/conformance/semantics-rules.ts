@@ -1327,6 +1327,36 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
     tier: "behavioral",
   },
+  {
+    id: "RS-39",
+    title:
+      "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
+    trigger:
+      "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
+    observable:
+      "no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. The parameterless command's OpenAPI `requestBody` is not `required`.",
+    // The split when measured (booted against Postgres, the booking trial's
+    // `confirm()`): node 415 (no body) / 400 (JSON, 0 bytes); python 422 for
+    // both and for EVERY foreign media type (FastAPI never answered 415);
+    // .NET 415 / 422; java and elixir 2xx for everything including
+    // `text/plain` and malformed JSON, because the zero-arg route never read
+    // its body. One normaliser per backend (hono middleware, an ASGI
+    // middleware, an ASP.NET middleware, a servlet filter, the Phoenix
+    // BodyParser) plus a body-reading zero-arg route on java.
+    //
+    // NOT part of the guarantee: a parametered command's empty body on elixir
+    // still answers 500 — the same 500 a `{}` earns there, since its
+    // operation params are not wire-validated; RS-39 holds (empty ≡ `{}`),
+    // the `{}` answer itself is the open defect.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
+      "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415) on all seven wire-gated legs",
+    ],
+    // BEHAVIORAL: what a request with no body is answered is only observable on
+    // a booted backend; the static half is the generator test above.
+    tier: "behavioral",
+  },
 ];
 
 // ---------------------------------------------------------------------------
