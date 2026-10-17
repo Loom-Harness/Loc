@@ -17,6 +17,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
@@ -26,7 +27,7 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
-import { type StateDefaultDecls, stateDefault } from "./state-default.js";
+import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
@@ -219,7 +220,7 @@ export function emitWorkflowStateSchemas(
     if (!wf.correlationField || wf.eventSourced) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, ctx.enums, schema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), schema, durable),
     );
   }
 }
@@ -272,7 +273,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, ctx.enums, dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), dispatchSchema, durable),
     );
   }
 
@@ -547,7 +548,16 @@ function renderHandler(
   const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
-    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx)
+    ? renderPersistedBody(
+        appModule,
+        contextModule,
+        wf,
+        sub,
+        body,
+        usesThis,
+        durable,
+        stateDefaultDecls(ctx),
+      )
     : indent(body, 4).join("\n");
 
   // Module names render fully-qualified throughout the body, so the only

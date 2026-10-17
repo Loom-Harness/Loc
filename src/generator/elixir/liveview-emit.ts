@@ -44,6 +44,7 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -313,7 +314,7 @@ export function emitLiveViewPages(args: {
         });
       }
     }
-    for (const en of ctx.enums) enumsByName.set(en.name, en);
+    for (const en of enumPool(ctx)) enumsByName.set(en.name, en);
     for (const vo of ctx.valueObjects) valueObjectsByName.set(vo.name, vo);
   }
 
