@@ -423,6 +423,16 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "over-merge",
+    id: "O-goBack",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    menus: BOTH,
+    key: /^chrome\.goBack$/,
+    reason:
+      'FORM_CHROME: the op dialog\'s dismiss says "Go back" only for an operation itself ' +
+      "named cancel (`opDialogDismissChrome`), and the fixture has none",
+  },
+  {
+    kind: "over-merge",
     id: "O-opNotAllowed",
     targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
     menus: BOTH,

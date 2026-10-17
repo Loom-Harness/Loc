@@ -89,10 +89,31 @@ export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  // The op dialog's dismiss label when the operation itself is named "Cancel"
+  // — see `opDialogDismissChrome`.
+  [chromeKey("goBack")]: "Go back",
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
+
+/** The chrome name of an operation dialog's DISMISS button, given the label of
+ *  its SUBMIT button (the humanized operation name).
+ *
+ *  The dismiss button says "Cancel" — the convention every pack follows — except
+ *  when the submit button already says "Cancel" (`operation cancel(…)`, one of
+ *  the commonest domain operations), where it says "Go back".  Two buttons in
+ *  one dialog with the same accessible name and opposite effects is both a
+ *  usability and an accessibility defect (a screen reader announces them
+ *  identically), so the rule is: the submit button names the action, and the
+ *  dismiss label is derived so it never equals it.  "Go back" rather than
+ *  "Close" because several packs already render a dialog close icon whose
+ *  accessible name is "Close".  The comparison is on the English source labels,
+ *  case- and whitespace-insensitively, the way an accessible-name match is. */
+export function opDialogDismissChrome(submitLabel: string): "cancel" | "goBack" {
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  return norm(submitLabel) === norm(chromeMessage("cancel")) ? "goBack" : "cancel";
+}
 
 /** The source-language text for a chrome key, for an emitter building the
  *  `t(key, default)` binding.  Throws on an unknown name rather than emitting a
@@ -219,7 +240,8 @@ export const APP_SHELL_CHROME: Record<string, string> = {
 export const FORM_CHROME: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
   // The destroy button's label, its `window.confirm` prompt, and the op
-  // dialog's Cancel — all built in the EMITTER from model data, so neither the
+  // dialog's dismiss label ("Cancel", or "Go back" when the operation is
+  // itself named "Cancel") — all built in the EMITTER from model data, so neither the
   // content-hash extraction pass nor the pack-chrome `.hbs` slice ever saw
   // them.  They sit here rather than in `CHROME_BY_PRIMITIVE` for the same
   // reason `selectPlaceholder` does: `DestroyForm`/`Modal` are form primitives,
@@ -227,6 +249,7 @@ export const FORM_CHROME: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  [chromeKey("goBack")]: "Go back",
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
