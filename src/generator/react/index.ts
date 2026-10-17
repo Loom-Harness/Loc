@@ -167,7 +167,7 @@ export function generateReactForContexts(
   // programmatic IR construction that bypasses lowering and matches
   // the current toolchain's default Mantine version.
   const design = deployable.design ?? "mantine@v7";
-  const pack = loadPack(resolvePackDir(design));
+  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
 
   // Page metamodel routing.  Every React deployable declares a
   // `ui:` binding (validator rule `loom.react-deployable-missing-ui`

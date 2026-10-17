@@ -19,10 +19,11 @@
 // ---------------------------------------------------------------------------
 
 import Handlebars from "handlebars";
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
-import { assertDeclaredChromeIsSane, chromeHelpers } from "./pack-chrome.js";
-import { flattenRequired, REQUIRED_PRIMITIVES } from "./required-primitives.js";
+import { chromeHelpers } from "./pack-chrome.js";
+import { describePackDefects, manifestDefects } from "./pack-defects.js";
 
 /** Output format the pack's templates produce.  `tsx` is the v0
  *  React/Mantine/shadcn case (Handlebars over .hbs files yielding
@@ -386,9 +387,20 @@ export function compilePack(
   const env = Handlebars.create();
   registerCoreHelpers(env);
   registerPackHelpers(env, manifest);
-  if (!manifest.emits || typeof manifest.emits !== "object") {
+  // Every way the manifest + sources can make the pack unrenderable, decided
+  // up front from the one defect list phase ⑦ also reads (`pack-defects.ts`).
+  // A pack that reaches here through a validated model has none; a programmatic
+  // caller that skipped validation gets the same coded message.
+  const defects = manifestDefects(manifest, sources, sharedSources, {
+    ...options,
+    scanTemplates: false,
+  });
+  if (defects.length > 0) {
     throw new Error(
-      `loader: pack at ${rootDir} has no \`emits\` map in pack.json.  Add { emits: { "page-list": "page-list.hbs", ... } }.`,
+      diagMessage("loom.design-pack-invalid#load", {
+        pack: rootDir,
+        defects: describePackDefects(defects),
+      }),
     );
   }
   // Register shared partials FIRST so a pack template with the same
@@ -403,12 +415,8 @@ export function compilePack(
 
   const templates = new Map<string, CompiledTemplate>();
   for (const [logicalName, fileName] of Object.entries(manifest.emits)) {
-    const source = sources[logicalName];
-    if (source == null) {
-      throw new Error(
-        `loader: pack ${manifest.name}: template "${logicalName}" → "${fileName}" not found at ${pathFor(fileName)}.`,
-      );
-    }
+    // Present for every emits key: `manifestDefects` reports a missing one.
+    const source = sources[logicalName] ?? "";
     // strict: true => template throws on missing fields rather than
     // silently rendering them as empty.  Forces preparer + template
     // to stay in sync; missing fields surface immediately during
@@ -452,36 +460,9 @@ export function compilePack(
     templates.set(name, { fn, filePath: `<shared>/${name}.hbs` });
   }
 
-  // Required-primitives gate.  Every built-in pack must satisfy the
-  // tier list for its declared format — `compilePack` throws here if
-  // a primitive declared required (in `required-primitives.ts`)
-  // wasn't satisfied by either `manifest.emits` or `sharedSources`.
-  //
-  // Why not at first `pack.render(...)`: lazy resolution means a pack
-  // missing `primitive-modal` would pass `loadPack` cleanly and only
-  // blow up the first time a user's `.ddd` contained a modal call.
-  // The error surface would be a confusing render-time failure deep
-  // in the walker rather than a load-time message naming the missing
-  // template.  Eager validation costs nothing — we already have the
-  // `templates` map populated.
-  const format = manifest.format ?? "tsx";
-  const required = REQUIRED_PRIMITIVES[format];
-  const validateRequired = options.validateRequired ?? true;
-  const missing = validateRequired
-    ? flattenRequired(required).filter((name) => !templates.has(name))
-    : [];
-  if (missing.length > 0) {
-    throw new Error(
-      `loader: pack ${manifest.name} (format: ${format}): missing required template(s): ${missing.join(", ")}.  ` +
-        `Declare each in pack.json's \`emits\` map (or place a shared default under vite/, api/, docker/) and create the .hbs file.  ` +
-        `See src/generator/_packs/required-primitives.ts for the per-format required set + policy.`,
-    );
-  }
-
-  // Pack-declared chrome (`pack.json`'s `chrome` map).  Validated at LOAD so a
-  // bad declaration names the pack that owns it, rather than surfacing as
-  // mangled markup inside a generated project.
-  assertDeclaredChromeIsSane(manifest);
+  // The required-primitives gate and the chrome-declaration checks ran above,
+  // in `manifestDefects`: eager, so a pack missing `primitive-modal` fails at
+  // load naming the template, not at the first render deep in the walker.
   // Helpers are bound per i18n state and injected into EVERY render below.
   // Passing them as run-time helpers (rather than registering globally, as
   // `registerPackHelpers` must for its manifest tables) keeps them scoped to
