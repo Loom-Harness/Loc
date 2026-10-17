@@ -470,6 +470,20 @@ Image.network("/logo.png", semanticLabel: "Acme logo"),
 
 `Anchor { to: }` is a **router link** on every frontend (`RouterLink` / `router-link` / `[routerLink]` / `pushNamed`) — give it an in-app path; an external URL belongs in a `menu` link (`link "Docs" -> "https://…"`, [15](15-ui-pages-structure.md)). `Icon` is decorative (`aria-hidden`) unless `label:` names it, which turns it into a `role="img"` and makes the label a translated slot. On Phoenix `Image { "/logo.png", alt: … }` and `Icon { name: … }` render `<img alt="…" />` with no `src` and an empty `<span class="loom-icon">` — the HEEx renderers read only a named `src:` and only an `svg:` literal (`heex-primitives.ts` `renderImage` / `renderIcon`); spell `Image { src: "…", alt: "…" }` and pass `svg:` there.
 
+### A text slot renders a scalar, not a value object
+
+`Text` / `Bold` / `Heading` / `Badge` / `Button` (and the value half of `Stat` / `KeyValueRow`) render their slot as a text child. A **value object** crosses the wire as a JSON object, which no frontend renders there, so a value-object field read into such a slot is **`loom.valueobject-in-text-slot`** — render one of its fields instead (`money` has its own gate, `loom.money-in-text-slot`, whose fix is the `Money` formatter below):
+
+```ddd
+For { each: rows, s => Text { s.address } }        // error: loom.valueobject-in-text-slot
+For { each: rows, s => Text { s.address.city } }   // fine
+```
+
+```tsx
+// what the refused form would have emitted — TS2322: Type 'Address' is not assignable to type 'ReactNode'
+<Text>{s.address}</Text>
+```
+
 ## Formatters — `Money`, `DateDisplay`, `EnumBadge`, `IdLink`, `FileLink`, `ProvenanceInfo`, `Timeline`
 
 ```ddd
@@ -1331,7 +1345,23 @@ const archiveProduct = useArchiveProduct(product?.id);
 <%!-- handle_event("archive_product", …) runs Lv.Shop.archive_product!/1 and push_navigate --%>
 ```
 
-An icon-only button needs a name — visible text or `label:` (`loom.a11y-icon-only-no-name`, a warning). An `Action` over an operation with parameters is rejected (`loom.action-op-has-params`) — use `OperationForm`.
+An icon-only button needs a name — visible text or `label:` (`loom.a11y-icon-only-no-name`, a warning).
+
+### Button icons
+
+`icon:` names a **builtin** icon — the same registry `Icon { name: }` reads (`src/util/builtin-icons.ts`: `arrow-right`, `check`, `chevron-down`, `code`, `cube`, `document`, `external`, `github`, `grid`, `list`, `settings`, `x`). An unknown name renders the button with no glyph at all, so it is **`loom.button-icon-unknown`** (a warning); `iconSvg: "<svg …/>"` passes your own SVG through and wins over `icon:`.
+
+```ddd
+Button { "Delete", onClick: remove, icon: "trash" }   // warning: loom.button-icon-unknown
+Button { "Done", onClick: finish, icon: "check" }     // fine
+```
+
+```tsx
+// react — the resolved SVG is inlined; a miss used to emit the button with no icon
+<Button onClick={finish} rightSection={<span className="loom-icon" …><svg width="1em" height="1em" …/></span>}>…</Button>
+```
+
+An `Action` over an operation with parameters is rejected (`loom.action-op-has-params`) — use `OperationForm`.
 
 ## `Slot`
 
