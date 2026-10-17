@@ -985,6 +985,9 @@ function groupKeyCoerce(
       case "guid":
         imports.add("java.util.UUID");
         return `(UUID) ${read}`;
+      case "date":
+        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
+        return `((java.time.LocalDate) ${read}).toString()`;
     }
   }
   throw new Error(

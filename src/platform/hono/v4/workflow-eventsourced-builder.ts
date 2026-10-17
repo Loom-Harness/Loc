@@ -72,6 +72,8 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
         return "false";
       case "datetime":
         return "new Date()";
+      case "date":
+        return "new Date().toISOString().slice(0, 10)";
       case "json":
         return "{}";
       default:

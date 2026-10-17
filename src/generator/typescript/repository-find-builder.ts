@@ -785,6 +785,7 @@ function tsTypeForReturn(t: TypeIR): string {
         return "Decimal";
       case "string":
       case "guid":
+      case "date":
         return "string";
       case "bool":
         return "boolean";

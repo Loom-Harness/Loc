@@ -38,6 +38,8 @@ export const TS_WIRE_DECODE: WireDecodeTarget = {
     // `.toISOString is not a function` — in the CONSUMING service's log, at
     // `warn`, with the message already gone.
     datetime: (e) => `new Date(${e} as string)`,
+    // A `date` is its ISO text on both sides of the wire.
+    date: (e) => `${e} as string`,
     // money crosses as a fixed-scale decimal STRING on every backend
     // (RS-12) — never a JSON number, which could not carry the scale.
     money: (e) => numericEncode(TS_NUMERIC, "money", "find-param", `${e} as string`),

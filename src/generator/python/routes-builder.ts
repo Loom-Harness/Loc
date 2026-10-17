@@ -1281,9 +1281,16 @@ function versionedSave(
  *  `T?` return doesn't feed `None` into the string helper. */
 function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && (inner.name === "money" || inner.name === "datetime")) {
+  if (
+    inner.kind === "primitive" &&
+    (inner.name === "money" || inner.name === "datetime" || inner.name === "date")
+  ) {
     const wire =
-      inner.name === "money" ? numericEncode(PY_NUMERIC, "money", "dto-map", expr) : `iso(${expr})`;
+      inner.name === "money"
+        ? numericEncode(PY_NUMERIC, "money", "dto-map", expr)
+        : inner.name === "date"
+          ? `${expr}.isoformat()`
+          : `iso(${expr})`;
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }
   return expr;

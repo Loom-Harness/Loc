@@ -660,6 +660,11 @@ function pyKeyCoerce(k: GroupKeySelect, expr: string): string {
           inner.kind === "primitive" && inner.name === "datetime"
           ? "iso"
           : null;
+  // A `date` key is a `datetime.date` off the driver; its wire form is its own
+  // ISO text, so the conversion is a method call rather than a helper.
+  if (!conv && inner.kind === "primitive" && inner.name === "date") {
+    return optional ? `None if ${expr} is None else ${expr}.isoformat()` : `${expr}.isoformat()`;
+  }
   if (!conv) return expr;
   return optional ? `None if ${expr} is None else ${conv}(${expr})` : `${conv}(${expr})`;
 }

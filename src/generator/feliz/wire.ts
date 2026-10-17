@@ -411,6 +411,8 @@ function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, nam
           return `(if ${name} then "true" else "false")`;
         case "datetime":
           return `(${name}.ToString("o"))`;
+        // A `date` is already its `YYYY-MM-DD` wire text on this frontend.
+        case "date":
         case "string":
         case "guid":
         case "json":
@@ -723,7 +725,14 @@ export function felizDeleteMutation(aggregate: string): FelizMutation {
  *  file is not typeable, so that one cell holds the uploaded `FileRef option`
  *  the multipart `POST /files` returned (the encoder ships the object verbatim,
  *  never a string). */
-export type FelizInputKind = "text" | "number" | "checkbox" | "select" | "idselect" | "file";
+export type FelizInputKind =
+  | "text"
+  | "number"
+  | "checkbox"
+  | "select"
+  | "idselect"
+  | "file"
+  | "date";
 
 /** One field of a create form — an F# form-record field (string-typed, bound to
  *  an `Html.input`), its `Set<Form><Field>` update `Msg`, the Thoth encoder
@@ -1132,6 +1141,10 @@ function inputKindFor(
         return "number";
       case "bool":
         return "checkbox";
+      // A calendar `date` renders a date picker; its string value is already
+      // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
+      case "date":
+        return "date";
       // A `File` is not typeable: it renders a file picker whose pick uploads
       // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
       // form submits.  Without this arm the field fell to `text` and encoded

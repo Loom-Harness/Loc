@@ -547,6 +547,9 @@ function mapLeafTypeToEcto(t: TypeIR): string | null {
         case "datetime":
           // Millisecond UTC instant (RS-38) — see `datetime-type-emit.ts`.
           return LOOM_DATETIME_MODULE;
+        case "date":
+          // A calendar `%Date{}`; casts the wire's ISO `YYYY-MM-DD` text.
+          return ":date";
         case "guid":
           return "Ecto.UUID";
         case "json":

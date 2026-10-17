@@ -949,6 +949,8 @@ function elixirStubValueForType(t: TypeIR): string {
           return "false";
         case "datetime":
           return "~U[1970-01-01 00:00:00Z]";
+        case "date":
+          return "~D[1970-01-01]";
         case "guid":
           return `"00000000-0000-0000-0000-000000000000"`;
         default:

@@ -746,7 +746,8 @@ function nullableValueOperand(e: Extract<ExprIR, { kind: "convert" }>): boolean 
     e.from !== "money" &&
     e.from !== "int" &&
     e.from !== "long" &&
-    e.from !== "datetime"
+    e.from !== "datetime" &&
+    e.from !== "date"
   ) {
     return false;
   }
@@ -779,6 +780,9 @@ function renderCsConvert(
       // ISO 8601 round-trip — "O" is the only format that preserves DateTime
       // precision losslessly, and IFormatProvider keeps the literal stable.
       return `${v}.ToString("O", ${sys}.Globalization.CultureInfo.InvariantCulture)`;
+    }
+    if (from === "date") {
+      return `${v}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
     }
     return `${v}.ToString()`;
   }
@@ -1034,6 +1038,14 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // Core translates the `DateTime.Date` member to SQL `date_trunc('day', …)`
   // — the query position rides the same LINQ path (hence no SQL-table row).
   "datetime.startOfDay": (recv) => `${recv}.Date`,
+  // Every DateTime here is UTC (above), so its calendar date IS the UTC date.
+  "datetime.toDate": (recv) => `DateOnly.FromDateTime(${recv})`,
+  // ---- date — a `DateOnly`; `DayNumber` is the proleptic day count, so the
+  // difference is exact whole days with no zone in play.
+  "date.year": (recv) => `${recv}.Year`,
+  "date.month": (recv) => `${recv}.Month`,
+  "date.day": (recv) => `${recv}.Day`,
+  "date.daysUntil": (recv, args) => `((${args[0]}).DayNumber - (${recv}).DayNumber)`,
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1426,6 +1438,8 @@ const CS_TYPE_TARGET: TypeTarget = {
         return "bool";
       case "datetime":
         return "DateTime";
+      case "date":
+        return "DateOnly";
       case "guid":
         return "Guid";
       case "json":

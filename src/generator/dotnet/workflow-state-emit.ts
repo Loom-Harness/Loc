@@ -186,6 +186,8 @@ export function csStateDefault(t: TypeIR): string {
         return "false";
       case "datetime":
         return "DateTime.UtcNow";
+      case "date":
+        return "DateOnly.FromDateTime(DateTime.UtcNow)";
       default:
         return '""';
     }

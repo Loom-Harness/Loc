@@ -115,6 +115,7 @@ import {
   renderDapperEventSourcedRepository,
   renderDapperRepository,
   renderDapperSchema,
+  wireDapperDateOnlyHandler,
 } from "./emit/dapper.js";
 import {
   dapperPortRegistrations,
@@ -314,6 +315,9 @@ export function generateDotnetForContexts(
       options.sourcemap,
       options.sourceTexts,
     );
+    // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
+    // only when the finished project uses the `date` scalar.
+    if (system?.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);
   } else {
     for (const ctx of contexts) {
       emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);

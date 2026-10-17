@@ -14717,6 +14717,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
+            "value": "date"
+          },
+          {
+            "$type": "Keyword",
             "value": "deep"
           },
           {
@@ -15833,6 +15837,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             {
               "$type": "Keyword",
               "value": "bool"
+            },
+            {
+              "$type": "Keyword",
+              "value": "date"
             },
             {
               "$type": "Keyword",

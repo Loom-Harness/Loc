@@ -212,6 +212,7 @@ const HEEX_SHELL: readonly string[] = [
 const TSX_FIELD_INPUT: readonly string[] = [
   "field-input-array",
   "field-input-bool",
+  "field-input-date",
   "field-input-datetime",
   "field-input-decimal",
   "field-input-enum-select",
