@@ -7,20 +7,18 @@
 // `auditable` columns.  Two invariants every backend must hold:
 //
 //   1. Per-aggregate scope.  A `Ticket` insert never receives `author`, a
-//      `Note` insert never receives `dueAt` or the audit columns.  Node once
-//      merged every aggregate's stamps into one context-wide helper applied to
-//      every insert.
-//   2. Self reads evaluate against the instance being persisted.  Node once
-//      rendered `this.slaHours()` inside a free function (TS2683, then a 500 on
-//      every create); Elixir rendered `sla_hours(record)` with `record` unbound
-//      in the repository; Java let `@CreatedDate` silently overwrite the
-//      computed `dueAt` with the bare clock.
+//      `Note` insert never receives `dueAt` or the audit columns — a single
+//      context-wide stamp helper would hand every insert every aggregate's
+//      columns.
+//   2. Self reads evaluate against the instance being persisted: a bare
+//      `this.slaHours()` in a free function fails tsc and 500s every create,
+//      an unbound `record` in the elixir repository does not compile, and a
+//      java `@CreatedDate` would overwrite the computed `dueAt` with the clock.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystems } from "../../src/system/index.js";
-import { parseString } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 
 const source = (platform: string, shape = ""): string => `system Desk {
@@ -59,10 +57,8 @@ const source = (platform: string, shape = ""): string => `system Desk {
 }
 `;
 
-async function build(platform: string): Promise<Map<string, string>> {
-  const { model, errors } = await parseString(source(platform));
-  if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
-  return generateSystems(model).files;
+function build(platform: string): Promise<Map<string, string>> {
+  return generateSystemFiles(source(platform));
 }
 
 function find(files: Map<string, string>, re: RegExp): string {
@@ -119,11 +115,9 @@ describe("node — one stamp helper pair per aggregate", () => {
   });
 
   it("the mikroorm adapter calls the same per-aggregate helpers", async () => {
-    const { model, errors } = await parseString(
+    const files = await generateSystemFiles(
       source("node").replace("platform: node", "platform: node { persistence: mikroorm }"),
     );
-    expect(errors).toEqual([]);
-    const files = generateSystems(model).files;
     const ticketRepo = find(files, /repositories\/ticket-repository\.ts$/);
     expect(ticketRepo).toMatch(
       /em\.insert\(TicketRow, stampInsertTicket\([\s\S]*?, aggregate\)\);/,

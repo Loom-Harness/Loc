@@ -749,6 +749,18 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    code: "loom.stamp-reads-aggregate-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/principal-guard-checks.ts:137",
+    what:
+      "a `stamp` whose value reads the aggregate's own fields / functions (`dueAt := now() + " +
+      "hours(slaHours())`) on a document-shaped aggregate hosted by elixir: that path merges " +
+      "stamps into the request attrs before any record exists, so there is nothing to read.  " +
+      "Every other backend and the relational elixir path evaluate it against the instance.",
+    mission: "M-T6.99",
+    verified: true,
+  },
+  {
     code: "loom.tph-own-override-unsupported",
     kind: "scope",
     site: "src/language/validators/inheritance.ts:193",

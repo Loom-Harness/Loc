@@ -1060,7 +1060,7 @@ function derivedPropsOf(agg: Aggregate): DerivedProp[] {
  *  is a scanning surface: past a handful of columns the table scrolls sideways
  *  and the row stops reading as one record.  The Detail page keeps every
  *  field, so capping here hides nothing that is not one click away. */
-export const MAX_LIST_COLUMNS = 6;
+const MAX_LIST_COLUMNS = 6;
 
 /** The capability-stamped audit fields a list leaves out.  `updatedAt` and the
  *  two principal ids are bookkeeping — the principal id is not even navigable

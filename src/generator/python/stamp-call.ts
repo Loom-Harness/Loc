@@ -45,7 +45,7 @@ export const AMBIENT_PRINCIPAL_IMPORT = `from app.auth.user import current_user 
  *  (`let t = Ticket.create({ … })`) — the bindings whose save is an INSERT
  *  and so takes the create stamp; every other saved binding was loaded and
  *  takes the update stamp. */
-export function factoryLetNames(sts: readonly WorkflowStmtIR[]): Set<string> {
+function factoryLetNames(sts: readonly WorkflowStmtIR[]): Set<string> {
   const out = new Set<string>();
   for (const st of sts)
     walkWorkflowStmtsDeep(st, (n) => {

@@ -122,7 +122,7 @@ type StampBranch = "insert" | "update";
  *  renders against the domain instance being saved, so that branch's helper
  *  takes the instance as a second argument and the save site passes
  *  `aggregate`. */
-export function stampReadsAggregate(agg: EnrichedAggregateIR, branch: StampBranch): boolean {
+function stampReadsAggregate(agg: EnrichedAggregateIR, branch: StampBranch): boolean {
   return stampsReadAggregate(
     agg.contextStamps,
     branch === "insert" ? ["create", "update"] : ["update"],
@@ -130,12 +130,12 @@ export function stampReadsAggregate(agg: EnrichedAggregateIR, branch: StampBranc
 }
 
 /** `agg`'s insert-stamp helper name in `db/audit-stamp.ts`. */
-export function stampInsertFn(agg: EnrichedAggregateIR): string {
+function stampInsertFn(agg: EnrichedAggregateIR): string {
   return `stampInsert${agg.name}`;
 }
 
 /** `agg`'s update-stamp helper name in `db/audit-stamp.ts`. */
-export function stampUpdateFn(agg: EnrichedAggregateIR): string {
+function stampUpdateFn(agg: EnrichedAggregateIR): string {
   return `stampUpdate${agg.name}`;
 }
 
