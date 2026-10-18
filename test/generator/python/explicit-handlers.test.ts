@@ -76,11 +76,19 @@ describe("python — explicit commandHandler/queryHandler → FastAPI", () => {
     expect(ctrl).toContain(
       '@router.post("/orders/{order_id}/cancellations", operation_id="cancelOrder")',
     );
+    // `-> Any` and the value returned UNWRAPPED (M-T6.73).  This route used to
+    // answer `{"result": <value>}`, making python the lone backend to send
+    // `{"result": "hi"}` where the other four send `"hi"`; node is the wire
+    // oracle the behavioural goldens are captured from.  `Any` rather than
+    // `dict[str, object]` because FastAPI reads the return annotation as the
+    // response_model and would validate a bare scalar against a mapping.
     expect(ctrl).toContain(
-      "async def cancel_order_route(order_id: UuidStr, session: SessionDep) -> dict[str, object]:",
+      "async def cancel_order_route(order_id: UuidStr, session: SessionDep) -> Any:",
     );
     expect(ctrl).toContain("result = await cancel_order(session, OrderId(order_id))");
-    expect(ctrl).toContain('return {"result": result}');
+    expect(ctrl).toContain("    return result");
+    expect(ctrl).not.toContain('return {"result"');
+    expect(ctrl).toContain("from typing import Annotated, Any");
     // Query route.
     expect(ctrl).toContain('@router.get("/orders/{order_id}/status", operation_id="getStatus")');
     expect(ctrl).toContain("result = await get_status(session, OrderId(order_id))");
@@ -177,7 +185,7 @@ describe("python — explicit handler body params → single request model", () 
     // Route signature: real path param stays a `str` path param; the rest ride
     // in the single `body: DiscountBody`.
     expect(ctrl).toContain(
-      "async def discount_route(order_id: UuidStr, body: DiscountBody, session: SessionDep) -> dict[str, object]:",
+      "async def discount_route(order_id: UuidStr, body: DiscountBody, session: SessionDep) -> Any:",
     );
     // Call args stay in declared order; body params read off `body.<snake>`,
     // then coerce to the DOMAIN class (Money(...) constructed from body fields).

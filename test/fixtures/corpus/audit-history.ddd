@@ -27,6 +27,24 @@
 //
 // The counts are asserted here; the exact bodies are pinned by the wire golden,
 // which is where a cross-backend contract belongs.
+//
+// PROMOTED (M-T9.42): the per-backend `audit-history-*.test.ts` string copies
+// pinned two further runtime claims as emitted text only, and each is now a
+// value asserted here on every leg:
+//   - the trail is read on the (target_type, target_id) pair — a SECOND order
+//     with its own commands must not leak into the first order's timeline;
+//   - the read is scoped by ENTITY REACHABILITY — `Memo` is soft-deletable, and
+//     its trail must 404 once the row is hidden, exactly like the entity read,
+//     instead of serving the timeline of a row the caller can no longer see.
+//
+// Two claims the same copies carry could NOT be promoted, and both attempts
+// found a defect (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+//   - a lifecycle stamp kept out of the diff — an audited aggregate carrying a
+//     `stamp onCreate/onUpdate` capability 500s on java's create;
+//   - the masked-field DROP — driven through `field-mask`'s audited aggregate,
+//     the trail's `actor` JSON diverges four ways and elixir writes no row for
+//     the crudish update; driven auth-less here, `mask unless` fails to compile
+//     on .NET and java and to boot on python.
 system AuditHistorySystem {
   subdomain Ordering {
     context Ordering {
@@ -68,6 +86,29 @@ system AuditHistorySystem {
       repository Orders for Order {
         find byReference(reference: string): Order? where this.reference == reference
       }
+      // The REACHABILITY witness.  `softDeletable` puts a not-deleted predicate
+      // on every read of the row, and the history route resolves the entity
+      // through that same read before it touches `audit_records` — so a hidden
+      // row's trail is a 404, not a disclosure.
+      aggregate Memo audited with softDeletable, softDelete {
+        text: string
+        create(text: string) { text := text }
+      }
+      repository Memos for Memo { }
+      // LIFECYCLE-ONLY audit (PROMOTED from the `lifecycle-audit.test.ts`
+      // string copies, M-T9.42): nothing is audited aggregate-wide — only the
+      // `create` and the `destroy` — so this aggregate is the one whose
+      // `audit_records` table and history route exist for its lifecycle alone.
+      // The create entry carries every field as null → value; `pay` is NOT
+      // audited, so it moves the row and leaves the trail alone.
+      aggregate Invoice {
+        total: int
+        paid: bool = false
+        create(total: int) audited { total := total }
+        destroy audited { }
+        operation pay() { paid := true }
+      }
+      repository Invoices for Invoice { }
     }
   }
   api OrderingApi from Ordering
@@ -133,8 +174,54 @@ system AuditHistorySystem {
     expect(settledEntry.changes.first().field).toBe("quantity")
     expect(settledEntry.changes.first().before).toBe(5)
     expect(settledEntry.changes.first().after).toBe(8)
+
+    // ── the (target_type, target_id) pair ───────────────────────────────────
+    // A second order with its own two commands.  Its trail is its own, and the
+    // first order's trail does not grow — a read keyed on the aggregate TYPE
+    // alone would hand each order the other's entries.
+    let o2 = api.orders.create({ reference: "R2", quantity: 1 })
+    api.orders.cancel(o2, { reason: 2 })
+    let otherTrail = api.orders.history(o2)
+    expect(otherTrail.count).toBe(2)
+    expect(otherTrail.skip(1).first().changes.first().after).toBe(2)
+    let trail3 = api.orders.history(o)
+    expect(trail3.count).toBe(3)
+    expect(trail3.first().changes.first().after).toBe("R1")
+
     let listed = api.orders.all()
-    expect(listed.items.length).toBe(1)
-    expect(listed.total).toBe(1)
+    expect(listed.items.length).toBe(2)
+    expect(listed.total).toBe(2)
+
+    // ── reachability: a hidden row has no readable trail ─────────────────────
+    let m = api.memos.create({ text: "note" })
+    let memo = api.memos.getById(m)
+    expect(memo.text).toBe("note")
+    let memoTrail = api.memos.history(m)
+    expect(memoTrail.count).toBe(1)
+    expect(memoTrail.first().action).toBe("create")
+    expect(memoTrail.first().changes.first().field).toBe("text")
+    let memos = api.memos.all()
+    expect(memos.total).toBe(1)
+    api.memos.softDelete(m)
+    expect(api.memos.getById(m)).toThrow(404)
+    expect(api.memos.history(m)).toThrow(404)
+    // `restore` resolves the row through the same filtered read (RS-27), so it
+    // is refused alike — the trail's 404 is the entity read's, not a new rule.
+    expect(api.memos.restore(m)).toThrow(404)
+
+    // ── lifecycle-only audit: the audited create is in the trail, the
+    //    un-audited operation is not ─────────────────────────────────────────
+    let inv = api.invoices.create({ total: 40 })
+    api.invoices.pay(inv)
+    expect(api.invoices.getById(inv).paid).toBe(true)
+    let invTrail = api.invoices.history(inv)
+    expect(invTrail.count).toBe(1)
+    expect(invTrail.first().action).toBe("create")
+    expect(invTrail.first().changes.where(c => c.field == "total").first().before).toBe(null)
+    expect(invTrail.first().changes.where(c => c.field == "total").first().after).toBe(40)
+    let invoices = api.invoices.all()
+    expect(invoices.total).toBe(1)
+    api.invoices.destroy(inv)
+    expect(api.invoices.getById(inv)).toThrow(404)
   }
 }

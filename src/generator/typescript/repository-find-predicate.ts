@@ -32,7 +32,7 @@ import {
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
@@ -307,9 +307,36 @@ export function lowerToDrizzle(
       const orientedFn = COMPARE_OP_TO_DRIZZLE[oriented.op];
       if (!orientedFn) return null;
       const colExpr = renderColumnRef(oriented.column);
-      const valueExpr = renderValue(oriented.value);
+      // Column vs column (`this.qty > this.cap`): Drizzle's comparison
+      // operators take a column in the value position as readily as a bound
+      // value, so the other side renders as its column reference.
+      const valueExpr = renderValue(oriented.value) ?? renderColumnRef(oriented.value);
       if (colExpr === null || valueExpr === null) return null;
       ops.add(orientedFn);
+      // A NULLABLE value operand — `this.techId == currentUser.techId` with the
+      // claim declared `Technician id?`, or an optional find param.  Drizzle
+      // types the value slot `column | value` with no `null`, so binding it
+      // straight failed the generated project's `tsc` (TS2769), and a
+      // `col = NULL` would match nothing anyway.  Branch in JS on the runtime
+      // value: null takes SQL's IS [NOT] NULL (Loom's `null == null` is true);
+      // an ordering against null matches no row (the `deny` arm's always-false
+      // term); otherwise the ordinary comparison, where TS has narrowed the
+      // value to non-null.  Value renderings here are side-effect-free member
+      // / identifier reads, so evaluating twice is safe.
+      if (isNullableValue(oriented.value)) {
+        let onNull: string;
+        if (oriented.op === "==") {
+          ops.add("isNull");
+          onNull = `isNull(${colExpr})`;
+        } else if (oriented.op === "!=") {
+          ops.add("isNotNull");
+          onNull = `isNotNull(${colExpr})`;
+        } else {
+          for (const op of ["and", "isNull", "isNotNull"]) ops.add(op);
+          onNull = `and(isNull(${colExpr}), isNotNull(${colExpr}))`;
+        }
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${valueExpr}))`;
+      }
       return `${orientedFn}(${colExpr}, ${valueExpr})`;
     }
     if (e.kind === "unary" && e.op === "!") {
@@ -474,6 +501,15 @@ export function lowerToDrizzle(
     return null;
   }
 
+  /** Whether a value operand's static type admits null — a `currentUser.<x>`
+   *  claim declared `T?`, or a param / let typed `T?`. */
+  function isNullableValue(e: ExprIR): boolean {
+    if (e.kind === "paren") return isNullableValue(e.inner);
+    if (e.kind === "member") return e.memberType.kind === "optional";
+    if (e.kind === "ref") return e.type?.kind === "optional";
+    return false;
+  }
+
   function renderValue(e: ExprIR): string | null {
     if (e.kind === "paren") return renderValue(e.inner);
     // A5 temporal — value-side `q + days(n)` / `now() - hours(n)` lowers
@@ -521,7 +557,8 @@ export function lowerToDrizzle(
       // column or a parameter with the wrong type compiled silently),
       // so the cast is gone.
       if (e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda") {
-        return e.name;
+        // Escaped like the binding it names (`class` → `class_`).
+        return escapeTsIdent(e.name);
       }
       // Enum value: render as the literal string.  EF / Drizzle store
       // enums as text columns matching `OrderStatus.Draft` → "Draft".
@@ -681,7 +718,12 @@ export function reifiableCriterion(
 /** Render a criterion-call argument (the value passed at the use-site) — a
  *  parameter/let reference renders as its name, a literal as its value. */
 export function renderCriterionArg(e: ExprIR): string {
-  if (e.kind === "ref") return e.name;
+  if (e.kind === "ref") {
+    // A param / let binding is declared under its escaped spelling.
+    return e.refKind === "param" || e.refKind === "let" || e.refKind === "lambda"
+      ? escapeTsIdent(e.name)
+      : e.name;
+  }
   if (e.kind === "literal") return e.lit === "string" ? JSON.stringify(e.value) : e.value;
   // Criterion call args are values (param refs / literals) in v1.
   return "undefined as never";

@@ -9,7 +9,6 @@
 //   loom.projection-source-self               — a projection sourcing itself
 //   loom.projection-source-join-invalid   — a `join` over a projection source
 //   loom.projection-source-ignoring-no-effect — an `ignoring` over a projection source
-//   loom.projection-source-unsupported-backend  — a backend that hasn't ported the emit
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";

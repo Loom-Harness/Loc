@@ -87,7 +87,7 @@ Emitted from the model's `test` blocks: the domain rules, exercised in process. 
 
 ```bash
 cd api
-dotnet test
+dotnet test Tests/Api.Tests
 ```
 
 ### `e2e/` — API tests over HTTP
@@ -103,6 +103,7 @@ npm test
 Each deployable's base URL comes from an environment variable, defaulting to its port above. Override them to point the suite at a stack that is not on `localhost`:
 
 ```bash
+cd e2e
 E2E_API_BASE=http://localhost:8080 \
 E2E_CATALOG_WEB_BASE=http://localhost:3000 \
 E2E_CATALOG_API_BASE=http://localhost:8081 \
@@ -112,19 +113,29 @@ E2E_WEB_APP_BASE=http://localhost:3001 \
 
 #### State between tests
 
-The suite resets the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first. You do not need to recreate the database between runs.
+The suite can reset the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first — but only when **you opt in**, because the reset **truncates every table** of the target.
+
+Opt in only against a throwaway stack. Start each backend with `LOOM_TEST_RESET=1` **and** a secret `LOOM_TEST_RESET_TOKEN`, and run the suite with the same `LOOM_TEST_RESET_TOKEN`:
+
+```bash
+export LOOM_TEST_RESET_TOKEN=$(openssl rand -hex 16)
+LOOM_TEST_RESET=1 <start the backend>        # backend side
+cd e2e && npm test                            # suite side (same token)
+```
+
+The generated `docker-compose.yml` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching `x-loom-test-reset` header is refused (403).
 
 Blocks within one run still share that database, so a later block sees rows an earlier one created. That is often deliberate. When it is not, `E2E_RESET=per-test` resets before every block instead, and each block then sees only the rows it creates. `E2E_RESET=off` disables the reset entirely.
 
-The reset only fires when the target is a **loopback** address, and each backend only allows it in a dev profile — so pointing the suite at a deployed environment (`E2E_API_BASE=https://…`) skips it and truncates nothing.
+The reset is only sent when the target is a **loopback** address, so pointing the suite at a deployed environment (`E2E_API_BASE=https://…`) skips it and truncates nothing.
 
-If a backend does not allow it, the suite says so once and carries on with shared state:
+Without the token the suite says so once and carries on with shared state:
 
 ```
-[e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.
+[e2e] No state reset: LOOM_TEST_RESET_TOKEN is not set — these tests SHARE a database.
 ```
 
-Enable it by starting that backend with `LOOM_TEST_RESET=1` — the generated `docker-compose.yml` already sets it on every backend service. Otherwise use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.
+Then use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.
 
 Under compose, one command does both:
 

@@ -84,7 +84,7 @@ import {
 import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
-import { giveUp, giveUpText } from "./give-up.js";
+import { giveUp, giveUpText, wrapLoneRootComment } from "./give-up.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -99,7 +99,7 @@ import type { ChildSlot, RenderPosition, WalkerTarget } from "./target.js";
  *  so the seam is optional and defaults to the name unchanged.  Only Feliz
  *  implements it, because F# has ~70 keywords a Loom field or param may legally
  *  be named after (F-022). */
-function targetIdent(ctx: WalkContext, name: string): string {
+export function targetIdent(ctx: WalkContext, name: string): string {
   return ctx.target.escapeIdent?.(name) ?? name;
 }
 
@@ -580,7 +580,7 @@ export function walkBody(
     usedActions: new Set(),
     usedStores: new Map(),
   };
-  const tsx = walk(body, ctx, 0, "value");
+  const tsx = wrapLoneRootComment(target, walk(body, ctx, 0, "value"));
   // PACK-DECLARED chrome (`pack.json`'s `chrome` map) reaches the page through
   // a `.hbs` this walk rendered, so no emitter here registered the `t` those
   // bindings resolve against — the string lives in the template, behind the
@@ -1009,6 +1009,27 @@ export interface OperationFormState extends FormStateBase {
    *  `<Agg>Response`) — the `record` prop annotation.  Present iff
    *  `recordVar` is. */
   recordType?: string;
+  /** Present iff the operation carries a `when` state gate — the trigger
+   *  queries the backend's `GET /{id}/can_<op>` companion and is disabled
+   *  while it answers `allowed: false`.  Absent ⇒ no probe query, output
+   *  byte-identical to an ungated op. */
+  gate?: OpGateState;
+}
+
+/** The `can_<op>` probe wiring of a `when`-gated operation trigger. */
+export interface OpGateState {
+  /** Page-scope local bound to the probe query (`canComplete`). */
+  local: string;
+  /** The api-client hook/function that issues the probe
+   *  (`useCanCompleteTask`), keyed under the record's own query key so every
+   *  mutation that invalidates the record re-queries it. */
+  hook: string;
+  /** Target-native boolean expression — true while the trigger is disabled
+   *  (`canComplete.data?.allowed === false`). */
+  disabledExpr: string;
+  /** Target-native string expression for the disabled trigger's accessible
+   *  reason (`chrome.opNotAllowed`, translated when the UI is). */
+  reasonExpr: string;
 }
 
 /** Rewrite a detected user-FIND hook's rendered args from positional to
@@ -1271,8 +1292,31 @@ export function walk(
       // method-call */` while the visually identical `Text` twin rendered
       // `"abc".toUpperCase()` — the same expression, two outcomes, one page.
       return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
-    default:
+    // The kinds MARKUP-CHILD position cannot render.  Every one degrades
+    // through the catalogued `loom.page-expr-unrenderable` give-up sentinel —
+    // a visible, scannable comment in the emitted page, never a silent drop.
+    // They are enumerated rather than swept into a bare `default` so a NEW
+    // `ExprIR.kind` is a compile error here (the `never` below), on all six
+    // frontends at once, instead of quietly defaulting to "unrenderable".
+    case "this":
+    case "id":
+    case "lambda":
+    case "new":
+    case "object":
+    case "list":
+    case "authz-filter":
+    case "paren":
+    case "unary":
+    case "binary":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "action-ref":
       return giveUp(ctx.target, "loom.page-expr-unrenderable", `unsupported expr: ${expr.kind}`);
+    default: {
+      const _exhaustive: never = expr;
+      return _exhaustive;
+    }
   }
 }
 
@@ -1403,7 +1447,22 @@ export function storeFieldReadUseSite(ctx: WalkContext, storeName: string, field
   if (ctx.target.framework === "angular") {
     return `this.${storeName[0]!.toLowerCase()}${storeName.slice(1)}.${field}()`;
   }
-  return storeLocalFor(ctx, storeName, field);
+  // A field local named after a target keyword (Dart `class`, F# `member`) is
+  // spelled through `escapeIdent`; the shells' bindings apply the same spelling.
+  return targetIdent(ctx, storeLocalFor(ctx, storeName, field));
+}
+
+/** The use-site spelling of a store ACTION's shell-bound local — the
+ *  store-action twin of `storeFieldReadUseSite`: an action named after a target
+ *  keyword (Dart `while`, F# `fixed`) is spelled through `escapeIdent`, exactly
+ *  as the shells spell the binding.  Every other frontend has no `escapeIdent`,
+ *  so the local is unchanged there. */
+export function storeActionLocalUseSite(
+  ctx: WalkContext,
+  storeName: string,
+  action: string,
+): string {
+  return targetIdent(ctx, storeLocalFor(ctx, storeName, action));
 }
 
 /** The shell-bound local name for a store member referenced from this body
@@ -1482,10 +1541,14 @@ export function renderActionHandlers(
     if (!effectiveUsed.has(action.name)) continue;
     // The single payload param (v1) binds as a lambda param so body refs to
     // it resolve; nullary actions bind nothing.
-    const param = action.params[0]?.name;
-    const handlerCtx: WalkContext = param
-      ? { ...baseCtx, lambdaParams: extendLambdaParams(baseCtx, param, param) }
-      : baseCtx;
+    // Spelled through `escapeIdent` (a Dart-reserved / F#-keyword name) once,
+    // for the declaration and every body ref alike.
+    const srcParam = action.params[0]?.name;
+    const param = srcParam === undefined ? undefined : targetIdent(baseCtx, srcParam);
+    const handlerCtx: WalkContext =
+      srcParam !== undefined && param !== undefined
+        ? { ...baseCtx, lambdaParams: extendLambdaParams(baseCtx, srcParam, param) }
+        : baseCtx;
     const bodyStmts = action.body.map((s) => emitStmt(s, handlerCtx));
     // An action whose body awaits a remote effect (a `variant-match` over
     // `await <op>()` — async-actions-and-effects.md Stage 2) must be `async` so
@@ -1543,14 +1606,14 @@ function stmtIsAwaited(s: StmtIR): boolean {
  *  `/<plural-snake>/{id}` detail-page route, with the truncated id
  *  rendered via the pack's `IdValue` helper as the link text.
  *
- *  Link-text choice — IdValue (truncated id) is the deliberate
- *  match to the scaffold's `cell-id-link.hbs` rendering.  Looking
- *  up the aggregate's `display`-marked field would require a per-
- *  row `useXById(id)` hook call from inside the IdLink primitive,
- *  which doesn't compose cleanly when IdLink appears inside a
- *  Table cell (one hook per row violates React's rules-of-hooks).
- *  Detail-page TITLES use the display field — that's where it
- *  belongs.
+ *  Link text — when the target aggregate ships a `display` and the id
+ *  is a reference (not the row's own `.id`), the target wraps the
+ *  pack's truncated id in a per-cell `LoomRefLabel` child that reads
+ *  the record's `display` (the `renderRefLabelWrap` seam).  A
+ *  `useXById(id)` straight in the page would be one hook per Table
+ *  row — a rules-of-hooks violation — but inside a child component
+ *  it is legal, and the query cache dedupes repeated ids.  The
+ *  truncated id stays as the loading / error / no-display fallback.
  *
  *  Aggregates are plumbed through to the walker; we use that to
  *  validate `of:` at emit time — an unresolvable aggregate
@@ -1779,7 +1842,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         recordStoreUse(ctx, expr.storeName, expr.name);
         return storeFieldReadUseSite(ctx, expr.storeName, expr.name);
       }
-      if (ctx.stateNames.has(expr.name)) {
+      // An `enum-value` ref is never a state read, even when a state cell shares
+      // the member's name (`state { new: … }` + `k := Kind.new`): lowering has
+      // already resolved the qualified member, and `state.new` would silently
+      // read the wrong value.
+      if (ctx.stateNames.has(expr.name) && expr.refKind !== "enum-value") {
         ctx.usesState = true;
         // Delegated to tsxTarget.renderStateRead — expression
         // position (no JSX braces) for handler context.
@@ -1948,7 +2015,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
           {
             storeName: expr.storeAction.store,
             action: expr.storeAction.action,
-            local: storeLocalFor(ctx, expr.storeAction.store, expr.storeAction.action),
+            local: storeActionLocalUseSite(ctx, expr.storeAction.store, expr.storeAction.action),
           },
           callArgs,
         );
@@ -2035,9 +2102,12 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // binding identically); refs to it inside the body resolve through
       // `lambdaParams`.  Flags the body writes (state reads, used params,
       // …) propagate back to the parent sink.
+      // The binder is spelled through `escapeIdent` (Dart `default_`, F#
+      // ``member``) — the same spelling every body ref resolves to.
+      const param = targetIdent(ctx, expr.param);
       const childCtx: WalkContext = {
         ...ctx,
-        lambdaParams: extendLambdaParams(ctx, expr.param, expr.param),
+        lambdaParams: extendLambdaParams(ctx, expr.param, param),
       };
       const rendered = expr.body
         ? emitExpr(expr.body, childCtx)
@@ -2049,7 +2119,7 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // (`MAP_UNRENDERED_FRAMEWORK`) — a valid `.map(λ)` shipped unbuildable
       // output on that one target.  Dart's arrow is spelled like JS's, so
       // Flutter keeps the default.
-      return ctx.target.exprLambda?.(expr.param, rendered) ?? `(${expr.param}) => ${rendered}`;
+      return ctx.target.exprLambda?.(param, rendered) ?? `(${param}) => ${rendered}`;
     }
     case "object":
       // Object literal: `{ name: name, age: 30 }` — the leaf owns the
@@ -2085,12 +2155,18 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // `/* unresolved: X */ undefined` sentinel gives up instead —
       // emitting `undefined.<method>(...)` would be runtime-broken code.
       //
-      // DEAD on valid `.ddd`: `loom.method-call-unresolved-receiver`
-      // (`ui-action-body-checks.ts` F2) rejects an unresolved method-call
-      // receiver at IR-validate time (phase ⑦), before codegen — proven by
+      // Unreachable on valid `.ddd` through TWO phase-⑦ gates, not one.
+      // `loom.method-call-unresolved-receiver` (`ui-action-body-checks.ts` F2)
+      // rejects a receiver that names nothing — proven by
       // `test/generator/_walker/unresolved-receiver-give-up.test.ts`, which
-      // drives every body position that reaches this arm and asserts the gate
-      // fires first.  So it is defence-in-depth for an UNVALIDATED IR (the api
+      // drives every body position that reaches this arm.  But F2 accepts any
+      // aggregate declared ANYWHERE in the model, while this walker only binds
+      // the aggregates of the frontend's `targets:` backend: a
+      // `scaffold(subdomains: [A, B])` whose target serves only A used to land
+      // here with 0 validate errors (eval-closure item #18).
+      // `loom.ui-aggregate-unserved` (`ui-backend-binding-checks.ts`) closes
+      // that second route (`test/ir/ui-aggregate-unserved.test.ts`).  So this
+      // arm is defence-in-depth for an UNVALIDATED IR (the api
       // toolkit and the playground can both hand the generator one), and it
       // says so by naming the gate rather than leaving a bare `TODO` with
       // nothing to look up.  It stays a give-up rather than a throw for the
@@ -2181,9 +2257,11 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // shell hoists one named function per action.
       if (expr.storeName && ctx.target.renderStoreActionCall) {
         recordStoreUse(ctx, expr.storeName, expr.actionName);
-        return storeLocalFor(ctx, expr.storeName, expr.actionName);
+        return storeActionLocalUseSite(ctx, expr.storeName, expr.actionName);
       }
-      return expr.actionName;
+      // The shell binds the handler under the target's identifier spelling
+      // (Dart `class_`, F# ``member``) — the same one a call site gets.
+      return targetIdent(ctx, expr.actionName);
     }
     case "this":
       // No aggregate instance is in scope on a frontend: a page/component body
@@ -2361,7 +2439,7 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
         // Use-site call form is per-frontend (see the expr-position twin
         // above): React → bound local `clear(args)`; Angular → injected member
         // `this.cart.clear(args)`.
-        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeLocalFor(ctx, stmt.store, stmt.name) }, callArgs)};`;
+        return `${ctx.target.renderStoreActionCall({ storeName: stmt.store, action: stmt.name, local: storeActionLocalUseSite(ctx, stmt.store, stmt.name) }, callArgs)};`;
       }
       if (ctx.externFunctions?.has(stmt.name)) ctx.usedExternFunctions?.add(stmt.name);
       // `navigate(<Page>)` — the DOCUMENTED home for navigation (docs/actions.md
@@ -2391,11 +2469,23 @@ export function emitStmt(stmt: StmtIR, ctx: WalkContext): string {
     }
     case "variant-match":
       return emitVariantMatch(stmt, ctx);
-    default:
+    // The BACKEND-body statement forms.  Refused in a page event handler —
+    // enumerated instead of swept into a bare `default` so a NEW `StmtIR` kind
+    // is a compile error here (the `never` below), on every frontend at once,
+    // and has to be classified rather than silently inheriting the refusal.
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "if":
       return unsupportedPageStmt(
         `statement '${stmt.kind}'`,
         "it has no meaning in a React page event handler",
       );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 

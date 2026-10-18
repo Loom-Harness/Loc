@@ -19,9 +19,6 @@
 
 /** WCAG AA contrast floor for normal-size body text. */
 export const AA_NORMAL = 4.5;
-/** WCAG AA contrast floor for large text (≥ 18.66px bold / 24px) and for
- *  non-text UI components (borders, focus rings, icons). */
-export const AA_LARGE = 3;
 
 interface Rgb {
   r: number;

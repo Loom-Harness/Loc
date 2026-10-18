@@ -8,9 +8,12 @@ import {
   type WorkflowStmtIR,
   workflowCanAnswerNotFound,
   workflowIsGuarded,
-  workflowUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
-import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
+import {
+  operationBodyUsesCurrentUser,
+  operationGates,
+  workflowNeedsCurrentUser,
+} from "../../ir/util/op-gates.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -39,8 +42,9 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import {
   workflowParamPayloads,
@@ -113,7 +117,7 @@ const INDENT = "        ";
  *  at generate time.  Both legs derive the map the same way, from the same
  *  function, so they cannot disagree about which resources are routable. */
 export function buildResourceClasses(sys: SystemIR | undefined): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/dotnet/workflow-emit");
   if (!sys) return out;
   const storeType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
   for (const r of sys.dataSources) {
@@ -297,7 +301,7 @@ function renderWorkflowPayloadDomainRecords(
   ctx: EnrichedBoundedContextIR,
   ns: string,
 ): Map<string, string> {
-  const files = new Map<string, string>();
+  const files = emissionSink("generator/dotnet/workflow-emit");
   for (const pl of workflowParamPayloads(ctx)) {
     const params = pl.fields
       // `renderCsType` already renders an `optional(T)` as `T?`, so the
@@ -1344,7 +1348,10 @@ function renderHandler(
 ): string {
   const cmdName = `${upperFirst(wf.name)}Command`;
   const handlerName = `${upperFirst(wf.name)}Handler`;
-  const usesUser = workflowUsesCurrentUser(wf);
+  // Not `workflowUsesCurrentUser(wf)`: a hoisted `requires` gate is rendered at
+  // the INLINE op-call site inside this body, so the principal can be needed by
+  // a workflow that never spells `currentUser` itself (CS0103 otherwise).
+  const usesUser = workflowNeedsCurrentUser(wf, ctx);
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1804,7 +1811,7 @@ export function csWorkflowStmtTarget(
       // (matching the source field name), so the named-arg call site
       // must use the same casing — PascalCase here would fail with
       // CS1739 "best overload does not have a parameter named X".
-      const provided = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`);
+      const provided = st.fields.map((f) => `${escapeCsharpIdent(f.name)}: ${renderArg(f.value)}`);
       // The .NET Create(...) factory declares *every* canonical create
       // input as a required parameter (no C# default — optionals would
       // have to trail the required params, which the wire-shape ordering
@@ -1817,7 +1824,10 @@ export function csWorkflowStmtTarget(
       const agg = ctx.aggregates.find((a) => a.name === st.aggName);
       const omitted = (agg ? createInputFields(agg) : [])
         .filter((f) => !named.has(f.name))
-        .map((f) => `${f.name}: ${renderCsOmission(createOmissionValue(f), renderArg)}`);
+        .map(
+          (f) =>
+            `${escapeCsharpIdent(f.name)}: ${renderCsOmission(createOmissionValue(f), renderArg)}`,
+        );
       const args = [...provided, ...omitted].join(", ");
       // C# doesn't support reordering positional args; using named
       // args lets the user write fields in any order in the .ddd source.

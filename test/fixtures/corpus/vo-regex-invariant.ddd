@@ -1,0 +1,78 @@
+// A value-object invariant that calls `.matches(<regex>)` — the shape that makes
+// each backend lift a REGULAR EXPRESSION into a second emitted file (the wire /
+// request validator) beside the domain class that already had one.
+//
+// Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).
+// The corpus had NO regex invariant at all — zero of 89 fixtures — and only four
+// models in the whole repo used `.matches(` anywhere (one elixir-vanilla-build
+// fixture and three `examples/`).  So no compile gate on any backend ever saw a
+// regex leave the domain emitter, and the evaluation's F-013 was exactly that:
+// `Domain/ValueObjects/UnLocode.cs` emitted `using
+// System.Text.RegularExpressions;` while
+// `Application/…/Requests/…RequestValidators.cs` called `Regex.IsMatch` with no
+// using at all, so `dotnet build` failed on ordinary modelling.
+//
+// The invariant is deliberately the PLAINEST possible: one `.matches` on one
+// string field of one VO used by one aggregate.  The bug class is a missing
+// IMPORT in a second file, so nothing more elaborate reaches it, and anything
+// more elaborate would blur which emitter is under test.
+//
+// Per-backend state at mint time:
+//
+//   dotnet  FIXED — F-013's own subject.  `CodeRequestValidators.cs` now carries
+//           `using System.Text.RegularExpressions;` alongside the domain class's.
+//           Verified with `dotnet build /warnaserror` on sdk:10.0.
+//   node    free — the regex is emitted as an inline literal
+//           (`/^[A-Z]{5}$/.test(...)`), so there is no import to forget.
+//   java    correct — `CodeValidator.java` imports `java.util.regex.Pattern` and
+//           hoists `Pattern.compile(...)` to a static field.
+//   elixir  free — `Regex`/`=~` are in Elixir's Kernel, nothing to import.
+//   python  BROKEN, and this fixture is how we know.  `app/http/wire_models.py`
+//           emits `re.search("^[A-Z]{5}$", self.value)` and its import block has
+//           no `import re` — `ruff` reports `F821 Undefined name 're'`.  The
+//           DOMAIN half is right (`app/domain/value_objects.py` imports it), so
+//           this is F-013's defect class exactly, on a second backend, found the
+//           moment the shape existed.  Excluded from `backends:` via the
+//           manifest's named `WIRE_REGEX_IMPORT` set; one import returns the key.
+//
+// COMPILE-TIER ONLY — no runtime block, same reason as `vo-cross-context.ddd`:
+// a recorded behavioural case must ship a reviewed wire golden
+// (`golden-coverage.test.ts`), capturable only from a booted stack on every
+// backend, and python's wire model does not import `re` (above), so its boot
+// fails.  The wire-boundary rejection this shape most wants asserted — 422 on a
+// bad value, not 500 and not silently stored — is exactly what a runtime block
+// should carry, so add it, with its golden, in the same PR that fixes python.
+system VoRegexInvariant {
+  subdomain Registry {
+    context Codes {
+      valueobject Code {
+        value: string
+        invariant value.matches("^[A-Z]{5}$") message "must be five uppercase letters"
+        derived label: string = value
+      }
+
+      aggregate Berth with crudish {
+        name: string
+        // The VO crosses the wire, so its invariant is lifted into the request
+        // validator as well as the domain class — the two emitters whose import
+        // lists must agree.
+        code: Code
+        derived display: string = name
+      }
+
+      repository Berths for Berth { }
+    }
+  }
+
+  api CodesApi from Registry
+  storage primary { type: postgres }
+  resource codesState { for: Codes, kind: state, use: primary }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Codes]
+    dataSources: [codesState]
+    serves: CodesApi
+    port: 4000
+  }
+}

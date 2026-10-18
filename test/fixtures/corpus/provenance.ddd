@@ -23,6 +23,16 @@ system OrderingSystem {
           discount := amount
           total := quantity * unitPrice - amount
         }
+        // A SELF-REFERENTIAL write site (PROMOTED from the per-backend
+        // `*-provenance.test.ts` string copies, M-T9.42): `total` is both the
+        // target and a leaf, so the lineage must snapshot the leaf's value
+        // BEFORE the assignment rebinds it.  A capture placed after the write
+        // records the NEW total as its own input — a lineage that explains the
+        // result by the result.
+        operation adjust(delta: int) {
+          precondition delta >= 0
+          total := total + delta
+        }
 
         // Pure-domain (unit) test — INTEGER arithmetic through an operation
         // (`total := qty * price - discount`, all `int`) gated by two
@@ -81,6 +91,17 @@ system OrderingSystem {
     expect(discounted.total.value).toBe(100)
     let byRef = api.orders.byReference({ reference: "R2" })
     expect(byRef.total.value).toBe(100)
+
+    // The lineage rides INSIDE the field's own carrier, and names this write
+    // site's leaves with the values they held when the rule ran.  `adjust`
+    // reads `total` (100) to write `total` (105): the input must say 100.
+    api.orders.adjust(o, { delta: 5 })
+    let adjusted = api.orders.getById(o)
+    expect(adjusted.total.value).toBe(105)
+    expect(adjusted.total.lineage.computedValue).toBe(105)
+    expect(adjusted.total.lineage.target.field).toBe("total")
+    expect(adjusted.total.lineage.inputs.where(i => i.path == "total").first().value).toBe(100)
+    expect(adjusted.total.lineage.inputs.where(i => i.path == "delta").first().value).toBe(5)
 
     // The LIST route reads the same provenanced column in bulk — three write
     // sites have now touched `total` (a domain op, the crudish update, a second

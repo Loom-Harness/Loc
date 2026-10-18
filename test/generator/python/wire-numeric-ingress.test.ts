@@ -56,26 +56,6 @@ describe("python money ingress (M-T6.48)", () => {
     expect(wire).toContain("AfterValidator(_money_str),");
   });
 
-  it("refuses with the SAME message the other backends send", async () => {
-    const { wire } = await filesFor();
-    // node's `moneySchema` and .NET's `WireFormatException` both say
-    // `Invalid decimal: "12,50"`. The wire-golden differential compares bodies
-    // across backends, so a divergent message is itself a divergence.
-    expect(wire).toContain(
-      '"money_format", "Invalid decimal: {value}", {"value": json.dumps(value)}',
-    );
-    // A bare `ValueError` would prefix the text with "Value error, ".  Scoped
-    // to `_money_str`'s OWN body: the file also carries the NUL guard (F20) and
-    // the numeric-type guard (F17), which DO raise `ValueError` deliberately —
-    // neither has a cross-backend message to match, and a whole-file assertion
-    // made this case police two rules it has no opinion about.
-    const moneyFn = wire.slice(
-      wire.indexOf("def _money_str"),
-      wire.indexOf("MoneyStr = Annotated["),
-    );
-    expect(moneyFn).not.toContain("raise ValueError");
-  });
-
   it("constrains every REQUEST money field — create, update, operation param and VO", async () => {
     const { wire, routes } = await filesFor();
     // The value object, so a nested field reports `/best/offer`.

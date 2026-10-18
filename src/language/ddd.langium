@@ -1140,14 +1140,16 @@ MacroCall:
 MacroArg:
     name=MacroArgName ':' value=MacroArgValue;
 
-// Macro-arg names — `with crudish(requires: CatalogManager)` names the
-// authorization gate with the same word the gate itself uses.  `requires`
-// was once admitted HERE ONLY; the reserved-keyword sweep moved it into
-// `CommonSoftKeywords` (no statement or expression starts with it, and a
-// header gate clause is introduced after the callable's `)`), so this rule
-// is now just `LooseName` and stays as the macro-arg seam.
+// Macro-arg names, and ONLY macro-arg names, additionally admit
+// `requires` — so `with crudish(requires: CatalogManager)` names the
+// authorization gate with the same word the gate itself uses.  It is
+// deliberately NOT folded into `LooseName`: that rule also backs
+// `Parameter.name`, `Property.name`, `CallArg.name` and friends, and
+// `requires` has to stay a hard keyword everywhere a statement or a
+// header gate clause can start.  Inside a macro call's parentheses
+// nothing else can begin with it, so the widening is ambiguity-free.
 MacroArgName returns string:
-    LooseName;
+    LooseName | 'requires';
 
 // Macro arg ref-list elements are bare IDs, not Langium cross-
 // references.  We don't use the [Target:ID] form because:
@@ -2044,21 +2046,23 @@ Parameter:
 //     `decimal` `long` `guid` `datetime` `json` `File` `Self` `id` `true`
 //     `false` `null` `this` `now` `if` `else` `match` `find` `in` `as` `with`
 //     `where` `when` `unless` `from` `let` `return` `emit` `persist` `expect`
-//     `for`, and the HTTP verbs.  Admitting them as a name makes an expression
-//     or statement ambiguous.
+//     `for` `requires` `precondition`, and the HTTP verbs.  Admitting them as
+//     a name makes an expression or statement ambiguous — and, for a
+//     statement head, silently so: with `requires` soft, a gate line missing
+//     its subject (`requires .permissions.contains(x)`) parsed as a CALL
+//     statement on a name `requires` instead of failing (review of the sweep).
+//     `precondition` (and `invariant`, below) are also the `ThrowKind` slot
+//     words: soft, `toThrow(precondition)` is ambiguous (see `ThrowKind`).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
 //     same token, so a MALFORMED member (`create { }`) stops reporting its real
 //     error and reports a no-viable-alternative on the head instead.
-//   * words that parse but break a generated backend — `enum` `import`
-//     `extends` `static` (TypeScript / Python / Java reserved as a parameter or
-//     attribute) and `system` (a C# `System` property shadows every
-//     fully-qualified `System.*` reference the .NET emitter writes), plus
-//     `repository` / `aggregate` (the Java service binds each create / update
-//     input to a local named after the field, which then shadows its own
-//     `repository` field / `aggregate` local).  Soften them only together with
-//     the emitter fix.
+//
+// `enum` `import` `extends` `static` `system` `repository` `aggregate` were
+// held hard until every backend escaped / renamed a field, param or local
+// spelled that way (the target-reserved-name fleet, D-TARGET-RESERVED-NAMES);
+// they are soft now, like the rest.
 //
 // A field named after a hard word gets `loom.parse-error#reserved-name`
 // ("'event' is a Loom keyword … rename it") from
@@ -2085,17 +2089,18 @@ CommonSoftKeywords returns string:
       | 'modules' | 'money' | 'mui' | 'mysql' | 'nats' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'policy'
-      | 'port' | 'postgres' | 'precondition' | 'primeng' | 'projection' | 'provenanced' | 'provider'
+      | 'port' | 'postgres' | 'primeng' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'rabbitmq' | 'raw' | 'react' | 'readCommitted'
       | 'readonly' | 'readUncommitted' | 'redis' | 'relational' | 'repeatableRead' | 'replica'
-      | 'required' | 'requirement' | 'requires' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
+      | 'required' | 'requirement' | 'resource' | 'response' | 'restApi' | 'retain' | 'retention'
       | 'retrieval' | 'route' | 's3' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
       | 'sendgrid' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'ses' | 'sessions' | 'shadcn'
       | 'shadcnSvelte' | 'shadcnVue' | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'smtp' | 'snapshot'
       | 'solution' | 'sort' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
-      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write';
+      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write'
+      | 'enum' | 'import' | 'extends' | 'static' | 'system' | 'repository' | 'aggregate';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`
@@ -2251,7 +2256,7 @@ VariantStmtArm:
 // trailing `{ }` block from being swallowed by a `BuilderCall` the way the
 // loop iterable does.
 IfLetStmt:
-    'if' 'let' var=(ID | 'write') '=' source=ForIterable '{'
+    'if' 'let' var=(ID | CommonSoftKeywords) '=' source=ForIterable '{'
         thenBody+=Statement*
     '}' ('else' '{'
         elseBody+=Statement*
@@ -2290,7 +2295,7 @@ ReturnStmt:
 // `for` is already a hard keyword elsewhere (`repository X for Agg`); the
 // leading statement position disambiguates the loop.
 ForStmt:
-    'for' var=ID 'in' iterable=ForIterable '{'
+    'for' var=(ID | CommonSoftKeywords) 'in' iterable=ForIterable '{'
         body+=Statement*
     '}';
 
@@ -2315,8 +2320,11 @@ PreconditionStmt:
 RequiresStmt:
     'requires' expr=Expression;
 
+// A binding a body can READ back, so it admits exactly the words a bare
+// name-ref does (`NameRefIdent`'s shared core): `let event = …` then
+// `event.amount`.
 LetStmt:
-    'let' name=(ID | 'write') '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) '=' expr=Expression;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'
@@ -2353,8 +2361,36 @@ AssignOrCallStmt:
 // target's type is computed.  `'this'` is already a token (`ThisRef`) and the
 // same `('this' '.')?` prefix is already spelled on `LoadPath`.
 LValue:
-    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueIdent)*
+    (thisRef?='this' '.')? head=LValueIdent ('.' tail+=LValueTail)*
       (call?='(' (args+=Expression (',' args+=Expression)*)? ')')?;
+
+// A segment AFTER the head: the plural-slug keywords are admissible here (a
+// call statement `api.claims.file(rec)` names an aggregate slug), but not as
+// the head — `this` there is the `thisRef` prefix.
+LValueTail returns string:
+    LValueIdent | PluralSlugKeyword;
+
+// Plural-shaped HARD keywords (wave C3 D2).  An aggregate's e2e slug is
+// `snake(plural(Name))`, so `aggregate Claim` is addressed as `api.claims` —
+// and `claims` is the `auth { claims: … }` keyword, so the declarable
+// aggregate was unaddressable from a `test e2e` block.  Every keyword that is
+// the plural of some aggregate name is admitted after a `.` (MemberName, and
+// LValueTail for a call statement); the SLUG FLOOR in
+// `keyword-identifier-completeness.test.ts` derives the set from the grammar
+// and fails naming any plural-shaped keyword left out (it is literal:
+// `aggregate A` is `api.as`; `aggregate Extend` is `api.extends`, which the
+// shared core now admits).  Only the plural-shaped keywords that are NOT already soft in
+// `CommonSoftKeywords` are listed — the rest (`claims`, `serves`, `targets`,
+// …) are admissible through the shared core, and a word spelled in two
+// alternatives of the same rule is an ambiguous alternative.  `requires` is
+// HARD (no statement may start with it: a gate line missing its subject must
+// fail, not parse as a call on a name `requires`), so it is listed here —
+// admitting it only after a `.` cannot start a statement.  The slug floor
+// derives its set from every grammar keyword and checks ADMISSIBILITY, not
+// membership in this rule, so a word moving between the two lists is
+// invisible to it.
+PluralSlugKeyword returns string:
+    'as' | 'requires' | 'this';
 
 LValueIdent returns string:
     ID | CommonSoftKeywords
@@ -2604,6 +2640,13 @@ PostfixSuffix:
 // has already committed to a member call.  A kind word in any OTHER call is a
 // parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
 // the catalogue stays closed and compiler-known.
+//
+// The slot is unambiguous ONLY while both words stay HARD.  Soften either into
+// `NameRefIdent` and it is also a one-token `CallArg`, so `toThrow(precondition)`
+// parses two ways and ALL(*) prints "Ambiguous Alternatives Detected … inside
+// <PostfixSuffix>" to the user's stdout on every `ddd parse` / `generate` /
+// `verify`.  `test/language/parsing/grammar-ambiguity.test.ts` pins both the
+// hardness and the silent parse.
 ThrowKind returns string:
     'precondition' | 'invariant';
 
@@ -2633,7 +2676,8 @@ MemberName returns string:
     // MemberName-only extras (structural keywords not in the shared
     // value core; member access after `.`).  Composing CommonSoftKeywords here also closes the
     // "declarable-but-unreadable" class (M-T5.18 Track C, BUG-004: `e.resource`).
-    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where';
+    | 'contains' | 'create' | 'destroy' | 'find' | 'id' | 'ignoring' | 'page' | 'where'
+    | PluralSlugKeyword;
 
 // Lambdas accept either a single expression body or a brace-wrapped block of
 // statements.  Block bodies are required for multi-statement event handlers in

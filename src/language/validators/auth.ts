@@ -65,6 +65,23 @@ export function checkAuthBlock(auth: AuthBlock, system: System, accept: Validati
     });
   }
 
+  // 3b. Audience is OPTIONAL but its default is unsafe, so it is stated
+  //     (CR1-b / P0-4).  With no `audience:` the verifier validates signature,
+  //     `iss` and `exp` and then accepts the token — including one the SAME
+  //     issuer minted for a different client.  That is a legitimate
+  //     single-client deployment shape, which is why this is a WARNING and why
+  //     all five backends fall back to the OIDC_AUDIENCE env var: the operator
+  //     can turn the check on at deploy time without editing the `.ddd`.  What
+  //     is not legitimate is the default being silent — before this, nothing in
+  //     the toolchain mentioned `aud` at all.
+  if (auth.oidc !== undefined && auth.oidc.audience === undefined) {
+    accept("warning", diagMessage("loom.auth-oidc-no-audience"), {
+      node: auth,
+      property: "oidc",
+      code: "loom.auth-oidc-no-audience",
+    });
+  }
+
   // 4. Claim mappings must target real user fields.
   for (const entry of auth.claims?.entries ?? []) {
     if (!userFields.has(entry.field)) {

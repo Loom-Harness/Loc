@@ -80,6 +80,14 @@ import { storeImportSpecifier, storeVarName } from "../store-builder.js";
 import { renderSvelteApiHookImports, renderSvelteImportLines } from "./import-lines.js";
 import { svelteTarget } from "./svelte-target.js";
 
+/** The `IdLink` reference-label child's import, keyed off the tag the template
+ *  carries (the `LoomChart` discipline) — `svelte/ref-label-runtime.ts`. */
+function refLabelImport(markup: string): string {
+  return markup.includes("<LoomRefLabel")
+    ? `  import LoomRefLabel from "$lib/components/LoomRefLabel.svelte";\n`
+    : "";
+}
+
 /** Map each aggregate-typed param to its aggregate name (mirrors the
  *  react shell — powers `Action(<param>.<op>)` resolution). */
 function aggregateParamTypes(
@@ -287,8 +295,17 @@ function renderFormOpWiring(
     fieldHtmls,
     triggerLabel: state.triggerLabel,
     triggerPrimary: state.triggerPrimary,
+    // `when`-gated op: the page-scope snippet's trigger binds the `can_<op>`
+    // probe directly (both undefined for an ungated op).
+    gateDisabled: state.gate?.disabledExpr,
+    gateReason: state.gate?.reasonExpr,
   };
-  const decls = pack.render("form-op-decls", tplCtx);
+  const rendered = pack.render("form-op-decls", tplCtx);
+  // The `can_<op>` probe rides beside the mutation hook, against the same id —
+  // pack-independent, so the shell owns it.
+  const decls = state.gate
+    ? `${rendered.endsWith("\n") ? rendered : `${rendered}\n`}  const ${state.gate.local} = ${state.gate.hook}(() => ${idExpr});`
+    : rendered;
   const snippet = pack.render("form-op-module", tplCtx);
   return {
     decls: decls.endsWith("\n") ? decls : `${decls}\n`,
@@ -502,9 +519,11 @@ export function renderSveltePage(
   // the template carries rather than a walker import, so the emitted file and
   // its import cannot dangle apart — the discipline the Flutter and Vue shells
   // already use for `LoomModalHost` / `LoomChart`.
-  const chartImport = tsx.includes("<LoomChart")
-    ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
-    : "";
+  const chartImport = `${
+    tsx.includes("<LoomChart")
+      ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
+      : ""
+  }${refLabelImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
     .map((name) => `  import ${name} from "$lib/components/${name}.svelte";\n`)
@@ -832,9 +851,11 @@ export function renderSvelteComponentFile(
     : "";
   // Same marker-keyed chart import as the page shell above — a ui-scoped
   // component can host a `Chart` too.
-  const chartImport = tsx.includes("<LoomChart")
-    ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
-    : "";
+  const chartImport = `${
+    tsx.includes("<LoomChart")
+      ? `  import LoomChart from "$lib/components/LoomChart.svelte";\n`
+      : ""
+  }${refLabelImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
     .map((n) => `  import ${n} from "./${n}.svelte";\n`)

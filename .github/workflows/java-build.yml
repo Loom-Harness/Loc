@@ -8,7 +8,9 @@ name: Java build verification
 # signature drift, record/embeddable mismatches).
 #
 # Mirrors `dotnet-build.yml` (.NET → dotnet build /warnaserror) and
-# `elixir-vanilla-build.yml` (Phoenix → mix compile --warnings-as-errors).
+# `elixir-vanilla-build.yml` (Phoenix → mix compile --warnings-as-errors) at
+# the same strictness: javac runs `-Xlint:all -Werror`, installed as a Gradle
+# init script (test/e2e/support/java-werror.init.gradle).
 #
 # Triggers:
 #   - PRs that touch the Java generator, the java platform module, or
@@ -32,13 +34,42 @@ on:
       - 'src/system/**'
       - 'src/util/**'
       - 'src/generator/java/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_projection/**'
       - 'src/platform/java.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_api/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_projection/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'examples/**'
       - 'package.json'
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/fixtures/java-build/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -55,13 +86,42 @@ on:
       - 'src/system/**'
       - 'src/util/**'
       - 'src/generator/java/**'
+      - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_projection/**'
       - 'src/platform/java.ts'
+      # Shared emission seams the platform tree above delegates into: `_stmt` is
+      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
+      # the one tagged-union wire shape, `_i18n` the validation-catalog
+      # collector.  The leading underscore means SHARED, not per-target -- a
+      # change confined to one of them changes what this gate compiles.  Derived
+      # from this block's platform claim and pinned by
+      # test/system/workflow-path-coverage.test.ts.
+      - 'src/generator/_adapters/**'
+      - 'src/generator/_api/**'
+      - 'src/generator/_auth/**'
+      - 'src/generator/_channels/**'
+      - 'src/generator/_docker/**'
+      - 'src/generator/_frontend/**'
+      - 'src/generator/_i18n/**'
+      - 'src/generator/_numeric/**'
+      - 'src/generator/_obs/**'
+      - 'src/generator/_openapi/**'
+      - 'src/generator/_payload/**'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/_projection/**'
+      - 'src/generator/_stmt/**'
+      - 'src/generator/_test/**'
+      - 'src/generator/_trace/**'
+      - 'src/generator/_type/**'
+      - 'src/generator/_workflow/**'
       - 'examples/**'
       - 'package.json'
       - '.github/workflows/java-build.yml'
       - 'test/e2e/generated-java-build.test.ts'
       - 'test/e2e/support/gradle.ts'
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/fixtures/java-build/**'
   workflow_dispatch:
   merge_group:
@@ -134,6 +194,13 @@ jobs:
 
       - name: Type-check
         run: npm run build
+
+      # javac at maximum strictness — `-Xlint:all -Werror` on every
+      # JavaCompile task, through an init script so the generated
+      # build.gradle.kts stays free of it (a user's project is not forced onto
+      # -Werror; the gate is).  The java twin of `dotnet build /warnaserror`.
+      - name: javac -Xlint:all -Werror for every generated project
+        run: install -D -m 0644 test/e2e/support/java-werror.init.gradle ~/.gradle/init.d/java-werror.gradle
 
       - name: gradle testClasses bootJar against each fixture
         run: npm run test:java

@@ -4,6 +4,7 @@ import type {
   IndexShape,
   MigrationStep,
   MigrationsIR,
+  SchemaSnapshot,
   TableShape,
 } from "../../ir/types/migrations-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
@@ -87,6 +88,29 @@ function ectoIndexOpts(i: IndexShape, prefix: string): string {
   return `${unique}${where}${name}${prefix}`;
 }
 
+/** The indexes this backend can actually create on `table`.
+ *
+ *  `collapseVoGroups` stores a value object as ONE `:map` column, so its
+ *  flattened leaf columns (`berth_ship`, `berth_position`) never reach the
+ *  emitted `create table`.  The canonical `MigrationsIR` indexes those leaves —
+ *  correctly, for the relational backends — and an index naming a column this
+ *  table does not have is a migration that FAILS TO APPLY
+ *  (`column "berth_ship" does not exist`), not merely a useless one.
+ *
+ *  A value object holding a reference (`valueobject Berth { ship: Ship id }`)
+ *  is what makes the IR mint such an index at all, which is why the corpus
+ *  never tripped it until `vo-id-reference` landed: the elixir compile tier
+ *  COMPILES migrations, it does not apply them, so this stayed green.
+ *
+ *  This is the exact reasoning `enumCheckLines` already applies to the
+ *  `voNullConsistent` constraints — the same collapse, the same dropped leaf
+ *  columns — extended to the index list it was never applied to. */
+function ectoIndexes(table: TableShape): readonly IndexShape[] {
+  const collapsed = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
+  if (collapsed.size === 0) return table.indexes;
+  return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
+}
+
 /** The bracketed column list for a `create index(...)` call.  A column with a
  *  per-column opclass (materialized-path prefix index) uses Ecto's raw
  *  fragment string form (`"data_key text_pattern_ops"`) so the opclass reaches
@@ -139,8 +163,14 @@ function timestampsMacro(table: TableShape): string | null {
   // because the flush rides the save transaction, it would roll the aggregate
   // write back with it.
   if (table.name === "provenance_records") return null;
-  const hasUpdatedAt = table.columns.some((c) => c.name === "updated_at");
-  return hasUpdatedAt ? null : "timestamps()";
+  // A declared `inserted_at` / `insertedAt` field owns the other bundled
+  // column the same way (`ownsEctoTimestampColumn` in `vanilla/schema-emit.ts`
+  // drops the schema's `timestamps()` in lockstep) — a second `inserted_at`
+  // would fail `ecto.migrate` with "column specified more than once".
+  const ownsTimestamp = table.columns.some(
+    (c) => c.name === "updated_at" || c.name === "inserted_at",
+  );
+  return ownsTimestamp ? null : "timestamps()";
 }
 
 export function emitMigrations(
@@ -389,7 +419,7 @@ function renderInitialEventLogFile(
     return "      " + renderEctoColumn(c, table);
   });
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -422,14 +452,19 @@ function renderInitialStateFile(
 ): string {
   const pk = new Set(table.primaryKey);
   const prefix = prefixOpt(table.schema);
-  const colLines = table.columns
-    .filter((c) => !c.valueArrayChildTable)
-    .map((c) => {
+  // Value-object leaf columns regroup into ONE `:map` column, exactly as the
+  // id-carrying `renderInitialFile` and the delta `renderCreateTableInline` do:
+  // the saga-state / projection-row schema types a value-object field `:map`
+  // (`ectoStateFieldType`, `mapTypeToEcto`), so a flattened `total_amount` /
+  // `total_currency` pair left the schema's `:total` with no column at all.
+  const colLines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map(
+    (c) => {
       if (pk.has(c.name)) {
         return `      add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`;
       }
       return "      " + renderEctoColumn(c, table);
-    });
+    },
+  );
   const ts = timestampsMacro(table);
   if (ts) colLines.push(`      ${ts}`);
   // Indexes, same as the id-carrying `renderInitialFile` and the DELTA path's
@@ -440,7 +475,7 @@ function renderInitialStateFile(
   // table with NO indexes while the same table added later
   // as a delta got both, so fresh-create and migrate-chain schemas disagreed.
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -475,7 +510,7 @@ function renderInitialFile(table: TableShape, migrationName: string, appModule: 
   if (ts) colLines.push(`      ${ts}`);
   const prefix = prefixOpt(table.schema);
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -525,7 +560,7 @@ function renderInitialValueCollectionFile(
     }
   }
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -572,7 +607,7 @@ function renderInitialJoinFile(
     }
   }
   const indexLines = [
-    ...table.indexes.map(
+    ...ectoIndexes(table).map(
       (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix, "    "),
@@ -595,14 +630,14 @@ function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>)
   // which Ecto has no columns to constrain — would otherwise land an `.exs`
   // with an empty `change/0`: a migration version recorded in
   // `schema_migrations` that does nothing.  Emit no file instead.
-  if (m.steps.flatMap((s) => renderEctoStep(s)).length === 0) return;
+  if (collapseVoSteps(m).flatMap((s) => renderEctoStep(s)).length === 0) return;
   const path = `priv/repo/migrations/${m.version}_${snake(m.name)}.exs`;
   out.set(path, renderDeltaFile(m, appModule));
 }
 
 function renderDeltaFile(m: MigrationsIR, appModule: string): string {
   const migrationName = upperFirst(m.name);
-  const stepLines = m.steps.flatMap((s) => renderEctoStep(s));
+  const stepLines = collapseVoSteps(m).flatMap((s) => renderEctoStep(s));
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -611,6 +646,138 @@ ${stepLines.map((l) => "    " + l).join("\n")}
   end
 end
 `;
+}
+
+/** The DELTA twin of {@link collapseVoGroups}.  The canonical diff speaks in
+ *  flattened value-object LEAF columns (`price_amount`, `price_currency`), but
+ *  an Ecto schema stores the whole value object as ONE `:map` column named for
+ *  the field — which is what every create-table path here already emits.  A
+ *  value-object field that arrives LATER used to reach the delta file leaf by
+ *  leaf, so the table grew `price_amount` / `price_currency` columns the
+ *  schema's `field :price, :map` never reads, and `:price` itself did not
+ *  exist (eval follow-up B-A3b).
+ *
+ *  Only `addColumn` carries its `ColumnShape` (and so its `voGroup`); every
+ *  other column step names a bare column, so a leaf is recognised by looking
+ *  the column up in the snapshot it lives in — `next` for an add / flip,
+ *  `baseline` for a drop / the old side of a rename.  Per `(table, group)`:
+ *
+ *  - `addColumn` of a leaf whose group is NEW in this migration → one
+ *    `add :<group>, :map` (nullable iff every leaf add in the group is, which
+ *    keeps the destructive gate's add-nullable-then-SET-NOT-NULL sequence);
+ *    a leaf added to a group the baseline already has (the value object grew a
+ *    field) needs nothing — the map already holds the value object.
+ *  - `alterColumnNullable` of a leaf → one `modify :<group>, :map`, null iff
+ *    every leaf of the group is nullable in `next` (the same rule the create
+ *    path applies).
+ *  - `dropColumn` of a leaf → one `remove :<group>` when the group is gone from
+ *    `next`; nothing when it survives (the value object only lost a field).
+ *  - `renameColumn` between two groups (the field was renamed) → one rename of
+ *    the map column; a leaf rename inside a surviving group needs no DDL.
+ *  - `alterColumnType` / `alterColumnDefault` of a leaf → nothing: the column
+ *    is the map, whose type and (absent) default do not change.
+ *
+ *  Every other step passes through unchanged. */
+function collapseVoSteps(m: MigrationsIR): MigrationStep[] {
+  const groupOf = (
+    snap: SchemaSnapshot | null,
+    table: string,
+    schema: string | undefined,
+    column: string,
+  ): string | undefined =>
+    snap?.tables
+      .find((t) => t.name === table && t.schema === schema)
+      ?.columns.find((c) => c.name === column)?.voGroup;
+  const groupLeaves = (
+    snap: SchemaSnapshot | null,
+    table: string,
+    schema: string | undefined,
+    group: string,
+  ): ColumnShape[] =>
+    snap?.tables
+      .find((t) => t.name === table && t.schema === schema)
+      ?.columns.filter((c) => c.voGroup === group) ?? [];
+  const MAP: ColumnType = { kind: "json" };
+  const done = new Set<string>();
+  const once = (op: string, table: string, schema: string | undefined, group: string): boolean => {
+    const key = `${op}|${schema ?? ""}|${table}|${group}`;
+    if (done.has(key)) return false;
+    done.add(key);
+    return true;
+  };
+  const out: MigrationStep[] = [];
+  for (const step of m.steps) {
+    switch (step.op) {
+      case "addColumn": {
+        const group = step.column.voGroup;
+        if (!group) {
+          out.push(step);
+          break;
+        }
+        if (groupLeaves(m.baseline, step.table, step.schema, group).length > 0) break;
+        if (!once("add", step.table, step.schema, group)) break;
+        const adds = m.steps.filter(
+          (s): s is Extract<MigrationStep, { op: "addColumn" }> =>
+            s.op === "addColumn" &&
+            s.table === step.table &&
+            s.schema === step.schema &&
+            s.column.voGroup === group,
+        );
+        out.push({
+          op: "addColumn",
+          table: step.table,
+          ...(step.schema !== undefined ? { schema: step.schema } : {}),
+          column: { name: group, type: MAP, nullable: adds.every((s) => s.column.nullable) },
+        });
+        break;
+      }
+      case "alterColumnNullable": {
+        const group = groupOf(m.next, step.table, step.schema, step.name);
+        if (!group) {
+          out.push(step);
+          break;
+        }
+        if (!once("nullable", step.table, step.schema, group)) break;
+        out.push({
+          ...step,
+          name: group,
+          type: MAP,
+          nullable: groupLeaves(m.next, step.table, step.schema, group).every((c) => c.nullable),
+        });
+        break;
+      }
+      case "dropColumn": {
+        const group = groupOf(m.baseline, step.table, step.schema, step.name);
+        if (!group) {
+          out.push(step);
+          break;
+        }
+        if (groupLeaves(m.next, step.table, step.schema, group).length > 0) break;
+        if (!once("drop", step.table, step.schema, group)) break;
+        out.push({ ...step, name: group });
+        break;
+      }
+      case "renameColumn": {
+        const from = groupOf(m.baseline, step.table, step.schema, step.from);
+        const to = groupOf(m.next, step.table, step.schema, step.to);
+        if (!from && !to) {
+          out.push(step);
+          break;
+        }
+        if (from === to || !from || !to) break;
+        if (!once("rename", step.table, step.schema, from)) break;
+        out.push({ ...step, from, to, type: MAP });
+        break;
+      }
+      case "alterColumnType":
+      case "alterColumnDefault":
+        if (!groupOf(m.next, step.table, step.schema, step.name)) out.push(step);
+        break;
+      default:
+        out.push(step);
+    }
+  }
+  return out;
 }
 
 export function renderEctoStep(step: MigrationStep): string[] {
@@ -778,7 +945,7 @@ function renderCreateTableInline(table: TableShape): string[] {
   if (ts) lines.push(`  ${ts}`);
   lines.push("end");
   lines.push(...enumCheckLines(table, prefix, ""));
-  for (const idx of table.indexes) {
+  for (const idx of ectoIndexes(table)) {
     const cols = ectoIndexColumns(idx);
     lines.push(`create index(:${table.name}, [${cols}]${ectoIndexOpts(idx, prefix)})`);
   }

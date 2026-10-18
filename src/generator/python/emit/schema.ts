@@ -22,7 +22,7 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake } from "../../../util/naming.js";
+import { plural, pythonIdent, snake } from "../../../util/naming.js";
 import {
   columnsForFields,
   contextEventRowClassName,
@@ -30,6 +30,7 @@ import {
   isRefCollectionField,
   joinRowClassName,
   type PyColumn,
+  pyColumnAttr,
   rowClassName,
   valueCollectionChildColumns,
   valueCollectionRowClassName,
@@ -345,12 +346,18 @@ function provenanceColumns(fields: AggregateIR["fields"]): PyColumn[] {
 
 function renderColumn(c: PyColumn): string {
   const annotation = c.optional ? `${c.pyType} | None` : c.pyType;
+  // A column whose snake name is a python keyword (`def`) is mapped under the
+  // escaped attribute (`def_`) with the SQL name spelled explicitly, so the
+  // table keeps the column every other backend and the migration use
+  // (eval item 6, ruling D2).
+  const attr = pyColumnAttr(c);
+  const sqlName = c.sqlName ?? (attr !== c.attr ? c.attr : undefined);
   const args = [
-    c.sqlName ? `"${c.sqlName}"` : null,
+    sqlName ? `"${sqlName}"` : null,
     c.saType,
     c.primaryKey ? "primary_key=True" : null,
   ].filter((a): a is string => a != null);
-  return `    ${c.attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
+  return `    ${attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
 }
 
 /** Document-shaped aggregate (`shape: document`): the whole tree is one
@@ -503,7 +510,7 @@ function valueObjectStateProperty(f: FieldIR, ctx: EnrichedBoundedContextIR): st
   if (inner.kind !== "valueobject") return [];
   if (!ctx.valueObjects.some((v) => v.name === inner.name)) return [];
   const opt = f.optional || f.type.kind === "optional";
-  const attr = snake(f.name);
+  const attr = pythonIdent(f.name);
   const ty = opt ? `${inner.name} | None` : inner.name;
   return [
     "",

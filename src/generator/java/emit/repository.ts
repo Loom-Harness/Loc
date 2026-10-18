@@ -20,7 +20,7 @@ import {
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
-import { isMangled, jid } from "../java-ident.js";
+import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
   boxedJavaType,
   collectJavaExprImports,
@@ -80,7 +80,7 @@ export interface JavaRepoCtx {
 }
 
 // A JPA property PATH — every segment is the (possibly mangled) java field the
-// entity emitter declared, not the `.ddd` name (M-T6.36).
+// entity emitter declared, not the `.ddd` name.
 const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
 
 /** `Sort.by(Sort.Order.asc("a.b"), …)` for the Specification path. */
@@ -125,6 +125,40 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | 
  *  null limit → unbounded).  The .NET document/event repos take the same
  *  hydrate-then-filter shape.  Returns the method lines plus the extra
  *  imports they need (`java.util.Comparator` when any retrieval sorts). */
+/** Names an in-memory (document / event-store) read method spells itself —
+ *  the `x` / `o` lambda parameters of its predicate and comparators, the
+ *  `all` / `items` / `result` / `__cmp` / `__sortField` locals, the paging
+ *  controls, and the principal binding.  A find / retrieval param landing
+ *  here moves to `<name>_` (`javaLocals`); every other param keeps `jid`. */
+export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
+  "x",
+  "o",
+  "all",
+  "items",
+  "result",
+  "__cmp",
+  "__sortField",
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+  "offset",
+  "limit",
+  "currentUser",
+  "currentUserAccessor",
+]);
+
+/** The `paramExpr` render hook for an in-memory read's moved params — spread
+ *  into the render context, and absent (so the context is unchanged) when
+ *  nothing moved. */
+export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
+  paramExpr?: (name: string) => string | undefined;
+} {
+  return [...locals].some(([n, l]) => l !== jid(n))
+    ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
+    : {};
+}
+
 export function inMemoryRetrievalLines(
   agg: EnrichedAggregateIR,
   retrievals: readonly RetrievalIR[],
@@ -139,7 +173,7 @@ export function inMemoryRetrievalLines(
   /** The rehydrate call each `run<Name>` streams off.  Defaults to the
    *  canonical `findAll()`.  A document repo whose aggregate carries a
    *  BYPASSABLE capability filter passes the unfiltered `rehydrateAll()`
-   *  instead — `findAll()` is itself a scoped read there (M-T6.54 F18), so a
+   *  instead — `findAll()` is itself a scoped read there, so a
    *  retrieval that `ignoring`s a cap cannot widen out of it. */
   baseCall?: string,
   /** Statement lines emitted before a retrieval's `return` (e.g. binding
@@ -149,12 +183,23 @@ export function inMemoryRetrievalLines(
   if (retrievals.length === 0) return [];
   if (retrievals.some((r) => r.sort.length > 0)) exprImports.add("java.util.Comparator");
   return retrievals.flatMap((r) => {
+    // The params are closed over by the `x ->` predicate / comparator lambdas
+    // and sit beside `offset` / `limit` — a param named like one moves.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      IN_MEMORY_READ_NAMES,
+    );
     const declared = r.params.map((p) => {
       collectJavaTypeImports(p.type, exprImports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     });
     collectJavaExprImports(r.where, exprImports);
-    const where = renderJavaExpr(r.where, { thisName: "x", agg, accessorProps: true });
+    const where = renderJavaExpr(r.where, {
+      thisName: "x",
+      agg,
+      accessorProps: true,
+      ...inMemoryParamExpr(locals),
+    });
     const cmp = inMemoryComparator(r.sort, agg.name);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
@@ -199,7 +244,7 @@ export function isPagedFind(f: FindIR): boolean {
   return f.returnType.kind === "genericInstance" && f.returnType.ctor === "paged";
 }
 
-/** True when the implicit `all` findAll returns the `paged` wire (M-T2.6) — the
+/** True when the implicit `all` findAll returns the `paged` wire — the
  *  plain single-table relational case.  Document / embedded / event-sourced /
  *  inheritance-subtype aggregates keep the bare `List` findAll (excluded by the
  *  enrichment predicate), so this is false for them.  Drives the paged relational
@@ -210,7 +255,7 @@ export function isPagedAutoAll(repo: RepositoryIR | undefined): boolean {
   return all ? isPagedFind(all) : false;
 }
 
-/** In-memory server-side sort (M-T2.6) for the non-relational paged impls
+/** In-memory server-side sort for the non-relational paged impls
  *  (document-store / event-store, which page a materialised `List<Agg>`).
  *  Emits a typed `Comparator<Agg>` switched on the whitelisted `sort` key —
  *  `comparingInt`/`comparingLong` for numeric columns, `comparing` for the
@@ -226,7 +271,7 @@ export function inMemoryPagedSortLines(agg: EnrichedAggregateIR): string[] {
     const prim = t?.kind === "primitive" ? t.name : undefined;
     // The `case` label is the WIRE sort key (`?sort=case`); the method
     // reference names the java accessor, which is mangled when the `.ddd` name
-    // is a reserved word (M-T6.36).
+    // is a reserved word.
     if (prim === "int")
       return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
     if (prim === "long")
@@ -259,14 +304,44 @@ export function unionFindAsOptionalTwin(find: FindIR, aggName: string): FindIR {
   return { ...find, returnType: { kind: "optional", inner: success } };
 }
 
+/** Names a declared-find delegate in the repository IMPL spells itself — the
+ *  `jpa` / `em` / `currentUserAccessor` fields and the `result` / `__sort` /
+ *  `__sortField` / `__session` locals.  A find param landing here is declared
+ *  under a `_`-suffixed name in the impl (`javaLocals`); the port's parameter
+ *  names are irrelevant to the override, so only the impl moves. */
+const REPO_IMPL_FIND_NAMES: ReadonlySet<string> = new Set([
+  "jpa",
+  "em",
+  "currentUserAccessor",
+  "result",
+  "__sort",
+  "__sortField",
+  "__session",
+]);
+
+/** Names a JPA retrieval's `run<Name>` overloads spell themselves: the paged
+ *  overload's `offset` / `limit` params plus everything a find delegate spells
+ *  (`REPO_IMPL_FIND_NAMES` — the `jpa` / accessor fields, the bypass
+ *  session).  A retrieval param landing here moves to `<name>_`. */
+const RETRIEVAL_IMPL_NAMES: ReadonlySet<string> = new Set([
+  ...REPO_IMPL_FIND_NAMES,
+  "offset",
+  "limit",
+]);
+
 /** Finds keep their DSL name; a find returning `T[]` → `List<T>`,
  *  a single `T` → `T` (nullable); `T paged` → `Paged<T>` with trailing
- *  `int page, int pageSize` parameters (1-based, cross-backend). */
-function findSignature(find: FindIR, imports: Set<string>): string {
+ *  `int page, int pageSize` parameters (1-based, cross-backend).
+ *  `locals` names each param's Java identifier when it differs from `jid`. */
+function findSignature(
+  find: FindIR,
+  imports: Set<string>,
+  locals: ReadonlyMap<string, string> = new Map(),
+): string {
   const params = [
     ...find.params.map((p) => {
       collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${jid(p.name)}`;
+      return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
     }),
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
@@ -282,12 +357,12 @@ function findReturn(t: TypeIR, imports: Set<string>): string {
   if (t.kind === "genericInstance" && t.ctor === "paged") {
     return `Paged<${boxedJavaType(t.arg)}>`;
   }
-  // `T envelope` is a SINGLE-ROW find (M-T6.57): the carrier carries no wire
+  // `T envelope` is a SINGLE-ROW find: the carrier carries no wire
   // shape, so the repository answers the carried `T` — the same signature
-  // `find x(): T` produces.  Without this the shared type printer rendered
+  // `find x(): T` produces.  Without this the shared type printer renders
   // `Envelope<Order>` into the port, the Spring Data interface AND the impl,
-  // and NOTHING declared or imported it: the generated project did not compile,
-  // `OrderResponse.from(...)` was called on it, and `@Query(…) Envelope<Order>`
+  // and NOTHING declares or imports it: the generated project does not compile,
+  // `OrderResponse.from(...)` is called on it, and `@Query(…) Envelope<Order>`
   // is not a Spring-Data-mappable return in the first place.
   const carried = envelopeReturn(t);
   if (carried) return findReturn(carried, imports);
@@ -309,10 +384,16 @@ export function renderJavaRepositoryInterface(
   // `page` tuple: the bare run plus `(…, Integer offset, Integer limit)`
   // (either may be null — partial pages are legal in the DSL).
   const retrievalLines = (ctx.retrievals ?? []).flatMap((r) => {
+    // Same spelling as the impl's overrides (`RETRIEVAL_IMPL_NAMES`): a param
+    // named `offset` / `limit` would redeclare the paged overload's own.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
@@ -344,7 +425,7 @@ export function renderJavaRepositoryInterface(
     ``,
     `    List<${agg.name}> findAll();`,
     ``,
-    // Paged relational findAll (M-T2.6) — a bounded page over the single table,
+    // Paged relational findAll — a bounded page over the single table,
     // server-side sorted.  The plain `List findAll()` above stays for the
     // internal retrieval / in-memory readers.
     pagedAll
@@ -390,7 +471,7 @@ export function renderJavaSpringDataRepository(
   // aggregate has no principal filter — every other repository stays identical.
   const principalClause = principalJpqlClause(agg, enumsPkg);
   // The per-read form: a read carrying `ignoring <Cap>` / `ignoring *` drops the
-  // principal conjuncts that cap contributed (M-T6.54 F18).  The root
+  // principal conjuncts that cap contributed.  The root
   // `findAll`/`findById` overrides below keep the unconditional
   // `principalClause` — they are the canonical scoped reads and carry no
   // `ignoring` clause of their own.
@@ -499,7 +580,7 @@ export function renderJavaSpringDataRepository(
       ``,
     );
   }
-  // Paged relational findAll (M-T2.6): a `Page<Agg> findAllPaged(Pageable)` the
+  // Paged relational findAll: a `Page<Agg> findAllPaged(Pageable)` the
   // impl drives with a `PageRequest` (page/size/sort).  Declared as an explicit
   // @Query so a principal (tenancy) `filter` is AND-ed in — Spring derives the
   // count query from it; a non-principal aggregate gets the bare `select e`,
@@ -573,15 +654,15 @@ export function renderJavaSpringDataRepository(
  *  static `@SQLRestriction` (see `emit/entity.ts`); only principal filters need
  *  the per-query SpEL-principal form.
  *
- *  `bypass` is the READ's own `ignoring` clause (M-T6.54 F18).  A principal
+ *  `bypass` is the READ's own `ignoring` clause.  A principal
  *  predicate contributed by a CAPABILITY (`contextFilterOrigins[i] !== undefined`,
  *  e.g. `with tenantOwned`) that the read names — or that `ignoring *` drops —
  *  is omitted, exactly as node drops the conjunct and .NET emits
  *  `IgnoreQueryFilters`.  A BARE `filter … currentUser …` (undefined origin) is
- *  never bypassable, matching `capability-filter.ts`'s triage rule.  Without
- *  this the clause was AND-ed unconditionally and `find … ignoring tenantOwned`
- *  silently kept returning only the caller's own tenant — the same `.ddd`, a
- *  different row set on Java, and `FILTER_BYPASS_FAMILIES` certifying otherwise.
+ *  never bypassable, matching `capability-filter.ts`'s triage rule.  AND-ing
+ *  the clause unconditionally would make `find … ignoring tenantOwned` silently
+ *  keep returning only the caller's own tenant — the same `.ddd`, a different
+ *  row set on Java, while the validator certifies `ignoring` as honored.
  *  The aggregation path in `emit/query-projection-reads.ts` (`aggregationScope`)
  *  is the line-for-line template this mirrors. */
 function principalJpqlClause(
@@ -622,11 +703,11 @@ export function renderJavaRepositoryImpl(
   const versionField = versionFieldName(agg);
   // `tenantScope(User)` is one factory over ALL of the aggregate's principal
   // predicates, so a read can only take it whole or leave it whole: a retrieval
-  // whose `ignoring` drops EVERY principal capability omits it (M-T6.54 F18,
-  // matching the `jpqlWhere` arm above).  A PARTIAL drop — two principal
+  // whose `ignoring` drops EVERY principal capability omits it (matching the
+  // `jpqlWhere` arm above).  A PARTIAL drop — two principal
   // capabilities, `ignoring` naming one — keeps the whole scope, i.e. it
-  // over-restricts rather than widening; splitting the factory per capability is
-  // `emit/criteria.ts` work and is handed off (wave-c1-1f).
+  // over-restricts rather than widening; splitting the factory per capability
+  // belongs in `emit/criteria.ts`.
   const principalCapOrigins = new Set(
     (agg.contextFilterOrigins ?? []).filter(
       (o, i): o is string => o != null && exprUsesCurrentUser((agg.contextFilters ?? [])[i]!),
@@ -658,14 +739,22 @@ export function renderJavaRepositoryImpl(
   };
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
+    // The paged overload declares its own `offset` / `limit` beside the
+    // retrieval's params, and the body spells the `jpa` / accessor fields — a
+    // param named like one moves to `<name>_` (`javaLocals`).  The JPA
+    // `@Param` key / JPQL `:name` binding keep the declared spelling.
+    const locals = javaLocals(
+      r.params.map((p) => p.name),
+      RETRIEVAL_IMPL_NAMES,
+    );
     const params = r.params
       .map((p) => {
         collectJavaTypeImports(p.type, imports);
-        return `${renderJavaType(p.type)} ${jid(p.name)}`;
+        return `${renderJavaType(p.type)} ${localOf(locals, p.name)}`;
       })
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
-    const bareArgs = r.params.map((p) => p.name).join(", ");
+    const bareArgs = r.params.map((p) => localOf(locals, p.name)).join(", ");
     if (ctx.isReified?.(r) && r.criterionRef) {
       // A reified `criterion` retrieval reads via
       // JpaSpecificationExecutor.findAll(spec); the scoped findAll/findById
@@ -675,7 +764,7 @@ export function renderJavaRepositoryImpl(
       imports.add("org.springframework.data.domain.Sort");
       const args = r.criterionRef.args.map((a) => {
         collectJavaExprImports(a, imports);
-        return renderJavaExpr(a);
+        return renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) });
       });
       const spec = `${agg.name}Criteria.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
       return [
@@ -722,16 +811,20 @@ export function renderJavaRepositoryImpl(
   const findExecutedLog = (f: FindIR, rowsExpr: string): string =>
     `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "${f.name}", "rows", ${rowsExpr});`;
   const delegateLines = finds.flatMap((f) => {
-    const sig = findSignature(f, imports);
+    const findLocals = javaLocals(
+      f.params.map((p) => p.name),
+      REPO_IMPL_FIND_NAMES,
+    );
+    const sig = findSignature(f, imports, findLocals);
     const findBypass: FilterBypass = { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps };
     if (isPagedFind(f)) {
       imports.add("org.springframework.data.domain.PageRequest");
       imports.add("org.springframework.data.domain.Sort");
       const args = [
-        ...f.params.map((p) => jid(p.name)),
+        ...f.params.map((p) => localOf(findLocals, p.name)),
         "PageRequest.of(page - 1, pageSize, __sort)",
       ].join(", ");
-      // Server-side sort (M-T2.6): whitelist the wire key against the sortable
+      // Server-side sort: whitelist the wire key against the sortable
       // columns (unknown → `id`, the stable default) so the derived query can't
       // resolve an invalid / injected property path.
       const sortWhitelist = sortableFields(agg)
@@ -752,7 +845,7 @@ export function renderJavaRepositoryImpl(
         ``,
       ];
     }
-    const args = f.params.map((p) => jid(p.name)).join(", ");
+    const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
     const rowsExpr = f.returnType.kind === "array" ? "result.size()" : "result == null ? 0 : 1";
     return [
       `    @Override`,
@@ -923,7 +1016,7 @@ export function renderJavaRepositoryImpl(
     `        return jpa.findAll();`,
     `    }`,
     ``,
-    // Paged relational findAll (M-T2.6) — whitelist the wire sort key (unknown →
+    // Paged relational findAll — whitelist the wire sort key (unknown →
     // `id`, the stable default), build the `PageRequest`, and wrap the Spring
     // `Page` in the cross-backend `Paged<>` envelope.
     ...(pagedAll
@@ -1025,11 +1118,11 @@ export function renderOffsetLimitPageRequest(pkg: string): string {
   );
 }
 
-// M-T6.36 — the `?sort=` whitelist above holds WIRE keys; `Sort.by` resolves a
+// The `?sort=` whitelist above holds WIRE keys; `Sort.by` resolves a
 // JPA PROPERTY path.  They are the same string for every ordinary name, and
 // diverge exactly when the `.ddd` name is a Java reserved word and the entity
 // declared it mangled.  One translation line, emitted only when a sortable
-// field actually mangles, so every other project stays byte-identical.
+// field actually mangles.
 function mangledSortables(agg: EnrichedAggregateIR): string[] {
   return sortableFields(agg).filter((wf) => isMangled(wf));
 }

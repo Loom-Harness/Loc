@@ -22,8 +22,14 @@ import { installGeneratedProject } from "./support/npm-install.js";
 // can't exercise.
 //
 // Opt-in — heavy (npm install + vite build + a Playwright browser download).
-//   LOOM_AUTH_GATE_E2E=1 npx vitest run test/e2e/auth-gate-ui-e2e.test.ts
+//   npm run test:auth-gate-ui      (= LOOM_AUTH_GATE_E2E=1 vitest run …)
 // Mirrors the generated-svelte-e2e harness.
+//
+// CI home: the `auth-gate-ui-e2e` job in auth-oidc-compose-e2e.yml — `push:
+// main`, manual dispatch, or the `run-oidc` label on a PR.  Until the
+// 2026-09-13 code review, LOOM_AUTH_GATE_E2E was set by no script and no
+// workflow, so this whole file skipped silently on every run;
+// test/system/skip-gate-reachability.test.ts now fails on that shape.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));

@@ -142,6 +142,40 @@ the shape falls through to silent misgeneration. Repro:
 `test/e2e/fixtures/` candidate is the two-aggregate system in the audit scratch
 (`repro.ddd`, 55 lines).
 
+**Both layers now typed (2026-09-28).** The IR half landed in
+[#2968](https://github.com/Loom-Harness/Loc/pull/2968) (`repoReadResultType`), the language
+half in [#3040](https://github.com/Loom-Harness/Loc/pull/3040) — `envForNode` had no
+`DomainServiceOperation` arm (it is a separate grammar rule, `stmts+=Statement*`, not
+`Operation`), so inside a service body no parameter was bound and no `let` was typed. Every
+receiver came back `unknown`, and since every type-based validator suppresses on `unknown`,
+*all* type gates failed open there. That closes the route the remediation list calls "type
+the let-binding of a repo read", on both sides, so the two layers no longer disagree.
+
+**Residue — found while fixing, deliberately NOT fixed (a separate gap).** Typing the
+binding does not make an invented member on it *reported*. With `f : array<Owner>` from
+`let f = Owners.byTier(t)`, `f.totallyInvented` raises nothing — and it is equally silent
+inside an ordinary aggregate `operation`, where `envForNode` always worked. So this is
+position-independent and pre-existing, not a domain-service issue and not something the
+`envForNode` arm can close. Located exactly:
+
+- `absentRecordMember` (`src/language/type-system.ts`) switches on `aggregate` / `entity` /
+  `id` / `valueobject` / `payload` — it has **no `array` arm**, so `loom.unknown-member`
+  never fires for an array receiver.
+- The only array-side gate, `loom.bare-collection-accessor`, fires solely for the known
+  `BARE_REJECTED_COLLECTION_ACCESSORS` allowlist, not for an arbitrary absent member.
+
+Measured on `main` @ `d2a0bc02`, invented member in both positions:
+
+| receiver | aggregate `operation` | `domainService operation` |
+|---|---|---|
+| aggregate (`one.totallyInvented`) | `loom.unknown-member` | `loom.unknown-member` *(after #3040; silent before)* |
+| `array<Owner>` (`f.totallyInvented`) | **silent** | **silent** |
+| primitive (`t.totallyMadeUp`) | silent | silent — [#2949](https://github.com/Loom-Harness/Loc/pull/2949)'s `loom.unknown-primitive-member`, not yet merged |
+
+Closing it means giving `absentRecordMember` an `array` arm whose member set is
+`COLLECTION_OP_SIGNATURES` — a language-layer gate in its own right, with its own corpus
+sweep, not a rider on F1.
+
 ### F2 — Generated unit tests don't type-check: id and datetime literals are passed raw · **P1**
 
 A `test` block calling an operation whose parameter is `<Agg> id` or `datetime` emits the

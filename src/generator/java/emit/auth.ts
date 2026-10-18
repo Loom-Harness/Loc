@@ -13,10 +13,15 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { TEST_RESET_PATH } from "../../../util/test-reset.js";
 import { claimPathFor, claimsReferenceIds } from "../../_auth/claim-types.js";
-import { devClaimFields } from "../../_auth/dev-claims.js";
+import {
+  DEV_CLAIMS_HEADER,
+  devClaimFields,
+  MALFORMED_DEV_CLAIMS_DETAIL,
+} from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
@@ -62,7 +67,7 @@ export function renderAuthFiles(
    *  flat tenancy — the claim-copy accessor stands. */
   orgPathRegistry?: OrgPathRegistry,
 ): Map<string, string> {
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/java/emit/auth");
   const fields = sys.user?.fields ?? [];
   const pkg = `${basePkg}.auth`;
   // OIDC turnkey auth (D-AUTH-OIDC): an `auth { oidc }` block turns on the
@@ -239,7 +244,7 @@ export function renderAuthFiles(
     .map((f) => {
       const kind = stubClaimKinds.get(f.name);
       if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isTextual() ? claims.get("${f.name}").asText() : ${stubValue(f.type)}`;
+        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
       }
       if (kind === "stringList") {
         return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
@@ -270,22 +275,34 @@ export function renderAuthFiles(
       ` *  REPLACE for production by providing your own @Primary UserVerifier. */`,
       `@Component`,
       `public class DevStubUserVerifier implements UserVerifier {`,
+      `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
+      `        tools.jackson.databind.json.JsonMapper.builder().build();`,
+      ``,
+      // Ruling D6 (#23): a present-but-undecodable header is refused — the
+      // stub throws, UserFilter answers 400 — instead of silently running the
+      // request as the built-in identity.  Both stub shapes decode through it,
+      // so a stub with no carryable claim refuses a malformed header too.
+      `    /** Decode the header as a base64 JSON OBJECT, or throw`,
+      `     *  {@link MalformedDevClaimsException} (UserFilter answers it 400). */`,
+      `    private static tools.jackson.databind.JsonNode decodeDevClaims(String injected) {`,
+      `        tools.jackson.databind.JsonNode claims;`,
+      `        try {`,
+      `            claims = MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
+      `        } catch (RuntimeException e) {`,
+      `            throw new MalformedDevClaimsException();`,
+      `        }`,
+      `        if (claims == null || !claims.isObject()) throw new MalformedDevClaimsException();`,
+      `        return claims;`,
+      `    }`,
+      ``,
       ...(stubStringFields.length > 0
         ? [
-            `    private static final tools.jackson.databind.ObjectMapper MAPPER =`,
-            `        tools.jackson.databind.json.JsonMapper.builder().build();`,
-            ``,
             `    @Override`,
             `    public User verify(HttpServletRequest request) {`,
-            `        String injected = request.getHeader("x-loom-dev-claims");`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
             `        if (injected != null && !injected.isEmpty()) {`,
-            `            try {`,
-            `                tools.jackson.databind.JsonNode claims =`,
-            `                    MAPPER.readTree(java.util.Base64.getDecoder().decode(injected));`,
-            `                return new User(${overrideArgs});`,
-            `            } catch (Exception e) {`,
-            `                // Malformed dev-claims header → fall back to the built-in identity.`,
-            `            }`,
+            `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
+            `            return new User(${overrideArgs});`,
             `        }`,
             `        return new User(${stubArgs});`,
             `    }`,
@@ -301,8 +318,8 @@ export function renderAuthFiles(
                   `        if (node == null || !node.isArray()) return fallback;`,
                   `        java.util.List<String> out = new java.util.ArrayList<>();`,
                   `        for (tools.jackson.databind.JsonNode e : node) {`,
-                  `            if (!e.isTextual()) return fallback;`,
-                  `            out.add(e.asText());`,
+                  `            if (!e.isString()) return fallback;`,
+                  `            out.add(e.asString());`,
                   `        }`,
                   `        return java.util.List.copyOf(out);`,
                   `    }`,
@@ -312,9 +329,29 @@ export function renderAuthFiles(
         : [
             `    @Override`,
             `    public User verify(HttpServletRequest request) {`,
+            `        // No declared claim is carryable, but a malformed header still refuses.`,
+            `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
+            `        if (injected != null && !injected.isEmpty()) decodeDevClaims(injected);`,
             `        return new User(${stubArgs});`,
             `    }`,
           ]),
+      `}`,
+      ``,
+    ),
+  );
+  out.set(
+    "MalformedDevClaimsException.java",
+    lines(
+      `package ${pkg};`,
+      ``,
+      `/** A present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header (dev stub only).`,
+      ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
+      ` *  it ran the request as the built-in identity (ruling D6). */`,
+      `public class MalformedDevClaimsException extends RuntimeException {`,
+      `    private static final long serialVersionUID = 1L;`,
+      `    public MalformedDevClaimsException() {`,
+      `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
+      `    }`,
       `}`,
       ``,
     ),
@@ -385,8 +422,9 @@ export function renderAuthFiles(
       `        "/swagger",`,
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
       // surface, so an auth-bearing system's e2e suite need not mint a
-      // principal just to empty a table.  The handler itself answers 404
-      // unless the switch is on, so bypassing the filter exposes nothing.
+      // principal just to empty a table.  Not an auth bypass: the handler
+      // answers 404 unless LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN are
+      // set, and 403 to a request without that secret.
       `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the
@@ -432,6 +470,11 @@ export function renderAuthFiles(
       `        User user;`,
       `        try {`,
       `            user = verifier.verify(request);`,
+      // Dev stub only (ruling D6): a present-but-undecodable dev-claims header
+      // is a malformed REQUEST, not missing credentials.
+      `        } catch (MalformedDevClaimsException e) {`,
+      `            malformedDevClaims(request, response, e.getMessage());`,
+      `            return;`,
       `        } catch (Exception e) {`,
       `            user = null;`,
       `        }`,
@@ -499,6 +542,18 @@ export function renderAuthFiles(
       `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
       `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
       `    }`,
+      ``,
+      `    /** RFC 7807 400 for a present-but-undecodable dev-claims header. */`,
+      `    private static void malformedDevClaims(HttpServletRequest request, HttpServletResponse response, String detail)`,
+      `            throws java.io.IOException {`,
+      `        response.setStatus(400);`,
+      `        response.setCharacterEncoding("UTF-8");`,
+      `        response.setContentType("application/problem+json");`,
+      `        response.getWriter().write(`,
+      `            "{\\"type\\":\\"about:blank\\",\\"title\\":\\"Bad Request\\",\\"status\\":400,\\"detail\\":\\""`,
+      `                + detail.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")`,
+      `                + "\\",\\"instance\\":\\"" + request.getRequestURI() + "\\"}");`,
+      `    }`,
       ...(orgContext
         ? [
             ``,
@@ -530,7 +585,7 @@ export function renderAuthFiles(
   // claim mapping onto the typed User.  @Primary so it wins over the dev
   // stub the moment an `auth { oidc }` block is present.
   if (oidc) {
-    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, pkg));
+    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, basePkg));
   }
 
   // Hierarchy (multi-tenancy): the registry-backed `orgPath` resolver.
@@ -753,17 +808,26 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
  *  map cleanly onto string / string[] user fields). */
 function javaClaimRead(f: FieldIR, auth: AuthIR): string {
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `stubValue` (`null`) and was null
+  // for every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `claimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
   }
-  return stubValue(t);
+  // An unmapped OPTIONAL claim is null — never the stub default: the zero id
+  // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
+  // for every token.
+  return optional ? "null" : stubValue(t);
 }
 
-function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
+function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
+  const pkg = `${basePkg}.auth`;
   // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
   // List the string[] reader returns.
   const imports = new Set<string>(["java.util.List"]);
@@ -816,6 +880,8 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `import jakarta.servlet.http.Cookie;`,
     `import jakarta.servlet.http.HttpServletRequest;`,
     ``,
+    `import ${basePkg}.config.CatalogLog;`,
+    ``,
     `/** Generated OIDC verifier.  Validates the bearer token's`,
     ` *  signature against the issuer's JWKS (discovered + cached via Nimbus),`,
     ` *  checks iss / exp, then projects the configured claims onto User.`,
@@ -844,7 +910,10 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `            );`,
     `        } catch (Exception e) {`,
     `            // Any validation failure (bad signature / iss / exp / forged`,
-    `            // token / discovery error) rejects with 401, never 500.`,
+    `            // token / discovery error) rejects with 401, never 500 — and`,
+    `            // says why at debug, so a misconfigured issuer / audience is`,
+    `            // diagnosable from the log stream.`,
+    `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", String.valueOf(e.getMessage()));`,
     `            return null;`,
     `        }`,
     `    }`,
@@ -879,9 +948,12 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // AUDIENCE null -> audience validation is skipped (matches Hono/.NET).`,
+    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
+    `        // the documented opt-out every backend honours.  Nimbus given ""`,
+    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
-    `            new DefaultJWTClaimsVerifier<>(AUDIENCE, exactMatch, Set.of("exp")));`,
+    `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,
     `        return proc;`,
     `    }`,
     ``,
@@ -892,7 +964,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        HttpResponse<String> resp =`,
     `            HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofString());`,
     `        JsonNode doc = MAPPER.readTree(resp.body());`,
-    `        return doc.get("jwks_uri").asText();`,
+    `        return doc.get("jwks_uri").asString();`,
     `    }`,
     ``,
     `    /** The bearer token from the Authorization header, or the HttpOnly`,
@@ -1110,7 +1182,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `    @GetMapping("${AUTH_BASE_PATH}/login")`,
     `    public ResponseEntity<Void> login(HttpServletResponse response) throws Exception {`,
     `        JsonNode config = discovery();`,
-    `        String authorize = config.get("authorization_endpoint").asText();`,
+    `        String authorize = config.get("authorization_endpoint").asString();`,
     `        String state = UUID.randomUUID().toString().replace("-", "");`,
     `        // PKCE (RFC 7636): mint a verifier, send only its S256 challenge to the`,
     `        // IdP, stash the verifier in an HttpOnly cookie for /callback.`,
@@ -1145,7 +1217,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=authorization_code"`,
     `                + "&code=" + enc(code)`,
     `                + "&redirect_uri=" + enc(REDIRECT_URI)`,
@@ -1177,7 +1249,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=refresh_token"`,
     `                + "&refresh_token=" + enc(refresh)`,
     `                + "&client_id=" + enc(CLIENT_ID)`,
@@ -1224,10 +1296,10 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `     *  (when granted) for /refresh.  Both HttpOnly — the SPA never sees them. */`,
     `    private static void storeTokens(HttpServletResponse response, JsonNode tokens) {`,
     `        JsonNode access = tokens.get("access_token");`,
-    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asText()));`,
+    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asString()));`,
     `        JsonNode refresh = tokens.get("refresh_token");`,
-    `        if (refresh != null && !refresh.asText().isEmpty()) {`,
-    `            response.addCookie(sessionCookie("refresh", refresh.asText()));`,
+    `        if (refresh != null && !refresh.asString().isEmpty()) {`,
+    `            response.addCookie(sessionCookie("refresh", refresh.asString()));`,
     `        }`,
     `    }`,
     ``,

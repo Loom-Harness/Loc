@@ -14,9 +14,10 @@
 // slice — so the emitted set always compiles.
 
 import type { BoundedContextIR, CriterionIR, ExprIR } from "../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { firstNonQueryableNode } from "../../ir/validate/validate.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { BCL_COLLIDING_TYPE_NAMES } from "./bcl-collision.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 
@@ -92,7 +93,9 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
   // CS0169 warning, which `/warnaserror` would turn into a build failure.
   const usedParams = c.params.filter((p) => refsParam(c.body, p.name));
   const className = `${upperFirst(c.name)}Criterion`;
-  const ctorParams = c.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+  const ctorParams = c.params
+    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+    .join(", ");
   // Candidate fields render against `__candidate` (this-prop → `__candidate.Prop`);
   // parameters render as bare names, which resolve to the fields below.  The
   // same rendered body serves both faces — `IsSatisfiedBy(c) => body` and the
@@ -129,10 +132,15 @@ function renderCriterion(c: CriterionIR, candidate: string, ns: string): string 
     "",
     `public sealed class ${className} : Criterion<${candidate}>`,
     "{",
-    ...usedParams.map((p) => `    private readonly ${renderCsType(p.type)} ${p.name};`),
+    ...usedParams.map(
+      (p) => `    private readonly ${renderCsType(p.type)} ${escapeCsharpIdent(p.name)};`,
+    ),
     c.params.length > 0 ? `    public ${className}(${ctorParams})` : null,
     c.params.length > 0 ? "    {" : null,
-    ...usedParams.map((p) => `        this.${p.name} = ${p.name};`),
+    ...usedParams.map((p) => {
+      const ident = escapeCsharpIdent(p.name);
+      return `        this.${ident} = ${ident};`;
+    }),
     c.params.length > 0 ? "    }" : null,
     c.params.length > 0 ? "" : null,
     `    public override bool IsSatisfiedBy(${candidate} ${CANDIDATE}) => ${body};`,
@@ -168,47 +176,17 @@ function refsParam(e: ExprIR, name: string): boolean {
 type RefNode = Extract<ExprIR, { kind: "ref" }>;
 
 function anyRef(e: ExprIR, pred: (r: RefNode) => boolean): boolean {
-  switch (e.kind) {
-    case "ref":
-      return pred(e);
-    case "member":
-      return anyRef(e.receiver, pred);
-    case "method-call":
-      return anyRef(e.receiver, pred) || e.args.some((a) => anyRef(a, pred));
-    case "call":
-      return e.args.some((a) => anyRef(a, pred));
-    case "unary":
-      return anyRef(e.operand, pred);
-    case "binary":
-      return anyRef(e.left, pred) || anyRef(e.right, pred);
-    case "paren":
-      return anyRef(e.inner, pred);
-    case "ternary":
-      return anyRef(e.cond, pred) || anyRef(e.then, pred) || anyRef(e.otherwise, pred);
-    case "lambda":
-      return e.body !== undefined && anyRef(e.body, pred);
-    case "new":
-    case "object":
-      return e.fields.some((f) => anyRef(f.value, pred));
-    case "convert":
-      return anyRef(e.value, pred);
-    case "match":
-      return (
-        e.arms.some((a) => anyRef(a.cond, pred) || anyRef(a.value, pred)) ||
-        (e.otherwise !== undefined && anyRef(e.otherwise, pred))
-      );
-    case "list":
-      return e.elements.some((x) => anyRef(x, pred));
-    case "authz-filter":
-      // M-T9.9: the `scope` sentinel references the principal through its claim
-      // sub-expressions (deny is principal-free).  Recurse so `refsCurrentUser`
-      // stays true for a deep/global filter — matching the pre-M-T9.9
-      // `method-call` sentinel, whose args this arm walked.
-      return e.filter.kind === "scope"
-        ? anyRef(e.filter.anchorClaim, pred) || anyRef(e.filter.tenantClaim, pred)
-        : false;
-    default:
-      // literal | this | id — leaves with no sub-expressions.
-      return false;
-  }
+  // Rides `walkExprDeep` — the sanctioned traversal.  The hand-rolled
+  // enumeration this replaces had no arm for `duration` (its `amount`) or
+  // `i18nFormat` (its hole), nor for a `call`'s `style:` entries or a
+  // block-bodied lambda's statements, so a `currentUser` or a parameter read
+  // hidden in any of them was invisible — and the two callers use exactly that
+  // answer to decide whether a criterion is emittable as a reified
+  // `Criterion<T>` at all.  A missed `currentUser` therefore emitted a
+  // specification class referencing a principal that is not in scope.
+  let found = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "ref" && pred(n)) found = true;
+  });
+  return found;
 }

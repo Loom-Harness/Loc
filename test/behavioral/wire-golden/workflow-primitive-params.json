@@ -1,0 +1,175 @@
+{
+  "case": "workflow-primitive-params",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/workflows/top_up",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/top_up",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/accounts?dir=asc&sort=holder",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "active": true,
+            "balance": 7,
+            "holder": "Ada",
+            "id": "<volatile:key>",
+            "tier": "Silver",
+            "version": 1
+          },
+          {
+            "active": false,
+            "balance": 0,
+            "holder": "Bo",
+            "id": "<volatile:key>",
+            "tier": "Gold",
+            "version": 1
+          },
+          {
+            "active": true,
+            "balance": 1,
+            "holder": "Cy",
+            "id": "<volatile:key>",
+            "tier": "Gold",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "active": true,
+        "balance": 7,
+        "holder": "Ada",
+        "id": "<volatile:key>",
+        "tier": "Silver",
+        "version": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/accounts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "active": true,
+        "balance": 3,
+        "holder": "Bo",
+        "id": "<volatile:key>",
+        "tier": "Gold",
+        "version": 2
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/accounts",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/accounts",
+        "instance": "/api/accounts",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/accounts",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

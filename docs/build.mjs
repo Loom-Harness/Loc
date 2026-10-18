@@ -9,7 +9,7 @@
 
 import { readFile, writeFile, readdir, mkdir, copyFile, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, basename, relative } from 'node:path';
+import { dirname, join, basename, relative, posix, sep } from 'node:path';
 import { marked } from 'marked';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -17,15 +17,15 @@ const OUT  = join(HERE, '_site');
 
 // Subdirs whose .md content is also rendered so links from reference
 // docs into the plan/audit corpus don't 404.  Nested paths are
-// supported (depth derived from the path).  old/proposals ships too
-// now that new-plan/ links into it as the archived design record.
+// supported (depth derived from the path).  `old/**` is deliberately absent —
+// see UNPUBLISHED below.
 export const RENDERED_SUBDIRS = [
   'new-plan',
   'new-plan/missions',
+  'new-plan/waves',
+  'new-plan/waves/handoffs',
   'new-plan/archive',
   'new-plan/archive/missions',
-  'old/plans',
-  'old/proposals',
   'audits',
   'language-reference',
 ];
@@ -43,13 +43,46 @@ const NAV = [
   { label: 'Internals',    href: 'technical.html' },
 ];
 
-// rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html
-const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-]+)\.md(#.*)?$/;
+// rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html.
+// The basename may contain dots (`M-T5.21-callable-unification-design.md`,
+// `….waves.md`) — every mission file is named that way, and a dot-free class
+// left those links pointing at a `.md` the site never publishes.
+const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-][a-zA-Z0-9_.\-]*)\.md(#.*)?$/;
+
+// The archived design record is NOT published.  On the site a frozen proposal
+// looked exactly as current as `language.md`, and a banner did not stop readers
+// (or agents) from taking its status tables as what ships.  It stays in git as
+// the design record, and every link into it — live docs cite it for grammar
+// sketches and rationale — points at the GitHub source instead of a page.
+export const UNPUBLISHED = 'old';
+const SOURCE_BASE = 'https://github.com/Loom-Harness/Loc';
+
+/** The GitHub source URL for a link from docs-relative page `fromRel` whose
+ *  target resolves into the unpublished corpus, else null. */
+export function unpublishedSourceUrl(fromRel, href) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#') || href.startsWith('/')) return null;
+  const hash = href.indexOf('#');
+  const target = hash === -1 ? href : href.slice(0, hash);
+  const frag = hash === -1 ? '' : href.slice(hash);
+  const resolved = posix.normalize(posix.join(posix.dirname(fromRel), target)).replace(/\/$/, '');
+  if (resolved !== UNPUBLISHED && !resolved.startsWith(`${UNPUBLISHED}/`)) return null;
+  const kind = /\.[a-z0-9]+$/i.test(resolved) ? 'blob' : 'tree';
+  return `${SOURCE_BASE}/${kind}/main/docs/${resolved}${frag}`;
+}
+
+// Docs-relative (POSIX) path of the page `marked` is rendering, read by the
+// link rewrite below — `walkTokens` has no per-call context of its own.
+let renderingRel = '';
 
 marked.use({
   gfm: true,
   walkTokens(token) {
     if (token.type === 'link' && typeof token.href === 'string') {
+      const source = unpublishedSourceUrl(renderingRel, token.href);
+      if (source) {
+        token.href = source;
+        return;
+      }
       const m = token.href.match(MD_LINK);
       if (m) token.href = `${m[1]}.html${m[2] ?? ''}`;
     }
@@ -252,23 +285,17 @@ ${TAB_SCRIPT}
 </html>
 `;
 
-// Archived corpora.  These render so cross-doc links resolve, but they are
-// NOT a description of what ships: `old/**` is a frozen design record whose
-// status tables are superseded, and `audits/**` are snapshot-in-time findings
-// true only as of the commit each one names.  CLAUDE.md fences agents off
-// this material; a web reader has no such fence, so the page carries one.
-// Keep in sync with the `docs/old/` link rule in
-// test/system/archived-docs-fence.test.ts.
+// Archived corpora that still render.  They are NOT a description of what
+// ships: `audits/**` are snapshot-in-time findings true only as of the commit
+// each one names, and `new-plan/archive/**` is closed work.  CLAUDE.md fences
+// agents off this material; a web reader has no such fence, so the page
+// carries one.  (`old/**` is not rendered at all — see UNPUBLISHED.)  Keep in
+// sync with test/system/archived-docs-fence.test.ts.
 export const ARCHIVED = [
   {
     prefix: 'new-plan/archive/',
     label: 'Completed missions',
     note: 'Closed missions and superseded plan notes, moved out of the live track files on 2026-09-02. Kept for the PR/evidence trail; nothing here is open work.',
-  },
-  {
-    prefix: 'old/',
-    label: 'Archived design record',
-    note: 'Frozen. Kept for its grammar sketches, semantics and rationale — its status tables and backlog registers are superseded and must not be treated as current behavior.',
   },
   {
     prefix: 'audits/',
@@ -295,6 +322,7 @@ async function renderMdFile(srcPath, depth) {
   const src = await readFile(srcPath, 'utf8');
   const rel = relative(HERE, srcPath);
   const title = extractTitle(src, basename(srcPath, '.md'));
+  renderingRel = rel.split(sep).join('/');
   const body = archivedNotice(rel, depth) + marked.parse(src);
   const outRel = rel.replace(/\.md$/, '.html');
   const outPath = join(OUT, outRel);

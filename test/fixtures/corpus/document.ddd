@@ -2,9 +2,15 @@
 system DocSys {
   subdomain Cms {
     context Cms {
+      // An ENUM field with a declared default, inside the jsonb document.  The
+      // document stores the enum as its declared-case string, so the default
+      // has to land as that string in the embed; a create that omits the field
+      // gets it, on every backend.
+      enum Stage { Pending, Published }
       aggregate Article shape: document, with crudish {
         title: string
         viewCount: int
+        stage: Stage = Pending
         contains sections: Section[]
         entity Section { heading: string  body: string }
         operation addSection(heading: string, body: string) {
@@ -14,6 +20,22 @@ system DocSys {
       }
       repository Articles for Article {
         find popular(min: int): Article[] where this.viewCount >= min
+      }
+      // A capability `filter` on a document aggregate (PROMOTED from the
+      // per-backend `*-document-capability-filter.test.ts` string copies,
+      // M-T9.42).  The tree is one jsonb column, so the predicate cannot be a
+      // SQL `where`: each backend evaluates it IN-APP over the rehydrated
+      // instance — on the by-id read, the list, and BEFORE a custom find's own
+      // predicate.  (The principal-filter arm needs an authenticated fixture,
+      // whose gates belong to the authz census — not carried here.)
+      aggregate Draft shape: document, with crudish {
+        title: string
+        archived: bool
+        filter !this.archived
+        operation shelve() { archived := true }
+      }
+      repository Drafts for Draft {
+        find byTitle(t: string): Draft[] where this.title == t
       }
     }
   }
@@ -33,15 +55,19 @@ system DocSys {
     api.articles.addSection(a, { heading: "H", body: "B" })
     let read = api.articles.getById(a)
     expect(read.title).toBe("T1")
+    expect(read.stage).toBe("Pending")
 
     // The canonical `update` on a `shape: document` aggregate rewrites the
     // ROOT scalars only — `sections` is a containment, not an update param —
     // yet the whole tree lives in ONE jsonb column, so the update has to
     // re-serialize the containment it never received.  A backend that rebuilt
     // the document from the update input alone loses the section here.
-    api.articles.update(a, { title: "T2", viewCount: 5 })
+    // The update is full-replacement, so it carries `stage` too: a default is a
+    // construction rule and relaxes no update field (RS-26).
+    api.articles.update(a, { title: "T2", viewCount: 5, stage: "Published" })
     let updated = api.articles.getById(a)
     expect(updated.title).toBe("T2")
+    expect(updated.stage).toBe("Published")
     expect(updated.viewCount).toBe(5)
     expect(updated.sections.length).toBe(1)
 
@@ -70,5 +96,24 @@ system DocSys {
     expect(empty.length).toBe(0)
     let gone = api.articles.popular({ min: 0 })
     expect(gone.length).toBe(0)
+
+    // ── the capability filter, evaluated in-app ────────────────────────────
+    // Two drafts share a title; one is shelved after creation.  Every read
+    // must see only the live one — the custom find's own predicate matches
+    // both, so the capability has to narrow first.
+    let live = api.drafts.create({ title: "Plan", archived: false })
+    let shelved = api.drafts.create({ title: "Plan", archived: false })
+    api.drafts.shelve(shelved)
+    expect(api.drafts.getById(live).title).toBe("Plan")
+    expect(api.drafts.getById(shelved)).toThrow(404)
+    expect(api.drafts.all().length).toBe(1)
+    let plans = api.drafts.byTitle({ t: "Plan" })
+    expect(plans.length).toBe(1)
+    expect(plans.first().archived).toBe(false)
+    // The write routes load through the same scope.
+    api.drafts.update(live, { title: "Plan v2", archived: false })
+    expect(api.drafts.getById(live).title).toBe("Plan v2")
+    api.drafts.destroy(live)
+    expect(api.drafts.all().length).toBe(0)
   }
 }

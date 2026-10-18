@@ -4,6 +4,7 @@ import type {
   EventIR,
   EventSubscriptionIR,
   ExprIR,
+  FieldIR,
   ProjectionIR,
   ProjectionOnIR,
   StmtIR,
@@ -15,7 +16,7 @@ import type {
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { escapePythonIdent, snake } from "../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
@@ -26,7 +27,7 @@ import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { esEventRow, esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -305,9 +306,13 @@ export function buildPyDispatchFile(
   // tier) → ChannelTeeDispatcher (broker tier).  The tee is outermost so a
   // broker-routed ephemeral event publishes without touching the outbox —
   // the two routing sets are disjoint by the compat matrix.
+  // The REQUEST path's in-process dispatcher isolates reactor failures (H-28,
+  // workflow.md § "Reactor failures"); the outbox relay and the broker
+  // consumer build their own `InProcessDispatcher(session)`, which raises —
+  // their retry / redelivery rides the exception.
   const innerCore = hasRealtime
-    ? "RealtimeDispatcher(InProcessDispatcher(session))"
-    : "InProcessDispatcher(session)";
+    ? "RealtimeDispatcher(InProcessDispatcher(session, isolate=True))"
+    : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
   const returnType = hasChannels
     ? '"ChannelTeeDispatcher"'
@@ -320,15 +325,34 @@ export function buildPyDispatchFile(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
     "    a handler's own emits re-enter, so choreography chains run.",
+    "",
+    "    With ``isolate`` (the request path) each reaction runs in a SAVEPOINT:",
+    "    a failure rolls back that reaction alone and is logged",
+    "    ``reactor_failed`` instead of failing the command whose event it",
+    "    reacts to.  Without it (relay, broker consumer) a failure raises.",
     '    """',
     "",
-    "    def __init__(self, session: AsyncSession) -> None:",
+    "    def __init__(self, session: AsyncSession, isolate: bool = False) -> None:",
     "        self._session = session",
+    "        self._isolate = isolate",
+    "",
+    "    async def _react(self, handler: str, event: DomainEvent, run: Callable[[], Awaitable[None]]) -> None:",
+    "        if not self._isolate:",
+    "            await run()",
+    "            return",
+    "        try:",
+    "            async with self._session.begin_nested():",
+    "                await run()",
+    "        except Exception as exc:",
+    `            log("error", "reactor_failed", handler=handler, event_type=type(event).__name__, event_id=str(uuid.uuid4()), error=str(exc))`,
     "",
     "    async def dispatch(self, event: DomainEvent) -> None:",
     ...[...handlerByEvent.entries()].flatMap(([event, fns], i) => [
       `        ${i === 0 ? "if" : "elif"} isinstance(event, ${event}):`,
-      ...fns.map((fn) => `            await ${fn}(self._session, self, event)`),
+      ...fns.map(
+        (fn) =>
+          `            await self._react("${fn}", event, lambda: ${fn}(self._session, self, event))`,
+      ),
     ]),
     "",
     "",
@@ -410,6 +434,8 @@ export function buildPyDispatchFile(
     "",
     hasOutbox ? "import asyncio" : null,
     refersTo("math") ? "import math" : null,
+    refersTo("uuid") ? "import uuid" : null,
+    refersTo("Awaitable") ? "from collections.abc import Awaitable, Callable" : null,
     hasOutbox ? "from contextvars import ContextVar" : null,
     refersTo("datetime") ? "from datetime import UTC, datetime" : null,
     refersTo("Decimal") ? "from decimal import Decimal" : null,
@@ -661,7 +687,7 @@ export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): s
         continue;
       }
     }
-    parts.push(`${snake(f.name)}=${zeroFor(f)}`);
+    parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
 }
@@ -809,7 +835,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -870,7 +896,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -973,11 +999,11 @@ function outboxBlock(
     : "InProcessDispatcher(session)";
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -1120,11 +1146,11 @@ function outboxBlock(
 function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean): string {
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -1259,12 +1285,34 @@ function buildRealtimeOnlyDispatch(): string {
 
 /** Domain-event field → its JSON-safe payload value (DSL-keyed, mirrors
  *  the event-sourcing store's `_event_to_data`). */
-export function toPayload(expr: string, t: TypeIR): string {
+export function toPayload(expr: string, t: TypeIR, vos: PyVoFields = new Map()): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && inner.name === "datetime") return `${expr}.isoformat()`;
-  if (inner.kind === "primitive" && inner.name === "money") return `str(${expr})`;
+  const converted = toPayloadValue(expr, inner, vos);
+  // An optional's conversion runs only on a present value — `None.isoformat()`
+  // would raise inside the publish path (eval item 12's encode twin).
+  return t.kind === "optional" && converted !== expr
+    ? `(None if ${expr} is None else ${converted})`
+    : converted;
+}
+
+function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
+  if (t.kind === "primitive" && t.name === "datetime") return `${expr}.isoformat()`;
+  if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
+  const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
+  if (t.kind === "valueobject" && fields) {
+    // A value object crosses as a DSL-keyed JSON object — the frozen
+    // dataclass itself is not JSON-serialisable (`json.dumps` raises).  A
+    // self-referential VO stops at its first level.
+    const rest = new Map(vos);
+    rest.delete(t.name);
+    return `{${fields.map((f) => `"${f.name}": ${toPayload(`${expr}.${snake(f.name)}`, f.type, rest)}`).join(", ")}}`;
+  }
   return expr;
 }
+
+/** A value object's declared fields by name — what the codec needs to
+ *  encode / rebuild a carried VO. */
+export type PyVoFields = ReadonlyMap<string, readonly FieldIR[]>;
 
 /** Python's `WireDecodeTarget` — the leaf half of the shared channel wire
  *  codec (`src/generator/_channels/wire-codec.ts`).
@@ -1291,14 +1339,31 @@ const PY_WIRE_DECODE: WireDecodeTarget = {
   },
   id: (e, targetName) => `${targetName}Id(cast(str, ${e}))`,
   enumValue: (e, name) => `${name}(cast(str, ${e}))`,
-  // No `optional` leaf and no `array` leaf: neither existed before the port.
-  // They are absent rather than invented here so the refactor changes no
-  // bytes — the gaps are now named in ONE dispatcher instead of hidden in
-  // four `default:` arms.
+  // An optional field may arrive as JSON `null` or be omitted: `.get` reads
+  // an absent key as `None` (a `[...]` subscript raises KeyError), and the
+  // guard runs before the leaf — `datetime.fromisoformat(None)` raises
+  // TypeError (eval item 12).
+  readOptional: (payload, field) => `${payload}.get("${field}")`,
+  optional: (e, decoded) => `(None if ${e} is None else ${decoded})`,
+  // No `array` leaf: none existed before the port — the gap is named in ONE
+  // dispatcher instead of hidden in four `default:` arms.
   passthrough: (e) => `cast(str, ${e})`,
+  // A value object crosses as a DSL-keyed JSON object and is rebuilt through
+  // its dataclass constructor (snake_case keywords) — never handed to the
+  // VO-typed field as a string (eval item 11).
+  valueObject: {
+    view: (e) => `cast("dict[str, object]", ${e})`,
+    build: (name, fields) =>
+      `${name}(${fields.map((f) => `${snake(f.name)}=${f.decoded}`).join(", ")})`,
+  },
 };
 
 /** Payload value → typed domain-event field (mirror of `toPayload`). */
-export function fromPayload(name: string, t: TypeIR): string {
-  return decodeField("payload", { name, type: t, optional: t.kind === "optional" }, PY_WIRE_DECODE);
+export function fromPayload(name: string, t: TypeIR, vos?: PyVoFields): string {
+  return decodeField(
+    "payload",
+    { name, type: t, optional: t.kind === "optional" },
+    PY_WIRE_DECODE,
+    vos,
+  );
 }

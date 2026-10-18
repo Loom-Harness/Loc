@@ -14,7 +14,7 @@ So the 13 ids below are recorded as **UNKNOWN-DEFINITION** and nothing else. The
 
 | id | status | what the repo actually knows |
 |---|---|---|
-| **M-FT.5** | UNKNOWN-DEFINITION | [#2746](https://github.com/Loom-Harness/Loc/pull/2746) (M-FT.7) names it as the owner of the **parameterless-operation affordance**: *"`Action` has no toast slot on any of the six frontends, and adding one means a `WalkerTarget` seam plus a template in every pack — that lands with M-FT.5, which owns the parameterless-op affordance in `forms.ts` and `designs/*/*/`."* |
+| **M-FT.5** | UNKNOWN-DEFINITION | [#2746](https://github.com/Loom-Harness/Loc/pull/2746) (M-FT.7) names it as the owner of the **parameterless-operation affordance**: *"`Action` has no toast slot on any of the six frontends, and adding one means a `WalkerTarget` seam plus a template in every pack — that lands with M-FT.5, which owns the parameterless-op affordance in `forms.ts` and `designs/*/*/`."* **Fact since (2026-09-29, eval-closure review item M-FT.5, [#3090](https://github.com/Loom-Harness/Loc/pull/3090)):** the quoted premise is stale — `Action { x.op, then: toast("…") }` (the `then:` slot, `page-metamodel.md` §OrderPanel) already rendered on the four JSX frontends, and #3090 closes the two self-hosted ones: Feliz carries the effect as a closure on a `…Then` Msg run on success, Flutter runs it in place of its hard-coded `"<Op> done"` snackbar; the Feliz Action/OperationForm collectors also derive a QueryView's single-record shape instead of reading the literal `single: true` flag (`test/generator/action-then-self-hosted.test.ts`). The card itself is still unrecovered. |
 | **M-FT.8** | UNKNOWN-DEFINITION | nothing — no PR, no branch, no citation anywhere in the repo |
 | **M-FT.9** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.14** | UNKNOWN-DEFINITION | nothing |
@@ -22,7 +22,7 @@ So the 13 ids below are recorded as **UNKNOWN-DEFINITION** and nothing else. The
 | **M-FT.16** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.17** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.23** | UNKNOWN-DEFINITION | nothing |
-| **M-FT.24** | UNKNOWN-DEFINITION | [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) names it as the owner of the **union wire shape**, and defers review-A D-7 (the OpenAPI union document) to it: *"the same document is re-shaped by the union WIRE change M-FT.24 owns. The two should land together, on all five emitters, in that mission."* |
+| **M-FT.24** | DEFINED 2026-09-29 → [`## M-FT.24`](../T6-backend-parity.md#m-ft24) (the OpenAPI half re-proved by the evaluation-closure review; the union-wire card is still the owner's to write) | [#2744](https://github.com/Loom-Harness/Loc/pull/2744) (M-FT.31) names it as the owner of the **union wire shape**, and defers review-A D-7 (the OpenAPI union document) to it: *"the same document is re-shaped by the union WIRE change M-FT.24 owns. The two should land together, on all five emitters, in that mission."* |
 | **M-FT.25** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.28** | UNKNOWN-DEFINITION | nothing |
 | **M-FT.29** | UNKNOWN-DEFINITION | nothing |

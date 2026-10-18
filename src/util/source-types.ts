@@ -29,7 +29,7 @@
 // eventLog), so swapping it in for the old `KIND_STORAGE` tables is a
 // behaviour-preserving change.
 
-import type { DataSourceKind, LoomInterface, StorageKind } from "../ir/types/loom-ir.js";
+import type { DataSourceKind, LoomInterface } from "../ir/types/loom-ir.js";
 
 export type { LoomInterface } from "../ir/types/loom-ir.js";
 
@@ -354,10 +354,4 @@ export function capabilitiesFor(sourceType: string, kind: DataSourceKind): Reado
 /** The config-key schema a sourceType understands (empty when none). */
 export function configSchemaFor(sourceType: string): readonly ConfigKeySchema[] {
   return REGISTRY.get(sourceType)?.configKeys ?? [];
-}
-
-/** Narrowing helper: is `name` a known `StorageKind`?  (Kept here so
- *  callers can validate registry membership against the IR enum.) */
-export function isKnownStorageKind(name: string): name is StorageKind {
-  return REGISTRY.has(name);
 }

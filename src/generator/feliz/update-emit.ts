@@ -31,6 +31,9 @@ import type {
   FormRecord,
 } from "./wire.js";
 import {
+  actionThenDoneMsg,
+  actionThenMsg,
+  byIdFieldName,
   fileSelectMsg,
   fileUploadedMsg,
   findReadCmd,
@@ -39,6 +42,7 @@ import {
   formHasFieldErrors,
   formTouchedField,
   formTouchMsg,
+  ifMatchVersionExpr,
   opHasForm,
   pagedReadCmd,
   readLoadedType,
@@ -323,6 +327,11 @@ export function renderInit(
    *  of from the `.ddd` default — the Feliz answer to Zustand's `persist`
    *  hydration.  Empty on every other app, so their `init` is byte-identical. */
   initOverrides: ReadonlyMap<string, string> = new Map(),
+  /** Per component `state {}` cell (IR identity) whose initializer reads a
+   *  component param: the param values `init` substitutes, or `null` when the
+   *  component is deferred (the cell seeds its type's zero) —
+   *  `component-state-init.ts`.  Empty on every other app (byte-identical). */
+  componentParamValues: ReadonlyMap<StateFieldIR, ReadonlyMap<string, string> | null> = new Map(),
 ): string {
   const hasPageCmd = routed && reads.some((r) => r.single);
   // A user-declared find read is issued with its ARGUMENTS, and those are
@@ -353,17 +362,24 @@ export function renderInit(
       // `init` has no `model` yet, so a state initialiser that reads the route
       // `id` re-parses the current URL — the same source `CurrentPage` is seeded
       // from two lines up.
+      const paramValues = componentParamValues.get(f);
       const ctx: FsExprCtx = {
         stateNames: new Set(),
         locals: new Set(),
         ...(routed ? { routeId: ROUTE_ID_FROM_URL } : {}),
+        ...(paramValues ? { paramValues } : {}),
       };
       const modelField = upperFirst(f.name);
       // A persisted store field hydrates from its backing store; the declared
       // `= <init>` becomes the FALLBACK inside the loader, not the seed here.
       const override = initOverrides.get(modelField);
+      // A deferred component's param-reading cell (`null`) has no init-time
+      // value; nothing renders or dispatches to it, so it seeds the zero.
       const v =
-        override ?? (f.init ? decimalLit(renderFsExpr(f.init, ctx), f.type) : stateFieldZero(f));
+        override ??
+        (f.init && paramValues !== null
+          ? decimalLit(renderFsExpr(f.init, ctx), f.type)
+          : stateFieldZero(f));
       return `      ${modelField} = ${v}`;
     }),
     ...reads.flatMap((r) => [
@@ -509,6 +525,14 @@ export function renderMsg(
     ...opActions.flatMap((a) => [
       `  | ${a.triggerMsg} of string`,
       `  | ${a.doneMsg} of Result<unit, string>`,
+      // M-FT.5 — an `Action { …, then: <effect> }` carries its effect as a
+      // closure the `Done (Ok ())` arm runs once the POST has succeeded.
+      ...(a.hasThen
+        ? [
+            `  | ${actionThenMsg(a)} of string * (unit -> unit)`,
+            `  | ${actionThenDoneMsg(a)} of Result<unit, string> * (unit -> unit)`,
+          ]
+        : []),
     ]),
   ];
   if (cases.length === 0) return "type Msg = | NoOp";
@@ -801,7 +825,15 @@ export function renderUpdate(
   // the same single-program Model/Msg/update — the store arm just renders under
   // a `storeScope` so its own fields resolve to their namespaced Model field).
   const assembleArm = (head: string, body: readonly ActionIR["body"][number][], ctx: FsExprCtx) => {
-    const parts = body.map((s) => renderUpdateStmt(s, ctx));
+    // A `let` binds a local for the statements AFTER it, shadowing a same-named
+    // state cell / store field (`let total = n + 10  n := total` reads the
+    // local, not `model.Total`) — the scope lowering resolved the ref in.
+    let scoped = ctx;
+    const parts = body.map((s) => {
+      const part = renderUpdateStmt(s, scoped);
+      if (s.kind === "let") scoped = { ...scoped, locals: new Set([...scoped.locals, s.name]) };
+      return part;
+    });
     const lines = parts.map((pt) => pt.line).filter((l): l is string => l !== undefined);
     const cmds = parts.map((pt) => pt.cmd).filter((c): c is string => c !== undefined);
     const cmd =
@@ -902,6 +934,15 @@ export function renderUpdate(
   // An operation form: per-field setters, a submit that fires the id-qualified
   // POST `Cmd` (the api fn is curried `(id) (form)`), and a `Done` result that
   // resets the form + navigates.
+  // #27 — a `versioned` update passes the loaded record's version to the api
+  // fn (its `If-Match`), read off the Model's byId read of the aggregate.
+  const ifMatchArg = (f: FelizOperationForm): string =>
+    f.ifMatch
+      ? ` ${ifMatchVersionExpr(
+          f.aggregate,
+          reads.some((r) => r.field === byIdFieldName(f.aggregate) && r.single),
+        )}`
+      : "";
   const operationArms = operationForms.map((f) => {
     const setters = formFieldSetterArms(f);
     const nav = `Cmd.navigatePath(${f.navigateSegs.map((s) => `"${s}"`).join(", ")})`;
@@ -909,7 +950,7 @@ export function renderUpdate(
     // (empty body) and the done arm doesn't reset a form field.
     if (!opHasForm(f)) {
       return [
-        `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id) () ${f.doneMsg}`,
+        `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) () ${f.doneMsg}`,
         `  | ${f.doneMsg} (Ok ()) -> model, ${nav}`,
         `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
       ].join("\n");
@@ -918,7 +959,7 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id) model.${f.formField} ${f.doneMsg}`,
+      `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) model.${f.formField} ${f.doneMsg}`,
       `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
       `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
     ].join("\n");
@@ -955,7 +996,7 @@ export function renderUpdate(
     const elseCtx: FsExprCtx = { stateNames, locals: new Set(), ...armRouteId };
     // Trigger arm: destructure `(id, <param>, …)` (named after the op params) and
     // fire the curried api fn.
-    const argNames = e.params.map((p) => p.name);
+    const argNames = e.params.map((p) => fsIdent(p.name));
     const triggerPat = e.params.length === 0 ? "id" : `(id, ${argNames.join(", ")})`;
     const apiArgs = ["id", ...argNames].join(" ");
     const arms: string[] = [
@@ -971,8 +1012,10 @@ export function renderUpdate(
         ...armRouteId,
       };
       const inner = (b: string) => (e.isMulti ? `(${v.duCase} ${b})` : b);
+      // The binder is a model name — an F# keyword (`member`, `begin`) takes the
+      // double-backtick spelling its body refs already get (`ctx.locals`).
       const arm = assembleArm(
-        `  | ${e.resultMsg} (Ok (Some ${inner(v.binding ?? "_")})) ->`,
+        `  | ${e.resultMsg} (Ok (Some ${inner(v.binding ? fsIdent(v.binding) : "_")})) ->`,
         v.body,
         ctx,
       );
@@ -997,10 +1040,20 @@ export function renderUpdate(
   // error it stays put.
   const opActionArms = opActions.map((a) => {
     const refetch = hasPageCmd ? "pageCmd model.CurrentPage" : "Cmd.none";
-    return (
+    const plain =
       `  | ${a.triggerMsg} id -> model, Cmd.OfAsync.perform Api.${a.apiFn} id ${a.doneMsg}\n` +
       `  | ${a.doneMsg} (Ok ()) -> model, ${refetch}\n` +
-      `  | ${a.doneMsg} (Error _) -> model, Cmd.none`
+      `  | ${a.doneMsg} (Error _) -> model, Cmd.none`;
+    if (!a.hasThen) return plain;
+    // M-FT.5 — the `then:` effect runs only on SUCCESS, after the refetch is
+    // queued (the JSX `mutateAsync({}).then(() => …)` ordering).
+    const then = actionThenMsg(a);
+    const thenDone = actionThenDoneMsg(a);
+    return (
+      `${plain}\n` +
+      `  | ${then} (id, andThen) -> model, Cmd.OfAsync.perform Api.${a.apiFn} id (fun r -> ${thenDone} (r, andThen))\n` +
+      `  | ${thenDone} (Ok (), andThen) -> model, Cmd.batch [ ${refetch}; Cmd.ofEffect (fun _ -> andThen ()) ]\n` +
+      `  | ${thenDone} (Error _, _) -> model, Cmd.none`
     );
   });
   const arms = [

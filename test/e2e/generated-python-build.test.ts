@@ -171,6 +171,11 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // event-sourced shapes (B-A1) — pinned statically by
   // `test/generator/python/python-eval-followups.test.ts`.
   ["test/e2e/fixtures/python-build/eval-followups.ddd", "api"],
+  // eval-closure-review #15b / #15c: an unused workflow `getById` let (ruff
+  // F841 — the awaited existence check stays, the binding goes) and an enum
+  // progression asserted across a method call in a domain `test` (mypy
+  // `comparison-overlap` on the narrowing it keeps past the call).
+  ["test/e2e/fixtures/python-build/lint-residue.ddd", "api"],
 ];
 
 describe.skipIf(!ENABLED)(

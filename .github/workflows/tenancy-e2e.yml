@@ -42,11 +42,18 @@ name: Tenancy isolation (runtime e2e)
 # test its URL via LOOM_TENANCY_PG_URL, so the suite skips its own docker
 # sidecar.
 #
-# Triggers `push: main` + manual dispatch only — NOT per-PR. Sibling to the
-# obs-e2e / oidc-e2e jobs; same rationale: a docker-heavy boot on every
-# tenancy-touching PR is a runner burst for a regression that is acceptable to
-# catch one merge later. The structural filter/stamp pins ARE per-PR (in the
-# fast vitest suite); this gate nets the end-to-end agreement.
+# TIER, split by suite:
+#   * the five `flat` cells (tenancy-owned.ddd, one boot per backend) run
+#     PER-PR, path-scoped, binding through `pr-gate` — ~1-2 runner-minutes a
+#     cell, ~7 a firing (measured 2026-10-05, Actions API, last 10 `main` runs);
+#   * every other cell (hierarchy, the two second-adapter cells, org-context,
+#     the subtree EXPLAIN) runs in the MERGE QUEUE, which is their only
+#     pre-merge run; on a PR they need the `run-tenancy` label and fire on the
+#     next push (an earlier signal, not the gate).
+# Both halves also run in the queue and on `push: main` (the post-merge net).
+# The split is two jobs rather than one conditional matrix because a job-level
+# `if:` cannot read `matrix`, and because test/system/draft-gate.test.ts and
+# merge-queue-readiness.test.ts read each job's guard literally.
 on:
   push:
     branches: [main]
@@ -107,26 +114,83 @@ on:
       - '.github/workflows/tenancy-e2e.yml'
   workflow_dispatch:
   merge_group:
-  # On-demand per-PR run: apply the `run-tenancy` label to a PR to run this
-  # otherwise push:main-only suite against that branch before merge.  The
-  # job-level `if` below restricts the labeled trigger to that one label.
+  # Per-PR, path-scoped, for the `flat` job; the other job runs on a PR only
+  # under the `run-tenancy` label.  `labeled` is deliberately NOT a type: a
+  # label event would re-run the flat boots and, with PR-aware concurrency,
+  # cancel the live run — so the label takes effect on the next push.
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # DUPLICATED list, never a YAML anchor: the reader in
+      # test/system/workflow-path-coverage.test.ts does not resolve
+      # `&paths` / `*paths`, and it reads each trigger's block on its own.
+      - 'src/language/**'
+      - 'src/macros/**'
+      - 'src/ir/**'
+      - 'src/system/**'
+      - 'src/util/**'
+      - 'src/generator/python/index.ts'
+      - 'src/generator/java/emit/auth.ts'
+      - 'src/generator/dotnet/emit/efcore.ts'
+      - 'src/generator/dotnet/auth-emit.ts'
+      - 'src/generator/elixir/vanilla/api-emit.ts'
+      - 'src/generator/elixir/vanilla/openapi-emit.ts'
+      - 'src/platform/hono/**'
+      # The MikroORM adapter's own emitter: it owns the hierarchical subtree
+      # predicate (a `raw()` FilterQuery key) that the `node-mikroorm` cell
+      # boots.  Missing from this list, a mikroorm-emitter-only change skipped
+      # the whole workflow.
+      - 'src/generator/typescript/emit/mikroorm.ts'
+      # Same argument, .NET side: the Dapper adapter splices the subtree
+      # predicate into every SELECT as a raw SQL string with four hand-bound
+      # parameters, which the `dotnet-dapper` cell boots.
+      - 'src/generator/dotnet/emit/dapper.ts'
+      - 'test/e2e/tenancy-isolation.test.ts'
+      - 'test/e2e/tenancy-isolation-python.test.ts'
+      - 'test/e2e/tenancy-isolation-java.test.ts'
+      - 'test/e2e/tenancy-isolation-dotnet.test.ts'
+      - 'test/e2e/tenancy-isolation-elixir.test.ts'
+      - 'test/e2e/tenancy-hierarchy.test.ts'
+      - 'test/e2e/tenancy-hierarchy-python.test.ts'
+      - 'test/e2e/tenancy-hierarchy-java.test.ts'
+      - 'test/e2e/tenancy-hierarchy-dotnet.test.ts'
+      - 'test/e2e/tenancy-hierarchy-elixir.test.ts'
+      - 'test/e2e/tenancy-hierarchy-mikroorm.test.ts'
+      - 'test/e2e/tenancy-hierarchy-dapper.test.ts'
+      - 'test/e2e/tenancy-subtree-explain.test.ts'
+      # The organizationContext switch-gate leg (M-T3.6 items 3+5): its own
+      # test file + fixture, and the auth-layer emitters that host the gate
+      # which the lines above do not already reach (python/elixir auth, and
+      # the neutral log catalog the deny is logged through).
+      - 'test/e2e/tenancy-org-context.test.ts'
+      - 'test/fixtures/corpus/org-context.ddd'
+      - 'src/generator/python/auth-emit.ts'
+      - 'src/generator/elixir/auth-emit.ts'
+      - 'src/generator/_obs/log-events.ts'
+      - 'test/e2e/support/tenancy-isolation-harness.ts'
+      - 'test/fixtures/corpus/tenancy-owned.ddd'
+      - 'test/fixtures/corpus/tenancy-hierarchy.ddd'
+      - '.github/workflows/tenancy-e2e.yml'
+
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # Keyed on the PR number when there is one so a superseded PR push cancels
+  # its own in-flight boots; `push: main` and merge-group runs keep per-ref
+  # attribution and are never cancelled (cancel-in-progress is false off
+  # `pull_request`).
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  tenancy-e2e:
+  tenancy-e2e-flat:
     runs-on: ubuntu-latest
-    # Skip the labeled trigger unless it's specifically `run-tenancy`; push,
-    # merge-queue, and manual (`workflow_dispatch`) runs always proceed.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-tenancy'
+    # Draft PRs run only the fast lane (test.yml, langium-generated,
+    # workflow-lint, pr-gate); this job fires once the PR is marked ready for
+    # review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
+    # Pinned verbatim by test/system/draft-gate.test.ts.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # Cold path is dominated by the generated project's build/dep install
     # (gradle bootJar / mix deps.get + compile are the slowest). 20min cap.
     timeout-minutes: 20
@@ -150,6 +214,90 @@ jobs:
           - backend: elixir
             suite: flat
             script: test:tenancy-elixir
+    name: tenancy-e2e (${{ matrix.backend }} / ${{ matrix.suite }})
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up uv (python)
+        if: matrix.backend == 'python'
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up JDK (java)
+        if: matrix.backend == 'java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Java 25 toolchain needs Gradle 9.1+ (no wrapper is emitted).
+      - name: Set up Gradle (java)
+        if: matrix.backend == 'java'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.1'
+
+      - name: Set up .NET (dotnet)
+        if: matrix.backend == 'dotnet' || matrix.backend == 'dotnet-dapper'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Elixir/OTP (elixir)
+        if: matrix.backend == 'elixir'
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3'
+          elixir-version: '1.18.4'
+
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Run tenancy isolation runtime e2e (${{ matrix.backend }})
+        env:
+          LOOM_TENANCY_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/app
+        run: npm run ${{ matrix.script }} -- --reporter=verbose
+
+      - name: Surface failure context
+        if: failure()
+        run: |
+          echo "## Tenancy isolation runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo 'See the run step above for the captured server stdout.' >> $GITHUB_STEP_SUMMARY
+          echo 'The test boots the generated backend against postgres and asserts cross-tenant isolation (create/read/list as two principals), client tenantId-smuggling rejection, crossTenant visibility, and the registry self-scope + claim-less signup bootstrap.  The org-context cells assert the organizationContext switch gate: an in-scope x-org-context switch stamps the sub-scope, an out-of-subtree or forged one is 403 with no write.' >> $GITHUB_STEP_SUMMARY
+
+
+  tenancy-e2e:
+    runs-on: ubuntu-latest
+    # push / merge_group / manual always run.  On a PR: a non-draft PR carrying
+    # the `run-tenancy` label (`&&` binds tighter than `||`).  The draft-guard
+    # literal stays whole on one line — test/system/draft-gate.test.ts matches
+    # it verbatim.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'run-tenancy')
+    # Cold path is dominated by the generated project's build/dep install
+    # (gradle bootJar / mix deps.get + compile are the slowest). 20min cap.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           # Hierarchy / policy read ladder (tenancy-hierarchy.ddd) — a SEPARATE
           # cell per backend (own boot, own 20-min budget), so the heavier
           # backends never run two boots in one job.
@@ -309,7 +457,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [tenancy-e2e]
+    needs: [tenancy-e2e-flat, tenancy-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

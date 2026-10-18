@@ -122,10 +122,5 @@ export function renderEventRecordConfiguration(
   );
 }
 
-/** The per-context event-log configuration class name (`<Ctx>EventRecordConfiguration`). */
-export function eventRecordConfigClass(ctxName: string): string {
-  return `${upperFirst(ctxName)}EventRecordConfiguration`;
-}
-
 // `EnrichedAggregateIR` retained as the documented caller shape.
 export type { EnrichedAggregateIR };

@@ -340,7 +340,7 @@ order:
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
 | `policy [Name] { allow [write] local\|deep\|global on Aggregate … }` | Read/write-scope ladder for `tenantOwned` aggregates under a tenant hierarchy — widens the tenant floor to the caller's org subtree (`deep`) or root-org subtree (`global`); the optional `write` verb gates instance mutations. The name is optional; one rule per aggregate. See [tenancy.md](tenancy.md) → "The `policy {}` read ladder". |
 | `policy [Name] { deny [write] on Aggregate … }` | **Deny-wins carve-out** (Phase 4): removes access to an aggregate. `deny on X` denies READ (X becomes invisible → empty / 404; writes fail too since the write load reuses the read filter); `deny write on X` denies WRITE only (reads stay, mutations 404). All-or-nothing at the aggregate (no level word); applied after the `allow` passes, so deny wins. Not restricted to `tenantOwned`. Diagnostics: `loom.policy-deny-unknown-aggregate`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` (warning). See [auth.md](auth.md) → "Deny carve-outs". |
-| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (the `requires` there reports `must be of type 'bool', got 'unknown'`), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
+| `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (a call there reports `loom.policy-out-of-scope`: *policy X is declared in context A; policies are context-local — redeclare it in B*), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
 
 ### Identity and `X id`
 
@@ -479,6 +479,28 @@ diagnostic points you at `Order.create({ … })` rather than the older generic
 "unknown builder type". The factory input follows the **create-input** column
 of the [access-modifier matrix](#field-access-modifiers): a `managed` field
 like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
+
+##### Comparing value objects
+
+Two value objects are equal when their fields are.  `a == b` and
+`a.equals(b)` are the same comparison — `equals` is an intrinsic every value
+object answers ([`stdlib.md`](stdlib.md#value-object-equality)), lowered to
+`==` and rendered as each backend's value equality:
+
+```ddd
+function isAt(pier: string, position: int): bool = berth.equals(Berth { pier: pier, position: position })
+```
+
+```ts
+public isAt(pier: string, position: number): boolean { return (this._berth.equals(new Berth(pier, position))); }
+```
+```python
+def is_at(self, pier: str, position: int) -> bool:
+    return (self._berth == Berth(pier, position))
+```
+
+Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
+`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
 
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
@@ -656,12 +678,67 @@ per-member and identical across create/update/destroy, while the update still
 writes every field.
 
 The compiler will not decide this for you — a field with no modifier is
-*declared* `editable`, and there are legitimate models where the author really
-does want it writable both ways. It does point the case out: an aggregate whose
-`crudish` update mass-assigns a field that a `requires`-gated operation also
-writes earns the advisory `loom.update-gate-suggestion` (a `Suggestions:` hint
-from `ddd parse`, never an error). See also [`auth.md`](auth.md) → "Guarded
-state transitions".
+*declared* `editable`, and it never silently makes one non-editable. It does
+flag the case: an aggregate whose `crudish` update mass-assigns a field that a
+**gated** operation also writes raises the warning `loom.update-gate-suggestion`
+(counted among `ddd parse`'s warnings; never an error, never an exit code). An
+operation gates the field when it carries a `requires`, a `when` state gate, or
+a `precondition` that reads that same field and no operation parameter (a pure
+state predicate — what a `when` could say) — so the plain state machine with
+no auth at all is caught too:
+
+```ddd
+aggregate Ticket with crudish {
+  status: TicketStatus = New          // ⚠ loom.update-gate-suggestion
+  operation resolve() when status == Open { status := Resolved }
+  operation close() when status == Resolved { status := Closed }
+}
+```
+
+```
+loom.update-gate-suggestion Core/Ticket warning: 'Ticket.status' is assigned by 'resolve', which is gated by its 'when' state gate, but 'crudish' also exposes the field on its generic 'update' — a caller can set it there and skip that gate. Mark it 'immutable' …
+```
+
+A field only the generic update writes (`title` above) is ordinary data and
+never fires, nor does a `precondition` over *other* fields only or one comparing
+the field with an argument (`precondition stockLevel >= qty` validates the
+call's inputs, it does not gate the field's state).
+
+**`immutable` closes the update half; `managed` closes create too.** Every
+update-writable field is also on the create input, so with `immutable` a client
+can still `POST /tickets {"status":"Closed"}` and start an instance in any
+state. When the field has a default and every instance must start there, mark
+it `managed` instead — off both inputs, initialised from the default, and still
+assignable by `resolve()`/`close()`:
+
+```ddd
+  status: TicketStatus managed = New
+```
+
+```ts
+// generated: api/domain/ticket.ts (node)
+public resolve(): void {
+  if (!(this._status === TicketStatus.Open)) throw new DisallowedError("operation 'resolve' is not allowed in the current state of Ticket.");
+  this._status = TicketStatus.Resolved;      // the gated operation still moves it …
+  this._assertInvariants();
+}
+public update(title: string): void {         // … `status` is off the update input …
+  this._title = title;
+  this._assertInvariants();
+}
+static create(input: { title: string }): Ticket {
+  return new Ticket({
+    id: Ids.newTicketId(),
+    title: input.title,
+    status: TicketStatus.New,                // … and off create: it starts at the default
+    version: 1,
+  });
+}
+```
+
+The warning says which applies (the `managed` hint appears for `when` /
+`precondition` gates, where the initial state is the point). See also
+[`auth.md`](auth.md) → "Guarded state transitions".
 
 Examples:
 
@@ -811,13 +888,46 @@ dataKey := parent.dataKey != null ? parent.dataKey + "." + seg : seg
 
 ```typescript
 // generated TS (Hono) — the emitted expression is unchanged by narrowing;
-// the null test was always in the condition.
+// the null test was always in the condition (TS narrows it itself).
 org.setPath(loaded.dataKey !== null ? loaded.dataKey + "." + nm : nm);
 ```
 
 Both directions narrow: `x != null ? …` narrows the **then**-branch,
 `x == null ? … : …` narrows the **else**-branch, and the `null` literal may sit
-on either side of the comparison.
+on either side of the comparison.  `x ?? y` is the same narrowing (it desugars to
+`x == null ? y : x`).
+
+A nullable value into a non-optional slot — an assignment, a call argument, a
+record construction, an `emit` field or an `Agg.create({ … })` field — is an
+error (`loom.assign-type-mismatch`, `loom.call-arg-type`,
+`loom.construction-field-type`, `loom.emit-field-type`, `loom.create-field-type`).
+That includes an optional `currentUser` claim, even behind a `requires` that
+tests it:
+
+```ddd
+user { customerId: Customer id? }
+workflow openTicket {
+  create(subject: string, onBehalfOf: Customer id) {
+    requires currentUser.customerId != null || IsAgent()
+    // requester: currentUser.customerId            ← loom.create-field-type
+    let t = Ticket.create({ subject: subject,
+      requester: currentUser.customerId != null ? currentUser.customerId : onBehalfOf })
+  }
+}
+```
+
+```csharp
+// generated C# (.NET) — an id is a `readonly record struct`, so the claim is a
+// `Nullable<CustomerId>`; the narrowed branch is unwrapped with `.Value`.
+var t = Ticket.Create(subject: command.Subject,
+    requester: currentUser.CustomerId != null ? currentUser.CustomerId.Value : command.OnBehalfOf, …);
+```
+
+.NET is the one backend whose emitted expression changes: when the narrowed
+branch is exactly the tested path and C# models it as `Nullable<T>` (ids,
+enums, numerics, `bool`, `datetime`, `guid`), that branch gets `.Value`, unless
+the other branch is a bare `null`.  Reference types (`string`, value objects)
+and the other backends emit the expression unchanged.
 
 Deliberately **not** narrowed — each is conservative, never unsound:
 
@@ -1008,6 +1118,14 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
+  **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
+  drops the number/date formatting — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
+  `derived`, `function` or `operation` body) every backend renders a formatted
+  hole as its bare value: `{qty, number, ::currency/USD}` loses its formatting,
+  and `{qty, plural, one {# item} other {# items}}` / `select` / `selectordinal`
+  lose their branch text entirely (`"3"`, not `"3 items"`) — which the warning
+  `loom.interp-format-dropped-in-domain` reports.  Spell the branches with
+  `match` or a ternary in domain code.
 - **Escaping** — a literal brace or backtick in the text is `\{` / `\}` / `` \` ``;
   `\n` / `\t` / `\\` behave as in a string literal.
 - **Not queryable** — an interpolated string desugars to `+`/`convert`, so (like any
@@ -1046,6 +1164,10 @@ the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
 (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+A member *read* on a primitive is judged against the same catalogue plus the
+one field-shaped scalar member (`string.length`): `m.amount` on a `money`
+field, or any other invented member on a primitive, is
+`loom.unknown-primitive-member` (see the validation list below).
 
 ### Numeric widening
 
@@ -1102,15 +1224,17 @@ for high-magnitude / high-precision values).
 
 | Aspect | `decimal` | `money` |
 |---|---|---|
-| JSON wire | `number` (lossy) | `string` with `format: decimal` |
-| TS host type | `number` | `decimal.js` `Decimal` |
-| .NET host type | `System.Decimal` (lossy through JSON-number boundary) | `System.Decimal` (precise, string-on-wire) |
-| Phoenix host type | Elixir `Decimal` (lossy through Jason float) | Elixir `Decimal` (precise — Jason's default) |
-| Python host type | `float` (lossy through JSON-number boundary) | `Decimal` (precise, string-on-wire) |
-| Java host type | `double` (lossy through JSON-number boundary) | `BigDecimal` (precise, string-on-wire) |
+| JSON wire | `number` — the **same** IEEE-754 double on every backend; a backend whose domain type is wider narrows at the response boundary ([RS-24](conformance-semantics.md#rs-24--a-plain-decimal-is-a-json-number-only-money-is-a-string)) | `string`, fixed scale 4 (`"12.5000"` — [RS-12](conformance-semantics.md#rs-12--money-wire-scale-is-consistent-across-backends)) |
+| Arithmetic | **exact** on every backend ([RS-37](conformance-semantics.md#rs-37--decimal-arithmetic-is-exact--01--02-is-03-on-the-wire-and-in-storage)): `0.1 + 0.2` is `0.3`, narrowed to the wire double once, at the root of a chain | exact (closed — see below) |
+| Storage (Postgres) | unbounded `DECIMAL` | `NUMERIC(19,4)` |
+| TS host type | `number`; arithmetic lifted into `decimal.js` and narrowed with `.toNumber()` once | `decimal.js` `Decimal` |
+| .NET host type | `System.Decimal`; a response DTO field is a `double` (#2563 / #2575) | `System.Decimal`, string-on-wire via `[JsonNumberHandling]` |
+| Phoenix host type | Elixir `Decimal` (Ecto `:decimal`); serialized through `Decimal.to_float/1` so it ships as a number, not Jason's default string | Elixir `Decimal`, string-on-wire |
+| Python host type | `float`; arithmetic lifted through `Decimal(str(x))` and narrowed with `float(...)` once | `decimal.Decimal`, string-on-wire |
+| Java host type | `BigDecimal`; a response record component is a `double` (`.doubleValue()`, M-T6.46) | `BigDecimal`, string-on-wire |
 | OpenAPI | `{ type: number }` | `{ type: string, format: decimal }` (PayPal/Coinbase/ISO 20022 convention) |
 | Source-level literal | `10.50` | `money("10.50")` |
-| Arithmetic | participates in `int < long < decimal` widening | **closed**: see below |
+| Widening | participates in `int < long < decimal` widening | **closed**: see below |
 
 **Closed arithmetic.**  `money` does NOT participate in the
 `int → long → decimal` widening chain.  Permitted:
@@ -1147,7 +1271,7 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not on `create`** — the grammar has no `requires` slot there (`'create' (name=ID)? '(' params ')' (audited?='audited')? '{'`), so a hand-written `create` cannot carry its own gate; under `enforcement: denyByDefault` (the default) reach it with `with crudish(requires: <Policy>)`, or gate the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
 | `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
@@ -1237,7 +1361,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1300,6 +1424,60 @@ third lowering.  Most targets spell both the same way (`in` in Python,
 crashes the generated suite rather than returning a wrong answer.  The dispatch
 therefore reads the subject's resolved type off the IR.
 
+
+##### What a bare `toThrow()` accepts
+
+A bare `toThrow()` in a unit `test` asserts that the **domain** refused the call: a
+`precondition`, an aggregate / part / value-object `invariant`, or an operation's
+`when` state gate.  It does **not** accept an arbitrary error.  A
+`ReferenceError`, `TypeError` or `NameError` out of the code under test is a defect,
+not a rejection, so the test fails on it.  Before this rule, node lowered the bare
+form to vitest `.toThrow()` and python to `pytest.raises(Exception)`.  A negative
+test then passed when codegen had emitted an undefined name: the test said
+"rejected" and the code had simply crashed.
+
+```ddd
+test "a title must be longer than two characters" {
+    expect(Claim.create({ title: "x", status: Draft })).toThrow()
+}
+```
+
+```ts
+// generated (node): a file-local helper; any other error is rethrown, so it fails the test
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+function expectDomainRejection(call: () => unknown): void {
+  try {
+    call();
+  } catch (err) {
+    if (err instanceof DisallowedError || err instanceof DomainError || err instanceof ForbiddenError) return;
+    throw err;
+  }
+  expect.fail("expected the call to be rejected by the domain, but it returned");
+}
+// …
+expectDomainRejection(() => { Claim.create({ title: "x", status: ClaimStatus.Draft }); });
+```
+
+```python
+# generated (python)
+with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
+    Claim.create(title="x", status=ClaimStatus.Draft)
+```
+
+On both, `DomainError` covers preconditions and invariants; a value object's
+`ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
+and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
+assert `DomainException` (a value-object construction asserts
+`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
+`{:error, _}` result.  All of these are domain classes, so a crash fails the test
+there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
+`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
+`when`-refused operation therefore fails on those two backends today.  Pin such a
+test on node / python / elixir, or assert the state instead.
+
+The context-level integration `test` (the `for <Context>` rung) is not covered by
+this.  It still accepts any rejection, because a repository read can also refuse
+with not-found or a concurrency conflict.
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
@@ -1399,6 +1577,9 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<workflow>.run({ … })` | `POST /workflows/<wf_snake>` with the body — the workflow's command `create`, answering `204`. |
+| `api.<workflow>.instances()` | `GET /workflows/<wf_snake>/instances` — every persisted instance row. |
+| `api.<workflow>.instance(keyExpr)` | `GET /workflows/<wf_snake>/instances/{key}` — one instance row by its correlation key. |
 | `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
@@ -1422,6 +1603,44 @@ The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
+
+The workflow verbs reach the orchestration tier through the workflow's own
+name in the slug position (an aggregate slug wins a collision):
+
+```ddd
+test e2e "shipping folds into the saga row" against api {
+    let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+    api.fulfillment.run({ orderId: ord.id })
+    let running = api.fulfillment.instances()
+    expect(running.length).toBe(1)
+    api.orders.ship(ord)
+    let row = api.fulfillment.instance(ord)
+    expect(row.status).toBe("Shipped")
+}
+```
+
+```ts
+// e2e/Shop.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+await __post(`${base}/api/orders/${ord.id}/ship`, {});
+const row = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(row.status).toBe("Shipped");
+```
+
+`run`'s single argument is the workflow `create`'s params by name. A key
+the workflow does not declare is `loom.e2e-unknown-body-key`, and an
+omitted one `loom.e2e-missing-required-field`.  `instance` and `instances`
+return the instance wire shape: the correlation field, then the state
+fields.  Reading any other field off an `instance` result is
+`loom.e2e-unknown-response-field`.  Both routes are conditional.  An
+event-triggered workflow mounts no `POST`, so `.run()` on it is
+`loom.e2e-unrouted-verb`.  A workflow with no correlation field persists
+no row, so `.instances()` / `.instance(key)` on it is refused the same
+way.  The full rules are in
+[`language-reference/18-testing.md`](language-reference/18-testing.md).
 
 **Every verb must resolve to a route this same compilation emits.**  The
 table above is what a verb *lowers to*, not a promise that the route is
@@ -1587,6 +1806,16 @@ on the generated repository plus a Mediator query in the .NET backend.
 - **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
   pass through EF Core to SQL.
 
+**Null semantics.** A comparison against a *nullable value* — a
+`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+null-aware on every backend: `this.col == v` with `v` null matches the rows
+whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
+ordering (`<`, `>`, …) against null matches no row.  So
+`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
+returns the unassigned orders for a principal with no `technicianId` rather
+than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
+fail-closed.
+
 A repository `where` clause may use `this.<refColl>.contains(param)` to
 query membership over an `X id[]` reference collection — for example,
 `find holdingInParty(pokemon: Pokemon id): Trainer[] where
@@ -1641,8 +1870,21 @@ The validator runs after parsing and reports errors for:
   receiver — `order.totl`, `paid.amont`, `this.noField` (`loom.unknown-member`).
   Covers aggregates (including fields inherited via `extends`), entity
   parts, value objects, events / payloads, and `X id` references; it does
-  not fire on collection ops (`lines.first`), string members (`s.length`),
-  or receivers whose type couldn't be resolved.
+  not fire on collection ops (`lines.first`), on `string.length`, or on
+  receivers whose type couldn't be resolved.  A primitive receiver has its
+  own code, immediately below.
+- Access to a member a **primitive** doesn't have — `s.totallyMadeUp`,
+  `n.alsoInvented`, `m.amount` (`loom.unknown-primitive-member`).  A primitive
+  is a value, not a record: its whole surface is `string.length` plus the
+  scalar-intrinsic catalogue, both enumerable, so the message lists what *is*
+  reachable.  `money` is the case that bites — it is a precise decimal, not a
+  `{ amount, currency }` record, and `invariant limit.amount > deductible.amount`
+  used to validate clean and reach the emitters verbatim: node/.NET/Java then
+  failed their *own* compile, python and elixir did not, leaving a business
+  rule that can never fire.  If you wanted the record, declare it —
+  `valueobject Money { amount: money  currency: string }`.  A reachable name
+  written without its parens (`s.trim`) stays `loom.intrinsic-bare`, and an
+  unknown *call* stays `loom.intrinsic-unknown`.
 - Access to a claim the principal doesn't carry — `currentUser.totallyBogus`
   where the system's `user { … }` block never declares it
   (`loom.unknown-user-claim`). The generated backend's `UserClaims` type is
@@ -1703,7 +1945,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.macro-*`, `loom.unknown-macro`, `loom.scaffold-*`, `loom.softdelete-*`, `loom.capability-*`, `loom.stamp-*`, `loom.filter-*`, `loom.ignoring-clause-placement` | Macro args / targets, scaffold params, capability hosts, filters / stamps, `ignoring` placement | [`scaffold-macros.md`](scaffold-macros.md), [`capabilities.md`](capabilities.md) |
 | `loom.abstract-*`, `loom.extends-*`, `loom.tph-*`, `loom.polymorphic-*` | Inheritance, TPH / TPC layout | [`inheritance.md`](inheritance.md) |
 | `loom.intrinsic-*`, `loom.duration-*`, `loom.interp-*`, `loom.ternary-*`, `loom.call-arg-*`, `loom.construction-*`, `loom.unknown-*`, `loom.bare-collection-accessor`, `loom.user-visible-concat` | Expression typing — intrinsics, durations, interpolation formats, ternaries, calls, record construction, names / members | this document, [`stdlib.md`](stdlib.md) |
-| `loom.function-*`, `loom.when-unsupported`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
+| `loom.function-*`, `loom.blank-message`, `loom.entity-field-*`, `loom.duplicate-*` | Functions, `when` gates, messages, entity-typed fields, duplicate names / ports / tables | this document |
 | `loom.ui-*`, `loom.page-primitive*`, `loom.store-*`, `loom.datagrid-*`, `loom.chart-*`, `loom.table-*`, `loom.a11y-*`, `loom.slot-*`, `loom.component-*`, `loom.action-*`, `loom.missing-effect-marker`, `loom.match-await*`, `loom.feliz-*`, `loom.flutter-*`, `loom.heex-*`, `loom.frontend-*` | Page metamodel, primitive arity / args, stores and lifetimes, grids / charts, accessibility, slots, actions and effect markers, per-frontend support gaps | [`page-metamodel.md`](page-metamodel.md), [`actions.md`](actions.md) |
 | `loom.e2e-*`, `loom.test-*`, `loom.context-test-unsupported` | e2e bodies, test placement | this document, [`testing.md`](testing.md) |
 | `loom.domain-service-*` | Domain-service purity / read rules | [`domain-services.md`](domain-services.md) |

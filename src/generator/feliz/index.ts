@@ -16,8 +16,10 @@ import type {
   BoundedContextIR,
   DeployableIR,
   EnrichedBoundedContextIR,
+  ExprIR,
   FieldIR,
   PageIR,
+  StateFieldIR,
   SystemIR,
   UiIR,
   UserIR,
@@ -26,6 +28,7 @@ import type {
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
+import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { readableProjectionNames } from "../../ir/util/projection-read.js";
@@ -35,6 +38,7 @@ import {
 } from "../../ir/util/realtime-rooms.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import {
   E2E_FIXTURES_TS,
@@ -46,7 +50,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
-import { bcByAggregateOf } from "../_walker/paged-query.js";
+import { bcByAggregateOf, type PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -64,7 +68,7 @@ import {
   renderFelizComponentModule,
 } from "./component-emit.js";
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
-import { felizTarget } from "./feliz-target.js";
+import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
 import {
   type FsExprCtx,
   fsString,
@@ -77,7 +81,12 @@ import {
 import { fsIdent } from "./fs-ident.js";
 import { FELIZ_INTL_MESSAGEFORMAT, felizI18nEnabled, renderFelizI18nModule } from "./i18n.js";
 import { felizPack } from "./pack.js";
-import { felizRealtimeRefetchAggregates, renderFelizRealtime } from "./realtime.js";
+import {
+  felizRealtimeRefetchAggregates,
+  renderFelizActionToast,
+  renderFelizRealtime,
+} from "./realtime.js";
+import { FELIZ_REF_LABEL, FELIZ_REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import {
   felizPersistedStores,
   renderStorePersistModule,
@@ -119,6 +128,7 @@ import {
   formHasFieldErrors,
   formsHaveFileField,
   idLabelsFrom,
+  mergeFelizAction,
   opHasForm,
   renderApiModule,
   renderAsyncOutcomeTypes,
@@ -267,13 +277,16 @@ function storeWrappers(
     for (const member of members) {
       const local = storeMemberLocal(storeName, member, reserved);
       if (fieldNames.has(member)) {
-        lines.push(`    let ${local} = model.${storeModelField(storeName, member)}`);
+        lines.push(`    let ${fsIdent(local)} = model.${storeModelField(storeName, member)}`);
       } else {
         const p = actionsByName.get(member)?.params[0]?.name;
+        // Both the local (a store action named `fixed`) and its payload param are
+        // model names: an F# keyword takes the ``x`` spelling the body's call
+        // site (`storeActionLocalUseSite`) gives it too.
         lines.push(
           p
-            ? `    let ${local} ${p} = dispatch (${storeMsgCase(storeName, member)} ${p})`
-            : `    let ${local} () = dispatch ${storeMsgCase(storeName, member)}`,
+            ? `    let ${fsIdent(local)} ${fsIdent(p)} = dispatch (${storeMsgCase(storeName, member)} ${fsIdent(p)})`
+            : `    let ${fsIdent(local)} () = dispatch ${storeMsgCase(storeName, member)}`,
         );
       }
     }
@@ -421,7 +434,7 @@ function renderPageView(
   // `renderRouteId` seam — while `/greet/:who` binds `who`, which is the name
   // the body actually uses.  Renaming the first param to `id` and dropping the
   // rest binds locals no body refers to.
-  const idParam = routeParams.map((n) => ` (${n}: string)`).join("");
+  const idParam = routeParams.map((n) => ` (${fsIdent(n)}: string)`).join("");
   const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
   if (!page.body) return `${head}\n    Html.none`;
   const stateNames = new Set(page.state.map((s) => s.name));
@@ -597,7 +610,8 @@ function routePattern(route: string | undefined): string {
   const binds = routeParamSegments(route);
   const pats = segs.map((s, i) => {
     if (!s.startsWith(":")) return `"${s}"`;
-    return binds[i] ?? "_";
+    const bound = binds[i];
+    return bound === undefined ? "_" : fsIdent(bound);
   });
   return `[ ${pats.join("; ")} ]`;
 }
@@ -612,8 +626,8 @@ function caseFields(n: number): string {
  *  `""` (nullary), `" id"` (single field), `" (who, mood)"` (a tuple). */
 function caseArgs(names: readonly string[]): string {
   if (names.length === 0) return "";
-  if (names.length === 1) return ` ${names[0]}`;
-  return ` (${names.join(", ")})`;
+  if (names.length === 1) return ` ${fsIdent(names[0]!)}`;
+  return ` (${names.map(fsIdent).join(", ")})`;
 }
 
 /** Pages in `parseUrl` MATCH order — F# takes the first arm that matches, and a
@@ -686,7 +700,7 @@ function renderRouting(
   const idArms = pages.filter(hasRouteParam).map((p) => {
     const names = routeParamNames(p);
     const binder = caseArgs(names.map((n, i) => (i === 0 ? n : "_")));
-    return `  | ${pageCase(p, nameCtx)}${binder} -> ${names[0]}`;
+    return `  | ${pageCase(p, nameCtx)}${binder} -> ${fsIdent(names[0]!)}`;
   });
   const wildcard = pages.every(hasRouteParam) ? [] : ['  | _ -> ""'];
   const accessor =
@@ -779,7 +793,7 @@ function renderRootView(
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
-    const args = names.length > 0 ? ` ${names.join(" ")}` : "";
+    const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
   const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);
@@ -966,6 +980,22 @@ function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[]
   return out;
 }
 
+/** What the page collectors need to DERIVE a QueryView's single-record shape
+ *  the way the walker does (`queryShape`) — so an unflagged `QueryView { of:
+ *  X.byId(id) }` binds its data lambda for the collector exactly as it does for
+ *  the renderer (M-FT.5). */
+function shapeCtxOf(
+  ui: UiIR,
+  contexts: EnrichedBoundedContextIR[],
+  aggregatesByName: ReadonlyMap<string, unknown>,
+): PagedQueryContext {
+  return {
+    apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
+    aggregatesByName,
+    bcByAggregate: bcByAggregateOf(contexts),
+  };
+}
+
 /** The operation forms a ui hosts, across ALL its pages (deduped by form type) —
  *  `OperationForm(of: X, op: Y)`. */
 function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizOperationForm[] {
@@ -983,6 +1013,7 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
       enumsByName,
       idLabels,
       vosByName,
+      shapeCtxOf(ui, contexts, aggregatesByName),
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
@@ -997,13 +1028,14 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
 function actionsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizAction[] {
   const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
   for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
-  const seen = new Set<string>();
   const out: FelizAction[] = [];
   for (const page of ui.pages) {
-    for (const a of collectPageActions(page, aggregatesByName)) {
-      if (seen.has(a.triggerMsg)) continue;
-      seen.add(a.triggerMsg);
-      out.push(a);
+    for (const a of collectPageActions(
+      page,
+      aggregatesByName,
+      shapeCtxOf(ui, contexts, aggregatesByName),
+    )) {
+      mergeFelizAction(out, a);
     }
   }
   return out;
@@ -1141,6 +1173,39 @@ function combinedActions(ui: UiIR): PageIR["actions"][number][] {
   return out;
 }
 
+/** Every walked component whose `state {}` is seeded from a component param
+ *  (`src/ir/util/feliz-component-state-init.ts`): the F# value `init`
+ *  substitutes for each param, per cell — or `null` for a cell of a DEFERRED
+ *  component (no single init-time value; the validator reports it), which
+ *  seeds its type's zero. */
+function componentStateInits(ui: UiIR): {
+  paramValues: Map<StateFieldIR, ReadonlyMap<string, string> | null>;
+  deferred: Set<string>;
+} {
+  const paramValues = new Map<StateFieldIR, ReadonlyMap<string, string> | null>();
+  const deferred = new Set<string>();
+  // The argument is a constant (literals / enum members), so it renders with
+  // nothing in scope; a non-literal is parenthesised to substitute as ONE
+  // operand.
+  const render = (e: ExprIR): string => {
+    const fs = renderFsExpr(e, { stateNames: new Set(), locals: new Set() });
+    return e.kind === "literal" ? fs : `(${fs})`;
+  };
+  for (const c of ui.components) {
+    const init = felizComponentStateInit(ui, c);
+    if (init === undefined) continue;
+    if (init.kind === "unresolved") {
+      deferred.add(c.name);
+      for (const f of init.cells) paramValues.set(f, null);
+      continue;
+    }
+    for (const [f, params] of init.cells) {
+      paramValues.set(f, new Map([...params].map(([p, e]) => [p, render(e)] as const)));
+    }
+  }
+  return { paramValues, deferred };
+}
+
 /** Assemble the single `App.fs` module for a ui.  A ui with >1 page emits a
  *  `Page` union + `parseUrl` + a `React.router` root over a combined Model
  *  (`Feliz.Router`); a single-page ui stays byte-for-byte as before.  When any
@@ -1272,7 +1337,7 @@ function renderAppFs(
   const reads: FelizRead[] = readsForUi(ui, contexts);
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target);
+    const r = felizAllRead(target, { bcByAggregate: bcByAggregateOf(contexts) });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);
@@ -1287,7 +1352,7 @@ function renderAppFs(
   const hasRealtime = backendRealtime && (ui.notifications?.length ?? 0) > 0;
   if (hasRealtime) {
     for (const agg of felizRealtimeRefetchAggregates(ui)) {
-      const r = felizAllRead(agg);
+      const r = felizAllRead(agg, { bcByAggregate: bcByAggregateOf(contexts) });
       if (!readFields.has(r.field)) {
         readFields.add(r.field);
         reads.push(r);
@@ -1378,6 +1443,10 @@ function renderAppFs(
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
   const model = renderModel(state, reads, routed, formRecords, authUi, pageGate);
+  // A component `state {}` cell seeded from a component param: `init` has no
+  // props, so the agreeing call-site constant substitutes in — or the component
+  // defers (`component-state-init.ts`).
+  const componentInits = componentStateInits(ui);
   const init = renderInit(
     state,
     reads,
@@ -1386,6 +1455,7 @@ function renderAppFs(
     authUi,
     pageGate,
     storePersistInitOverrides(persistedStores),
+    componentInits.paramValues,
   );
   const msg = renderMsg(
     msgActions,
@@ -1486,6 +1556,7 @@ function renderAppFs(
     // `renderModel` is built from, so a component naming `model.<Field>` can
     // only be emitted when that field exists.
     modelFields: felizModelReadFields(reads),
+    deferred: componentInits.deferred,
   });
   // The map every call site resolves against: both flavours, since
   // `felizTarget.renderUserComponent` renders them identically (an extern name
@@ -1557,6 +1628,11 @@ function renderAppFs(
   // (the claims-fallback element).
   const gatedViews = pageGate ? [FORBIDDEN_VIEW, "", ...rootViews] : rootViews;
   const views = authUi ? [...gatedViews, "", renderAuthGate()] : gatedViews;
+  // The `IdLink` reference-label module — only when a view or a walked
+  // component actually calls it (`feliz/ref-label-runtime.ts`).
+  const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
+    v.includes(FELIZ_REF_LABEL_MARKER),
+  );
 
   // `open` one line per DISTINCT extern module actually referenced by the page
   // walks (components + functions), so bare `OrderChart {| … |}` /
@@ -1584,6 +1660,7 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
+  const viewsToast = views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
 
   return lines(
     "module App",
@@ -1723,7 +1800,14 @@ function renderAppFs(
     // call these.  Declared in a nested `Components` module (then `open`ed) so a
     // component named after a wire record / `Model` / `Api` can't collide with an
     // App.fs member — see `renderFelizComponentModule`.
+    // The reference-label child, ahead of the components and views that call it.
+    usesRefLabel ? "" : false,
+    usesRefLabel ? FELIZ_REF_LABEL : false,
     ...renderFelizComponentModule(walkedComponents.decls),
+    // M-FT.5 — the toast an `Action { …, then: toast(…) }` closure calls; asked
+    // of the rendered views (the one place that knows), like `viewsNavigate`.
+    viewsToast ? "" : false,
+    viewsToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
     "",
     views.join("\n"),
     "",
@@ -2003,7 +2087,7 @@ export function generateFelizForContexts(
   // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
   // threads into vite's `base`; `pathPrefix` relocates the whole project.
   const basePath = options.basePath ?? "";
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/feliz/index");
   if (!deployable.uiName) {
     throw new Error(
       `Feliz deployable '${deployable.name}' has no ui binding (uiName). A frontend deployable must target a ui.`,
@@ -2142,7 +2226,7 @@ export function generateFelizForContexts(
   // (`ClientApp/` or Phoenix `assets/`).  Mirrors react/angular's post-pass.
   const pathPrefix = options.pathPrefix ?? "";
   if (pathPrefix === "") return out;
-  const prefixed = new Map<string, string>();
+  const prefixed = emissionSink("generator/feliz/index");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
 }

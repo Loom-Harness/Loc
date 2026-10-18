@@ -17,6 +17,7 @@ import {
   firstColumnVsColumn,
   firstNonQueryablePredicate,
   firstUnknownColumnRef,
+  nearestAggregateMember,
 } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             offending,
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       };
       const offending = firstNonQueryablePredicate(find.filter);
@@ -77,10 +79,12 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             message: diagMessage("loom.find-where-unknown-field", {
               name: repo.name,
               findName: find.name,
-              unknown,
+              unknown: unknown.text,
+              suggestion: unknown.suggestion,
               aggName: agg.name,
             }),
             source: `${ctx.name}/${repo.name}.${find.name}`,
+            origin: repo.origin,
           });
           continue;
         }
@@ -112,6 +116,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             bothCols,
           }),
           source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
     }
@@ -138,6 +143,7 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
             offending,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
           code: "loom.criterion-not-selectable",
         });
         continue;
@@ -156,9 +162,11 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
           severity: "error",
           message: diagMessage("loom.criterion-not-selectable#unknown-field", {
             name: agg.name,
-            unknown,
+            unknown: unknown.text,
+            suggestion: unknown.suggestion,
           }),
           source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
           code: "loom.criterion-not-selectable",
         });
       }
@@ -207,6 +215,7 @@ export function validateRawSeedColumns(ctx: BoundedContextIR, diags: LoomDiagnos
               value: describeSeedValue(f.value),
             }),
             source: `${ctx.name}/seed ${seed.dataset}`,
+            origin: ctx.origin,
           });
         }
       }
@@ -231,8 +240,31 @@ function describeSeedValue(e: ExprIR): string {
       return `'new ${e.partName}'`;
     case "object":
       return "object literal";
-    default:
+    // Everything else is described by its bare kind — this function only builds
+    // the human half of a diagnostic that has ALREADY been decided, so a kind
+    // with no prettier spelling degrades to a correct-but-terse one.  Named
+    // rather than left to a `default:` so a new `ExprIR` kind prompts the
+    // author to add a phrase for it.
+    case "action-ref":
+    case "authz-filter":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "paren":
+    case "ternary":
+    case "this":
+    case "unary":
       return e.kind;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return (e as { kind: string }).kind;
+    }
   }
 }
 
@@ -271,7 +303,8 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
           code: "loom.retrieval-where-unknown-field",
           message: diagMessage("loom.retrieval-where-unknown-field", {
             name: r.name,
-            unknown,
+            unknown: unknown.text,
+            suggestion: unknown.suggestion,
             aggName: agg.name,
           }),
           source: src,
@@ -301,6 +334,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             name: r.name,
             headName: head.name,
             aggName: agg.name,
+            suggestion: nearestAggregateMember(agg, head.name),
           }),
           source: src,
         });
@@ -369,6 +403,7 @@ export function validateFindGates(ctx: BoundedContextIR, diags: LoomDiagnostic[]
             offending,
           }),
           source: `find/${repo.name}.${find.name}`,
+          origin: repo.origin,
         });
       }
     }
@@ -399,6 +434,7 @@ export function validateProjectionGates(ctx: BoundedContextIR, diags: LoomDiagno
           offending,
         }),
         source: `projection/${proj.name}`,
+        origin: proj.origin,
       });
     }
   }
@@ -431,6 +467,7 @@ export function validateWorkflowInstanceReadGates(
           offending,
         }),
         source: `workflow/${wf.name}`,
+        origin: wf.origin,
       });
     }
   }

@@ -145,7 +145,7 @@ function baseType(t: TypeIR): TypeIR {
 /** The value objects + enums a response field set references, transitively
  *  (a VO field may reference another VO or an enum).  Their `<VO>Response` /
  *  `<Enum>` types must be emitted so the precise response interface resolves. */
-function collectResponseTypes(
+export function collectResponseTypes(
   types: readonly TypeIR[],
   bc: BoundedContextIR | undefined,
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
@@ -211,7 +211,7 @@ function emitEnumType(e: EnumIR): string {
 }
 
 /** `export interface <VO>Response { … }` over the VO's canonical wire shape. */
-function emitVoResponseInterface(vo: ValueObjectIR): string[] {
+export function emitVoResponseInterface(vo: ValueObjectIR): string[] {
   return [
     `export interface ${vo.name}Response {`,
     ...forApiRead(wireFieldsFor(vo)).map(
@@ -402,8 +402,37 @@ export function buildAngularApiModule(
         sendsIfMatchPrecondition(agg, op) ? ", { headers: headers ?? {} })" : ")"
       };`,
       "  }",
+      // The side-effect-free `GET /{id}/can_<op>` probe of a `when`-gated op.
+      ...(op.when
+        ? [
+            "",
+            `  can${upperFirst(op.name)}(id: string) {`,
+            `    return this.http.get<{ allowed: boolean }>(\`\${API_BASE_URL}/${tag}/\${id}/can_${snake(op.routeSlug ?? op.name)}\`);`,
+            "  }",
+          ]
+        : []),
     ];
   });
+  // `useCan<Op><Agg>(id)` — the `can_<op>` probe of a `when`-gated op, which
+  // disables the op's trigger while it answers `allowed: false`.  Keyed under
+  // the record (`[oneTag, id, …]`), so the op mutation's record invalidation
+  // re-queries it.  `id` is a getter: the trigger's record is usually an async
+  // QueryView read that resolves after field initialisers run.
+  const canProbeFactory = (op: (typeof ops)[number]): string[] =>
+    op.when
+      ? [
+          `/** \`can_${op.name}\` probe (TanStack \`injectQuery\`) for the \`when\` gate. */`,
+          `export function useCan${upperFirst(op.name)}${single}(id: () => string) {`,
+          `  const service = inject(${serviceName});`,
+          `  return injectQuery(() => ({`,
+          `    queryKey: ["${oneTag}", id(), "can", "${op.name}"] as const,`,
+          `    queryFn: () => firstValueFrom(service.can${upperFirst(op.name)}(id())),`,
+          `    enabled: !!id(),`,
+          `  }));`,
+          "}",
+          "",
+        ]
+      : [];
   const opFactories = ops.flatMap((op) => {
     const reqType = `${upperFirst(op.name)}${single}Request`;
     const u = op.returnType ? unionReturn(op.returnType) : null;
@@ -441,6 +470,7 @@ export function buildAngularApiModule(
         "  }));",
         "}",
         "",
+        ...canProbeFactory(op),
       ];
     }
     return [
@@ -468,6 +498,7 @@ export function buildAngularApiModule(
       "  }));",
       "}",
       "",
+      ...canProbeFactory(op),
     ];
   });
   // Union-returning-operation response TYPES (emitted before the service so the

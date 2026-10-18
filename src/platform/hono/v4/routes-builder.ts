@@ -14,6 +14,8 @@ import {
 import {
   discriminatedUnionZod,
   findUnionSpec,
+  type OpUnionResponses,
+  opUnionResponses,
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
@@ -23,7 +25,6 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
-import { MONEY_WIRE_SCALE } from "../../../generator/money-scale.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -43,6 +44,7 @@ import {
   chainSingleFieldNative,
   openapiLengthMeta,
   orderSingleFieldPatterns,
+  type RefineDecimalMode,
   refineClauseFor,
   takeSingleFieldChain,
 } from "../../../generator/zod-refine.js";
@@ -125,6 +127,7 @@ import {
   collectReachableTypes,
   enumPool,
   findValueObjectInScope,
+  orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
@@ -194,8 +197,9 @@ const NOT_IMPLEMENTED_STATUS = 501;
  *  `db.transaction`; mikroorm: the EntityManager's `db.transactional` (which
  *  opens a real DB transaction and threads its async context to the forked
  *  repo em — see the mikro repos' `keepTransactionContext` fork).  The callback
- *  var stays `tx` on both, so the repo construction + close line are shared. */
-function txWrapperCall(usingMikro: boolean): string {
+ *  var stays `tx` on both, so the repo construction + close line are shared.
+ *  Also the transactional-workflow wrapper (`workflow-builder`). */
+export function txWrapperCall(usingMikro: boolean): string {
   return usingMikro ? `db.transactional(async (tx) => {` : `db.transaction(async (tx) => {`;
 }
 
@@ -358,11 +362,20 @@ function honoPath(entry: ApiOperationIR): string {
  *  numbers come from `deriveAggregateOperations`; only the line idiom
  *  (description text via `httpStatusText`, ProblemDetails content) is
  *  Hono's. */
-function problemResponseLines(entry: ApiOperationIR, pad: string): string[] {
-  return entry.errorStatuses.map(
-    (s) =>
-      `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
+function problemResponseLines(
+  entry: ApiOperationIR,
+  pad: string,
+  /** An operation-return union's split (M-FT.24): a status one of its error
+   *  arms answers declares `ProblemDetails` OR that arm's problem body. */
+  split?: OpUnionResponses | null,
+): string[] {
+  return entry.errorStatuses.map((s) => {
+    const arms = split?.errorStatuses.find((e) => e.status === s)?.arms ?? [];
+    const schema = arms.length
+      ? `z.union([ProblemDetails, ${arms.map((a) => a.problemName).join(", ")}])`
+      : "ProblemDetails";
+    return `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
+  });
 }
 
 /** The STATIC one-segment sub-paths THIS aggregate router mounts, mapped to
@@ -650,6 +663,7 @@ export function buildRoutesFile(
         vo.fields.map((f) => ({ name: f.name, base: zodFor(f.type) })),
         vo.invariants,
         new Set(vo.fields.map((f) => f.name)),
+        "exact",
       ),
     );
   }
@@ -763,6 +777,7 @@ export function buildRoutesFile(
         // not here.  Passing the create-input set drops those refines so
         // the schema never references an absent field.
         new Set(requiredFields.map((f) => f.name)),
+        "exact",
       ),
     );
     lines.push(
@@ -805,6 +820,7 @@ export function buildRoutesFile(
         // the wire (422) instead of reaching the domain floor.
         [...agg.invariants, ...preconditionsAsInvariants(op)],
         new Set(op.params.map((p) => p.name)),
+        "exact",
       ),
     );
   }
@@ -921,11 +937,11 @@ export function buildRoutesFile(
     const unionReturns = [
       ...agg.operations.flatMap((op) => (op.returnType ? [unionForFind(op.returnType, ctx)] : [])),
     ];
+    const fieldZod = (f: UnionMemberField): string =>
+      f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
     for (const u of unionReturns) {
       if (!u || unionSeen.has(u.name)) continue;
       unionSeen.add(u.name);
-      const fieldZod = (f: UnionMemberField): string =>
-        f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
       const members = unionMemberObjects(
         unionMembers(u.variants, ctx),
         fieldZod,
@@ -934,6 +950,29 @@ export function buildRoutesFile(
       lines.push(
         `export const ${u.name} = ${discriminatedUnionZod(members)}.openapi("${u.name}");`,
       );
+    }
+    // The OpenAPI split of each inline op-return union (M-FT.24): the 200 body
+    // is the success arms only, and each error arm publishes its problem body.
+    const problemSeen = new Set<string>();
+    for (const op of agg.operations) {
+      if (op.returnType?.kind !== "union") continue;
+      const split = opUnionResponses(op.returnType.variants, ctx);
+      if (split.errors.length === 0) continue;
+      if (!unionSeen.has(split.successName)) {
+        unionSeen.add(split.successName);
+        const members = unionMemberObjects(split.success, fieldZod, zodForResponseInner);
+        lines.push(
+          `export const ${split.successName} = ${discriminatedUnionZod(members)}.openapi("${split.successName}");`,
+        );
+      }
+      for (const arm of split.errors) {
+        if (problemSeen.has(arm.problemName)) continue;
+        problemSeen.add(arm.problemName);
+        const body = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
+        lines.push(
+          `export const ${arm.problemName} = ProblemDetails.extend({ ${body} }).openapi("${arm.problemName}");`,
+        );
+      }
     }
   }
   // RFC 7807 ProblemDetails body — declared once for the project in
@@ -1476,8 +1515,10 @@ export function buildRoutesFile(
     `      ${renderHonoLogCall("forbidden", `aggregate: "${agg.name}", message: err.message, status: ${forbiddenStatus}`)}`,
   );
   lines.push(`      recordDomainFault("forbidden");`);
+  // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
+  // the gate's source text; the body echoes it only under the dev-stub verifier.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.message);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail);`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
@@ -2126,12 +2167,15 @@ function emitReturningOperationRoute(
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
   const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
-  // Success 200 body schema: a union return declares the whole tagged union; a
+  // An inline union's OpenAPI split (M-FT.24): the 200 declares the success
+  // arms only; each error arm's status declares that arm's problem body.
+  const split = op.returnType?.kind === "union" ? opUnionResponses(variants, ctx) : null;
+  // Success 200 body schema: a union return declares its success arms; a
   // SCALAR return (BUG-003) declares that scalar's own field-wire schema (via
   // the shared `zodForResponse`, so money/enum/VO scalars stay wire-consistent
   // with a field of the same type); void ops don't reach here.
   const successSchema = u
-    ? u.name
+    ? (split?.successName ?? u.name)
     : op.returnType
       ? zodForResponse(op.returnType, false)
       : `${agg.name}Response`;
@@ -2151,13 +2195,12 @@ function emitReturningOperationRoute(
   out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
-  // 200 declares the whole tagged union; only success variants actually reach
-  // it (error variants are intercepted below) — the documented shape is the
-  // closed set of outcomes, which a typed client narrows on `type`.
+  // 200 declares the tagged success arms; the error arms are intercepted
+  // below and answer their own status, which declares their problem body.
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${successSchema} } } },`,
   );
-  out.push(...problemResponseLines(entry, "      "));
+  out.push(...problemResponseLines(entry, "      ", split));
   out.push(`    },`);
   out.push(`  }),`);
   out.push(`  async (c) => {`);
@@ -2873,7 +2916,12 @@ function collectUsedValueObjects(
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(aggSchemaSeeds(agg, repo), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order, not pool order: each VO becomes a `const <Vo>Schema` in
+  // one module, and the pool lists context-local VOs before the root-level
+  // (shared-kernel) ones folded in at enrichment.  A local VO that wraps a
+  // root VO must come after it, or its initialiser reads the root schema in
+  // its temporal dead zone (TS2448/TS2454) and the module throws on load.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 function collectUsedEnums(
@@ -2928,12 +2976,18 @@ export function emitWireSchema(
   fields: { name: string; base: string; default?: string; optional?: boolean }[],
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
+  // How a cross-field refine computes `decimal` arithmetic (RS-37).  "exact"
+  // renders it through decimal.js — only for a file whose `decimal.js` import
+  // follows its body (this router's deferred import, the workflow router's
+  // body scan); a caller without that stays "server-only" and leaves the rule
+  // to the domain's exact check.
+  decimal: RefineDecimalMode = "server-only",
 ): string[] {
   const ctx: ClassifyContext = { available };
   const chainByField = new Map<string, SingleFieldPattern[]>();
   const remaining: InvariantIR[] = [];
   for (const inv of invariants) {
-    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx);
+    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx, decimal);
     if (taken) {
       const list = chainByField.get(taken.field) ?? [];
       list.push(taken.pattern);
@@ -2943,7 +2997,7 @@ export function emitWireSchema(
     }
   }
   const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx))
+    .map((inv) => refineClauseFor(inv, ctx, decimal))
     .filter((s): s is string => s !== null);
 
   const out: string[] = [];

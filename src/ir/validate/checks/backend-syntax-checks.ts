@@ -25,7 +25,12 @@ import {
   unreadableCollections,
   unrenderableInvariants,
 } from "../../util/changeset-invariant-carrier.js";
-import { walkExprDeep, walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
+import {
+  walkExprDeep,
+  walkStmtChildren,
+  walkStmtExprsDeep,
+  walkStmtsDeep,
+} from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -53,29 +58,22 @@ function isOperationSelfCall(e: ExprIR): e is ExprIR & { kind: "call" } {
   return e.kind === "call" && e.callKind === "private-operation";
 }
 
-/** Visit every expression a statement roots — the value-bearing arms only
- *  (mirrors the lowering's statement shapes); a bare `call` statement is itself
- *  a no-op op-call on vanilla and is handled there, so its receiver is not an
- *  expression to flag. */
+/** Visit every expression ONE statement roots (deeply into the expressions, but
+ *  not into the statements a branch nests — the caller enumerates those itself,
+ *  because the tail-`return` carve-out is decided per statement).
+ *
+ *  Rides the sanctioned shallow walker.  Hand-rolled, this listed nine of the
+ *  twelve `StmtIR` kinds and had NO arm for `if` — so a sibling-operation
+ *  self-call inside a branch (`if x { let y = this.bump() }`) was never
+ *  rejected, and the vanilla emitter then rendered a `{:ok, _} | {:error, _}`
+ *  tuple into a non-tail position: the exact shape
+ *  `loom.vanilla-op-call-position` exists to refuse.  A bare `call` STATEMENT is
+ *  still not itself an expression (it is handled by the actor gate below), so
+ *  the carve-out the old comment named is unaffected — but its ARGUMENTS are
+ *  expressions and are now visited. */
 
 function eachStmtExpr(s: StmtIR, visit: (e: ExprIR) => void): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      walkExpr(s.expr, visit);
-      break;
-    case "return":
-    case "assign":
-    case "add":
-    case "remove":
-      walkExpr(s.value, visit);
-      break;
-    case "emit":
-      for (const f of s.fields) walkExpr(f.value, visit);
-      break;
-  }
+  walkStmtChildren(s, (e) => walkExpr(e, visit));
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +150,12 @@ export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagno
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
       for (const agg of ctx.aggregates) {
-        const opaque = unreadableCollections(agg);
-        for (const inv of unrenderableInvariants(agg)) {
+        // An event-sourced aggregate is checked against its in-memory fold, which
+        // holds a reference collection as the plain id list — so nothing is
+        // opaque there, and only the shapes no carrier can evaluate remain.
+        const carrier = agg.persistedAs === "eventLog" ? { invariants: agg.invariants } : agg;
+        const opaque = unreadableCollections(carrier);
+        for (const inv of unrenderableInvariants(carrier)) {
           const key = `${ctxName}/${agg.name}/${inv.source}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -167,6 +169,7 @@ export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagno
               reason: unenforceableReason(inv, opaque),
             }),
             source: `${sys.name}/${dep.name}`,
+            origin: dep.origin,
           });
         }
       }
@@ -185,9 +188,15 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
       if (!ctx) continue;
       for (const agg of ctx.aggregates) {
         for (const op of agg.operations as OperationIR[]) {
-          for (const s of op.statements) {
+          // Every statement the body reaches, branch bodies included —
+          // `walkStmtsDeep`, not a top-level `for`, because a self-call inside an
+          // `if` branch renders in exactly the same non-tail position.
+          const bodyStmts: StmtIR[] = [];
+          for (const top of op.statements) walkStmtsDeep(top, (n) => bodyStmts.push(n));
+          for (const s of bodyStmts) {
             // The single allowed site: an op-call that IS the whole value of a
-            // `return` (tail passthrough).  Every other occurrence is rejected.
+            // `return` (tail passthrough).  Decided per STATEMENT, so a branch's
+            // own `return this.<op>()` keeps the carve-out.
             const allowed =
               s.kind === "return" && isOperationSelfCall(s.value) ? s.value : undefined;
             eachStmtExpr(s, (e) => {
@@ -202,6 +211,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
                   eName: e.name,
                 }),
                 source: `${sys.name}/${dep.name}`,
+                origin: dep.origin,
               });
             });
           }
@@ -221,7 +231,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
             walkStmtsDeep(s, (inner) => {
               if (inner.kind !== "call" || inner.target !== "private-operation") return;
               const callee = (agg.operations as OperationIR[]).find((o) => o.name === inner.name);
-              if (!callee || !callee.statements.some(stmtReadsCurrentUser)) return;
+              if (!callee?.statements.some(stmtReadsCurrentUser)) return;
               diags.push({
                 severity: "error",
                 code: "loom.vanilla-op-call-actor",
@@ -232,6 +242,7 @@ export function validateElixirOpSelfCallPosition(sys: SystemIR, diags: LoomDiagn
                   eName: inner.name,
                 }),
                 source: `${sys.name}/${dep.name}`,
+                origin: dep.origin,
               });
             });
           }

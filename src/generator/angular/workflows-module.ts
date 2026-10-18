@@ -4,7 +4,11 @@ import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { allWorkflows } from "../_frontend/workflows-module.js";
-import { exportedResponseTypes } from "./api-module.js";
+import {
+  collectResponseTypes,
+  emitVoResponseInterface,
+  exportedResponseTypes,
+} from "./api-module.js";
 
 // ---------------------------------------------------------------------------
 // Angular workflows API module (`src/api/workflows.ts`).
@@ -61,6 +65,10 @@ export function wireTsType(t: TypeIR, precise = false): string {
       // silently drops the contract: the row can no longer be narrowed, and an
       // `EnumBadge` over it has nothing to switch on (#2864 T3).
       if (precise && t.kind === "enum") return t.name;
+      // …and a VALUE OBJECT as its `<Vo>Response` interface, resolved the same
+      // way (imported or declared locally — `instanceTypeDeps`).  `unknown`
+      // here left a template reading `row.address.city` a TS2571 (M-T1.36 F3).
+      if (precise && t.kind === "valueobject") return `${t.name}Response`;
       return "unknown";
   }
 }
@@ -76,17 +84,19 @@ function instanceRowLines(wf: WorkflowIR): string[] {
   return out;
 }
 
-/** The `<Enum>` unions an observable workflow's instance row names, split into
- *  the ones an aggregate module already exports (import them) and the ones no
- *  aggregate module exports (declare them here).
+/** The `<Enum>` unions and `<Vo>Response` interfaces an observable workflow's
+ *  instance row names (transitively — a VO field may name another VO or an
+ *  enum), split into the ones an aggregate module already exports (import them)
+ *  and the ones no aggregate module exports (declare them here).
  *
- *  Angular's per-aggregate module emits `export type <Enum> = "A" | "B";` for
- *  exactly the enums `exportedResponseTypes` reaches from that aggregate's own
- *  response surface, so asking the same helper is the only resolution that
- *  cannot disagree with what was emitted.  An enum reachable only from a
- *  workflow's persisted state is reached from no aggregate at all — hence the
- *  local declaration. */
-function instanceEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): {
+ *  Angular's per-aggregate module emits `export type <Enum> = "A" | "B";` and
+ *  `export interface <Vo>Response { … }` for exactly the types
+ *  `exportedResponseTypes` reaches from that aggregate's own response surface,
+ *  so asking the same helper is the only resolution that cannot disagree with
+ *  what was emitted.  A type reachable only from a workflow's persisted state is
+ *  reached from no aggregate at all — hence the local declaration (#2864 T3 for
+ *  enums; M-T1.36 F3 for value objects, which used to land as `unknown`). */
+function instanceTypeDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContextIR }>): {
   imports: string[];
   locals: string[];
 } {
@@ -94,26 +104,34 @@ function instanceEnumDeps(workflows: Array<{ wf: WorkflowIR; ctx: BoundedContext
   const locals: string[] = [];
   const seen = new Set<string>();
   for (const { wf, ctx } of workflows) {
-    for (const f of wf.instanceWireShape ?? []) {
-      if (f.source === "id") continue;
-      const base = peelCollection(peelNullable(f.type));
-      if (base.kind !== "enum" || seen.has(base.name)) continue;
-      seen.add(base.name);
-      const owner = ctx.aggregates.find((a) =>
-        exportedResponseTypes(a, ctx).enums.some((e) => e.name === base.name),
-      );
-      if (owner) {
-        imports.push(`import type { ${base.name} } from "./${lowerFirst(owner.name)}";`);
-        continue;
-      }
-      const decl = ctx.enums.find((e) => e.name === base.name);
-      if (decl) {
+    const fieldTypes = (wf.instanceWireShape ?? [])
+      .filter((f) => f.source !== "id")
+      .map((f) => f.type);
+    const { vos, enums } = collectResponseTypes(fieldTypes, ctx);
+    const exported = ctx.aggregates.map((a) => ({ a, types: exportedResponseTypes(a, ctx) }));
+    for (const vo of vos) {
+      if (seen.has(`vo:${vo.name}`)) continue;
+      seen.add(`vo:${vo.name}`);
+      const owner = exported.find(({ types }) => types.vos.some((v) => v.name === vo.name));
+      if (owner)
+        imports.push(`import type { ${vo.name}Response } from "./${lowerFirst(owner.a.name)}";`);
+      else locals.push(...emitVoResponseInterface(vo));
+    }
+    for (const e of enums) {
+      if (seen.has(`enum:${e.name}`)) continue;
+      seen.add(`enum:${e.name}`);
+      const owner = exported.find(({ types }) => types.enums.some((x) => x.name === e.name));
+      if (owner) imports.push(`import type { ${e.name} } from "./${lowerFirst(owner.a.name)}";`);
+      else
         locals.push(
-          `export type ${decl.name} = ${decl.values.map((v) => JSON.stringify(v)).join(" | ")};`,
+          `export type ${e.name} = ${e.values.map((v) => JSON.stringify(v)).join(" | ")};`,
         );
-      }
     }
   }
+  // A locally declared `<Vo>Response` with a `File` field names the api
+  // client's `FileRef`, exactly as the aggregate module's copy does.
+  if (locals.some((l) => /\bFileRef\b/.test(l)))
+    imports.push('import type { FileRef } from "./client";');
   return { imports, locals };
 }
 
@@ -136,12 +154,12 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
     "",
   ];
 
-  // The `<Enum>` unions the instance rows below are typed against: imported
+  // The `<Enum>` / `<Vo>Response` types the instance rows below are typed against: imported
   // from the aggregate module that already exports one, declared here when no
-  // aggregate module does.  See `instanceEnumDeps`.
-  const { imports: enumImports, locals: enumLocals } = instanceEnumDeps(workflows);
-  if (enumImports.length > 0) out.push(...enumImports, "");
-  if (enumLocals.length > 0) out.push(...enumLocals, "");
+  // aggregate module does.  See `instanceTypeDeps`.
+  const { imports: typeImports, locals: typeLocals } = instanceTypeDeps(workflows);
+  if (typeImports.length > 0) out.push(...typeImports, "");
+  if (typeLocals.length > 0) out.push(...typeLocals, "");
 
   // Request + instance-row interfaces.
   for (const { wf } of workflows) {

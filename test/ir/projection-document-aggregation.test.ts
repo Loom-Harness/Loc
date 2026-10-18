@@ -56,8 +56,6 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
 const FILTERED = "loom.projection-document-source-capability-filtered";
-const BACKEND_SINGLETON = "loom.projection-whole-table-aggregation-unsupported";
-const BACKEND_GROUPED = "loom.projection-groupby-unsupported-backend";
 
 /** Every backend platform clause a projection can be hosted on, including both
  *  .NET persistence adapters and both node ones — the filtered gate is
@@ -279,9 +277,7 @@ describe("BARE aggregation over a document source", () => {
       // `DbSet<OrderDocument>` and Dapper's raw SQL alike.  Over-gating this
       // would make the shape unexpressible on four working backends.
       const codes = await codesFor(BARE_SYS(platform, DOC_BARE, COUNT));
-      expect(codes).not.toContain(BACKEND_SINGLETON);
-      expect(codes).not.toContain(BACKEND_GROUPED);
-      expect(codes).not.toContain(FILTERED);
+      expect(codes).toEqual([]);
     });
   }
 
@@ -291,14 +287,13 @@ describe("BARE aggregation over a document source", () => {
   // now runs the same query NATIVE against the `(id, data, version)` table, so
   // the refusal is gone and the cell is positive like every other.
   it("java emits the singleton arm — native, not JPQL", async () => {
-    expect(await codesFor(BARE_SYS("java", DOC_BARE, COUNT))).not.toContain(BACKEND_SINGLETON);
+    expect(await codesFor(BARE_SYS("java", DOC_BARE, COUNT))).toEqual([]);
   });
 
   it("every backend emits the GROUPED arm over a document source", async () => {
     for (const platform of DOCUMENT_AGG_PLATFORMS) {
       const codes = await codesFor(BARE_SYS(platform, DOC_BARE, GROUPED_BY_ID));
-      expect(codes, platform).not.toContain(BACKEND_GROUPED);
-      expect(codes, platform).not.toContain(BACKEND_SINGLETON);
+      expect(codes, platform).toEqual([]);
     }
   });
 
@@ -308,13 +303,13 @@ describe("BARE aggregation over a document source", () => {
     // `projection-aggregation.ddd` proves on all five.
     expect(
       await codesFor(BARE_SYS("java", `aggregate Order with crudish { total: int }`, COUNT)),
-    ).not.toContain(BACKEND_SINGLETON);
+    ).toEqual([]);
   });
 
   it("java is fine on the PER-ROW arm over a document source", async () => {
     // The row read goes through the `JdbcTemplate` document repository, which
     // has no JPA entity to need.
-    expect(await codesFor(BARE_SYS("java", DOC_BARE, PER_ROW))).not.toContain(BACKEND_SINGLETON);
+    expect(await codesFor(BARE_SYS("java", DOC_BARE, PER_ROW))).toEqual([]);
   });
 });
 
@@ -356,8 +351,6 @@ system S {
     it(`${platform} — a scaffolded dashboard over a filtered document aggregate validates`, async () => {
       const codes = await codesFor(scaffolded(platform));
       expect(codes).not.toContain(FILTERED);
-      expect(codes).not.toContain(BACKEND_SINGLETON);
-      expect(codes).not.toContain(BACKEND_GROUPED);
       expect(codes).not.toContain("loom.projection-columnless-source");
     });
   }

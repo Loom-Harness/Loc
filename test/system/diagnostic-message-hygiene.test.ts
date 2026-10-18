@@ -191,12 +191,20 @@ const PROSE_SAYS_UNDEFINED = [
   // JavaScript.  Listed separately because the gate keys on the full catalog
   // key, `#variant` included.
   "loom.e2e-unknown-response-field#workflow-instance",
+  // The CREATE variant: the read is a member of the parsed `{ id }` envelope
+  // every backend answers a create with, so it evaluates to `undefined` in the
+  // emitted JavaScript — the same content-not-interpolation reason as above.
+  "loom.e2e-unknown-response-field#create",
   // Explains why `first`/`firstOrNull` are refused across the frontends: the
   // JS four answer `undefined` on an empty collection where F#/Dart raise.
   // That divergence IS the refusal's reason, so the word is the message's
   // content, not an interpolation reaching one hop too far.
   "loom.frontend-collection-op-unsupported",
   "loom.match-non-exhaustive",
+  // Names the literal the page emitter used to ship for an unbound `of:` read
+  // (`/* unresolved: X */ undefined`).  The word IS the symptom the author will
+  // grep for in the generated page, so it is content, not an interpolation.
+  "loom.ui-read-unresolved#unbound",
   // The boolean-`match` twin of the entry above (M-T9.56 drain of `match.ts`):
   // a `match` with no `else` genuinely EVALUATES to `undefined` when no arm
   // matches, which is the whole reason the warning exists.  The word is the

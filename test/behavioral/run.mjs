@@ -31,6 +31,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
+import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
+import { optInTestReset } from "./proc.mjs";
+
+// The generated reset seam is opt-in and token-gated (H-30, src/util/test-reset.ts);
+// this leg relied on it being on by default, so it now opts in explicitly.
+optInTestReset();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
@@ -123,7 +129,7 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   const seedRun = seedFile ? "await runSeeds(db);" : "";
   return `
 ${recorderPreamble()}
-import { synthDDL } from ${J(join(REPO, "web/src/runtime/ddl.ts"))};
+${MIGRATOR_IMPORT}
 import { loadApiTests } from ${J(join(REPO, "web/src/testing/run-api-tests.ts"))};
 import { createHarness, runTests } from ${J(join(REPO, "web/src/testing/harness.ts"))};
 import { computeVerification } from ${J(join(REPO, "src/verify/verification.ts"))};
@@ -133,8 +139,6 @@ ${authImport}
 ${seedImport}
 import { drizzle } from "drizzle-orm/pglite";
 import { PGlite } from "@electric-sql/pglite";
-import { is, Table } from "drizzle-orm";
-import { getTableConfig } from "drizzle-orm/pg-core";
 import { build as esbuildBuild, transform as esbuildTransform } from "esbuild";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -151,8 +155,8 @@ const SHIM = ${J(SHIM)};
 
 export async function run() {
   const pglite = new PGlite();
-  await pglite.exec(synthDDL(schema, { is, Table, getTableConfig }));
   const db = drizzle(pglite, { schema });
+  ${applyMigrationsStmt(deplDir)}
   ${seedRun}
   ${authRegister}
   const app = createApp(db);
@@ -168,7 +172,7 @@ export async function run() {
   const out = [];
   if (E2E_FILE) {
     const compile = async (ts) => (await esbuildTransform(ts, { loader: "ts", format: "cjs" })).code;
-    const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS${bearerEnv} } });
+    const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS, LOOM_TEST_RESET_TOKEN: process.env.LOOM_TEST_RESET_TOKEN${bearerEnv} } });
     for (const r of await runTests(cases)) out.push({ tier: "api", ...r });
     // RS-9 — appended AFTER the tier so the probes never shift the ordinals the
     // golden aligns on, and so a failing tier is diagnosed on its own requests.

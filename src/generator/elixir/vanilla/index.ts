@@ -17,12 +17,14 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
 import type { PageNameCtx } from "../../../ir/util/page-kind.js";
 import {
   resolveContextSchema,
   resolveDataSourceConfig,
 } from "../../../ir/util/resolve-datasource.js";
+import { emissionSink } from "../../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { brokerChannelBindings } from "../../_channels/bindings.js";
@@ -67,6 +69,7 @@ import { emitVanillaChangesets } from "./changeset-emit.js";
 import { aggregateBodyValueObjectFields } from "./changeset-validators.js";
 import { emitVanillaContextModule } from "./context-emit.js";
 import { denialOverrides, denialStatus, denialTitle, opHasWireDenial } from "./denial.js";
+import { needsPureDomainCore, renderEventSourcedPureCore } from "./domain-core-emit.js";
 import { emitVanillaEventModules } from "./events-emit.js";
 import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
@@ -105,7 +108,7 @@ import { emitVanillaWorkflowInstances } from "./workflow-instances-emit.js";
 
 export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): Map<string, string> {
   const { contexts, deployable, sys, sourcemap, pack } = args;
-  const out = new Map<string, string>();
+  const out = emissionSink("generator/elixir/vanilla/index");
   const appName = toSnakeApp(deployable.name);
   const appModule = toModulePrefix(appName);
 
@@ -203,6 +206,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
         : undefined,
       // M-T1.11 (c) — a messaged rule can trip at the domain floor.
       contexts.some(hasDomainFloorMessages),
+      // Ruling D4 (#20): a 403 echoes its gate only under the dev-stub verifier.
+      echoesDenialDetail(deployable, sys),
     ),
   );
 
@@ -382,6 +387,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       sys ? resolveContextSchema(ctx, sys) : undefined,
       channelsCfg,
       wiredForeignChannels,
+      (agg) =>
+        needsPureDomainCore(agg, ctx) ? renderEventSourcedPureCore(appModule, ctx, agg) : [],
     );
     emitVanillaContextModule(
       appModule,
@@ -482,7 +489,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     });
     if (seedMod) seedModules.push(seedMod.module);
     // Domain `test "..."` blocks → ExUnit (pure-subset; see tests-emit.ts).
-    if (emitAggregateTests(ctx, appModule, out)) hasDomainTests = true;
+    if (emitAggregateTests(ctx, appModule, out, sys)) hasDomainTests = true;
   }
   if (hasDomainTests) emitTestHelper(out);
   // Realtime SSE wire (channels.md Part I) — one deployable-level

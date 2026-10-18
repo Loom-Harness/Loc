@@ -45,3 +45,23 @@ Then: (a) compose env derivation in `src/system/index.ts`; (b) `src/system/kuber
 `literal("postgres://user:pass@…")` deserves its own decision when the wiring lands: a plaintext credential in `.ddd` source is a smell the current warning already calls out, and the wiring is the moment to decide whether it stays legal.
 
 Sources: [connection-secret-wiring](../old/proposals/connection-secret-wiring.md); the 2026-08-30 targets ledger row `connection-secret-wiring` (P0 there on the strength of "no gate", which was stale — M-T5.9a had landed the gate; the wiring is the live half).
+
+## M-T7.10 — The generated compose has no `restart:` and no backend retries the database at boot — `open` · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L3-RUNTIME (leftover-waves-2026-09-28).**
+
+Item **P14** (#2946). `docker compose up` on a generated system races the backends against Postgres: none carries a `restart:` policy, and none retries its first DB connection, so a cold start where the database is slower than the app leaves a dead container and a green `depends_on`. The healthcheck-gated `depends_on` covers the common case, not a restart of the database under a running app.
+
+**The fix:** `restart: unless-stopped` on every service the compose composes, plus a bounded connect-retry in each backend's boot path.
+
+**Verification.** Boot the stack with the database delayed (the `generated-stack-verifier` skill's recipe) on each backend; the k8s/compose gates unchanged.
+
+## M-T7.11 — Generated projects ship no lockfiles and range-pinned dependencies, with no recorded policy — `open` · **S** (decision) + **M** · P2
+
+*Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
+
+Item **#25** (FieldOps-audit F-038). A generated tree has no lockfile of any kind: the node `package.json` carries 21 caret ranges, python's `pyproject.toml` pins `fastapi>=0.115,<1` with no `uv.lock`, and the node Dockerfile comment admits there is no `package-lock`. Sources: `stacks/*/stack-package-deps.hbs`, `src/generator/python/pins.ts`, `src/platform/hono/v5/pins.ts`. The audit called it "the maintainer's call", but no decision was ever recorded (nothing in `docs/decisions.md` or `docs/new-plan/`), so two builds of the same model a month apart can resolve different dependency trees.
+
+**First, a D-decision** (record it in `docs/decisions.md`): emit lockfiles, pin exactly, or keep ranges by design and say so in the generated README. **Then** implement the ruling on every backend and frontend stack (npm, uv, NuGet, Gradle, mix, pub).
+
+**Verification.** Per the ruling: a generated tree carries the lockfile (or exact pins) for each stack, and the per-backend compile tiers install from it offline where the toolchain allows.

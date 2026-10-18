@@ -26,14 +26,25 @@ import { UNDOCUMENTED_CODES } from "./diagnostic-docs-undocumented.js";
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const refDir = path.join(repoRoot, "docs", "language-reference");
+const docsDir = path.join(repoRoot, "docs");
+const refDir = path.join(docsDir, "language-reference");
+
+/** An anchor entry's markdown file on disk.  A `../`-prefixed entry is
+ *  docs-root-relative (the `loom.migration-*` case — no language-reference
+ *  chapter covers migration blocks, and `language-reference/README.md` itself
+ *  routes them to `../migrations.md`); everything else is a chapter. */
+function docFile(file: string): string {
+  return file.startsWith("../")
+    ? path.join(docsDir, file.slice("../".length))
+    : path.join(refDir, file);
+}
 
 /** Heading slugs per chapter file, read straight from the markdown.  Fenced
  *  code is skipped so a `## ` inside an example is not a heading. */
 function headingSlugs(file: string): Set<string> {
   const out = new Set<string>();
   let inFence = false;
-  for (const line of fs.readFileSync(path.join(refDir, file), "utf-8").split("\n")) {
+  for (const line of fs.readFileSync(docFile(file), "utf-8").split("\n")) {
     if (line.startsWith("```")) inFence = !inFence;
     if (inFence) continue;
     const m = /^#{1,6}\s+(.*)$/.exec(line);
@@ -62,7 +73,7 @@ describe("codeDocsUrl — every anchor resolves", () => {
       expect(catalogCodes.has(code), `${code} is not a catalog code`).toBe(true);
       const [file, anchor] = target.split("#");
       expect(anchor, "an entry names a section, not just a chapter").toBeTruthy();
-      expect(fs.existsSync(path.join(refDir, file)), `${file} exists`).toBe(true);
+      expect(fs.existsSync(docFile(file)), `${file} exists`).toBe(true);
       let slugs = slugCache.get(file);
       if (!slugs) {
         slugs = headingSlugs(file);
@@ -81,6 +92,15 @@ describe("codeDocsUrl — every anchor resolves", () => {
     );
     expect(codeDocsUrl("loom.no-such-code")).toBeUndefined();
     expect(codeDocsUrl("loom.blank-message")).toBeUndefined();
+    // The docs-root escape drops the `../` rather than emitting it — a link
+    // carrying `language-reference/../` would still resolve on GitHub but not
+    // on the built site, whose chapters are flattened into their own pages.
+    expect(codeDocsPath("loom.migration-rename-inferred")).toBe(
+      "migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
+    );
+    expect(codeDocsUrl("loom.migration-rename-inferred")).toBe(
+      "https://loom-harness.github.io/Loc/migrations.html#the-inferred-rename-announces-itself--loommigration-rename-inferred",
+    );
   });
 
   it("slugs headings the way GitHub does", () => {
@@ -149,7 +169,17 @@ describe("the undocumented-codes ratchet", () => {
 // as a language rule. Its remedy lives in docs/migrations.md § Rename
 // detection, where the rest of the migration-policy prose is; this baseline is
 // raised deliberately for that reason.
-const UNDOCUMENTED_BASELINE = 366;
+//
+// 366 -> 355: eleven undocumented backend-support codes deleted with their
+// five-of-five gates (a support set naming every backend gated nothing).
+// 355 -> 356 (eval #30): `loom.migration-ambiguous-rename` was always a code,
+// but its text was an inline literal, so it was not a CATALOG code and this
+// list never saw it.  Moving the text into the catalog surfaces it here with
+// the same problem as the entry above — no language-reference chapter covers
+// migration blocks (its home is docs/migrations.md § Rename detection).  Raised
+// deliberately; #3073's docs-root anchor escape (`../migrations.md#…`) is the
+// way to shrink both once it lands.
+const UNDOCUMENTED_BASELINE = 356;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

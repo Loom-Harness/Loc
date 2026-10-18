@@ -78,12 +78,6 @@ import { contentHash } from "../../util/content-hash.js";
  *  and friends. */
 export const PACK_CHROME_T_CALL = 't("pack.';
 
-/** The `pgettext` twin of {@link PACK_CHROME_T_CALL} for the HEEx packs.  Not
- *  used for import wiring (a HEEx template resolves `pgettext/2` through
- *  `html_helpers`, which every `~H` template already imports) — exported so
- *  tests can assert on the emitted call without re-spelling it. */
-export const PACK_CHROME_PGETTEXT_CALL = 'pgettext("pack.';
-
 /** The catalog key for one pack-declared chrome string: `pack.<family>.<role>.<hash>`. */
 export function packChromeKey(family: string, role: string, message: string): string {
   return `pack.${family}.${role}.${contentHash(message)}`;

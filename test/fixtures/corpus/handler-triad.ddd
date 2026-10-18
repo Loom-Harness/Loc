@@ -126,4 +126,50 @@ system HandlerTriad {
     serves: A
     port: 4000
   }
+
+  // Every route in this api is a ROUTED HANDLER (`route <METHOD> <PATH> ->
+  // <Ctx>.<Handler>`), and until this block landed none of them had a caller:
+  // `api.<x>.<y>(…)` resolved to an aggregate or a projection only, so probing
+  // one answered `loom.e2e-unknown-aggregate: unknown aggregate 'api.sales'`.
+  // A routed handler is now addressable through the SAME two-level shape the
+  // route arrow already spells — context in the slug position, handler in the
+  // method position — with arguments bound POSITIONALLY to the declared params
+  // and a `{token}` param substituted into the path.
+  //
+  // NO ROW IS MINTED and none is needed: `Order` declares no create (see the
+  // `UNCALLED_PINS` entry for `corpus/handler-triad`), and every assertion here
+  // is an EMPTY-TABLE answer, which is what makes the fixture drivable at all.
+  // The find-backed handlers return a COUNT, so with no rows any syntactically
+  // valid guid answers 0 / false — and that is a real oracle, not a trivial
+  // one: the pre-fix .NET project did not contain `Echo` / `Sum` or their
+  // routes, and java rewrote `CountReplacing`'s declared `byId` find into a
+  // `getById` it re-wrapped the argument for.
+  test e2e "routed handlers answer, on an empty table" against d {
+    // A, command leg — a handler touching NO aggregate.  POST /api/echo/{text},
+    // the path param echoed straight back.
+    expect(api.sales.echo("hi")).toBe("hi")
+    // A, query leg — two scalar path params, summed in the handler body.  A
+    // backend that dropped either param, or bound them in the wrong ORDER,
+    // answers something other than 5.
+    expect(api.sales.sum(2, 3)).toBe(5)
+    // B — an `Order id` path param flowing into the DECLARED `byId` find.  The
+    // find filters on `replaces`, so an empty table answers 0 for any guid;
+    // what is under test is that the declared find is called AS DECLARED.
+    expect(api.sales.countReplacing("11111111-1111-4111-8111-111111111111")).toBe(0)
+    // D, pure tier — a handler calling a `domainService` op with no read port.
+    expect(api.sales.doubled(21)).toBe(42)
+    // D, reading tier — the same crossing where the handle is per-backend
+    // (leading read-port params on node/python, an injected object on
+    // dotnet/java, the ambient Repo on elixir).  Emptiness makes it false.
+    expect(api.sales.reachable("22222222-2222-4222-8222-222222222222")).toBe(false)
+
+    // The aggregate's own two SEEDABLE-FREE reads, so the routed-handler lift
+    // is not the only thing this fixture drives: the root list route and the
+    // declared find, both over the same empty table the handlers read.
+    let listing = api.orders.all()
+    expect(listing.items.length).toBe(0)
+    expect(listing.total).toBe(0)
+    let rows = api.orders.byId({ oid: "33333333-3333-4333-8333-333333333333" })
+    expect(rows.length).toBe(0)
+  }
 }

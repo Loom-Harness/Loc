@@ -35,6 +35,7 @@ import {
   localizedPageChromeValue,
   localizedText,
 } from "../i18n-emit.js";
+import { opGateFor } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
   addImport,
@@ -51,7 +52,7 @@ import {
   positionalArgs,
   stringNamed,
 } from "../shared/args.js";
-import type { WalkContext } from "../walker-core.js";
+import type { OpGateState, WalkContext } from "../walker-core.js";
 import {
   emitExpr,
   emitStmt,
@@ -280,7 +281,12 @@ function routeIdExpr(ctx: WalkContext): string {
  *  page-shell emitted the opener + form component and no call site ever reached
  *  them (React), or `{@render <op>OpModal(<op>Form)}` was never emitted at all
  *  (Svelte).  Label/emphasis are the same defaults the state carries. */
-function renderBareOperationFormTrigger(ctx: WalkContext, aggOpLabel: string, opName: string) {
+function renderBareOperationFormTrigger(
+  ctx: WalkContext,
+  aggOpLabel: string,
+  opName: string,
+  gate: OpGateState | undefined,
+) {
   // Deliberately UNGUARDED (no `ctx.pack.templates.has` probe), matching the
   // `emitModal` call site this mirrors.  A probe here would mark
   // `primitive-modal` guarded for the whole `_walker/` scrape in
@@ -299,6 +305,8 @@ function renderBareOperationFormTrigger(ctx: WalkContext, aggOpLabel: string, op
     opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: "",
     recordVar: undefined,
+    gateDisabled: gate?.disabledExpr,
+    gateReason: gate?.reasonExpr,
   });
 }
 
@@ -347,6 +355,8 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
+  const gate = opGateFor(ctx, agg, op);
+  if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
   ctx.formOfs.push({
     kind: "operation",
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
@@ -368,11 +378,12 @@ function emitFormOfOperationByName(
     onSubmitJs: null,
     triggerLabel: humanize(op.name),
     triggerPrimary: true,
+    gate,
   });
   // An enclosing `Modal` discards this and renders its own authored trigger; a
   // BARE by-name form keeps it, so the shell-emitted opener/component is
   // actually reachable.
-  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name);
+  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
 }
 
 interface PreparedForm {
@@ -426,6 +437,7 @@ function prepareFormFields(
       bc,
       `${testidNamespace}-input-${f.name}`,
       aggregatesByNameMut,
+      ctx.bcByAggregate,
     ),
   );
   // RHF + zodResolver are universal across all React packs; the
@@ -868,6 +880,8 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, bc);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
+  const gate = opGateFor(ctx, agg, op);
+  if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
   ctx.formOfs.push({
     kind: "operation",
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
@@ -905,11 +919,12 @@ function emitFormOfOperation(
           recordType: `${agg.name}Response`,
         }
       : {}),
+    gate,
   });
   // An enclosing Modal discards this and renders its own authored trigger; a
   // BARE instance-qualified form keeps it, so the shell-emitted opener + form
   // component is reachable instead of dead module-scope code.
-  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name);
+  return renderBareOperationFormTrigger(ctx, humanize(op.name), op.name, gate);
 }
 
 /** Whether a param default reads `this` (so it seeds from the loaded record) —
@@ -926,8 +941,37 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
       return defaultUsesThis(e.inner);
     case "unary":
       return defaultUsesThis(e.operand);
-    default:
+    // `false` for every other kind, and exactly right rather than merely safe:
+    // this predicate MIRRORS `renderDefaultSeed`
+    // (`src/generator/_frontend/default-seed.ts`), whose client-evaluable subset
+    // is `literal | ref | this | member | paren | unary` and nothing else.  A
+    // default of any other shape renders `null` there — the form keeps its
+    // type-zero seed and needs no `record` prop — so answering `true` here would
+    // thread a prop nothing reads.  The two vocabularies must move together,
+    // which is what the `never` below enforces.
+    case "action-ref":
+    case "authz-filter":
+    case "binary":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ref":
+    case "ternary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 
@@ -1072,6 +1116,7 @@ export function emitModal(
   // form child just pushed so packs that own the trigger inside
   // their module component (shadcn/mui/chakra) can render it.
   let recordVar: string | undefined;
+  let gate: OpGateState | undefined;
   for (let i = ctx.formOfs.length - 1; i >= 0; i--) {
     const st = ctx.formOfs[i]!;
     if (st.kind === "operation" && st.op.name === opName) {
@@ -1087,6 +1132,7 @@ export function emitModal(
       // When a this-relative default was seeded, the op state carries the
       // in-scope instance var the trigger must pass as the `record` prop.
       recordVar = st.recordVar;
+      gate = st.gate;
       break;
     }
   }
@@ -1097,5 +1143,9 @@ export function emitModal(
     opCamel: escapeTsIdent(lowerFirst(opName)),
     testidAttr: testidAttr(triggerArg, ctx),
     recordVar,
+    // `when`-gated op: the trigger disables on the `can_<op>` probe.  Both
+    // undefined for an ungated op, so its template output is unchanged.
+    gateDisabled: gate?.disabledExpr,
+    gateReason: gate?.reasonExpr,
   });
 }

@@ -255,6 +255,31 @@ by construction. This tagged form is emitted for **payload fields** and
 | Java / Spring | `@JsonTypeInfo` / `@JsonSubTypes` sealed interface, one record per variant |
 | Python / FastAPI | `buildPyBaseUnionFile` — a tagged base + one model per variant |
 
+#### Operation returns in OpenAPI
+
+An operation's union return is not served whole at `200`. An `error`-kind arm is
+answered as an RFC 7807 problem at that arm's status (its `httpStatus` override,
+else the stdlib default), with the arm's fields as extension members. Only the
+success arms reach the `200`, still tagged. The published contract says the same
+thing on all five backends:
+
+```
+operation reject(): string or NotFound     # error NotFound { resource: string, attemptedCode: string }
+```
+
+| response | schema |
+|---|---|
+| `200` | `stringOrNotFoundSuccess`, a tagged `oneOf` of the success arms only (`{ "type": "string", "value": … }`) |
+| `404` (NotFound's status) | `anyOf: [ProblemDetails, NotFoundProblem]`, where `NotFoundProblem` = ProblemDetails + `resource`, `attemptedCode` (required) |
+
+Plain `ProblemDetails` stays in the `anyOf` because the status also has a
+generic producer: an absent aggregate is a `404` on every operation route, and
+that body carries no arm fields. A union with no `error` arm keeps its whole
+`<Union>` component at `200`. The split is decided once, by `opUnionResponses`
+in `src/generator/_payload/union-wire.ts`, and is gated by
+`test/conformance/op-union-openapi-parity.test.ts`. (Elixir names its modules
+upper-first: `StringOrNotFoundSuccess`.)
+
 ### Union finds — the untagged exception
 
 A **repository find** may return a union, but only in the constrained
@@ -311,7 +336,6 @@ referenced by its name and so is unaffected.
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged` / `envelope`. |
 | `loom.generic-position` | A generic carrier outside a transport position. |
-| `loom.generic-carrier-unsupported` / `loom.union-unsupported` | A carrier / union served by a backend that doesn't emit it yet — a platform-aware gate. All five backends now emit both, so these are dormant safety nets for a future backend. |
 
 ---
 

@@ -81,7 +81,7 @@ const SPELLINGS: Record<string, Spelling> = {
     declFile: "api/http/order.routes.ts",
     createSlice: ['operationId: "createOrder"', "async (c) =>"],
     destroySlice: ['operationId: "destroyOrder"', "async (c) =>"],
-    arm: (s, t) => `return problem(${s}, "${t}", err.message);`,
+    arm: (s, t) => `return problem(${s}, "${t}", err.detail);`,
   },
   dotnet: {
     declFile: "api/Api/OrdersController.cs",

@@ -62,34 +62,30 @@ interface Site {
 function sitesInSource(rel: string, text: string): Site[] {
   const out: Site[] = [];
   {
-    {
-      const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.ESNext, true);
-      const visit = (n: ts.Node): void => {
-        if (
-          ts.isCallExpression(n) &&
-          ts.isIdentifier(n.expression) &&
-          n.expression.text === "accept"
-        ) {
-          const first = n.arguments[0];
-          if (first && ts.isStringLiteral(first) && SEVERITIES.has(first.text)) {
-            const coded = n.arguments.some(
-              (a) =>
-                ts.isObjectLiteralExpression(a) &&
-                a.properties.some(
-                  (p) => p.name && ts.isIdentifier(p.name) && p.name.text === "code",
-                ),
-            );
-            out.push({
-              file: rel,
-              line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1,
-              coded,
-            });
-          }
+    const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.ESNext, true);
+    const visit = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === "accept"
+      ) {
+        const first = n.arguments[0];
+        if (first && ts.isStringLiteral(first) && SEVERITIES.has(first.text)) {
+          const coded = n.arguments.some(
+            (a) =>
+              ts.isObjectLiteralExpression(a) &&
+              a.properties.some((p) => p.name && ts.isIdentifier(p.name) && p.name.text === "code"),
+          );
+          out.push({
+            file: rel,
+            line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1,
+            coded,
+          });
         }
-        ts.forEachChild(n, visit);
-      };
-      visit(sf);
-    }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
   }
   return out;
 }

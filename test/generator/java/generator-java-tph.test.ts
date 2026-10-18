@@ -26,7 +26,7 @@ async function files(): Promise<Map<string, string>> {
 }
 
 describe("java generator — TPH (sharedTable) inheritance", () => {
-  it("passes validation (java joined TPH_CAPABLE)", async () => {
+  it("passes validation", async () => {
     const loom = await buildLoomModel(SRC);
     const errors = validateLoomModel(loom).filter((d) => d.code === "loom.tph-backend-unsupported");
     expect(errors).toEqual([]);

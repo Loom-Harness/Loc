@@ -4213,83 +4213,6 @@
       "P": 5
     },
     {
-      "id": "register-rows-unowned-workflow-load",
-      "title": "`loom.workflow-load-array-unsupported` / `-nullable-unsupported` are register rows with no `mission:` link, though M-T4.7 explicitly owns them",
-      "kind": "stale-prose",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "register"
-      ],
-      "fileTrees": [
-        "src/diagnostics/unsupported-register.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "register-rows-unowned-workflow-load",
-          "text": "Both rows carry `kind: \"scope\"`, `verified: true`, and NO `mission` field — src/diagnostics/unsupported-register.ts:396-403 (`loom.workflow-load-array-unsupported`, 'workflow load of an array result — v1 is single non-nullable') and :404-410 (`loom.workflow-load-nullable-unsupported'). The register's own contract says a `scope` row is 'a declared v1 limit with a NAMED SUCCESSOR.  Owned by a mission' (unsupported-register.ts:9-11) and `mission?` is documented at :61-62. The successor exists and is explicit: docs/new-plan/T4-eventing-temporal.md:66 lists M-T4.7's remaining scope as '`repo-let` arrays/nullables (gated)'. The gates themselves are genuinely honest — src/ir/validate/checks/workflow-checks.ts:637-666 pushes both errors before codegen, guarded by `st.method !== \"getById\"`; docs/language-reference/13-workflows.md:126 documents the limit and names `Repo.run`/`find` as the workaround. Sibling row `loom.handler-load-nullable-unsupported` (unsupported-register.ts:390-395, site src/ir/validate/checks/api-checks.ts) is unowned for the same reason and should be triaged with them. Note: #2667 touches unsupported-register.ts but is a REGISTER-ONLY PR (documents, does not fix), so this is unclaimed."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Add `mission: \"M-T4.7\"` to both rows at src/diagnostics/unsupported-register.ts:396-410. Decide the owner for `loom.handler-load-nullable-unsupported` at :390-395 (the api-checks.ts:88 comment cross-refs the workflow twin — likely the same mission or a T5 command/query-handler mission) and stamp it too. Optionally add an assertion to test/system/unsupported-register.test.ts that every `kind: \"scope\"` row names a mission, since the register header already promises it.",
-      "size": "S",
-      "sources": [
-        "fleet1:t2-t4-data-workflow"
-      ],
-      "related_to": [],
-      "securityClass": false,
-      "P": 5
-    },
-    {
-      "id": "register-site-pointers-stale",
-      "title": "Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift",
-      "kind": "stale-prose",
-      "class": null,
-      "confidence": "likely",
-      "targets": [
-        "dotnet",
-        "elixir",
-        "java",
-        "node",
-        "python",
-        "register"
-      ],
-      "fileTrees": [
-        "src/diagnostics/",
-        "src/diagnostics/unsupported-register.ts",
-        "test/system/",
-        "test/system/unsupported-register.test.ts"
-      ],
-      "evidence": [
-        {
-          "fleet": 1,
-          "id": "register-site-pointers-stale",
-          "text": "Ran on this checkout: for each of the 46 `UNSUPPORTED_REGISTER` rows, read `site` and check whether the row's `code` appears within ±5 lines of the cited line. 36 miss. Examples in this bucket: `loom.workflow-load-array-unsupported` cites `src/ir/validate/checks/workflow-checks.ts:591`, actual emission is :643; `loom.workflow-load-nullable-unsupported` cites :600, actual :656; `loom.saving-shape-unsupported` cites `system-checks.ts:1282`, actual :1642; `loom.vanilla-document-unsupported` cites :1528, actual is the pass beginning :1659. The test only validates the FORMAT — test/system/unsupported-register.test.ts:131-135 `it(\"cites a site for every row\")` asserts `/^src\\/.+:\\d+$/` and nothing more. The `site` field's stated purpose is 'file:line of the first emission site, FOR THE REVIEWER' (unsupported-register.ts:57), which is exactly what rots. #2667 edits this file but is register-only.\n\n[ALSO REPORTED BY t6-backend as `register-site-lines-unverified` (kind=stale-prose, size=S)]: test/system/unsupported-register.test.ts:131-136 asserts only `/^src\\/.+:\\d+$/`. Sampled three rows against main and all three miss: `loom.mikroorm-unsupported` cites system-checks.ts:2456 (a filter-bypass comment block, :2454-2458); `loom.audited-backend-unsupported` cites :3484 (the line is `const EVENT_SOURCING_BACKENDS = …`, :3482-3484); `loom.context-filter-unsupported` cites :1998 (a `walkExpr` switch arm, :1996-2000). The file's own header comment (unsupported-register.ts, and M-T6.34's Sources line in T6) already warns \"cited by SYMBOL, not line: this file's own citations went stale the moment the cited file was edited\" — the register did not take its own advice."
-        }
-      ],
-      "repro": null,
-      "impact": null,
-      "fix": "Replace the format assertion in test/system/unsupported-register.test.ts:131-135 with a real one: read the cited file, assert `row.code` occurs within a small window of `site`'s line (a ±5-line window is enough to survive formatting churn), and fail with the corrected line number so the fix is mechanical. Then run it once and rewrite the 36 stale sites. This turns `site` into a pinned fact rather than a comment — the same ratchet discipline CLAUDE.md requires of waivers.\n\n[ALTERNATE FIX RECIPE from t6-backend/register-site-lines-unverified]: Either cite the SYMBOL (`system-checks.ts:validateAuditedOperationSupport`) and have the gate resolve it, or keep line numbers and make the gate assert the cited file:line actually matches the row's `code:` literal. The second is the mutation-provable one: move any row's line by ±2 and it must go red.",
-      "size": "S",
-      "sources": [
-        "fleet1:t2-t4-data-workflow"
-      ],
-      "related_to": [
-        "register-rows-closed-missions, register-rows-unowned-workflow-load, register-row-mikroorm-stale, M-T5.3-union-register-rows-stale, M-T1.20-collection-op-gate-misclassified — the same unsupported-register hygiene family"
-      ],
-      "securityClass": false,
-      "P": 5,
-      "reverified": {
-        "date": "2026-09-10",
-        "against": "bc7ed8f8",
-        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
-        "verdict": "reproduces",
-        "note": "LARGELY DRAINED, premise corrected.  Re-measured with the row's own method (for each register row carrying a `file:line` site, does the row's `code` appear within ±5 lines?): 4 of 60 miss, not 36 of 46.  The systemic claim in the title is no longer true; four stale pointers remain and the gate still checks only the string SHAPE, so the class is not closed — but this is now a small drain, not a register-wide problem."
-      }
-    },
-    {
       "id": "surface-dangling-emit-hooks",
       "title": "`PlatformSurface` doc comments still reference `emitAuditInit` / `emitI18nAdapter`, hooks that do not exist",
       "kind": "stale-prose",
@@ -6251,6 +6174,87 @@
       "securityClass": false,
       "P": 4,
       "closedBy": "wave C5 moment 5b (claude/c5-golden2)"
+    },
+    {
+      "id": "register-rows-unowned-workflow-load",
+      "title": "`loom.workflow-load-array-unsupported` / `-nullable-unsupported` are register rows with no `mission:` link, though M-T4.7 explicitly owns them",
+      "kind": "stale-prose",
+      "class": null,
+      "confidence": "likely",
+      "targets": [
+        "register"
+      ],
+      "fileTrees": [
+        "src/diagnostics/unsupported-register.ts"
+      ],
+      "evidence": [
+        {
+          "fleet": 1,
+          "id": "register-rows-unowned-workflow-load",
+          "text": "Both rows carry `kind: \"scope\"`, `verified: true`, and NO `mission` field — src/diagnostics/unsupported-register.ts:396-403 (`loom.workflow-load-array-unsupported`, 'workflow load of an array result — v1 is single non-nullable') and :404-410 (`loom.workflow-load-nullable-unsupported'). The register's own contract says a `scope` row is 'a declared v1 limit with a NAMED SUCCESSOR.  Owned by a mission' (unsupported-register.ts:9-11) and `mission?` is documented at :61-62. The successor exists and is explicit: docs/new-plan/T4-eventing-temporal.md:66 lists M-T4.7's remaining scope as '`repo-let` arrays/nullables (gated)'. The gates themselves are genuinely honest — src/ir/validate/checks/workflow-checks.ts:637-666 pushes both errors before codegen, guarded by `st.method !== \"getById\"`; docs/language-reference/13-workflows.md:126 documents the limit and names `Repo.run`/`find` as the workaround. Sibling row `loom.handler-load-nullable-unsupported` (unsupported-register.ts:390-395, site src/ir/validate/checks/api-checks.ts) is unowned for the same reason and should be triaged with them. Note: #2667 touches unsupported-register.ts but is a REGISTER-ONLY PR (documents, does not fix), so this is unclaimed."
+        }
+      ],
+      "repro": null,
+      "impact": null,
+      "fix": "Add `mission: \"M-T4.7\"` to both rows at src/diagnostics/unsupported-register.ts:396-410. Decide the owner for `loom.handler-load-nullable-unsupported` at :390-395 (the api-checks.ts:88 comment cross-refs the workflow twin — likely the same mission or a T5 command/query-handler mission) and stamp it too. Optionally add an assertion to test/system/unsupported-register.test.ts that every `kind: \"scope\"` row names a mission, since the register header already promises it.",
+      "size": "S",
+      "sources": [
+        "fleet1:t2-t4-data-workflow"
+      ],
+      "related_to": [],
+      "securityClass": false,
+      "P": 5,
+      "closedBy": "wave L0 (leftover-waves-2026-09-28 §2.1 D9)",
+      "note": "PREMISE DRAINED, re-verified 2026-09-29 (wave L0 / D9): all three rows the finding named — `loom.workflow-load-array-unsupported`, `loom.workflow-load-nullable-unsupported` and the sibling `loom.handler-load-nullable-unsupported` — now carry `mission: \"M-T5.36\"` in src/diagnostics/unsupported-register.ts, and test/system/unsupported-register.test.ts resolves every cited mission to exactly one `## <id>` heading in docs/new-plan/. The owner is M-T5.36 rather than the M-T4.7 this row proposed; the row's claim (a scope row with no named successor) no longer holds."
+    },
+    {
+      "id": "register-site-pointers-stale",
+      "title": "Four register rows still cite a stale `file:line` emission site (down from 36 of 46) — the gate only checks the string SHAPE, so nothing catches the drift",
+      "kind": "stale-prose",
+      "class": null,
+      "confidence": "likely",
+      "targets": [
+        "dotnet",
+        "elixir",
+        "java",
+        "node",
+        "python",
+        "register"
+      ],
+      "fileTrees": [
+        "src/diagnostics/",
+        "src/diagnostics/unsupported-register.ts",
+        "test/system/",
+        "test/system/unsupported-register.test.ts"
+      ],
+      "evidence": [
+        {
+          "fleet": 1,
+          "id": "register-site-pointers-stale",
+          "text": "Ran on this checkout: for each of the 46 `UNSUPPORTED_REGISTER` rows, read `site` and check whether the row's `code` appears within ±5 lines of the cited line. 36 miss. Examples in this bucket: `loom.workflow-load-array-unsupported` cites `src/ir/validate/checks/workflow-checks.ts:591`, actual emission is :643; `loom.workflow-load-nullable-unsupported` cites :600, actual :656; `loom.saving-shape-unsupported` cites `system-checks.ts:1282`, actual :1642; `loom.vanilla-document-unsupported` cites :1528, actual is the pass beginning :1659. The test only validates the FORMAT — test/system/unsupported-register.test.ts:131-135 `it(\"cites a site for every row\")` asserts `/^src\\/.+:\\d+$/` and nothing more. The `site` field's stated purpose is 'file:line of the first emission site, FOR THE REVIEWER' (unsupported-register.ts:57), which is exactly what rots. #2667 edits this file but is register-only.\n\n[ALSO REPORTED BY t6-backend as `register-site-lines-unverified` (kind=stale-prose, size=S)]: test/system/unsupported-register.test.ts:131-136 asserts only `/^src\\/.+:\\d+$/`. Sampled three rows against main and all three miss: `loom.mikroorm-unsupported` cites system-checks.ts:2456 (a filter-bypass comment block, :2454-2458); `loom.audited-backend-unsupported` cites :3484 (the line is `const EVENT_SOURCING_BACKENDS = …`, :3482-3484); `loom.context-filter-unsupported` cites :1998 (a `walkExpr` switch arm, :1996-2000). The file's own header comment (unsupported-register.ts, and M-T6.34's Sources line in T6) already warns \"cited by SYMBOL, not line: this file's own citations went stale the moment the cited file was edited\" — the register did not take its own advice."
+        }
+      ],
+      "repro": null,
+      "impact": null,
+      "fix": "Replace the format assertion in test/system/unsupported-register.test.ts:131-135 with a real one: read the cited file, assert `row.code` occurs within a small window of `site`'s line (a ±5-line window is enough to survive formatting churn), and fail with the corrected line number so the fix is mechanical. Then run it once and rewrite the 36 stale sites. This turns `site` into a pinned fact rather than a comment — the same ratchet discipline CLAUDE.md requires of waivers.\n\n[ALTERNATE FIX RECIPE from t6-backend/register-site-lines-unverified]: Either cite the SYMBOL (`system-checks.ts:validateAuditedOperationSupport`) and have the gate resolve it, or keep line numbers and make the gate assert the cited file:line actually matches the row's `code:` literal. The second is the mutation-provable one: move any row's line by ±2 and it must go red.",
+      "size": "S",
+      "sources": [
+        "fleet1:t2-t4-data-workflow"
+      ],
+      "related_to": [
+        "register-rows-closed-missions, register-rows-unowned-workflow-load, register-row-mikroorm-stale, M-T5.3-union-register-rows-stale, M-T1.20-collection-op-gate-misclassified — the same unsupported-register hygiene family"
+      ],
+      "securityClass": false,
+      "P": 5,
+      "reverified": {
+        "date": "2026-09-10",
+        "against": "bc7ed8f8",
+        "method": "reconciliation 3 (packet C0.5) — repro re-run on this head, emitted output read",
+        "verdict": "reproduces",
+        "note": "LARGELY DRAINED, premise corrected.  Re-measured with the row's own method (for each register row carrying a `file:line` site, does the row's `code` appear within ±5 lines?): 4 of 60 miss, not 36 of 46.  The systemic claim in the title is no longer true; four stale pointers remain and the gate still checks only the string SHAPE, so the class is not closed — but this is now a small drain, not a register-wide problem."
+      },
+      "closedBy": "wave L0 (leftover-waves-2026-09-28 §2.1 D9)",
+      "note": "DRAINED, re-verified 2026-09-29 (wave L0 / D9): the gate this row asked for exists — test/system/unsupported-register.test.ts `resolves every row's site to its own code nearby` reads the cited file and requires the row's own `code:` emission within ±20 lines, so a moved raiser now fails CI instead of rotting. The L0 pass then re-pointed every `site:` to the exact line of its code's emission (0 of 62 rows off by any amount)."
     }
   ],
   "declined": [
@@ -7197,48 +7201,47 @@
     }
   ],
   "counts": {
-    "open": 135,
+    "open": 113,
     "byPriority": {
       "P0": 0,
-      "P1": 1,
-      "P2": 11,
-      "P3": 34,
-      "P4": 80,
-      "P5": 9
+      "P1": 0,
+      "P2": 1,
+      "P3": 30,
+      "P4": 76,
+      "P5": 6
     },
     "byKind": {
-      "silent": 12,
-      "honest": 34,
-      "mission": 58,
-      "breadth": 22,
-      "stale-prose": 9
+      "honest": 30,
+      "mission": 57,
+      "breadth": 19,
+      "stale-prose": 6,
+      "silent": 1
     },
     "byConfidence": {
-      "proven": 23,
-      "likely": 111,
+      "proven": 19,
+      "likely": 93,
       "suspected": 1
     },
     "byClass": {
-      "null": 152,
+      "null": 112,
       "faulty-fix": 1
     },
     "bySize": {
-      "M": 58,
-      "L": 43,
-      "S": 34
+      "S": 27,
+      "M": 46,
+      "L": 40
     },
     "bySourceFleet": {
-      "fleet2only": 14,
-      "fleet1only": 137,
-      "both": 1,
-      "unknown": 1
+      "fleet2only": 7,
+      "fleet1only": 105,
+      "both": 1
     },
-    "claimed": 61,
-    "done": 153,
+    "claimed": 60,
+    "done": 176,
+    "declined": 7,
     "conflicts": 10,
     "checkedOk": 146,
     "waveRows": 134,
-    "packets": 13,
-    "declined": 6
+    "packets": 13
   }
 }

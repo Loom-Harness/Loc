@@ -53,6 +53,19 @@ const TOAST_EMIT_JS =
   "e.setAttribute('role','status');e.setAttribute('data-testid','channel-toast');" +
   "e.textContent=m;h.appendChild(e);setTimeout(function(){e.remove();},4000);})($0)";
 
+/** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) — the
+ *  realtime toast's DOM host with an `action-toast` testid, declared before
+ *  the page views (F# is order-sensitive).  Fully-qualified `Fable.Core` names,
+ *  so it needs no `open` of its own. */
+export function renderFelizActionToast(name: string): string {
+  const js = TOAST_EMIT_JS.replaceAll("channel-toast", "action-toast");
+  return lines(
+    "// `Action { …, then: toast(…) }` — a transient built-in toast (M-FT.5).",
+    `[<Fable.Core.Emit("${js}")>]`,
+    `let ${name} (message: string) : unit = Fable.Core.Util.jsNative`,
+  );
+}
+
 /** The distinct aggregates a ui's `on` handlers `refetch(<Agg>)` — folded
  *  into the ui's read set by the caller so the `Api.<all>`/`<All>Loaded`/
  *  Model wiring the subscription re-issues is emitted. */
@@ -60,12 +73,6 @@ export function felizRealtimeRefetchAggregates(ui: UiIR): string[] {
   const out = new Set<string>();
   for (const n of ui.notifications ?? []) for (const r of n.refetches ?? []) out.add(r.aggregate);
   return [...out].sort();
-}
-
-/** True when the ui has at least one live-event handler — the emit gate the
- *  caller combines with the backend actually serving the SSE wire. */
-export function felizHasRealtimeHandlers(ui: UiIR): boolean {
-  return (ui.notifications?.length ?? 0) > 0;
 }
 
 /** The realtime subscription module (helpers + `realtimeSub`), spliced into
@@ -184,8 +191,37 @@ function exprReadsBinding(e: ExprIR, bind: string): boolean {
       return exprReadsBinding(e.inner, bind);
     case "binary":
       return exprReadsBinding(e.left, bind) || exprReadsBinding(e.right, bind);
-    default:
+    // Outside the v1 toast subset, so unreachable rather than merely safe: this
+    // predicate mirrors `renderFsToastMessage`'s supported vocabulary (literal /
+    // ref / member / paren / binary) arm for arm, and
+    // `loom.toast-message-unsupported`
+    // (`src/ir/validate/checks/ui-action-body-checks.ts#toastMessageProblem`)
+    // refuses every kind below at phase ⑦ — the renderer would `throw` on one.
+    // Named rather than left to a `default:` so the three vocabularies (gate,
+    // renderer, this predicate) have to move together.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "literal":
+    case "match":
+    case "method-call":
+    case "new":
+    case "object":
+    case "ternary":
+    case "this":
+    case "unary":
       return false;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return false;
+    }
   }
 }
 
@@ -201,8 +237,35 @@ function felizNeedsToastField(ui: UiIR): boolean {
         return reads(e.inner, bind);
       case "binary":
         return reads(e.left, bind) || reads(e.right, bind);
-      default:
+      // `ref` and `literal` are IN the toast subset but read no FIELD, so they
+      // answer false here too; every other kind is outside the subset entirely
+      // (see `exprReadsBinding` above for the three-way vocabulary argument).
+      // Named rather than left to a `default:` so a widened subset has to be
+      // ruled on here.
+      case "action-ref":
+      case "authz-filter":
+      case "call":
+      case "convert":
+      case "duration":
+      case "i18nFormat":
+      case "id":
+      case "lambda":
+      case "list":
+      case "literal":
+      case "match":
+      case "method-call":
+      case "new":
+      case "object":
+      case "ref":
+      case "ternary":
+      case "this":
+      case "unary":
         return false;
+      default: {
+        const _exhaustive: never = e;
+        void _exhaustive;
+        return false;
+      }
     }
   };
   return (ui.notifications ?? []).some((n) => n.toasts.some((t) => reads(t, n.bind)));

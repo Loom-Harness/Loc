@@ -68,7 +68,8 @@ export const COMPILE_WAIVERS: readonly Waiver[] = [
   //         `test/generator/python/tph-nullable-bool-filter.test.ts`; the shape
   //         also entered the curated corpus as `tph-crossings.ddd`.
   //
-  // Above is the register's surviving W3 entry.  Empty remains the target state —
+  // The register is EMPTY — the W3 entry above (F12) was deleted at the wave C2
+  // fold and has no live successor here.  Empty is the target state —
   // same rule as the wire-differential register: a new divergence is a BUG to
   // fix on the emitter first, and a waiver only when fixing it is a mission of
   // its own with a named exit.

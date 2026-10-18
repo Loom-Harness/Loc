@@ -1,4 +1,4 @@
-function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}} }) {
+function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}}, disabled, disabledReason{{/if}} }: { mut: ReturnType<typeof use{{opPascal}}{{aggregateName}}>{{#if recordVar}}; record: {{recordType}}{{/if}}{{#if gated}}; disabled: boolean; disabledReason: string{{/if}} }) {
   const [open, setOpen] = useState(false);
 {{#each idTargets}}  const {{this.hookVar}} = useAll{{this.namePlural}}();
 {{/each}}  const form = useForm<{{{formGenerics}}}>({
@@ -9,7 +9,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}} }: { mut: Ret
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="{{#if triggerPrimary}}default{{else}}secondary{{/if}}" data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
+        <Button variant="{{#if triggerPrimary}}default{{else}}secondary{{/if}}" {{#if gated}}disabled={disabled} title={disabled ? disabledReason : undefined} {{/if}}data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
       </DialogTrigger>
       <DialogContent data-testid="{{slug}}-op-{{opName}}-form">
         <DialogHeader>

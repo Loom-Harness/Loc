@@ -154,8 +154,35 @@ function sqlExprFamily(e: ExprIR): string | undefined {
     }
     case "ternary":
       return sqlExprFamily(e.then) ?? sqlExprFamily(e.otherwise);
-    default:
+    // No family — and that is SAFE here by construction: this classifier only
+    // ever sees a backfill expression, and `sqlRenderableExpr`
+    // (`src/ir/util/sql-renderable-expr.ts`) has already refused every kind
+    // below with `loom.migration-expr-unsupported`, so reaching one of these is
+    // dead code rather than an unchecked value.  `undefined` means "type
+    // unknown → skip the family comparison", never "types agree".  Named
+    // rather than left to a `default:` so a new `ExprIR` kind is a decision
+    // taken in both places at once.
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
       return undefined;
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return undefined;
+    }
   }
 }
 
