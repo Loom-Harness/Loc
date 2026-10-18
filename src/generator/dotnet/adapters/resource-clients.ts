@@ -402,7 +402,11 @@ function envStem(resourceName: string): string {
 
 const smtpDotnetAdapter: DotnetResourceAdapter = {
   name: "smtp",
-  nugetDeps: () => ({ MailKit: "4.8.0" }),
+  // MimeKit (under MailKit) pulls System.Security.Cryptography.Pkcs 8.0.0,
+  // which carries NU1902/NU1903 advisories (GHSA-2fmv-rv2c-59x7,
+  // GHSA-846f-f764-76mx) that `dotnet build /warnaserror` turns into errors.
+  // Pin the patched line so the restore graph resolves above it.
+  nugetDeps: () => ({ MailKit: "4.8.0", "System.Security.Cryptography.Pkcs": "10.0.13" }),
   emitClientClass(resources, stores, ns): string {
     const lines: string[] = [
       "// Auto-generated.",
