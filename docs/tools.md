@@ -311,6 +311,41 @@ none; from the run after that they are recorded.
 
 ---
 
+## i18n translator workflow (`ddd i18n`)
+
+User-visible strings in generated UIs route through a `t(key, default)` catalog.
+`ddd i18n` is the translator side: `git merge` for strings, backed by the pure
+three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
+
+| Command | What it does |
+|---|---|
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.en.json` (front of the pipeline only, no codegen) |
+| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>.json` (every key as `TODO:`) and the source lock if absent |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale, then advance the lock; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
+| `ddd i18n status <file>` | what `sync` would do; exits non-zero if any locale has pending changes |
+| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers and missing keys; `--strict` exits non-zero on any finding (the CI gate) |
+| `ddd i18n prune <file>` | delete keys the source no longer emits (deliberate, never automatic) |
+
+The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
+overrides it; `generate system --locales <dir>` reads the same tree):
+
+- **BASE** — `locales/.loom/source.lock.json`, the source catalog as of the last
+  successful sync;
+- **OURS** — `locales/<locale>.json`, owned by the translator;
+- **THEIRS** — the fresh extraction.
+
+**Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
+source tree and never writes under `locales/`; reconciling translations is a
+commit-worthy intent (like a migration), and conflicts need a human. The lock
+advances only after every locale has reconciled: rewriting it on every codegen
+would make BASE equal THEIRS, and the merge would have nothing to act on.
+
+**What ships.** `generate system` emits each locale it finds into every frontend
+with a translation runtime, but drops values the translator has not finished
+(`TODO:` values, unresolved conflict markers, `_stale.*` shadows), so `t(key,
+default)` falls back to the source-language default per key. A locale created by
+`init` is registered even while its catalog is still empty.
+
 ## Watch mode
 
 Useful during model design — every save of the `.ddd` file triggers a

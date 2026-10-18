@@ -283,6 +283,24 @@ installs without registry round-trips, builds, and stages `web/dist/` under
 `main` that touches `web/**`. The Playwright e2e specs (`web/e2e/`) gate the
 production-built playground; see `web/e2e/README.md`.
 
+## Conventions for changing the playground
+
+- **One UI vocabulary.** Every user-visible string comes from
+  `web/src/layout/vocabulary.ts` (the RUNTIME / GENERATE / BUNDLE / BOOT / RUN
+  labels, pipeline-stage labels, pane names). A new literal such as "Backend
+  logs" in a `.tsx` is a review reject; `test/playground/runtime-views.test.ts`
+  asserts the copy comes from the vocabulary.
+- **Test ids are a public contract.** The Playwright specs under `web/e2e/`
+  address controls by id (`btn-generate`, `btn-bundle`, `btn-boot`,
+  `devtools-tab-*`, `mobile-tab-*`, `output-stream-select`, `doc-tab-*`, …).
+  Moving a control keeps its id on the new element; removing one lists the specs
+  it edited.
+- **Gates.** The no-network Playwright lane plus the headless
+  `test/playground/*.test.ts` suites gate a change. Anything that bundles or
+  boots runs in the heavy, network-gated lane and must not be the only proof.
+- **No server.** The playground is a static site: no short links, GitHub push,
+  telemetry or multiplayer.
+
 ## One source of truth
 
 The value of the playground is that it is not a demo of Loom — it *is*

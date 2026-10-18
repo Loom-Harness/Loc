@@ -113,6 +113,12 @@ for. Conversely, booting a docker stack to assert a string appears in a
 file would be absurdly slow. Put each assertion at the **lowest altitude
 that can actually catch the failure**.
 
+**In a fresh `git worktree`, run `npm install` first.**
+`test/platform/packaging-split-fs-discovery.test.ts` and
+`packaging-split-core-pkg.test.ts` call `discoverBackendsFs(repoRoot)`, which
+resolves the `node_modules/@loom/backend-hono-v4|v5` workspace symlinks; a
+worktree with no `node_modules` fails both although the code is fine.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a

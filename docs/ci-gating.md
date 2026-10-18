@@ -928,7 +928,7 @@ number while `main`'s SHA does not move. Enumerate the `merge_group` runs on
 each departed ref — if their conclusions are all `success`, it was the window,
 not a gate.
 
-### Two merge-group behaviours worth knowing
+### Three merge-group behaviours worth knowing
 
 - **`pages.yml` builds in the queue but never deploys.** The workflow is split
   into `build` (everything: docs render, playground typecheck, DDL unit, Node
@@ -944,6 +944,60 @@ not a gate.
   unconditionally on a merge candidate with no edit. The readiness test pins
   that: a required job whose `if:` reads `github.event.pull_request` or
   compares `event_name` must use this idiom.
+
+- **An entry whose base moves onto its files is dequeued silently and
+  push-locked.** When `main` takes a commit touching a file an enqueued PR
+  edits, the PR becomes textually unmergeable, but GitHub can keep
+  `mergeable_state: unknown` for hours, build no group for it, let younger
+  entries merge past it, and still refuse pushes with "queued for merging cannot
+  be updated". Disabling auto-merge or toggling draft does not release the lock,
+  and the `dequeued` webhook is best-effort. The tell is a `mergeable_state:
+  unknown` that never resolves while the queue processes younger entries. The
+  remedy is to merge `main` into the head and push once the lock lifts; pre-stage
+  that merge locally so the push can go out the moment the ejection lands.
+  Enqueueing while the queue is empty, after merging `main` pre-emptively when
+  `git merge-tree` shows a conflict, avoids it.
+
+## Reading a check that did not run
+
+- **A check `cancelled` about 15 minutes after it was queued, with no runner
+  name on the job, is runner starvation, not a verdict.** It happens during a
+  GitHub Actions runner-assignment incident; check githubstatus.com before
+  diagnosing and re-run once runners recover. `pr-gate` counts a cancelled run
+  as failed, so the PR otherwise sits red. Read the job (was a runner assigned?
+  which step failed?), never just the conclusion: the same ejection pattern also
+  comes from a real combined-tree failure, where each PR is green alone.
+- **A `pull_request: paths:` filter matches the PR's cumulative diff against
+  base, not the push.** Once any push in a PR touches a listed path, every later
+  push re-fires that workflow, docs-only follow-ups included (a docs-only commit
+  queued `java-obs-e2e` and thirteen other legs because the PR had edited a
+  workflow file eight pushes earlier). Price a path-scoped gate per PR, not per
+  push; batch prose-only fixes into the next code push; keep the PR-aware
+  concurrency group (`group: <wf>-${{ github.event.pull_request.number ||
+  github.ref }}` with `cancel-in-progress` on `pull_request`) so superseded
+  pushes cancel their own legs. `push: main` runs are per-commit and unaffected.
+
+## Tested vs shipped: where a gate does not run the shipped artifact
+
+A gate only proves the artifact it builds. The known places where the tested
+artifact is not the shipped one:
+
+- **.NET.** The behavioural legs boot `dotnet run` (Debug), while the generated
+  Dockerfile ships `dotnet publish -c Release`. The generated csproj never sets `TreatWarningsAsErrors`:
+  `/warnaserror` is a CLI flag the gates pass, so a local compile proof must pass
+  it too, together with the csproj's own `AnalysisLevel`.
+- **Schema.** `schema-load` loads the DDL from the shared Postgres renderer
+  (`src/generator/sql-pg.ts`: node, python, java and the Dapper adapter), not
+  EF's or Ecto's migrations.
+- **Frontend.** `generated-react-build` runs `tsc --noEmit` over the app's
+  `tsconfig.json` and `vite build`; the referenced `tsconfig.node.json` (the
+  vite config) is never typechecked.
+- **End to end.** `conformance-parity` builds and boots the five backends from
+  one example (`examples/showcase.ddd`) and diffs their OpenAPI specs; it does
+  not build the SPA frontends.
+
+When a bug class keeps reaching `main`, check this list before adding a test:
+the usual cause is that the gate built something other than what ships.
 
 ## Force a post-merge gate with a label
 

@@ -1234,6 +1234,9 @@ In a separate PR after the new version has soaked:
 | Adopting `react-router-dom` (v6 name) in new packs targeting an RR-7 stack | v7 renamed to `react-router` |
 | Letting `manifest.version` (or `manifest.stack`) drift from reality | loader throws on version/dir mismatch; a wrong `stack` resolves the wrong framework deps |
 | Externalising React for a React-19 stack | the duplicate-`ReactSharedInternals` bug — React-19 stacks inline React on purpose |
+| Promoting a new CSS-pipeline major (shadcn / Tailwind) with only the `BUILTIN_PACK_LATEST` flip | the playground preview picks the Tailwind runtime from the bundled CSS (`tailwindFlavor` in `web/src/preview/iframe-html.ts`: `@tailwind` → the v3 Play CDN, `@import "tailwindcss"` → `@tailwindcss/browser`), so a new CSS major needs that in-browser path, proven by a deployed preview-runtime spec, before promotion; JS-runtime-styled packs (Mantine / Chakra / MUI) don't |
+| Moving the DEFAULT pack's stack without grepping the tests | walker suites that generate through the default pack hardcode framework literals (e.g. `from "react-router-dom"`); update them in the same PR |
+| Depending on a package with a loose transitive `peerDependency` range | esm.sh resolves it to the latest major in the playground (a chakra icons package pulled React-incompatible v3 despite a v2 pin); avoid such packages or pin tighter |
 
 ## 13. References
 
