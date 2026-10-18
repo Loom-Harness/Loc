@@ -112,6 +112,7 @@ import {
   respondErrorTail,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
+import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
@@ -119,6 +120,30 @@ import { renderFunctionBodyLines } from "./function-emit.js";
  *  name, which is what a cross-context create already emits today. */
 function aggOf(ctx: BoundedContextIR | undefined, aggName: string): AggregateIR | undefined {
   return ctx?.aggregates.find((a) => a.name === aggName);
+}
+
+/** True when a workflow `factory-let` creating `aggName` must hand the
+ *  principal to the create seam: the aggregate's lifecycle stamps read
+ *  `currentUser` (`auditable`'s `createdBy`/`updatedBy`, a `tenantOwned`
+ *  `tenantId`), so the repository insert writes them from the threaded
+ *  `current_user` exactly as the REST controller's create does.  Without it the
+ *  stamped columns persist nil and a NOT NULL audit column rejects the insert. */
+function factoryStampsActor(ctx: BoundedContextIR | undefined, aggName: string): boolean {
+  const agg = aggOf(ctx, aggName);
+  return !!agg && stampUsesPrincipal(agg);
+}
+
+/** A workflow `factory-let` as its context create call — the in-process
+ *  (`internalCreateFn`) entry, carrying the workflow's `current_user` when the
+ *  aggregate stamps the principal.  `fields` is the rendered `key: value` list. */
+function factoryCreateCall(
+  aggName: string,
+  fields: string,
+  contextModule: string,
+  ctx: BoundedContextIR | undefined,
+): string {
+  const actor = factoryStampsActor(ctx, aggName) ? ", current_user" : "";
+  return `${contextModule}.${internalCreateFn(aggName, aggOf(ctx, aggName))}(%{${fields}}${actor})`;
 }
 
 export interface VanillaWorkflowExecResult {
@@ -341,8 +366,7 @@ function lowerStatement(
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
-      const action = `create_${snake(st.aggName)}`;
-      const call = `${contextModule}.${action}(%{${fields}})`;
+      const call = factoryCreateCall(st.aggName, fields, contextModule, ctx);
       // M-T6.21 — `{:ok, _order} <- …` when nothing downstream reads the new
       // aggregate and it is not the workflow's return; the `:ok` match still
       // gates the chain, so a failed create still rolls back.
@@ -705,7 +729,7 @@ function lowerStatement(
                 ? escapeElixirIdent(snake(inner.name))
                 : "_";
               clauses.push(
-                `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+                `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
               );
             } else if (inner.kind === "expr-let") {
               const bind = bindUsedLater(inner.name, rest)
@@ -869,22 +893,20 @@ function opCallThreadsUser(
 }
 
 /** True when the workflow body itself names `currentUser`, OR it calls a
- *  `currentUser`-gated operation (whose context fn takes the trailing actor).
- *  Either way the workflow function must thread `current_user \\ nil` so the
- *  binding is in scope for the rendered guard / op-call.  Recurses into
- *  `for-each` / `if-let` bodies. */
+ *  `currentUser`-gated operation (whose context fn takes the trailing actor),
+ *  OR it creates an aggregate whose lifecycle stamps read the principal.  Any
+ *  of these means the workflow function threads `current_user \\ nil` so the
+ *  binding is in scope for the rendered guard / op-call / create call, at any
+ *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
 function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
-  return workflowUsesCurrentUser(wf) || stmtsCallUserGatedOp(wf.statements, ctx);
-}
-
-function stmtsCallUserGatedOp(sts: WorkflowStmtIR[], ctx: BoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") return opCallThreadsUser(s, ctx);
-    if (s.kind === "for-each") return stmtsCallUserGatedOp(s.body, ctx);
-    if (s.kind === "if-let")
-      return stmtsCallUserGatedOp(s.thenBody, ctx) || stmtsCallUserGatedOp(s.elseBody ?? [], ctx);
-    return false;
-  });
+  if (workflowUsesCurrentUser(wf)) return true;
+  let needs = false;
+  for (const st of wf.statements)
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
+      if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
+    });
+  return needs;
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
@@ -989,7 +1011,7 @@ function renderLoopBody(
         lastBind = escapeElixirIdent(snake(inner.name));
         const bind = bindUsedLater(inner.name, rest) ? lastBind : "_";
         clauses.push(
-          `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+          `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
         );
         if (bind === "_") lastBind = "nil";
         break;
@@ -1186,9 +1208,7 @@ function renderBranchStmt(
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
       const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
-      return [
-        `{:ok, ${bind}} = ${contextModule}.${internalCreateFn(st.aggName, aggOf(ctx, st.aggName))}(%{${fields}})`,
-      ];
+      return [`{:ok, ${bind}} = ${factoryCreateCall(st.aggName, fields, contextModule, ctx)}`];
     }
     case "emit": {
       const fields = st.fields
@@ -1645,7 +1665,8 @@ function renderWorkflowModule(
       : [];
   const body = assembleBody(lines, completedCall, persistLines);
   // A workflow that names `currentUser` in a guard/body — or calls a
-  // `currentUser`-gated op — threads `current_user \\ nil` into `run/1`
+  // `currentUser`-gated op, or creates a principal-stamped aggregate — threads
+  // `current_user \\ nil` into `run/1`
   // (and `run_inner` on the transactional path) so the rendered bare token
   // `current_user` (and the trailing op-call actor) bind.  The
   // `WorkflowsController` passes `conn.assigns[:current_user]`.  A workflow

@@ -19,9 +19,22 @@ export type StampEvent = "create" | "update";
 
 type Stamped = Pick<AggregateIR, "contextStamps">;
 
-/** The stamp assignments for one lifecycle event (create / update). */
+/** The declared stamp events one persist applies.  An INSERT applies the
+ *  `onCreate` rules and then the `onUpdate` rules, so a fresh row reads
+ *  `updated_at`/`updated_by` == the creator — the same row .NET's
+ *  SaveChangesInterceptor and the Hono / Phoenix repository inserts write.
+ *  An UPDATE applies `onUpdate` only. */
+export function stampEventsFor(event: StampEvent): readonly StampEvent[] {
+  return event === "create" ? ["create", "update"] : ["update"];
+}
+
+/** The stamp assignments a persist of `event` applies, in application order
+ *  (on insert the `onUpdate` assignments follow the `onCreate` ones, so a
+ *  field both write ends with its `onUpdate` value). */
 export function stampRules(agg: Stamped, event: StampEvent) {
-  return (agg.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments);
+  return stampEventsFor(event).flatMap((ev) =>
+    (agg.contextStamps ?? []).filter((r) => r.event === ev).flatMap((r) => r.assignments),
+  );
 }
 
 /** Whether this aggregate carries a lifecycle stamp for `event`. */

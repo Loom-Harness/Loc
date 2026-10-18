@@ -39,6 +39,12 @@ system W {
     repository Notes for Note { }
     aggregate Tag { label: string }
     repository Tags for Tag { }
+    aggregate Pin {
+      label: string
+      touchedAt: datetime managed
+      stamp onUpdate { touchedAt := now() }
+    }
+    repository Pins for Pin { }
     event TicketEscalated { ticket: Ticket id }
     channel Lifecycle { carries: TicketEscalated  delivery: broadcast  retention: ephemeral }
     workflow openTicket {
@@ -58,6 +64,7 @@ system W {
       ticketId: Ticket id
       create(e: TicketEscalated) by e.ticket {
         let n = Note.create({ body: "escalated" })
+        let p = Pin.create({ label: "escalated" })
       }
     }
     commandHandler EscalateCmd(ticketId: Ticket id): Ticket id { let t = Tickets.getById(ticketId)  t.escalate()  return t.id }
@@ -120,11 +127,42 @@ describe("python — lifecycle stamps on in-process saves", () => {
     expect(d).toContain(
       [
         '    n = Note.create(body="escalated")',
+        '    p = Pin.create(label="escalated")',
         "    n._stamp_on_create()",
         "    await notes.save(n)",
       ].join("\n"),
     );
     // No principal stamp in this file → no (unused, ruff F401) principal import.
     expect(d).not.toContain("ambient_principal");
+  });
+
+  // An INSERT applies the onCreate rules AND the onUpdate rules, so a fresh row
+  // reads updated_at / updated_by == the creator — the row .NET, Hono and
+  // Phoenix write.  `_stamp_on_create` carries both, so every insert site
+  // (REST route, workflow, handler, reactor) gets them by calling it.
+  it("the create stamp applies the onUpdate rules too", async () => {
+    const files = await generateSystemFiles(SRC);
+    const ticket = files.get("api/app/domain/ticket.py")!;
+    expect(ticket).toContain(
+      [
+        "    def _stamp_on_create(self, current_user: User) -> None:",
+        "        self._due_at = datetime.now(UTC) + timedelta(hours=(self.sla_hours()))",
+        "        self._created_at = datetime.now(UTC)",
+        "        self._created_by = current_user.id",
+        "        self._updated_at = datetime.now(UTC)",
+        "        self._updated_by = current_user.id",
+        "",
+        "    def _stamp_on_update(self, current_user: User) -> None:",
+        "        self._updated_at = datetime.now(UTC)",
+        "        self._updated_by = current_user.id",
+      ].join("\n"),
+    );
+    // An aggregate whose only stamp is `onUpdate` still stamps its inserts.
+    expect(files.get("api/app/domain/pin.py")!).toContain(
+      "    def _stamp_on_create(self) -> None:\n        self._touched_at = datetime.now(UTC)",
+    );
+    expect(files.get("api/app/dispatch.py")!).toContain(
+      ["    p._stamp_on_create()", "    await pins.save(p)"].join("\n"),
+    );
   });
 });
