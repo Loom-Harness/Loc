@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Slice 5c of docs/old/plans/vanilla-foundation-tdd-plan.md — workflow
+// Slice 5c of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md — workflow
 // execution on vanilla.  Companion to slice 5b (workflow-instance read
 // endpoints, #1054).  Together with 5b, this closes the vanilla
 // workflow surface.

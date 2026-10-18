@@ -5,7 +5,7 @@
 // carried in from lowering (see src/ir/types/origin.ts).
 //
 // Construct-granular by default (see
-// docs/old/plans/source-map-debug-kickoff.md §2): `file()` records one region
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md §2): `file()` records one region
 // per emitted file, not per statement/line.  Pooled/merged files
 // (domain/ids.ts, db/schema.ts, ...) are simply never `.file(...)`-recorded
 // — they stay unmapped rather than getting a misleading single-origin
@@ -160,7 +160,7 @@ export function declarationSubRegion(
  *  the cursor-walked `statementSubRegions` — the elixir workflow/reactor
  *  bodies, whose bucketing REORDERS statements relative to source order, so
  *  the single-fragment relative-cursor shape doesn't apply; see M13,
- *  docs/old/plans/source-map-and-debugging.md). */
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md). */
 export function lineCount(content: string): number {
   const parts = content.split("\n");
   const n = content.endsWith("\n") ? parts.length - 1 : parts.length;

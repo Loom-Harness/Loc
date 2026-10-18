@@ -5,7 +5,7 @@
 //
 // Two rules live here, and both used to be hand-copied into every pane — which
 // is how `SystemBuilderV2Pane` shipped without the parse gate at all
-// (`docs/audits/playground-file-mgmt-review-2026-07.md` defect #6):
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md` defect #6):
 //
 //   * READ gate  — a pane must not derive its graph / inspector / write-back
 //     targets from a RECOVERED AST.  Langium's error recovery keeps the

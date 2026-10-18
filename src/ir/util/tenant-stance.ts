@@ -29,7 +29,7 @@ export const TENANT_OWNED_CAPABILITY = "tenantOwned";
 export const TENANT_REGISTRY_CAPABILITY = "tenantRegistry";
 
 /** The field name the `tenantOwned` capability provides for the materialized
- *  DataKey path (`docs/old/plans/multi-tenancy-phase2.md`).  Unlike the
+ *  DataKey path (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md`).  Unlike the
  *  `tenantRegistry`
  *  capability's own `dataKey` (a managed field that stays ON the wire — the
  *  registry's path is meant to be readable), `tenantOwned`'s `dataKey` is a

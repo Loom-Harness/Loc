@@ -18,7 +18,7 @@
 // `heex-walker.ts`; broader HEEx coverage parity with TSX is a
 // separate work item, not a regression target).
 //
-// Design source: `docs/old/plans/phase-a-platform-expansion-prereqs.md`
+// Design source: `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phase-a-platform-expansion-prereqs.md`
 // Item 3.
 
 import * as fs from "node:fs";

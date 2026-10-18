@@ -10,7 +10,7 @@
 // #2690 gave every backend a compile leg, and all five share this register via
 // the `platform` field.)
 //
-// Diagnoses live in `docs/audits/pairwise-corpus-findings-2026-08.md`.
+// Diagnoses live in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md`.
 // ---------------------------------------------------------------------------
 
 import type { Waiver } from "./waivers.js";

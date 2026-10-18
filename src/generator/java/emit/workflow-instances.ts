@@ -166,7 +166,7 @@ function renderInstancesController(
     // long / String), so springdoc emits the matching param schema — guid →
     // `{type: string, format: uuid}`, int/long → integer — parity with Hono /
     // .NET / Python / Phoenix by construction
-    // (docs/old/plans/non-guid-id-http-params.md).
+    // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
     const paramJava = idJava;
     const idExpr = "id";
     const shape = wf.instanceWireShape ?? [];

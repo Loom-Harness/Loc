@@ -11,19 +11,19 @@
 //
 //   1. Which cells are held up by GENERATION ALONE?  A cell that emits and is
 //      never compiled or booted is the silent-gap surface — the class
-//      `docs/audits/quality-audit-2026-08.md` §3 measures as found by episodic
+//      `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/quality-audit-2026-08.md` §3 measures as found by episodic
 //      audit (~58%) rather than by a gate.  Joining the registers turns that
 //      sweep into a per-PR check.
 //   2. Which cells are covered by something STRONGER than a string assertion?
 //      That is the deletion authority for the string-tier drain
-//      (`docs/audits/verification-architecture-2026-08-31.md` §2): a per-target
+//      (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/verification-architecture-2026-08-31.md` §2): a per-target
 //      `toContain` test may be deleted when — and only when — its cell is named
 //      here at `compile` or `behavioural`, because then a stronger gate already
 //      watches the same cell.  Nothing is deleted on judgement.
 //
 // IT ADDS NO REGISTER OF ITS OWN.  Every fact below is READ from the register
 // that already owns it; this module holds a join and no data.  That is
-// deliberate: `docs/audits/gated-features-inventory.md` is the cautionary tale
+// deliberate: `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/gated-features-inventory.md` is the cautionary tale
 // — a hand-maintained matrix of the same shape, now carrying three "Superseded"
 // banners and still cited.  A derived ledger cannot rot, and it fails the day a
 // register moves out from under it.

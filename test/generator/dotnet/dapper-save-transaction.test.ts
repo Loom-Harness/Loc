@@ -1,6 +1,6 @@
 // Dapper `SaveAsync` writes the whole aggregate as ONE transaction.
 //
-// From `docs/audits/repo-code-review-2026-07.md` T3: the Dapper repository's
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md` T3: the Dapper repository's
 // SaveAsync ran the root upsert, the join-table full-list replace (DELETE then
 // per-row INSERT), the containment-tree replace, and the provenance flush as
 // SEPARATE autocommit statements on one connection — with no transaction.  A

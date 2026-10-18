@@ -8,7 +8,7 @@
 //      under the 350 ms debounce, so the CST offsets addressed the wrong text.
 //   2. The splice committed unvalidated: deleting a member can leave a source
 //      the parser rejects, and the builders then refuse to open their own
-//      output.  (`docs/audits/playground-file-mgmt-review-2026-07.md` #12.)
+//      output.  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md` #12.)
 //
 // Both take `source` and re-parse it themselves, so the node they address and
 // the text they edit are the same snapshot, and both return null rather than

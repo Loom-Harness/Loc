@@ -14,7 +14,7 @@
 // fields with non-scalar sub-fields, realtime, etc.) falls back to a diagnostic
 // comment — never broken Dart.  The live gap list is `parity.ts`
 // (`analyzeFlutterParity`) and `docs/generators.md` → "Flutter mobile"; the
-// gap-fill plan is `docs/old/proposals/flutter-parity-and-native-gates.md`.
+// gap-fill plan is `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/flutter-parity-and-native-gates.md`.
 //
 // BUILD SURFACES: one Dart source → web (served by the emitted nginx Dockerfile
 // in compose), Android (`make apk`), iOS (`make ipa`).  No Dart is compiled
@@ -496,7 +496,7 @@ export function generateFlutterForContexts(
   // still builds, which is exactly what the smoke proves.
   out.set("test/widget_test.dart", renderWidgetSmokeTest(pkg));
   // A11y runtime gate (accessibility.md;
-  // docs/audits/flutter-a11y-audit-2026-07.md) — the Flutter analogue of the
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/flutter-a11y-audit-2026-07.md) — the Flutter analogue of the
   // axe-core tripwire, which can't scan a
   // canvas-rendered Flutter build.  Boots the real app with the semantics tree
   // enabled and asserts Flutter's built-in WCAG guidelines on the first frame.

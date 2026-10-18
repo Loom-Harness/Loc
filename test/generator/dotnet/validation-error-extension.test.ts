@@ -1,5 +1,5 @@
 // .NET backend — validation-error extension emission (Phase B of
-// docs/old/proposals/validation-error-extension.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md).
 //
 // Activates the dormant `applied` path in the frontend ACL for the .NET
 // backend.  When a FluentValidation rule fails, the DomainExceptionFilter
@@ -160,7 +160,7 @@ describe(".NET validation-error extension — DomainExceptionFilter emission", (
     // the central matrix in src/ir/util/openapi-errors.ts.  .NET
     // controllers' create / operation / workflow actions carry
     // [ProducesResponseType(typeof(ProblemDetails), 422)] alongside the
-    // existing 400 attribute.  See docs/old/proposals/validation-error-extension.md.
+    // existing 400 attribute.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
     const model = await buildModel("examples/sales.ddd");
     const files = generateDotnet(model);
     const controllerKey = [...files.keys()].find(

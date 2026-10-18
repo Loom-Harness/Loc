@@ -1,6 +1,6 @@
 // RS-10 · Rehydration trusts the store — invariants guard transitions only.
 //
-// S6 of `docs/audits/generated-code-ddd-review-2026-07.md`: node and python
+// S6 of `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md`: node and python
 // construct domain objects on load, and their repositories used to hydrate
 // through the invariant-asserting constructor — so tightening an invariant
 // made every pre-existing row unreadable (every GET/findAll threw), including

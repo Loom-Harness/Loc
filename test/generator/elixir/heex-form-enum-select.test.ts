@@ -1,7 +1,7 @@
 // HEEx form input — enum field renders as `<.input type="select">`.
 //
 // Phase D Slice B from
-// `docs/old/plans/platform-expansion-roadmap.md`.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/platform-expansion-roadmap.md`.
 //
 // Before this slice the walker's `renderFieldInputForField` (in
 // heex-walker.ts:1007) routed enum-typed fields to the legacy

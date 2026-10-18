@@ -1,5 +1,5 @@
 // Cross-backend emission parity for domain `test "…"` blocks — the conformance
-// gate that closes F2 of docs/audits/test-parity-generated-backends.md (the
+// gate that closes F2 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md (the
 // "silent drop" detection gap).
 //
 // The original parity break (F1): a `.ddd` that declares `test` blocks on an

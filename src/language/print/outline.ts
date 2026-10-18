@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Outline + node addressing for the structured-diagnostics contract
-// (docs/old/proposals/ai-diagnostics-contract.md §5).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md §5).
 //
 // `addressOf` turns an AST node into a canonical address
 // `<keyword> <Context>.<Decl>[.<member>]`; `buildOutline` walks a parsed

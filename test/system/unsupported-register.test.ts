@@ -663,7 +663,9 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     const owners = [
       ...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : []))),
     ];
-    expect(owners.length, "no row cites an owner; the check stopped reaching them").toBeGreaterThan(10);
+    expect(owners.length, "no row cites an owner; the check stopped reaching them").toBeGreaterThan(
+      10,
+    );
     const malformed = owners.filter((m) => !/^#\d+$/.test(m));
     expect(malformed, "Register `mission` must be an issue/PR ref `#NNNN`.").toEqual([]);
   });

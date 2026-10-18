@@ -1,6 +1,6 @@
 // Feature: state-controlled `Modal { open: <state> }` (a dialog whose
 // visibility is a page `state` bool), distinct from the operation-form modal.
-// See docs/old/proposals/state-controlled-modal.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/state-controlled-modal.md.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

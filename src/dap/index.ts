@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// `src/dap/` — pure, dependency-free DAP resolution core (docs/old/proposals/
-// source-map-and-debugging.md §6E, docs/old/plans/dap-node-debug.md phase 8).
+// `src/dap/` — pure, dependency-free DAP resolution core (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md
+// §6E, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md phase 8).
 // Hosts the forward core, `translateBreakpoint` — a `.ddd` file+line →
 // generated file:line lookup over a parsed `.loom/sourcemap.json`, the
 // reverse of `src/trace/` — AND BOTH DAP-shaped resolvers built on top of

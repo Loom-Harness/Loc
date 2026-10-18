@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Stack-frame parsing — the first step of `ddd trace` (docs/old/proposals/
-// source-map-and-debugging.md §6B).  Recognizes one stack-frame line per
+// Stack-frame parsing — the first step of `ddd trace` (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md
+// §6B).  Recognizes one stack-frame line per
 // backend's native crash-log dialect and reduces it to a
 // `{file, line}` (for Java `{file, line, javaFqn}`; for V8/Node
 // `{file, line, col}` — the only dialect that carries a column) tuple that

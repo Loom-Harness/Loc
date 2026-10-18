@@ -245,7 +245,7 @@ function quoteJsExprForAttr(expr: string): string {
 
 /** Render a `src`/`alt`-shaped attribute for Vue (`:name="…"`) or Angular
  *  (`[name]="…"`) — the markup-attribute half of M-T1.26's vue/angular
- *  residue (see `docs/new-plan/waves/handoffs/wave-1-python-macros.md`): a
+ *  residue (see `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-1-python-macros.md`): a
  *  LITERAL value renders exactly as every pack has always emitted it (the
  *  plain, unbound attribute — byte-identical), and a DYNAMIC value binds
  *  properly instead of splicing raw JS text into a plain attribute, which

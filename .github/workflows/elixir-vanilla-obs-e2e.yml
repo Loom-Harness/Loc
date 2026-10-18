@@ -13,7 +13,7 @@ name: Elixir / Vanilla runtime e2e (observability)
 #
 # TIER: per-PR, path-scoped, binding through `pr-gate` — with `push: main`
 # kept as the post-merge regression net.  Promoted out of push:main-only by
-# wave G1 packet 1.1 of docs/new-plan/verification-waves-2026-09.md: a runtime
+# wave G1 packet 1.1 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md: a runtime
 # gate that runs only after the merge can only ever report a red `main`.  Cold
 # path is ~3-5min, so the 10min cap below is still comfortable.  The `run-obs`
 # label opt-in is removed; the draft guard on the job below keeps draft PRs on

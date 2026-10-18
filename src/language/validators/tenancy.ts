@@ -1,5 +1,5 @@
 // Tenancy declaration checks (multi-tenancy —
-// docs/old/plans/multi-tenancy-implementation.md §1) — the system-level
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md §1) — the system-level
 // `tenancy by user.<claim> of <Registry>` line.
 //
 // This file owns the single-document AST rules (mirrors `auth.ts`):

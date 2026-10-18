@@ -1273,7 +1273,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // in doubles — also handed off.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
+      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
       "the witness is test/fixtures/corpus/decimal-exact.ddd — a unit `test` block (all five unit tiers) and a `test e2e` block whose golden is test/behavioral/wire-golden/decimal-exact.json; proven RED on node and python before the fix (`expected 0.30000000000000004 to be 0.3`, api and unit tiers) and green on every leg after",
       "numbered RS-37 rather than the RS-38 D-DECIMAL-EXACT-MOMENT's text names: this moment landed before the datetime wire rule D-ABSENT-JOIN-DATETIME-WIRE had reserved RS-37 for, and the registry's gap-free gate refuses RS-38 without an RS-37 — the datetime rule takes the next free number when it lands",
     ],

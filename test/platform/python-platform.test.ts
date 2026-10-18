@@ -13,7 +13,7 @@ import { diagText } from "../_helpers/diagnostics.js";
 // `python` is the canonical language-ecosystem platform name.  The
 // `fastapi` framework-spelled platform alias was RETIRED (mirroring the
 // retired `hono` → `node` and `phoenix` → `elixir` aliases): `python` is
-// the only spelling.  See docs/old/plans/python-backend-plan.md (S1).
+// the only spelling.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/python-backend-plan.md (S1).
 // ---------------------------------------------------------------------------
 
 async function parse(source: string) {

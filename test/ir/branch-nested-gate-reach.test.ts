@@ -257,7 +257,7 @@ describe("IR gates reach into branch bodies (CR1-e)", () => {
 
   it("loom.method-call-unresolved-receiver — a call inside an i18n template hole", async () => {
     // The page-body walk's hole, one union over: `i18nFormat` is a TRANSPARENT
-    // wrapper (`docs/new-plan/T1-ui-frontend.md` § M-T1.11) that every backend
+    // wrapper (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md` § M-T1.11) that every backend
     // renders through, and the hand-rolled descent had no arm for it — so every
     // gate this module raises was blind to whatever a `, format` hole contained.
     expect(

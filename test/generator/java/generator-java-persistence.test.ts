@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java backend — persistence emission (slice S4 of
-// docs/old/plans/java-backend-implementation.md): JPA annotations bound to the
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md): JPA annotations bound to the
 // MigrationsIR-derived schema, the repository triple (domain port /
 // Spring Data interface with @Query JPQL / impl), Flyway migration files,
 // and the single-containment fail-fast gate.

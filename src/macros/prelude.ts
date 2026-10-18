@@ -89,8 +89,8 @@ function buildSoftDeletable(): Capability {
 /** `capability tenantOwned { tenantId (internal) + dataKey (internal) +
  * onCreate stamp from the principal's claim + orgPath + filter this.tenantId
  * == currentUser.tenantId }` — the tenant-data marker of multi-tenancy Phase
- * 1a (docs/old/plans/multi-tenancy-implementation.md), extended by
- * (docs/old/plans/multi-tenancy-phase2.md) with the
+ * 1a (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md), extended by
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md) with the
  * materialized `dataKey` path.  Combines `auditable`'s principal-stamp shape
  * with `softDeletable`'s filter shape: every read is scoped to the caller's
  * tenant, every create is stamped with it, and `internal` keeps both
@@ -152,7 +152,7 @@ function buildTenantOwned(): Capability {
 
 /** `capability tenantRegistry { parent: Self id? (immutable) + dataKey: string?
  * (managed) }` — the tenant-registry TREE capability of multi-tenancy
- * (docs/old/plans/multi-tenancy-phase2.md, slice).  The registry aggregate —
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md, slice).  The registry aggregate —
  * the `of <Registry>` target of `tenancy by user.<claim> of <Registry>` — opts
  * into hierarchy by carrying `implements tenantRegistry`, which PROVIDES:
  *

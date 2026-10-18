@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 //
 // THE RULE IS BUMP-TO-GROW, NOT ONLY-FALLS.  A hard "may only fall" ceiling
 // was rejected on evidence: of the 42 scenarios duplicated across target dirs,
-// 39 have no corpus fixture (docs/audits/verification-architecture-2026-08-31.md
+// 39 have no corpus fixture (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/verification-architecture-2026-08-31.md
 // §5), so their string tests are the ONLY gate they have.  A ceiling that
 // forces a deletion per addition would delete those — the tier shrinks and the
 // coverage goes with it.  The tier is reduced by PROMOTION instead (a corpus

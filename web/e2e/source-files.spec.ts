@@ -1,7 +1,7 @@
 // Source-file management e2e: adding a `.ddd` file through the real tree UI
 // has to have an OBSERVABLE consequence.
 //
-// The audit's headline finding (docs/audits/playground-file-mgmt-review-2026-07.md
+// The audit's headline finding (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md
 // §1, defects #4/#5) was that it didn't: `createSourceFile` fired an unawaited
 // `write`, flipped the active path immediately, scheduled no regenerate, and
 // swallowed every rejection to `console.error`.  The user saw a row appear,
