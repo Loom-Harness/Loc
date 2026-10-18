@@ -348,9 +348,7 @@ function renderPagedRunHandlerClass(
   };
   const critArgs = run.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
   const callArgs = [...critArgs, "page", "pageSize", "sort", "dir"].join(", ");
-  const params = flat
-    .map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`)
-    .join(", ");
+  const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
     .filter(Boolean)
     .join(", ");
@@ -471,9 +469,7 @@ function renderHandlerClass(
   // through unchanged, keeping the flat-param handlers byte-identical).
   const internalRet = normalizeHandlerReturn(h.returnType, ctx);
   const retType = internalRet ? renderJavaType(internalRet) : "void";
-  const params = flat
-    .map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`)
-    .join(", ");
+  const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
 
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
