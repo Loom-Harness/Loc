@@ -158,12 +158,12 @@ async function main() {
         dispatched("AppointmentRequested") === before + 1,
         `dispatched=${dispatched("AppointmentRequested") - before}`,
       );
-      const bad = await post("/api/appointments", { ...params, patient: "" });
+      const bad = await post("/api/appointments", { ...params, patient: "x" });
       check("a failed create precondition answers 422", bad.status === 422, `status=${bad.status}`);
       check(
         "its detail is the precondition's message",
-        bad.body?.detail === "A patient is required" ||
-          bad.body?.errors?.some?.((e) => e.message === "A patient is required"),
+        bad.body?.detail === "A patient name needs two characters" ||
+          bad.body?.errors?.some?.((e) => e.message === "A patient name needs two characters"),
         JSON.stringify(bad.body),
       );
       check(

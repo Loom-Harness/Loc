@@ -4,7 +4,7 @@
 //
 // The fixture is the corpus `create-contract.ddd`, whose create carries
 //
-//     precondition patient.length > 0 message "A patient is required"
+//     precondition patient.length >= 2 message "A patient name needs two characters"
 //     emit AppointmentRequested { appointment: id, patient: patient, minutes: minutes }
 //
 // The runtime proof is `test/behavioral/create-contract.mjs` (a booted Hono
@@ -41,7 +41,7 @@ describe("the canonical create body runs on every backend", () => {
     expect(call).toBeGreaterThan(at(src, "const inst = new Appointment({"));
     expect(src).toContain("private _createBody(patient: string, minutes: number): void {");
     expect(src).toContain(
-      'if (!([...patient].length > 0)) throw new DomainError("A patient is required", "msg.4rnahg", "/patient");',
+      'if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "msg.ojnyph", "/patient");',
     );
     expect(src).toContain(
       'this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient, minutes: minutes });',
@@ -52,7 +52,7 @@ describe("the canonical create body runs on every backend", () => {
     const src = file(await on("dotnet"), "Domain/Appointments/Appointment.cs");
     expect(src).toContain("e._CreateBody(patient, minutes);");
     expect(src).toContain("private void _CreateBody(string patient, int minutes)");
-    expect(src).toContain('"A patient is required"');
+    expect(src).toContain('"A patient name needs two characters"');
     expect(src).toContain("new AppointmentRequested(");
   });
 
@@ -60,7 +60,7 @@ describe("the canonical create body runs on every backend", () => {
     const src = file(await on("java"), "appointments/Appointment.java");
     expect(src).toContain("e._createBody(patient, minutes);");
     expect(src).toContain("private void _createBody(String patient, int minutes) {");
-    expect(src).toContain('"A patient is required"');
+    expect(src).toContain('"A patient name needs two characters"');
     expect(src).toContain("new AppointmentRequested(");
   });
 
@@ -68,7 +68,7 @@ describe("the canonical create body runs on every backend", () => {
     const src = file(await on("python"), "app/domain/appointment.py");
     expect(src).toContain("inst._create_body(patient, minutes)");
     expect(src).toContain("def _create_body(self, patient: str, minutes: int) -> None:");
-    expect(src).toContain('"A patient is required"');
+    expect(src).toContain('"A patient name needs two characters"');
     expect(src).toContain("AppointmentRequested(");
   });
 
@@ -78,7 +78,7 @@ describe("the canonical create body runs on every backend", () => {
     const fn = ctx.slice(at(ctx, "def create_appointment(attrs) do"));
     const guard = at(
       fn,
-      ':ok <- ensure(length(String.to_charlist(patient)) > 0, {:precondition_failed, %{detail: "A patient is required"',
+      ':ok <- ensure(length(String.to_charlist(patient)) >= 2, {:precondition_failed, %{detail: "A patient name needs two characters"',
     );
     const insert = at(fn, "case D.Scheduling.AppointmentRepository.insert(attrs) do");
     const event = at(
@@ -94,7 +94,9 @@ describe("the canonical create body runs on every backend", () => {
     // The pure domain core (the unit tests' `Appointment.create`) guards too,
     // and binds only the param its guard reads.
     const core = file(files, "lib/d/scheduling/appointment.ex");
-    expect(core).toContain('{:error, {:precondition_failed, "A patient is required"}}');
+    expect(core).toContain(
+      '{:error, {:precondition_failed, "A patient name needs two characters"}}',
+    );
     expect(core.slice(at(core, "def create(attrs)"), at(core, "def confirm("))).not.toContain(
       "minutes = record.minutes",
     );

@@ -42,7 +42,7 @@ system CreateContract {
         invariant minutes >= 10 && minutes <= 120 message "Duration must be 10–120 minutes"
 
         create(patient: string, minutes: int, fee: Fee) {
-          precondition patient.length > 0 message "A patient is required"
+          precondition patient.length >= 2 message "A patient name needs two characters"
           emit AppointmentRequested { appointment: id, patient: patient, minutes: minutes }
         }
 
@@ -52,7 +52,7 @@ system CreateContract {
 
 
         test "the factory initialises every field the create does not list" {
-          let a = Appointment.create({ patient: "p", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })
+          let a = Appointment.create({ patient: "pat", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })
           expect(a.status).toBe(Requested)
           expect(a.room).toBe("A1")
           expect(a.priority).toBe(3)
@@ -61,7 +61,7 @@ system CreateContract {
         }
 
         test "the create body's precondition guards construction" {
-          expect(Appointment.create({ patient: "", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })).toThrow()
+          expect(Appointment.create({ patient: "x", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })).toThrow()
         }
       }
 
@@ -103,7 +103,7 @@ system CreateContract {
     expect(listed.total).toBe(1)
 
     // The create body's precondition reads a param and refuses with a 422.
-    expect(api.appointments.create({ patient: "", minutes: 30, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)
+    expect(api.appointments.create({ patient: "x", minutes: 30, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)
 
     // The narrowed input still carries the aggregate's invariant.
     expect(api.appointments.create({ patient: "p-2", minutes: 5, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)

@@ -111,11 +111,11 @@
       "path": "/api/appointments",
       "status": 422,
       "body": {
-        "detail": "A patient is required",
+        "detail": "A patient name needs two characters",
         "errors": [
           {
-            "code": "msg.4rnahg",
-            "message": "A patient is required",
+            "code": "msg.ojnyph",
+            "message": "A patient name needs two characters",
             "pointer": "/patient"
           }
         ],

@@ -392,7 +392,7 @@ aggregate Appointment {
   patient: string
   status: AppointmentStatus = Requested
   create(patient: string) {
-    precondition patient.length > 0 message "A patient is required"
+    precondition patient.length >= 2 message "A patient name needs two characters"
     emit AppointmentRequested { appointment: id, patient: patient }
   }
 }
@@ -410,7 +410,7 @@ static create(input: { patient: string }): Appointment {
 }
 
 private _createBody(patient: string): void {
-  if (!([...patient].length > 0)) throw new DomainError("A patient is required", "msg.4rnahg", "/patient");
+  if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "msg.ojnyph", "/patient");
   this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient });
 }
 ```
@@ -420,7 +420,7 @@ private _createBody(patient: string): void {
 def create_appointment(attrs) do
   with {:ok, record} <- Ecto.Changeset.apply_action(AppointmentChangeset.base_changeset(AppointmentChangeset.take_create_attrs(attrs)), :insert),
        patient = record.patient,
-       :ok <- ensure(length(String.to_charlist(patient)) > 0, {:precondition_failed, %{detail: "A patient is required", code: "msg.4rnahg", pointer: "/patient"}}) do
+       :ok <- ensure(length(String.to_charlist(patient)) >= 2, {:precondition_failed, %{detail: "A patient name needs two characters", code: "msg.ojnyph", pointer: "/patient"}}) do
     case AppointmentRepository.insert(attrs) do
       {:ok, record} ->
         loom_event_0 = %Scheduling.Events.AppointmentRequested{appointment: record.id, patient: patient}
