@@ -136,5 +136,27 @@ system ContainedPartRemoval {
     api.carts.dropTag(c, { t: t1.id })
     let tagged = api.carts.getById(c)
     expect(tagged.tags.length).toBe(1)
+
+    // The rest of the derived surface, each through a real call.  The canonical
+    // update rewrites the declared fields only — the contained line survives it.
+    api.carts.update(c, { name: "c2", charges: [{ label: "z", amount: 2 }], tags: [t2.id] })
+    let updated = api.carts.getById(c)
+    expect(updated.name).toBe("c2")
+    expect(updated.lines.length).toBe(1)
+    expect(updated.charges.length).toBe(1)
+    let tag = api.tags.getById(t1)
+    expect(tag.name).toBe("t1")
+    api.tags.update(t1, { name: "t1b" })
+    let tags = api.tags.all()
+    expect(tags.items.length).toBe(2)
+    let carts = api.carts.all()
+    expect(carts.items.length).toBe(1)
+    // The DELETE takes the cart's child, value and join rows with it.
+    api.carts.destroy(c)
+    let none = api.carts.all()
+    expect(none.items.length).toBe(0)
+    api.tags.destroy(t1)
+    let oneTag = api.tags.all()
+    expect(oneTag.items.length).toBe(1)
   }
 }

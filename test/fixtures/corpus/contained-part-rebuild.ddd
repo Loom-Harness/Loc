@@ -69,5 +69,16 @@ system ContainedPartRebuild {
     expect(after.lines.length).toBe(1)
     expect(after.lines.first().notes.length).toBe(1)
     expect(after.lines.first().notes.first().text).toBe("b")
+
+    // The rest of the derived surface: the canonical update leaves the rebuilt
+    // line in place, and the DELETE takes its line and note rows with it.
+    api.carts.update(c, { name: "c2" })
+    let updated = api.carts.getById(c)
+    expect(updated.lines.length).toBe(1)
+    let listed = api.carts.all()
+    expect(listed.items.length).toBe(1)
+    api.carts.destroy(c)
+    let none = api.carts.all()
+    expect(none.items.length).toBe(0)
   }
 }

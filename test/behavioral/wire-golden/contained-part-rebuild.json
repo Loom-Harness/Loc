@@ -51,6 +51,89 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/carts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "notes": [
+              {
+                "id": "<volatile:key>",
+                "text": "b"
+              }
+            ],
+            "qty": 2,
+            "sku": "B"
+          }
+        ],
+        "name": "c2",
+        "version": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "id": "<volatile:key>",
+                "notes": [
+                  {
+                    "id": "<volatile:key>",
+                    "text": "b"
+                  }
+                ],
+                "qty": 2,
+                "sku": "B"
+              }
+            ],
+            "name": "c2",
+            "version": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/carts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 9,
       "method": "PATCH",
       "path": "/api/carts",
       "status": 405,
@@ -63,7 +146,7 @@
       }
     },
     {
-      "seq": 5,
+      "seq": 10,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -76,7 +159,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 11,
       "method": "POST",
       "path": "/api/carts",
       "status": 400,

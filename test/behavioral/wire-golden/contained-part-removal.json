@@ -301,6 +301,175 @@
     },
     {
       "seq": 22,
+      "method": "POST",
+      "path": "/api/carts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "charges": [
+          {
+            "amount": 2,
+            "label": "z"
+          }
+        ],
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "notes": [
+              {
+                "id": "<volatile:key>",
+                "text": "B"
+              }
+            ],
+            "qty": 2,
+            "sku": "B"
+          }
+        ],
+        "name": "c2",
+        "tags": [
+          "<uuid>"
+        ],
+        "version": 15
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/tags/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "t1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/tags/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/tags",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "t1b",
+            "version": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "t2",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "charges": [
+              {
+                "amount": 2,
+                "label": "z"
+              }
+            ],
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "id": "<volatile:key>",
+                "notes": [
+                  {
+                    "id": "<volatile:key>",
+                    "text": "B"
+                  }
+                ],
+                "qty": 2,
+                "sku": "B"
+              }
+            ],
+            "name": "c2",
+            "tags": [
+              "<uuid>"
+            ],
+            "version": 15
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 28,
+      "method": "DELETE",
+      "path": "/api/carts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 30,
+      "method": "DELETE",
+      "path": "/api/tags/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 31,
+      "method": "GET",
+      "path": "/api/tags",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "t2",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 32,
       "method": "PATCH",
       "path": "/api/carts",
       "status": 405,
@@ -313,7 +482,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 33,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -326,7 +495,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 34,
       "method": "POST",
       "path": "/api/carts",
       "status": 400,
