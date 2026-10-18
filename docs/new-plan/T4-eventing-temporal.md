@@ -44,6 +44,8 @@ The ~100%-of-apps integrations: an email adapter (resource kind — smtp/ses/sen
 **Email landed (foundation + all-five-backend emission):** surface `kind: mailer` → infra kind `email`; sourceTypes smtp/ses/sendgrid; one `mail.send(to, subject, body)` verb consumed from workflows. Grammar/IR/registry/verb-table + ResourceAdapters on hono (nodemailer), .NET (MailKit), java (Jakarta Mail), python (aiosmtplib), phoenix (Swoosh) — each with SES/SendGrid siblings — plus a Mailpit dev compose sidecar. Call-site rendering was already verb-name-generic (no per-backend change). Unit-gated (registry/lowering/negative-verb/cross-backend emission/compose). **4.6-email-b landing** (PRs #2051/#2059/#2065): the emitted vendor clients are compile-gated per backend via the corpus/elixir-vanilla build fixtures (with a `<NuGetAuditSuppress>` for MailKit's transitive NU1902), and a `LOOM_EMAIL_E2E` **Mailpit** runtime leg — fanned across all five backends — boots the generated backend and asserts `mail.send(...)` delivers into a Mailpit inbox. **Remaining:** templated/HTML email (4.6-email-c, own proposal), `job`, and the File follow-ons (other-backend endpoints, s3 presign, the `FileUpload` UI primitive) tracked under M-T1.2.
 Sources: [quickstart-and-day-one-batteries](../old/proposals/quickstart-and-day-one-batteries.md) §5, completeness-audit Tier 1; email slice plan: [email-resource-kind](../old/proposals/email-resource-kind.md).
 
+**`job` evidence, appended 2026-10-12 (helpdesk evaluation, finding E3; fleet slice H8, claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259)). It is the concrete cost of the `timerSource` shape the [`job` design](missions/M-T4.6-command-dispatch-and-jobs-design.md#scheduling--one-job-construct-timersource-folds-in) retires.** A timer reaches domain logic only through a workflow that reacts to the tick *by a correlation key*. Re-verified on `main` @ `801e0f2b`: `timerSource tk { for: Tick, every: 30s }` plus `workflow sweep { create(t: Tick) { … } }` (no `by`) draws `loom.timer-source-unbound`, *"no workflow reacts to it ('on(_: Tick)' / 'create(_: Tick) by …'). The timer will run and emit into the void"* (`src/ir/validate/checks/timer-checks.ts`). So the helpdesk's SLA sweep needed `event SlaTick { sweep: SlaSweep id, at: datetime }` and a phantom `aggregate SlaSweep { at: datetime }` that exists only to be a correlation id. That phantom earned a "no code path can create" suggestion, two deny-by-default warnings, a `sla_sweeps` table (which then collided with the `slaSweep` workflow's table, finding G2) and a scaffolded UI page. `job { every 30s -> SweepOverdue }`, dispatching a stateless command or handler, removes all of it: no tick event, no correlation, no aggregate. That is the design's checklist point 2 ("no instance identity") made concrete. **Interim, until `job` lands:** either accept a by-less `create(t: <TimerEvent>)` as a stateless, per-tick reaction (no correlation row, no instance table), or make `loom.timer-source-unbound` name the phantom-aggregate cost and point at this mission. Do not leave the author to discover the phantom pattern. Verification for the interim: a timer fixture with a by-less reaction compiled on all five tiers, with no instance table in `MigrationsIR`.
+
 ## M-T4.7 — Workflow family v2 — `open` · **L** · P3
 Remaining deferred reframes: **snapshots** (aggregate + saga state — unbuilt, grep `snapshot` in the workflow emitters is empty); `repo-let` arrays/nullables (gated).
 **FROZEN — the saga compensation contract (owner decision, 2026-07-28): not now.** The `compensated` workflow / `compensatedBy <op>` surface + reverse-dispatch runtime stays deferred indefinitely — it is *not* open design work and should not be picked up or scoped. Rationale: the three open questions in [workflow-and-applier](../old/proposals/workflow-and-applier.md) §"Why sagas are deferred" (failure-trigger, compensation-scope, validator-vs-automatic mechanism) plus a 5-backend forward-step-log/reverse-dispatch runtime make it high-cost, and sagas are **already expressible today** — authors write a form-4 workflow with explicit failure handlers calling inverse operations by hand. Revisit only if a concrete multi-step distributed-transaction use case demands the compile-time guard rails + runtime automation; until then, frozen.
@@ -104,3 +106,31 @@ Item **P13** (#2944). When a channel consumer's handler throws, every backend lo
 **The fix:** one catalog event (`channel_consume_failed`) rendered on all five, then a bounded retry with a DLQ destination per broker, or an explicit ruling that `ephemeral` means at-most-once (and the docs saying so).
 
 **Verification.** The five `*-obs-e2e` legs assert the catalog event on a seeded handler failure; `channels-e2e` (run locally — it is in neither the per-PR set nor the queue) covers the retry.
+
+## M-T4.14 — Lint: a workflow loop over a retrieval calls a `when`-gated operation whose gate the criterion does not imply — `open` · **S–M** · P3 (suggestion only)
+
+*Minted 2026-10-12 by fleet slice H8 of the helpdesk evaluation (claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259); finding **A7**), re-verified on `main` @ `801e0f2b`.*
+
+The helpdesk's SLA sweep ran:
+
+```ddd
+criterion Overdue(at: datetime) of Ticket = status != Resolved && dueAt < at
+let due = Tickets.run(OverdueTickets(t.at))
+for ticket in due { ticket.flagBreached() }          // operation flagBreached() when !breached && status != Closed
+```
+
+The first already-breached ticket made the `when` gate refuse it with a 409. The whole timer run aborted (`timer_emit_failed`), with no partial commit. **That is as designed:** D-WHEN-GATE-DOMAIN runs the gate inside the domain method on every caller, and D-WRITE-TX makes the workflow one transaction. The model was wrong, because the criterion did not imply the gate. Fleet slice H7 documents the behaviour. This mission adds a cheap static hint so the next author catches it at generate time.
+
+**Sketch.** A **suggestion**, never an error or warning, because implication is undecidable in general and a false positive must not block a build. Call it `loom.loop-gate-not-implied`. It fires when all of these hold:
+- a workflow, `commandHandler` or `on` body contains `for x in xs { … x.op(…) … }`;
+- `xs` is bound by `let xs = Repo.run(R(args))` (the only legal `for` source, per `loom.workflow-foreach-source`);
+- `op` carries a `when` gate;
+- a conservative syntactic check cannot show that `R`'s criterion (after inlining named criteria) implies the gate. Take the gate as a conjunction of atoms; each atom must occur among the criterion's conjuncts, or be entailed by one of them through a small table (`a == V` entails `a != W` for distinct enum values V and W; `b == false` entails `!b`).
+
+Message sketch: *"`Ticket.flagBreached` is gated `when !breached && status != Closed`, but retrieval `OverdueTickets` does not guarantee `!breached`. One non-matching row refuses the call with a 409 and aborts the whole workflow. Add the conjunct to criterion `Overdue`, or wrap the call in an `if` that tests the gate condition."*
+
+It must walk the IR through `src/ir/util/walk.ts` (`walkWorkflowStmtsDeep`), not a hand-rolled traversal (`test/system/ir-walk-census.test.ts`). The message goes in `src/diagnostics/messages.ts`.
+
+**Verification.** A firing fixture (the helpdesk shape) and a non-firing one (the criterion carries `breached == false`), registered in `FIRING_FIXTURES`, plus `diagnostic-catalog` and `diagnostic-firing-census`. Mutation-prove by deleting the implication table's enum arm and watching the non-firing fixture start firing.
+
+Relates to M-T5.4 (criterion tails) and M-T4.6 (`job`, the construct the sweep should become). Per-item isolation for a sweep (a partial commit, a per-row savepoint, or a dead-letter list) is a **different, owner-level** question against D-WRITE-TX. Do not fold it in here.
