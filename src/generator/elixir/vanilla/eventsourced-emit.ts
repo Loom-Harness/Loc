@@ -40,11 +40,15 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FindIR,
+  InvariantIR,
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { messageCode } from "../../../util/message-code.js";
+import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -62,19 +66,83 @@ export function isEventSourced(agg: AggregateIR): boolean {
 }
 
 /** Does any event-sourced aggregate in this context declare a command body
- *  (create / operation) with a `precondition` / `requires` guard, or an operation
- *  with a `when` state gate?  All three hoist to an `ensure/2` with-clause, so any
- *  of them drives whether the context module emits the private `ensure/2` helper
+ *  (create / operation) with a `precondition` / `requires` guard, an operation
+ *  with a `when` state gate, or an invariant its commands assert?  All four hoist
+ *  to an `ensure/2` with-clause, so any of them drives whether the context module emits the private `ensure/2` helper
  *  (emitting it unused would fail `mix compile --warnings-as-errors`). */
 export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
-  return ctx.aggregates
-    .filter(isEventSourced)
-    .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
-    .some(
-      (op) =>
-        op.when !== undefined ||
-        op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
-    );
+  return (
+    ctx.aggregates
+      .filter(isEventSourced)
+      .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
+      .some(
+        (op) =>
+          op.when !== undefined ||
+          op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
+      ) ||
+    ctx.aggregates.some(
+      (agg) => isEventSourced(agg) && esHasCommands(agg) && esEnforcedInvariants(agg).length > 0,
+    )
+  );
+}
+
+/** True when the ES aggregate has a command runner the invariants ride: a
+ *  create, or a public operation (the context block's own filter). */
+function esHasCommands(agg: AggregateIR): boolean {
+  return (
+    (agg.creates ?? []).length > 0 ||
+    agg.operations.some((op) => op.visibility === "public" && !CRUD_OP_NAMES.has(op.name))
+  );
+}
+
+/** One aggregate invariant as the event-sourced command path asserts it on the
+ *  FOLDED state, after the command's events are applied and before they are
+ *  appended — node's `_assertInvariants()` after the fold, and the same place
+ *  .NET / java / python check it.  An invariant guards a TRANSITION, so a stored
+ *  stream is never re-checked on load (RS-10).
+ *
+ *  `predicate` is the Elixir boolean (a guarded rule renders as the
+ *  implication `not (guard) or (rule)`); `term` is the denial the runner
+ *  short-circuits to.  The denial rides the `precondition_failed` rung, the
+ *  domain floor (RS-15): 422 "Unprocessable Entity" with the rule's message as
+ *  `detail`, which is what the other four backends' `DomainError` answers.  A
+ *  MESSAGED rule carries its `msg.<hash>` code and pointer in a map detail, so
+ *  ProblemDetails adds the one `errors[]` entry the other backends' coded throw
+ *  gets; a message-less rule's detail is the derived `Invariant violated:
+ *  <source>`, byte-identical to theirs. */
+export interface EsInvariantCheck {
+  readonly predicate: string;
+  readonly term: string;
+  /** The plain message — what a pure-core raise carries. */
+  readonly message: string;
+}
+
+/** The invariants this backend can evaluate against the in-memory folded struct.
+ *
+ *  The judgement is the changeset carrier's (`renderableHere`), with no field
+ *  treated as opaque: an ES aggregate has no association to load, so a
+ *  reference collection (`X id[]`) is the id list the fold built, readable like
+ *  any other field.  What the judgement refuses (a domainService / resource
+ *  call) is reported by `loom.elixir-invariant-unenforced` rather than dropped. */
+function esEnforcedInvariants(agg: AggregateIR): InvariantIR[] {
+  return (agg.invariants ?? []).filter((inv) => renderableHere(inv, new Set()));
+}
+
+export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantCheck[] {
+  // `this-derived` reads inline their defining expression only when the render
+  // context carries the aggregate's derived index.
+  const ctx: RenderCtx = { ...rc, agg: { derived: agg.derived ?? [] } as RenderCtx["agg"] };
+  return esEnforcedInvariants(agg).map((inv) => {
+    const rule = renderExpr(inv.expr, ctx);
+    const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
+    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const term = inv.message
+      ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
+          messageCode(inv.message.text),
+        )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
+      : `{:precondition_failed, ${elixirString(message)}}`;
+    return { predicate, term, message };
+  });
 }
 
 /** The private guard helper shared by the ES command runners in a context
@@ -102,6 +170,10 @@ export function emitVanillaEventSourcedFiles(
   channels?: ElixirChannelsCfg,
   /** Wired-but-foreign channels widening the dispatcher-existence check. */
   wiredForeignChannels: ChannelIR[] = [],
+  /** The pure domain core spliced into each aggregate's struct module
+   *  (`domain-core-emit.ts`'s `renderEventSourcedPureCore`); `[]` when no unit
+   *  test reaches the aggregate. */
+  pureCore: (agg: AggregateIR) => readonly string[] = () => [],
 ): void {
   const ctxModule = upperFirst(ctx.name);
   const appSnake = toAppSnake(appModule);
@@ -114,7 +186,7 @@ export function emitVanillaEventSourcedFiles(
     if (!isEventSourced(agg)) continue;
     const aggSnake = snake(agg.name);
     const base = `lib/${appSnake}/${ctxSnake}`;
-    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg));
+    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg, pureCore(agg)));
     out.set(
       `${base}/${aggSnake}_event_log.ex`,
       renderEventLogSchema(appModule, ctxModule, agg, ctxSnake, ctxSchema),
@@ -154,15 +226,21 @@ function structFields(agg: AggregateIR): string[] {
 
 // --- `<Agg>` plain struct ---------------------------------------------------
 
-function renderStructModule(appModule: string, ctxModule: string, agg: AggregateIR): string {
+function renderStructModule(
+  appModule: string,
+  ctxModule: string,
+  agg: AggregateIR,
+  pureCore: readonly string[],
+): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const fields = structFields(agg);
+  const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "Event-sourced aggregate — in-memory state folded from its event stream (no state table)."
-  defstruct [${fields.map((f) => `:${f}`).join(", ")}]
+  defstruct [${[...fields.map((f) => `:${f}`), "__stream_version__: 0"].join(", ")}]
   @type t :: %__MODULE__{}
-end
+${pureCoreBlock}end
 `;
 }
 
@@ -241,7 +319,10 @@ defmodule ${aggModule}Fold do
 
   @spec from_events(binary(), [struct()]) :: ${aggModule}.t()
   def from_events(id, events) do
-    Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    folded = Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    # A stream is gap-free from 1, so the folded count IS its head version: the
+    # expected version of this handle's next append (M-T6.98).
+    %{folded | __stream_version__: length(events)}
   end
 
 ${clauses.join("\n\n")}
@@ -358,20 +439,17 @@ defmodule ${repoMod} do
     end
   end
 
-  @doc "Append gap-free event versions to the aggregate's stream."
-  @spec append(binary(), [struct()]) :: :ok | {:error, term()}
-  def append(_id, []), do: :ok
+  @doc """
+  Append \`events\` to the aggregate's stream after \`expected_version\` — the
+  version the caller's handle was folded to (M-T6.98).  A handle some other
+  append has moved past re-inserts a version that exists and loses on the
+  (stream_type, stream_id, version) key: \`{:error, :conflict}\`, the RS-39 409.
+  """
+  @spec append(binary(), non_neg_integer(), [struct()]) :: :ok | {:error, term()}
+  def append(_id, _expected_version, []), do: :ok
 
-  def append(id, events) when is_binary(id) and is_list(events) do
+  def append(id, prior, events) when is_binary(id) and is_integer(prior) and is_list(events) do
     Repo.transaction(fn ->
-      prior =
-        Repo.one(
-          from(r in ${logShort},
-            where: r.stream_type == ^${streamType} and r.stream_id == ^id,
-            select: max(r.version)
-          )
-        ) || 0
-
       events
       |> Enum.with_index(prior + 1)
       |> Enum.each(fn {ev, version} ->
@@ -393,8 +471,8 @@ defmodule ${repoMod} do
     end
   rescue
     e in Postgrex.Error ->
-      # The (stream_id, version) PK rejected a duplicate append: a competing write
-      # won the version race (unique_violation, SQLSTATE 23505).  That IS the event
+      # The (stream_id, version) PK rejected a duplicate append: the handle was
+      # folded before another append landed (unique_violation, SQLSTATE 23505).  That IS the event
       # stream's optimistic-concurrency control — surface it as {:error, :conflict}
       # → HTTP 409 (parity with the \`versioned\` guarded write's stale-write).
       case e do
@@ -523,6 +601,7 @@ export function renderEsContextBlock(
     ? renderCommandRunner({
         kind: "create",
         op: create,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -538,6 +617,7 @@ export function renderEsContextBlock(
       renderCommandRunner({
         kind: "operation",
         op,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -778,6 +858,8 @@ end
 interface CommandCtx {
   kind: "create" | "operation";
   op: OperationIR;
+  /** The aggregate whose invariants the folded state is checked against. */
+  agg: AggregateIR;
   /** The aggregate's DECLARED name — used verbatim in the `when`-gate denial
    *  message so it reads identically to the other four backends (RS-17). */
   aggName: string;
@@ -860,12 +942,31 @@ function renderCommandRunner(c: CommandCtx): string {
   }
 
   clauses.push(`events = [${eventStructs.join(", ")}]`);
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
 
-  const newState =
+  // The returned state carries the stream version the append moves it to, so
+  // the same handle can be saved again (an operation's fold starts from the
+  // handle's own version; a create's `from_events` counts its events).
+  const fold =
     c.kind === "create"
       ? `${c.foldMod}.from_events(id, events)`
-      : `Enum.reduce(events, state, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+      : `Enum.reduce(events, %{state | __stream_version__: state.__stream_version__ + length(events)}, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+  // Expected-version append (M-T6.98): the version THIS handle was folded to —
+  // 0 for a fresh stream — not a `max(version)` re-read at append time, which
+  // let a handle loaded before another append keep a decision taken on its
+  // stale fold.
+  const expectedVersion = c.kind === "create" ? "0" : "state.__stream_version__";
+  // The aggregate's invariants are asserted on the FOLDED state, before the
+  // append: a command whose events would leave the aggregate invalid is refused
+  // and nothing reaches the log.  With no invariant the fold stays after the
+  // append, so such a runner's output does not change.
+  const invariants = esInvariantChecks(c.agg, { ...exprCtx, thisName: "folded" });
+  let newState = fold;
+  if (invariants.length > 0) {
+    clauses.push(`folded = ${fold}`);
+    for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
+    newState = "folded";
+  }
+  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

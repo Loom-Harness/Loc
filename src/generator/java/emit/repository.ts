@@ -444,7 +444,7 @@ export function renderJavaRepositoryInterface(
 /** The `versioned` capability's synthetic counter field (`version: int token`).
  *  Read off the aggregate rather than hard-coded so the JPQL bump, the entity
  *  mutator and the impl's guard can never drift apart. */
-function versionFieldName(agg: EnrichedAggregateIR): string {
+export function versionFieldName(agg: EnrichedAggregateIR): string {
   return agg.fields.find((f) => f.access === "token")?.name ?? "version";
 }
 

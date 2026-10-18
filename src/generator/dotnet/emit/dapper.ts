@@ -2716,13 +2716,28 @@ export function renderDapperEventSourcedRepository(
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
       audit.on ? null : `            ${dapperOpenConn(ns)}`,
-      `            var __version = await conn.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT MAX(version) FROM ${table} WHERE stream_type = @st AND stream_id = @sid", new { st = "${streamType}", sid = __sid }, ${audit.txArg}cancellationToken: cancellationToken)) ?? 0;`,
+      // Expected-version append (M-T6.98): continue from the version THIS
+      // handle was folded to, not from a `MAX(version)` re-read here — a
+      // re-read lets a handle loaded before another append keep a decision
+      // taken on its stale fold.  A stale handle's append re-inserts a version
+      // that exists and loses on the (stream_type, stream_id, version) key
+      // (SQLSTATE 23505) — the RS-39 409, the same exception the guarded
+      // relational / document upserts raise.
+      "            var __version = aggregate._StreamVersion;",
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
-      `                await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      "                try",
+      "                {",
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      "                }",
+      '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
+      "                {",
+      `                    throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+      "                }",
       "            }",
+      "            aggregate._StreamVersion = __version;",
       "        }",
       ...audit.flush,
       audit.commit,

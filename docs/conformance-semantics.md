@@ -1626,7 +1626,7 @@ nothing and the test passes vacuously.
   When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
   merged as prose only, which made any new rule unlandable under the registry's
   gap-free assertion. That has since been closed: the registry was backfilled
-  (it now holds RS-1 … RS-39, contiguous), and `semantics-rules.test.ts` gained
+  (it now holds RS-1 … RS-40, contiguous), and `semantics-rules.test.ts` gained
   the prose-vs-registry parity assertion this finding asked for ("the prose and
   the registry describe the SAME set of rules", plus a per-rule title check), so
   a prose-only rule now fails CI instead of slipping past it.
@@ -1869,3 +1869,43 @@ nothing and the test passes vacuously.
   `test/behavioral/wire-golden/concurrency-conflict.json`, diffed by every
   wire-gated leg; the `$.detail` waiver on `transactional-workflow-event-rollback`
   is deleted.
+
+### RS-40 · A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included
+- **Guarantee.** Every save of a `versioned` aggregate is checked against the
+  version the saving handle was loaded at, whatever the saving shape. A
+  `shape: document` upsert is guarded on that version; an event-sourced
+  (`persistedAs: eventLog`) handle remembers the stream version it was folded
+  to and its save appends the versions after it, so a stream some other append
+  has moved past rejects the first re-used version on the `(stream_type,
+  stream_id, version)` key. The losing save answers the RS-39 409 and keeps
+  nothing. One handle changed twice is never a conflict with itself.
+- **Trigger.** `workflow-two-handles-document-eventlog.ddd`: inside a
+  `transactional` workflow, load one document row twice and change both
+  handles; load one stream twice and withdraw through both. Both answer 409
+  and persist neither. The controls — only the second handle changed, one
+  handle changed twice — commit.
+- **The ruling (M-T6.98): expected-version appends.** Before it, all seven
+  event stores (node drizzle + MikroORM, python, java, .NET EF + Dapper,
+  elixir) read `max(version)` at append time, so two loads of one stream both
+  appended: two withdrawals that each passed `balance >= amount` against the
+  same balance both landed, and the account overdrew past its precondition.
+  The key caught only two appends racing between their read and their insert.
+  The stream is an event-sourced aggregate's own concurrency control — the
+  reason `versioned` is not spliced onto it — so it is checked against what the
+  handle saw, as a state row is. (java and .NET also assert invariants when
+  folding a stream, so an overdrawn stream would have become unloadable.)
+- **Per-backend shape.** The folded version lives on the ES root
+  (`_streamVersion` node/java, `_stream_version` python, `_StreamVersion` .NET,
+  `__stream_version__` elixir), set by the fold to the folded count and
+  advanced after the append. Document saves: java's upsert gained `where
+  <t>.version = ?` + `returning version` (M-T6.95); EF sets the concurrency
+  token's *original* value to the handle's version (or `If-Match`) instead of
+  bumping the re-read row.
+- **Not part of the guarantee (named).** Elixir: its store refuses both writes,
+  but a stale save inside a workflow answers 500 until M-T6.92 (#3247) adds the
+  `{:error, :conflict}` arm, and it persists each op call, so one handle changed
+  twice bumps `version` twice (M-T6.99). Elixir is a *target*, not conforming.
+- **Conforms.** node (+ MikroORM), dotnet (EF + Dapper), java, python. Target:
+  elixir.
+- **Provenance.** M-T6.95 + M-T6.98 (#3285). Tier: **behavioral** —
+  `test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json`.

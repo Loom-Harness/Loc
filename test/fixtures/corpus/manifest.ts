@@ -82,6 +82,23 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
 const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python"];
 
+/** The backends whose in-workflow stale save of a `shape: document` row or a
+ *  `persistedAs: eventLog` stream answers the RS-39 409
+ *  (`workflow-two-handles-document-eventlog`, M-T6.95 / M-T6.98).
+ *
+ *  ELIXIR is out until M-T6.92 (#3247) lands on top of RS-39 (#3246).  Its
+ *  store already refuses the stale write (`{:error, :conflict}` — proven
+ *  locally, the e2e passes with #3247's workflow arm applied), but:
+ *   - the workflows controller has no `{:error, :conflict}` arm, so the
+ *     transactional workflow answers 500 (#3247 adds it);
+ *   - that term carries no aggregate/id, so the RS-39 `detail` sentence cannot
+ *     be built from it once #3247 is rebased onto `conflict_response/3`;
+ *   - elixir persists each op call inside a workflow (the other four save a
+ *     handle once at the end), so `hitSameTwice` bumps the document `version`
+ *     twice — `$.version` reads one higher than the golden (M-T6.99).
+ *  Arm it by adding `"vanilla"` here when those close. */
+const WORKFLOW_DOC_ES_CONFLICT: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
+
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
  *
@@ -350,6 +367,16 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
   {
+    id: "auth-id-claim-foreign",
+    title: "id-typed user claim naming an aggregate the deployable does NOT host",
+    doc: "auth",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the claim's aggregate.
+    deployables: ["agents", "payments"],
+    note: "D6 of eval-claims/FIX-PLAN.md — the system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+  },
+  {
     id: "auth-id-claim-stub",
     title:
       "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
@@ -564,6 +591,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "capabilities",
     backends: ALL,
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
+    id: "workflow-two-handles-document-eventlog",
+    title:
+      "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-39 409",
+    doc: "workflow",
+    backends: WORKFLOW_DOC_ES_CONFLICT,
+    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out until #3247 — see `WORKFLOW_DOC_ES_CONFLICT`.",
   },
   {
     id: "audit-history",

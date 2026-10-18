@@ -21,6 +21,7 @@ import {
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
+  versionFieldName,
 } from "./repository.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
 
@@ -237,6 +238,46 @@ export function renderJavaDocumentRepositoryImpl(
   const methodLines = [...findLines, ...retrievalLines];
   while (methodLines.length > 0 && methodLines[methodLines.length - 1] === "") methodLines.pop();
 
+  // Versioned save (M-T6.95) — the write-time CAS.  The upsert's update arm is
+  // guarded on the version THIS handle was loaded at (the service has already
+  // refused a stale `If-Match` against that same value), so a handle another
+  // writer moved past matches no row: `returning` comes back empty and the
+  // save throws the `ObjectOptimisticLockingFailureException(<Agg>.class, id)`
+  // every other raise site passes — the RS-39 409.  Unguarded, two handles (or
+  // two requests) that loaded one version both committed, the second silently
+  // overwriting the first.  On success the bumped counter is reflected onto the
+  // instance (`_applyVersion`), so the same handle saved again is not stale.
+  //
+  // RS-14 — the wire `version` of a document aggregate is served out of the
+  // `data` jsonb (the serialized aggregate), while the concurrency counter
+  // lives in the `version` COLUMN.  The aggregate is serialized BEFORE the next
+  // version is known, so `jsonb_set` stamps the incremented counter back into
+  // `data.version` in the upsert itself and the blob and the column can never
+  // disagree.  (Versioned only — without the capability there is no `version`
+  // key in `data` and `jsonb_set` would CREATE one.)
+  const versionField = versionFieldName(agg);
+  const versionedSaveLines = [
+    `        var __expectedVersion = aggregate.${versionField}();`,
+    `        String __data;`,
+    `        try {`,
+    `            __data = JSON.writeValueAsString(aggregate);`,
+    `        } catch (tools.jackson.core.JacksonException e) {`,
+    `            throw new IllegalStateException("document serialization failed", e);`,
+    `        }`,
+    `        var __written = jdbc.query(`,
+    `            "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
+    `                + "on conflict (id) do update set "`,
+    `                + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
+    `                + "version = ${bare}.version + 1 "`,
+    `                + "where ${bare}.version = ? returning version",`,
+    `            (rs, i) -> rs.getInt(1),`,
+    `            aggregate.id().value(), __data, __expectedVersion);`,
+    `        if (__written.isEmpty()) {`,
+    `            throw new ObjectOptimisticLockingFailureException(${agg.name}.class, aggregate.id().value());`,
+    `        }`,
+    `        aggregate._applyVersion(__written.get(0));`,
+  ];
+
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
@@ -252,6 +293,9 @@ export function renderJavaDocumentRepositoryImpl(
     `import tools.jackson.databind.ObjectMapper;`,
     `import tools.jackson.databind.json.JsonMapper;`,
     `import org.springframework.jdbc.core.JdbcTemplate;`,
+    aggregateIsVersioned(agg)
+      ? `import org.springframework.orm.ObjectOptimisticLockingFailureException;`
+      : null,
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
@@ -304,31 +348,18 @@ export function renderJavaDocumentRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${agg.name} save(${agg.name} aggregate) {`,
-    `        try {`,
-    `            jdbc.update(`,
-    `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
-    // RS-14 — the wire `version` of a document aggregate is served out of the
-    // `data` jsonb (the serialized aggregate), while the concurrency counter
-    // lives in the `version` COLUMN.  Bumping only the column left the wire
-    // value frozen at its created value forever (golden 2, we read 1).  Since
-    // the aggregate is serialized BEFORE the next version is known, stamp it in
-    // the upsert itself: `jsonb_set` writes the incremented counter back into
-    // `data.version`, so the blob and the column can never disagree.  Guarded on
-    // `versioned` — without the capability there is no `version` key in `data`
-    // and `jsonb_set` would CREATE one (a wire field out of thin air).
     ...(aggregateIsVersioned(agg)
-      ? [
-          `                    + "on conflict (id) do update set "`,
-          `                    + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
-          `                    + "version = ${bare}.version + 1",`,
-        ]
+      ? versionedSaveLines
       : [
+          `        try {`,
+          `            jdbc.update(`,
+          `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
           `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
+          `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
+          `        } catch (tools.jackson.core.JacksonException e) {`,
+          `            throw new IllegalStateException("document serialization failed", e);`,
+          `        }`,
         ]),
-    `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
-    `        } catch (tools.jackson.core.JacksonException e) {`,
-    `            throw new IllegalStateException("document serialization failed", e);`,
-    `        }`,
     // repository_save (debug) — after the upsert; (aggregate, id) prefix mirrors
     // the relational repo + .NET/Hono emission (children omitted).
     `        CatalogLog.event(${javaLogEvent("repositorySave")}, "aggregate", "${agg.name}", "id", String.valueOf(aggregate.id().value()));`,

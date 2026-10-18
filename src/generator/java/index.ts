@@ -39,7 +39,11 @@ import {
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -1314,6 +1318,7 @@ function emitProjectFromContexts(
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
+      ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
       let idValueType = "uuid";
@@ -1821,6 +1826,7 @@ function emitAggregate(
       // A document root's claim stamps emit as plain methods the service calls
       // — there is no JPA persistence context to fire an @PrePersist hook.
       documentClaimStamps: isDocument && agg.persistedAs !== "eventLog",
+      documentRoot: isDocument,
       persistence:
         agg.persistedAs === "eventLog" || isDocument
           ? undefined

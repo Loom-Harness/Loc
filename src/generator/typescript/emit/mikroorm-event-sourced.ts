@@ -167,8 +167,10 @@ export function renderMikroEventSourcedRepository(
     "    const pending = aggregate.pullEvents();",
     "    if (pending.length > 0) {",
     "      const streamId = aggregate.id as string;",
-    `      const prior = await em.find(${eventRow}, { streamType: "${streamType}", streamId }, { orderBy: { version: "DESC" }, limit: 1 });`,
-    "      let version = prior.length > 0 ? prior[0]!.version : 0;",
+    // Expected-version append (M-T6.98) — continue from the version THIS
+    // handle was folded to (the drizzle store's twin, see
+    // repository-eventsourced-builder.ts).
+    "      let version = aggregate._streamVersion;",
     "      for (const event of pending) {",
     "        version++;",
     `        const r = new ${eventRow}();`,
@@ -180,7 +182,18 @@ export function renderMikroEventSourcedRepository(
     "        r.occurredAt = new Date();",
     "        em.persist(r);",
     "      }",
-    "      await em.flush();",
+    // A stale handle's append re-inserts a version that exists: the
+    // `(stream_type, stream_id, version)` key rejects it (SQLSTATE 23505, which
+    // MikroORM's DriverException copies onto `.code`) — the RS-39 409.
+    "      try {",
+    "        await em.flush();",
+    "      } catch (err) {",
+    '        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {',
+    `          throw new ConcurrencyError("${agg.name}", streamId);`,
+    "        }",
+    "        throw err;",
+    "      }",
+    "      aggregate._streamVersion = version;",
     "    }",
     '    requestLog().debug({ event: "repository_save", aggregate: ' +
       JSON.stringify(agg.name) +
@@ -273,7 +286,7 @@ export function renderMikroEventSourcedRepository(
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       `import type * as Events from "../../domain/events";`,
-      `import { AggregateNotFoundError } from "../../domain/errors";`,
+      `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`,
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       repoUsesUser && `import type { User } from "../../auth/user-types";`,
       `import { requestLog } from "../../obs/als";`,

@@ -580,6 +580,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -841,6 +850,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly that fact), but nothing in this fixture reads `customerId`, so no
   // route answers differently for it.  Reasoned permanent entry.
   "auth-id-claim-stub",
+  // COMPILE-TIER WITNESS — the FOREIGN twin (claims eval D6): the same
+  // `agentId: Agent id?` claim on a deployable (`payments`) that does NOT host
+  // `Agent`, so its ids module never declared the brand its `User` names (node
+  // TS2694, python ImportError at boot, java/.NET missing symbol).  The defect is
+  // the existence of a declaration, which the compile tier reads directly; no
+  // route of the fixture reads the claim.  Reasoned permanent entry.
+  "auth-id-claim-foreign",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
