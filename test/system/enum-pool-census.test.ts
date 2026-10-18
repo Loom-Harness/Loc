@@ -275,7 +275,10 @@ describe("enum-pool census — no name resolution of an enum through a context's
 
   it("finds a substantial surface, not an empty one", () => {
     // A broken detector reports zero sites, which reads as "all clean".
-    expect(sites.length).toBeGreaterThan(30);
+    // The floor sits just under the STANDING surface (17 sites) — what is
+    // left once the fleet's P1–P4 drains have all landed — so it holds on
+    // every combination of those branches.
+    expect(sites.length).toBeGreaterThanOrEqual(15);
   });
 
   it("every `ctx.enums` site is waived (standing = own declarations / all contexts; deferred = drain to enumPool)", () => {
