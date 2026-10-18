@@ -158,12 +158,15 @@ joins it against the panel's results — no extra step.
 ### In CI — `ddd verify`
 
 ```bash
-ddd verify <file.ddd> --results <results.json> [--out <dir>] [--require-all] [--min <pct>] [--json]
+ddd verify <file.ddd> [--results <results.json>]... [--from-vitest <report.json>]... \
+           [--from-playwright <report.json>]... [--out <dir>] [--require-all] [--min <pct>] [--json]
 ```
 
 `results.json` is `{ "version": 1, "results": [{ "name": "...", "status": "pass"|"fail"|"skip", "suite": "..." }] }`
-— produced from your runner's JSON report (vitest `--reporter=json`, `dotnet
-test` trx, Playwright JSON). The command writes
+— mapped from your runner's report; vitest and Playwright JSON reports are
+read as-is with `--from-vitest` / `--from-playwright`. Every flag is
+repeatable, so each runner project's report (unit, api e2e, ui e2e) goes
+into one verdict. The command writes
 `.loom/verification.{md,json,mmd}` (the `.mmd` is a verdict-colored
 requirements graph) and gates the exit code:
 
