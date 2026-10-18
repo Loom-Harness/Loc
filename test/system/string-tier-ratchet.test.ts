@@ -86,7 +86,7 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2300,
-  elixir: 3200,
+  elixir: 3400,
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1200,

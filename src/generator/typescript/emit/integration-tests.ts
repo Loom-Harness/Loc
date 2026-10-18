@@ -26,6 +26,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
@@ -202,9 +203,17 @@ export function renderContextIntegrationTest(
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
   const usesIds = /\bIds\./.test(bodyStr);
-  // A context that runs workflows wires the in-process dispatcher — when the
-  // deployable emits one; without event subscriptions there is no reactor to
-  // fire and `createInProcessDispatcher` does not exist, so the no-op stands in.
+  // A body that constructs a value object (`let a = Berth { … }`) names its
+  // class — import it, narrowed by the same body scan, as the unit-test
+  // emitter does; without it the file fails `tsc` with TS2304.
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
+  // A context that runs workflows wires the SYNCHRONOUS in-process dispatcher
+  // so a `save`'s emitted event fires its reactors inline (a placed order
+  // reserves stock before the next read) — when the deployable emits one;
+  // without event subscriptions there is no reactor to fire and
+  // `createInProcessDispatcher` does not exist, so the no-op stands in.
   const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;
 
   const lines: string[] = [];
@@ -220,6 +229,9 @@ export function renderContextIntegrationTest(
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
   if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
+  if (voNames.length > 0) {
+    lines.push(`import { ${voNames.join(", ")} } from "../domain/value-objects";`);
+  }
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(
