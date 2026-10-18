@@ -65,6 +65,7 @@ import {
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
 import { MONEY_WIRE_ZERO } from "../money-scale.js";
+import { dartMember } from "./dart-member.js";
 import { storeProviderName } from "./store-names.js";
 
 /** A store whose lifetime asks for persistence AND whose fields have a codec —
@@ -397,7 +398,7 @@ export function persistNotifierMembers(
   if (p.tier === "url") {
     out.push("    LoomStorePersist.writeParams(<String, String?>{");
     for (const { field, codec } of p.fields) {
-      const access = `s.${field.name}`;
+      const access = `s.${dartMember(field.name)}`;
       const value =
         codec.kind === "list"
           ? "null" // unreachable — `loom.store-url-field-invalid`
@@ -420,7 +421,7 @@ export function persistNotifierMembers(
       // A list whose element needs no conversion writes the cell itself — a
       // `.map((e) => e).toList()` identity hop is noise in the emitted Dart.
       const elementJson = codec.kind === "list" ? toBlobScalar(codec.element, "e") : "";
-      const access = `s.${field.name}`;
+      const access = `s.${dartMember(field.name)}`;
       let value: string;
       if (codec.kind === "list") {
         value = elementJson === "e" ? access : `${access}.map((e) => ${elementJson}).toList()`;
@@ -451,7 +452,9 @@ export function persistNotifierMembers(
       "  /// tier, driven by `LoomUrlStoreSync`.",
       "  void hydrateFromUrl() {",
       "    state = state.copyWith(",
-      ...p.fields.map(({ field }) => `      ${field.name}: _load${upperFirst(field.name)}(),`),
+      ...p.fields.map(
+        ({ field }) => `      ${dartMember(field.name)}: _load${upperFirst(field.name)}(),`,
+      ),
       "    );",
       "  }",
     );

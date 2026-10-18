@@ -377,8 +377,10 @@ function renderAuthMiddleware(
   // The dev-only state reset (`src/util/test-reset.ts`) is bypassed for the
   // same reason as the probes: it is infra, not domain surface, and an
   // auth-bearing system's e2e suite would otherwise have to mint a principal
-  // just to empty a table.  It costs nothing — the route is not DEFINED unless
-  // the switch is on, so there is no handler behind the bypassed path.
+  // just to empty a table.  Bypassing the middleware is not bypassing
+  // authentication: the route is defined only with an explicit
+  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-loom-test-reset` header does not match that secret.
   const bypass = oidc
     ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
     : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;
@@ -665,7 +667,10 @@ from app.auth.user import User
 from app.auth.verifier import register_user_verifier
 
 _SCOPES = ${JSON.stringify(scopes)}
-_AUDIENCE = ${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}
+# An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
+# documented opt-out every backend honours.  Folded to None: PyJWT given
+# audience="" with verify_aud on rejects EVERY token.
+_AUDIENCE: str | None = (${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}) or None
 
 
 def _issuer() -> str:
@@ -739,7 +744,10 @@ async def _oidc_verifier(request: Request) -> User | None:
             audience=_AUDIENCE,
             options={"verify_aud": _AUDIENCE is not None},
         )
-    except Exception:
+    except Exception as err:
+        # A rejected token is a 401, never a 500 — but say WHY at debug, so a
+        # misconfigured issuer / audience is diagnosable from the log stream.
+        ${PY.log}("debug", "auth_token_rejected", reason=str(err))
         return None
     return User(
 ${buildUser}

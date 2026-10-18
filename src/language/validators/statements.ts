@@ -5,6 +5,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { nearestName } from "../../util/edit-distance.js";
 import type {
   ActionDecl,
   Aggregate,
@@ -51,6 +52,8 @@ import {
   isRetrieval,
   isRetrievalLiteral,
   isStore,
+  isStringLit,
+  isTestBlock,
   isThisRef,
   isUi,
 } from "../generated/ast.js";
@@ -70,12 +73,14 @@ import {
   resolveTypeRef,
   stepInto,
   stepIntoNode,
+  suffixType,
   T,
-  typeAfterSuffix,
   typeOf,
   typeToString,
   withTags,
 } from "../type-system.js";
+import { toDddType } from "../typing/adapt.js";
+import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import {
   canPromoteLiteralTo,
@@ -301,7 +306,7 @@ export function checkAssignOrCall(
     checkCallStmt(stmt, agg, op, env, accept);
     return;
   }
-  const targetType = lvalueType(stmt.target, agg, env, accept);
+  const targetType = lvalueType(stmt.target, accept);
   // Reject assignment to a derived property — derived members are
   // computed from other state and writing to them would silently no-op.
   if (lvalueIsDerived(stmt.target, agg)) {
@@ -451,6 +456,7 @@ export function checkExprCallArgs(
   node: AstNode | undefined,
   env: Env,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   // Same parse-recovery guard as `checkConstructionArgTypes` above.
   if (!node) return;
@@ -469,6 +475,7 @@ export function checkExprCallArgs(
           `Function '${n.head.name}'`,
           first,
           accept,
+          admit,
         );
       } else {
         // Criterion / policy-function predicate (`InRegion(r)`, `CanApprove(c)`).
@@ -483,6 +490,7 @@ export function checkExprCallArgs(
             env,
             `'${n.head.name}'`,
             accept,
+            admit,
           );
         }
       }
@@ -501,10 +509,11 @@ export function checkExprCallArgs(
             `'${s.member}'`,
             s,
             accept,
+            admit,
           );
         }
       }
-      curType = typeAfterSuffix(curType, s, env);
+      curType = suffixType(s);
     }
   }
 }
@@ -751,7 +760,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
 }
 
 /** Arg-check ONE bare member-call statement (`recv.method(args)`) in a workflow
- *  body.  A workflow has no `this` aggregate, so — unlike `checkCallStmt` — the
+ *  or unit-`test` body.  Neither has a `this` aggregate, so — unlike `checkCallStmt` — the
  *  receiver is resolved ONLY through the body's typed lets / params (`envForNode`,
  *  with the bounded-context anchor that lets `Agg.create({ … })` type as the
  *  aggregate), with no aggregate-root fallback.  The check FAILS OPEN (returns
@@ -760,7 +769,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
  *  (a repository-loaded receiver types `unknown`), so a miss must never become a
  *  false positive.  When it all resolves, args are arity/type-checked by the
  *  shared `checkCallArgs`. */
-function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): void {
+function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?: ArgAdmit): void {
   const env = envForNode(lv);
   const headSym = env.resolve(lv.head);
   if (!headSym) return; // receiver isn't a typed local (domain service / criterion / …)
@@ -770,7 +779,9 @@ function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): vo
     if (recv.kind === "unknown") return;
   }
   const methodName = lv.tail[lv.tail.length - 1]!;
-  const memberNode = stepIntoNode(recv, methodName);
+  // A nullable read (`Orders.findById(…)`: `Order?`) still names its callee —
+  // arity and arg types do not depend on whether the receiver was guarded.
+  const memberNode = stepIntoNode(recv.kind === "optional" ? recv.inner : recv, methodName);
   if (!memberNode || (!isOperation(memberNode) && !isFunctionDecl(memberNode))) return;
   checkCallArgs(
     (memberNode as Operation | FunctionDecl).params,
@@ -779,7 +790,39 @@ function checkWorkflowMemberCallStmt(lv: LValue, accept: ValidationAcceptor): vo
     `'${methodName}'`,
     lv,
     accept,
+    admit,
   );
+}
+
+/** Operation/function-call ARGUMENTS inside a unit /
+ *  integration `test` body (`let r = Claim.create({ … })` then `r.bump("x")` on
+ *  `bump(k: int)`).  A `test` body is not an aggregate operation, so neither
+ *  `checkStatement` (which threads `checkExprCallArgs`) nor `checkCallStmt`
+ *  (which needs a `this` aggregate) ever visited it: a wrong-typed or miscounted
+ *  argument reached the emitted test verbatim — `r.bump("x")` in TypeScript,
+ *  `r.bump("x")` in Python — and failed only when the generated suite ran.
+ *
+ *  Runs the same two checks the workflow body gets: `checkExprCallArgs` over
+ *  every expression-position call (`expect(r.bump("x")).toThrow()`), and the
+ *  fail-open member-call-STATEMENT check over bare `r.bump("x")`.  Receivers type
+ *  through the test body's lets (`envForNode`'s `test` arm).  Reuses
+ *  `loom.call-arg-type` / `loom.call-arg-count`; no new code.
+ *
+ *  A raw string literal in an `X id` / `datetime` position is ADMITTED here, and
+ *  only here: every backend's test emitter wraps it (`Ids.ProductId("0000…")`,
+ *  `new Date("…")`) by the one rule in `generator/_test/arg-coercion.ts`, and the
+ *  shipping examples write their tests that way (`order.addLine("0000…", 2)`). */
+export function checkTestBodyCallArgs(model: Model, accept: ValidationAcceptor): void {
+  for (const node of AstUtils.streamAllContents(model)) {
+    if (!isTestBlock(node)) continue;
+    for (const stmt of node.body) {
+      checkExprCallArgs(stmt, envForNode(stmt), accept, admitTestLiteral);
+      if (isAssignOrCallStmt(stmt) && !stmt.op) {
+        const lv = stmt.target;
+        if (lv.call && lv.tail.length >= 1) checkLocalMemberCallStmt(lv, accept, admitTestLiteral);
+      }
+    }
+  }
 }
 
 /** Bare operation/function-call STATEMENTS
@@ -796,7 +839,7 @@ export function checkWorkflowBodyCallStmts(member: AstNode, accept: ValidationAc
     if (!isAssignOrCallStmt(n)) continue;
     const lv = n.target;
     if (!lv.call || lv.tail.length < 1) continue;
-    checkWorkflowMemberCallStmt(lv, accept);
+    checkLocalMemberCallStmt(lv, accept);
   }
 }
 
@@ -817,11 +860,19 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     seen.add(f.name);
     const expected = declared.get(f.name);
     if (!expected) {
-      accept("error", diagMessage("loom.emit-unknown-field", { evName: ev.name, f: f.name }), {
-        node: f,
-        property: "name",
-        code: "loom.emit-unknown-field",
-      });
+      accept(
+        "error",
+        diagMessage("loom.emit-unknown-field", {
+          evName: ev.name,
+          f: f.name,
+          suggestion: nearestName(f.name, declared.keys()),
+        }),
+        {
+          node: f,
+          property: "name",
+          code: "loom.emit-unknown-field",
+        },
+      );
       continue;
     }
     const actual = typeOf(f.value, env);
@@ -872,6 +923,20 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
  *  `money`/`decimal` param).  On an arity mismatch we stop before the per-arg
  *  loop — the positions do not line up, so per-arg type errors would be
  *  noise. */
+/** An extra per-argument admission a call site layers over `isAssignable` +
+ *  numeric-literal promotion — the test body's literal coercion, below. */
+type ArgAdmit = (arg: Expression, expected: DddType) => boolean;
+
+/** The language-side mirror of `decideLiteralCoercion`
+ *  (`src/generator/_test/arg-coercion.ts` — not importable here, layering): a
+ *  bare STRING literal in an `X id` / `datetime` position, optional or not, is
+ *  coerced by every backend's test emitter, so it type-checks in a test body. */
+const admitTestLiteral: ArgAdmit = (arg, expected) => {
+  if (!isStringLit(arg)) return false;
+  const t = expected.kind === "optional" ? expected.inner : expected;
+  return t.kind === "id" || (t.kind === "primitive" && t.name === "datetime");
+};
+
 /** Per-argument type check (positional, over the overlap of params/args), shared
  *  by the arity-and-type `checkCallArgs` and the type-ONLY predicate path.  Same
  *  discipline as `checkEmit`: suppress on `unknown`, admit numeric-literal
@@ -882,6 +947,7 @@ function checkArgTypesPositional(
   env: Env,
   label: string,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   const n = Math.min(params.length, args.length);
   for (let i = 0; i < n; i++) {
@@ -891,7 +957,8 @@ function checkArgTypesPositional(
     if (
       actual.kind !== "unknown" &&
       !isAssignable(actual, expected) &&
-      !canPromoteLiteralTo(args[i], expected)
+      !canPromoteLiteralTo(args[i], expected) &&
+      !admit?.(args[i]!, expected)
     ) {
       accept(
         "error",
@@ -914,6 +981,7 @@ function checkCallArgs(
   label: string,
   node: AstNode,
   accept: ValidationAcceptor,
+  admit?: ArgAdmit,
 ): void {
   if (args.length !== params.length) {
     accept(
@@ -928,7 +996,7 @@ function checkCallArgs(
     );
     return;
   }
-  checkArgTypesPositional(params, args, env, label, accept);
+  checkArgTypesPositional(params, args, env, label, accept, admit);
 }
 
 export function checkCallStmt(
@@ -1023,47 +1091,40 @@ export function checkCallStmt(
   });
 }
 
-export function lvalueType(
-  lv: LValue,
-  agg: Aggregate,
-  env: Env,
-  accept: ValidationAcceptor,
-): DddType {
-  // Resolve the head: a parameter, let-binding, or an aggregate property.
-  //
-  // An EXPLICIT `this.` prefix takes the first two off the table.  Skipping
-  // `env.resolve` is the whole point of the spelling: in
-  // `operation rename(name: string) { this.name := name }` the head and the
-  // parameter share a name, and resolving the head against the parameter would
-  // type-check the assignment against the WRONG member — silently, whenever
-  // the two types happen to be compatible.
-  const headSym = lv.thisRef ? undefined : env.resolve(lv.head);
-  let cur: DddType;
-  if (headSym) {
-    cur = headSym.type;
-  } else {
-    // Check aggregate root members
-    cur = lookupRootMember(agg, lv.head);
-    if (cur.kind === "unknown") {
+export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
+  // The target's receiver chain as the single typing pass typed it (M-T5.47):
+  // `this`, then the type after each segment.  The head resolves lexically
+  // (param, let, …) before the enclosing record's members — except under an
+  // EXPLICIT `this.`, the whole point of which is to skip a same-named
+  // parameter (`operation rename(name: string) { this.name := name }`).
+  const steps = typingFor(lv).lvalueStepsAt(lv) ?? [];
+  const segs = [lv.head, ...lv.tail];
+  for (let i = 0; i < segs.length; i++) {
+    const t = steps[i + 1];
+    if (t && t.kind !== "unknown") continue;
+    // A segment that RESOLVED to a member whose own type did not (a typo'd
+    // or cross-file type) is reported where that type is written, not here.
+    if (
+      t?.kind === "unknown" &&
+      !["unresolved-name", "unresolved-member", "not-a-value"].includes(t.cause)
+    )
+      return T.unknown;
+    if (i === 0) {
       accept("error", diagMessage("loom.unresolved-lvalue-head", { head: lv.head }), {
         node: lv,
         property: "head",
         code: "loom.unresolved-lvalue-head",
       });
-      return T.unknown;
-    }
-  }
-  for (const seg of lv.tail) {
-    cur = stepInto(cur, seg);
-    if (cur.kind === "unknown") {
-      accept("error", diagMessage("loom.unresolved-member", { member: seg }), {
+    } else {
+      accept("error", diagMessage("loom.unresolved-member", { member: segs[i] }), {
         node: lv,
         code: "loom.unresolved-member",
       });
-      return T.unknown;
     }
+    return T.unknown;
   }
-  return cur;
+  // A declared field keeps the declaration view of a generic carrier.
+  return toDddType(steps[segs.length]!, { generic: "arg" });
 }
 
 /**

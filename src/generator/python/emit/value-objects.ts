@@ -1,7 +1,8 @@
 import type { BoundedContextIR, EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, pythonWireIdent } from "../../../util/naming.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "../render-expr.js";
@@ -28,13 +29,21 @@ export function renderPyEnumsAndValueObjects(ctx: BoundedContextIR): string {
     "",
     PY_IMPORTS,
     ...ctx.enums.flatMap(renderPyEnum),
-    ...ctx.valueObjects.flatMap(renderPyValueObject),
+    // Dependency order: `ctx.valueObjects` lists context-local VOs before the
+    // root-level (shared-kernel) ones folded in at enrichment, and a class
+    // annotated with another VO must be defined after it (ruff F821).
+    ...orderValueObjectsByDependency(ctx.valueObjects).flatMap(renderPyValueObject),
     "",
   );
 }
 
 function renderPyEnum(e: EnumIR): string[] {
-  return ["", "", `class ${e.name}(${PY.StrEnum}):`, ...e.values.map((v) => `    ${v} = "${v}"`)];
+  return [
+    "",
+    "",
+    `class ${e.name}(${PY.StrEnum}):`,
+    ...e.values.map((v) => `    ${pythonWireIdent(v)} = "${v}"`),
+  ];
 }
 
 function renderPyValueObject(v: ValueObjectIR): string[] {
@@ -45,7 +54,7 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
   // the declaration-order positional/keyword signature the hand-rolled ctor
   // had, so every construction site is unchanged; invariants move to
   // `__post_init__` (the events emitter's pattern).
-  const fields = v.fields.map((f) => `    ${snake(f.name)}: ${renderPyType(f.type)}`);
+  const fields = v.fields.map((f) => `    ${pythonIdent(f.name)}: ${renderPyType(f.type)}`);
   const invariants = v.invariants.flatMap((inv) => {
     const cond = inv.guard
       ? `(${renderPyExpr(inv.guard, VO_CTX)}) and ${renderPyNegatedGuard(inv.expr, VO_CTX)}`
@@ -62,12 +71,15 @@ function renderPyValueObject(v: ValueObjectIR): string[] {
   const derived = v.derived.flatMap((d) => [
     "",
     "    @property",
-    `    def ${snake(d.name)}(self) -> ${renderPyType(d.type)}:`,
+    `    def ${pythonIdent(d.name)}(self) -> ${renderPyType(d.type)}:`,
     `        return ${renderPyExpr(d.expr, VO_CTX)}`,
   ]);
   const fns = v.functions.flatMap((fn) => {
-    const fnParams = ["self", ...fn.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`)];
-    const head = `    def ${snake(fn.name)}(${fnParams.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
+    const fnParams = [
+      "self",
+      ...fn.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ];
+    const head = `    def ${pythonIdent(fn.name)}(${fnParams.join(", ")}) -> ${renderPyType(fn.returnType)}:`;
     const body =
       "expr" in fn.body
         ? `        return ${renderPyExpr(fn.body.expr, VO_CTX)}`

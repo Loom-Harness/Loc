@@ -423,6 +423,16 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "over-merge",
+    id: "O-opNotAllowed",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    menus: BOTH,
+    key: /^chrome\.opNotAllowed$/,
+    reason:
+      "FORM_CHROME: the disabled-trigger reason renders only on a `when`-gated op, and the " +
+      "fixture has none (the catalog builders see UiIR, not the op's gate)",
+  },
+  {
+    kind: "over-merge",
     id: "O-backToHome",
     targets: [...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
     menus: BOTH,

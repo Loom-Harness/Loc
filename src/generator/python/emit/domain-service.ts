@@ -35,7 +35,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { renderPyType } from "../render-expr.js";
 import { renderPyStatements } from "../render-stmt.js";
@@ -115,7 +115,7 @@ function renderOperation(op: DomainServiceOperationIR): string {
   const portParams = ports.map(
     (p) => `${snake(p.repo)}: ${pyRef(PORT_POOL_MODULE, repoPortName(p.aggregate))}`,
   );
-  const userParams = op.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const userParams = op.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "async def" : "def";

@@ -209,3 +209,28 @@ export function nonRootFilterFields(agg: AggregateIR, pool: AggPool): string[] {
   }
   return [...out];
 }
+
+/** Where a query-time projection over the aggregate `source` reads its rows:
+ *  the aggregate that OWNS the physical table (`tableOwner`), plus — for a TPH
+ *  (`sharedTable`) concrete — the `kind` discriminator value that scopes the
+ *  shared table to this concrete's rows.
+ *
+ *  Every backend that pushes a projection down to SQL against the source's
+ *  table (node's drizzle/mikro direct-table arms, python's SQLAlchemy
+ *  select, elixir's Ecto `from`) must consult this rather than naming the
+ *  table after the source: a TPH concrete owns NO table (node selected a
+ *  nonexistent `schema.<concretes>`), and reading the shared table without the
+ *  `kind` conjunct silently aggregates EVERY sibling concrete's rows.
+ *  An unknown `source` (a workflow / projection raw-table source, or an
+ *  aggregate outside `pool`) resolves to itself with no discriminator. */
+export function projectionSourceTable(
+  source: string,
+  pool: AggPool,
+): { tableOwner: string; kind?: string } {
+  const agg = pool.find((a) => a.name === source);
+  if (!agg) return { tableOwner: source };
+  const kind = discriminatorValue(agg, pool);
+  return kind
+    ? { tableOwner: tableOwnerName(agg, pool), kind }
+    : { tableOwner: tableOwnerName(agg, pool) };
+}

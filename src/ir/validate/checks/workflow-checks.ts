@@ -4,6 +4,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
 import {
   createInputFields,
@@ -115,6 +116,7 @@ export function validateEventChannelAmbiguous(
               carriers2: carriers[0],
             }),
             source: `${c.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
       }
@@ -149,6 +151,7 @@ export function validateWorkflows(
         code: "loom.duplicate-workflow",
         message: diagMessage("loom.duplicate-workflow", { name: ctx.name, wfName: wf.name }),
         source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
       });
     } else {
       seenWorkflowNames.add(wf.name);
@@ -164,6 +167,7 @@ export function validateWorkflows(
           clash,
         }),
         source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
       });
     }
     // Runs BEFORE the body check: it reports the boundary violation and returns
@@ -220,6 +224,7 @@ function validateWorkflowFunctions(wf: WorkflowIR, diags: LoomDiagnostic[], ctxN
           fnName: fn.name,
         }),
         source: `${ctxName}/${wf.name}`,
+        origin: wf.origin,
       });
     }
   }
@@ -340,6 +345,7 @@ function validateWorkflowInlineRepoCalls(
           binding: lowerFirst(repoAgg.get(repoName) as string),
         }),
         source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
       });
     }
   }
@@ -395,6 +401,7 @@ function validateWorkflowHandlers(wf: WorkflowIR, diags: LoomDiagnostic[], ctxNa
         handler: h.name,
       }),
       source: `${ctxName}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }
@@ -427,6 +434,7 @@ function validateWorkflowStarter(wf: WorkflowIR, diags: LoomDiagnostic[], ctxNam
       reactors: reactors.map((r) => `on(${r.event})`).join(", "),
     }),
     source: `${ctxName}/${wf.name}`,
+    origin: wf.origin,
   });
 }
 
@@ -445,6 +453,7 @@ function validateWorkflowCreates(wf: WorkflowIR, diags: LoomDiagnostic[], ctxNam
         length: canonical.length,
       }),
       source: src,
+      origin: wf.origin,
     });
   }
 
@@ -465,6 +474,7 @@ function validateWorkflowCreates(wf: WorkflowIR, diags: LoomDiagnostic[], ctxNam
           name2: name,
         }),
         source: src,
+        origin: wf.origin,
       });
     }
   }
@@ -486,6 +496,7 @@ function validateWorkflowCreates(wf: WorkflowIR, diags: LoomDiagnostic[], ctxNam
         code: "loom.event-create-overlap-workflow",
         message: diagMessage("loom.event-create-overlap-workflow", { name: wf.name, count, event }),
         source: src,
+        origin: wf.origin,
       });
     }
   }
@@ -549,6 +560,7 @@ function validateWorkflowCorrelation(
       severity: "error",
       message: diagMessage("loom.workflow-correlation-required", { name: wf.name }),
       source: src,
+      origin: wf.origin,
       code: "loom.workflow-correlation-required",
     });
     return;
@@ -562,6 +574,7 @@ function validateWorkflowCorrelation(
         idFields: idFields.map((f) => f.name).join(", "),
       }),
       source: src,
+      origin: wf.origin,
       code: "loom.correlation-field-ambiguous",
     });
     return;
@@ -583,6 +596,7 @@ function validateWorkflowCorrelation(
             corrTarget,
           }),
           source: src,
+          origin: wf.origin,
           code: "loom.correlation-type-mismatch",
         });
       }
@@ -605,6 +619,7 @@ function validateWorkflowCorrelation(
             corrName: corr.name,
           }),
           source: src,
+          origin: wf.origin,
           code: "loom.correlation-uninferrable",
         });
       }
@@ -690,6 +705,7 @@ function validateWorkflowOwnStateAddressable(
           params: wf.params.length > 0 ? wf.params.map((p) => p.name).join(", ") : "(none)",
         }),
     source: src,
+    origin: wf.origin,
     code: "loom.workflow-create-correlation-unsupplied",
   });
 }
@@ -870,6 +886,7 @@ function validateWorkflowCrossContextRepositories(
         otherContext: foreignRepos.get(repoName) as string,
       }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }
@@ -903,10 +920,43 @@ function workflowBodies(wf: {
   ];
 }
 
+/** Does this ONE statement (not its children) write state or publish?  An
+ *  aggregate operation call, an event `emit`, a factory `let` (an INSERT), a
+ *  repository delete and an own-state `assign` are effects; guards, reads,
+ *  resource/domain-service calls and the two nesting kinds are not (their
+ *  nested statements are judged on their own by the deep walk).  Exhaustive,
+ *  so a new `WorkflowStmtIR` kind has to be ruled on here. */
+function isWorkflowEffect(s: WorkflowStmtIR): boolean {
+  switch (s.kind) {
+    case "op-call":
+    case "emit":
+    case "factory-let":
+    case "repo-delete":
+    case "assign":
+      return true;
+    case "precondition":
+    case "requires":
+    case "repo-let":
+    case "expr-let":
+    case "repo-run":
+    case "resource-call":
+    case "domain-service-call":
+    case "for-each":
+    case "if-let":
+      return false;
+    default: {
+      const _exhaustive: never = s;
+      void _exhaustive;
+      return false;
+    }
+  }
+}
+
 function validateWorkflowBody(
   ctx: BoundedContextIR,
   wf: {
     name: string;
+    origin?: import("../../types/origin.js").OriginRef;
     statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
     creates?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
     subscriptions?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
@@ -948,12 +998,30 @@ function validateWorkflowBody(
     );
   }
 
+  // The per-arm `markMutated` calls above see only the statements each arm
+  // happens to iterate — the `for-each` arm counted a nested `op-call` but
+  // not an `emit` / factory-`let` / `Repo.delete`, and no arm looked below
+  // one level of nesting.  So a `transactional` workflow whose only effect
+  // sits inside a loop drew a false `transactional-no-effect` (eval item 44).
+  // Whether a body has an effect is a question about EVERY reachable
+  // statement, so it rides the census-sanctioned deep walk.
+  if (!mutated) {
+    for (const body of workflowBodies(wf)) {
+      for (const top of body) {
+        walkWorkflowStmtsDeep(top, (s) => {
+          if (isWorkflowEffect(s)) mutated = true;
+        });
+      }
+    }
+  }
+
   if (wf.transactional && !mutated) {
     diags.push({
       severity: "warning",
       code: "loom.transactional-no-effect",
       message: diagMessage("loom.transactional-no-effect", { name: wf.name }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 
@@ -970,6 +1038,7 @@ function validateWorkflowBody(
         isolation: wf.isolation,
       }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }
@@ -981,6 +1050,7 @@ function validateWorkflowStatements(
   ctx: BoundedContextIR,
   wf: {
     name: string;
+    origin?: import("../../types/origin.js").OriginRef;
     transactional: boolean;
     eventSourced?: boolean;
     isolation?: import("../../types/loom-ir.js").IsolationLevel;
@@ -1053,6 +1123,7 @@ function validateWorkflowStatements(
                     { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
                   ),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
       } else if (inner.kind === "emit" || inner.kind === "factory-let") {
@@ -1086,6 +1157,7 @@ function validateWorkflowStatements(
               exprName: st.expr.name,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
         break;
@@ -1100,6 +1172,7 @@ function validateWorkflowStatements(
               eventName: st.eventName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1116,6 +1189,7 @@ function validateWorkflowStatements(
                 f,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           }
         }
@@ -1128,8 +1202,10 @@ function validateWorkflowStatements(
                 name: wf.name,
                 evName: ev.name,
                 f,
+                suggestion: nearestName(f, declared),
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           }
         }
@@ -1147,6 +1223,7 @@ function validateWorkflowStatements(
               aggName: st.aggName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1184,6 +1261,7 @@ function validateWorkflowStatements(
                   : "",
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           bindingAgg.set(st.name, st.aggName);
           markMutated();
@@ -1204,6 +1282,7 @@ function validateWorkflowStatements(
                 r,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           }
         }
@@ -1217,8 +1296,10 @@ function validateWorkflowStatements(
                 name: wf.name,
                 aggName: st.aggName,
                 p,
+                suggestion: nearestName(p, allowed),
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           }
         }
@@ -1238,6 +1319,7 @@ function validateWorkflowStatements(
               method: st.method,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1250,8 +1332,10 @@ function validateWorkflowStatements(
               repoName: st.repoName,
               method: st.method,
               finds: repo.finds.map((f) => f.name).join(", ") || "(no declared finds)",
+              suggestion: nearestName(st.method, ["getById", ...repo.finds.map((f) => f.name)]),
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1271,6 +1355,7 @@ function validateWorkflowStatements(
               method: st.method,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1288,6 +1373,7 @@ function validateWorkflowStatements(
                 method: st.method,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1301,6 +1387,7 @@ function validateWorkflowStatements(
                 method: st.method,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1325,6 +1412,7 @@ function validateWorkflowStatements(
                 { name: wf.name, repoName: st.repoName },
               ),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1340,6 +1428,7 @@ function validateWorkflowStatements(
                 critName,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1356,6 +1445,7 @@ function validateWorkflowStatements(
                 aggName: st.aggName,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1371,6 +1461,7 @@ function validateWorkflowStatements(
                 retrievalArgsLength: st.retrievalArgs.length,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
             break;
           }
@@ -1384,6 +1475,7 @@ function validateWorkflowStatements(
                 repoName: st.repoName,
               }),
               source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
             });
           }
           arrayBindingAgg.set(st.name, st.aggName);
@@ -1401,6 +1493,7 @@ function validateWorkflowStatements(
               repoName: st.repoName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1415,6 +1508,7 @@ function validateWorkflowStatements(
               retrievalName: st.retrievalName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1431,6 +1525,7 @@ function validateWorkflowStatements(
               aggName: st.aggName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
         // Record the array binding so a `for-each` over it resolves the
@@ -1453,6 +1548,7 @@ function validateWorkflowStatements(
             code: "loom.workflow-foreach-source",
             message: diagMessage("loom.workflow-foreach-source", { name: wf.name, var: st.var }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
         bindingAgg.set(st.var, st.varAggName);
@@ -1472,6 +1568,7 @@ function validateWorkflowStatements(
             code: "loom.iflet-bad-source",
             message: diagMessage("loom.iflet-bad-source", { name: wf.name, var: st.var }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1485,6 +1582,7 @@ function validateWorkflowStatements(
               { name: wf.name, repoName: st.repoName },
             ),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1500,6 +1598,7 @@ function validateWorkflowStatements(
               critName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1516,6 +1615,7 @@ function validateWorkflowStatements(
               aggName: st.aggName,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1531,6 +1631,7 @@ function validateWorkflowStatements(
               retrievalArgsLength: st.retrievalArgs.length,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1568,6 +1669,7 @@ function validateWorkflowStatements(
               op: st.op,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1582,8 +1684,13 @@ function validateWorkflowStatements(
               name: wf.name,
               aggName,
               op: st.op,
+              suggestion: nearestName(
+                st.op,
+                agg.operations.map((o) => o.name),
+              ),
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1597,6 +1704,7 @@ function validateWorkflowStatements(
               opName: op.name,
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
           break;
         }
@@ -1634,6 +1742,7 @@ function validateWorkflowStatements(
               segments: st.target.segments.join("."),
             }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
         markMutated();
@@ -1645,6 +1754,7 @@ function validateWorkflowStatements(
             code: "loom.workflow-unrecognised-statement",
             message: diagMessage("loom.workflow-unrecognised-statement", { name: wf.name }),
             source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
           });
         }
         // `let x = files.get(k)` — the bound form of a resource-op.
@@ -1685,7 +1795,7 @@ function validateWorkflowStatements(
 function checkResourceOpExpr(
   expr: import("../../types/loom-ir.js").ExprIR,
   ctx: BoundedContextIR,
-  wf: { name: string; transactional: boolean },
+  wf: { name: string; transactional: boolean; origin?: import("../../types/origin.js").OriginRef },
   diags: LoomDiagnostic[],
 ): void {
   if (expr.kind !== "call" || expr.callKind !== "resource-op" || !expr.resourceOp) return;
@@ -1702,6 +1812,7 @@ function checkResourceOpExpr(
         resourceKind2: verbsForKind(op.resourceKind).join(", ") || "(none)",
       }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
   if (wf.transactional) {
@@ -1714,6 +1825,7 @@ function checkResourceOpExpr(
         verb: op.verb,
       }),
       source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
     });
   }
 }

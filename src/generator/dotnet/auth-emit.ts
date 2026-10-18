@@ -131,12 +131,17 @@ function csEnvOverridable(envVar: string, v: AuthValueIR | undefined): string {
 function csClaimRead(f: FieldIR, auth: AuthIR): string {
   const param = upperFirst(f.name);
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `default!` and was null for
+  // every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `${param}: ClaimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional
+    return optional
       ? `${param}: ClaimString(payload, ${path})`
       : `${param}: ClaimString(payload, ${path}) ?? string.Empty`;
   }
@@ -152,7 +157,7 @@ function csClaimRead(f: FieldIR, auth: AuthIR): string {
   // leak.  Mirrors Java's `stubValue(t)` → `List.of()` fallback and the
   // dev stub's own empty-list literal on this side, so both .NET
   // principal-construction sites now agree.
-  if (!f.optional && t.kind === "array") {
+  if (!optional && t.kind === "array") {
     return `${param}: ${stubCsharpValueForType(t)}`;
   }
   return `${param}: default!`;
@@ -169,12 +174,25 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   const audienceExpr = auth.oidc.audience
     ? csEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience)
     : 'Environment.GetEnvironmentVariable("OIDC_AUDIENCE")';
+  // The doc comment names only the checks this file performs: `aud` is
+  // validated against the declared audience (env-overridable), or — with no
+  // `audience:` — only when OIDC_AUDIENCE is set at runtime (G8-04).
+  const checksDoc = auth.oidc.audience
+    ? "checks iss / aud / exp"
+    : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const args = user.fields.map((f) => csClaimRead(f, auth)).join(",\n            ");
+  // Every reject path answers 401 (never 500) by swallowing the exception —
+  // so each one says WHY at debug, or a misconfigured issuer / audience is
+  // invisible in the log stream.
+  const logRejected = renderDotnetLogCall("authTokenRejected", [
+    { name: "reason", valueExpr: "reason" },
+  ]);
   return `// Auto-generated.
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -184,7 +202,7 @@ namespace ${ns}.Auth;
 
 /// <summary>Generated OIDC verifier.  Validates the bearer
 /// token's signature against the issuer's JWKS (discovered + cached via
-/// <see cref="ConfigurationManager{T}"/>), checks iss / aud / exp, then
+/// <see cref="ConfigurationManager{T}"/>), ${checksDoc}, then
 /// projects the configured claims onto the <see cref="User"/> shape.
 /// Returns null to reject (→ 401).</summary>
 public sealed class OidcUserVerifier : IUserVerifier
@@ -201,6 +219,16 @@ public sealed class OidcUserVerifier : IUserVerifier
             new HttpDocumentRetriever { RequireHttps = Issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase) });
     private static readonly JsonWebTokenHandler Handler = new();
 
+    private readonly ILogger<OidcUserVerifier> _log;
+    public OidcUserVerifier(ILogger<OidcUserVerifier> log) => _log = log;
+
+    /// <summary>Reject the presented token (→ 401) and log why at debug.</summary>
+    private User? Rejected(string reason)
+    {
+        ${logRejected}
+        return null;
+    }
+
     public async Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
     {
         string? token = ExtractToken(httpContext.Request);
@@ -215,10 +243,10 @@ public sealed class OidcUserVerifier : IUserVerifier
             configuration = await Configuration.GetConfigurationAsync(cancellationToken);
         }
 #pragma warning disable CA1031 // a discovery failure rejects (401), never 500
-        catch (Exception)
+        catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return null;
+            return Rejected("OIDC discovery failed: " + ex.Message);
         }
 
         var parameters = new TokenValidationParameters
@@ -227,7 +255,10 @@ public sealed class OidcUserVerifier : IUserVerifier
             ValidateIssuer = true,
             IssuerSigningKeys = configuration.SigningKeys,
             ValidateIssuerSigningKey = true,
-            ValidateAudience = Audience is not null,
+            // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud
+            // check — the documented opt-out every backend honours.  Testing
+            // only for null validated every token against "" and rejected all.
+            ValidateAudience = !string.IsNullOrEmpty(Audience),
             ValidAudience = Audience,
             ValidateLifetime = true,
         };
@@ -246,17 +277,17 @@ public sealed class OidcUserVerifier : IUserVerifier
                 configuration = await Configuration.GetConfigurationAsync(cancellationToken);
             }
 #pragma warning disable CA1031 // a refresh failure rejects (401), never 500
-            catch (Exception)
+            catch (Exception ex)
 #pragma warning restore CA1031
             {
-                return null;
+                return Rejected("OIDC discovery refresh failed: " + ex.Message);
             }
             parameters.IssuerSigningKeys = configuration.SigningKeys;
             result = await Handler.ValidateTokenAsync(token, parameters);
         }
         if (!result.IsValid)
         {
-            return null;
+            return Rejected(result.Exception?.Message ?? "token validation failed");
         }
 
         // Re-parse the payload as JSON so dotted claim paths
@@ -308,6 +339,9 @@ public sealed class OidcUserVerifier : IUserVerifier
                 return null;
             }
         }
+        // A claim present as JSON null is absent: ToString() would answer
+        // "", which a requires-gate != null test reads as present.
+        if (current.ValueKind == JsonValueKind.Null) return null;
         return current.ValueKind == JsonValueKind.String ? current.GetString() : current.ToString();
     }
 
@@ -1029,8 +1063,9 @@ public sealed class UserMiddleware
         "/swagger",
         // The dev-only state reset (src/util/test-reset.ts) — infra, not
         // domain surface, so an auth-bearing system's e2e suite need not mint
-        // a principal just to empty a table.  Costs nothing: where the route
-        // is not mapped there is no handler behind the bypassed path.
+        // a principal just to empty a table.  Not an auth bypass: the route
+        // is mapped only with LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN,
+        // and refuses (403) a request without that secret.
         "${TEST_RESET_PATH}",${handshakeBypass}
     };
 

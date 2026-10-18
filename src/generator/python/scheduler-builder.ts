@@ -28,13 +28,12 @@
 
 import type { EventIR, FieldIR, TimerSourceIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
 import { PY, pyNewId } from "./py-symbols.js";
 
 const PROCRASTINATE = ref(pyModule("procrastinate"));
-
-import { snake } from "../../util/naming.js";
 
 /** Does any owned timer use a real cron expression (vs a bare-interval
  *  `every:`)?  Gates the procrastinate dependency + the durable job store — a
@@ -97,7 +96,7 @@ function tickFieldValue(field: FieldIR): { text: string; typeIgnore?: boolean } 
 function tickBuild(event: EventIR): string {
   const kwargs = event.fields.map((f) => {
     const { text, typeIgnore } = tickFieldValue(f);
-    return `${snake(f.name)}=${text}${typeIgnore ? "  # type: ignore[arg-type]" : ""}`;
+    return `${pythonIdent(f.name)}=${text}${typeIgnore ? "  # type: ignore[arg-type]" : ""}`;
   });
   return `${event.name}(${kwargs.join(", ")})`;
 }

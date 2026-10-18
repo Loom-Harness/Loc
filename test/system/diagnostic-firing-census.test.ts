@@ -492,6 +492,18 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
+  // domain code, where every backend renders the hole as its bare value — the
+  // branch text ("items") is dropped.  The warning says so where it happens.
+  "loom.interp-format-dropped-in-domain": `
+system IcuDrop {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      qty: int
+      derived label: string = \`{qty, plural, one {# item} other {# items}}\`
+    }
+  } }
+}`,
   // An invented member on a receiver the LANGUAGE layer types as `unknown`
   // (a `let` bound from a list literal), so the AST member check stands down
   // and only the IR backstop sees it. Before #3133 node emitted `…[0].nope`.
@@ -517,6 +529,18 @@ system TestVocab {
     event Pinged { n: int }
     aggregate Task with crudish { title: string }
     test "t" { emit Pinged { n: 1 } }
+  } }
+}`,
+  // A paged find's own `page` parameter: the paged read adds a `page` query
+  // control of its own, so the key would arrive twice and every generated
+  // repository signature would declare `page` twice.
+  "loom.paged-param-reserved": `
+system PagedParam {
+  subdomain S { context Shop {
+    aggregate Thing with crudish { rank: int }
+    repository Things for Thing {
+      find byRank(page: int): Thing paged where this.rank == page
+    }
   } }
 }`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
@@ -1468,6 +1492,27 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: dotnet, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // --- reserved-field-name-checks.ts ---------------------------------------
+  // Universal: a dunder field (Ecto's `__meta__`), on any backend.
+  "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
+    repository Things for Thing { }`),
+  // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
+  // part schema's bundled `timestamps()` already defines `inserted_at`.
+  "loom.elixir-part-timestamp-field": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order with crudish {
+      note: string
+      contains lines: Line[]
+      entity Line { sku: string  inserted_at: string }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for
@@ -1602,6 +1647,22 @@ system S {
     command C { region: string }
     workflow W {
       create(c: C) { let xs = Orders.run(retrieval { where: this.region == c.region }) }
+    }
+  } }
+}`,
+
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
+  "loom.paged-query-handler-shape": `
+system S {
+  subdomain Sales { context Orders {
+    aggregate Order with crudish { code: string  region: string }
+    repository Orders for Order { }
+    criterion InRegion(rgn: string) of Order = region == rgn
+    retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+    queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let r = Orders.run(ByRegion(rgn))
+      return r
     }
   } }
 }`,
@@ -2343,6 +2404,8 @@ system P {
   "loom.serves-unknown-api": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: GhostApi port: 3002 }",
   ),
+  // A second api the base's only backend never lists in `serves:` (#29).
+  "loom.api-unserved": topology("api OrphanApi from D"),
   // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
   // `api Sales: OrdersApi` parameter, so every shape below is a real binding
   // defect rather than a missing declaration.
@@ -3084,6 +3147,39 @@ system S {
   deployable api { platform: elixir contexts: [Shop] dataSources: [st] port: 4000 }
 }`,
 
+  // Eval item 22 / ruling D5: the list read served by the injected `find all`.
+  "loom.default-deny-list-ungated": `
+system S {
+  user { id: guid  role: string }
+  auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
+  } }
+  api Api from D
+  storage pg { type: postgres }
+  resource st { for: Vault, kind: state, use: pg }
+  deployable api { platform: node contexts: [Vault] dataSources: [st] serves: Api port: 3000 auth: required }
+}`,
+
+  // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
+  "loom.policy-out-of-scope": `
+system S {
+  user { id: guid  role: string }
+  subdomain D {
+    context A {
+      policy IsAdmin(): bool = currentUser.role == "admin"
+      aggregate Foo { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+    context B {
+      aggregate Bar { n: int  operation bump() requires IsAdmin() { n := n + 1 } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: A, kind: state, use: pg }
+  resource st2 { for: B, kind: state, use: pg }
+  deployable api { platform: node contexts: [A, B] dataSources: [st, st2] port: 3000 auth: required }
+}`,
+
   "loom.default-deny-by-id-ungated": `
 system S {
   user { id: guid  role: string }
@@ -3534,6 +3630,12 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // unsupported-primitive arm and the two procedural packs' missing-renderer
   // fallback.
   "loom.page-ref-unreachable": "test/generator/_walker/walker-give-up-corpus-shapes.test.ts",
+  // Phase ⑨ too: the ambiguous-rename refusal fires only when a BASELINE
+  // snapshot diffs against a source that dropped+added columns the heuristic
+  // cannot collapse — `validate()` has no baseline.  Its catalog entry is new
+  // (#30: the text moved out of an inline literal); the pointed-at file drives
+  // it and asserts the top-level placement hint.
+  "loom.migration-ambiguous-rename": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, and not reachable from a `.ddd` at all: the discarded-backfill
   // invariant (F-018 §4) needs a BASELINE SNAPSHOT to diff against — one
   // generation's schema plus a second source that adds the backfilled column.

@@ -149,6 +149,8 @@ Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `quer
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.
 
+An `api` that **no** backend deployable lists in `serves:` is dead — nothing mounts its routes or pins its contract — and raises the warning **`loom.api-unserved`** naming the api and the backends that could serve it. It stays quiet for a system with no deployables at all (a domain-only model), and for an api a `resource { kind: api, use: … }` binds, which already fails with `loom.resource-api-unserved`.
+
 ## `storage`
 
 ```

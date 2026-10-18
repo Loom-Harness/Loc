@@ -8,11 +8,13 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { descriptorFor } from "../../../platform/metadata.js";
 import type {
   BoundedContextIR,
   CommandHandlerIR,
   EnrichedLoomModel,
   QueryHandlerIR,
+  SystemIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
@@ -150,6 +152,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
             method: s.method,
           }),
           source: `${ctx.name}/${h.name}`,
+          origin: ctx.origin,
         });
       });
       for (const p of h.params) {
@@ -163,6 +166,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
               hName: h.name,
             }),
             source: `${ctx.name}/${h.name}`,
+            origin: ctx.origin,
           });
         }
       }
@@ -178,6 +182,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
         code: "loom.query-handler-saves",
         message: diagMessage("loom.query-handler-saves", { name: ctx.name, qName: q.name }),
         source: `${ctx.name}/${q.name}`,
+        origin: ctx.origin,
       });
     }
   }
@@ -196,6 +201,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
           touched: [...touched].sort().join(", "),
         }),
         source: `${ctx.name}/${c.name}`,
+        origin: ctx.origin,
       });
     }
   }
@@ -292,5 +298,40 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         }
       }
     }
+  }
+}
+
+/** `loom.api-unserved` (eval item #29): an `api` no backend deployable lists in
+ *  its `serves:`.  Nothing mounts its explicit routes and nothing pins its
+ *  contract, so the declaration is dead — and before this it was silent
+ *  (`0 error(s), 0 warning(s)`), which reads as "served".  A WARNING: the model
+ *  still generates, it just does not do what the declaration suggests.
+ *
+ *  IR-level, not beside `checkDeployableServes`: top-level `api` / `deployable`
+ *  declarations from sibling files fold into the one system at lowering, so
+ *  only the lowered system knows every `serves:` list.  Two cases stay quiet:
+ *  a system with no deployables at all (a domain-only model serves nothing on
+ *  purpose), and an api a `resource { kind: api, use: … }` binds — that one
+ *  already raises the `loom.resource-api-unserved` ERROR. */
+export function validateUnservedApis(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  if (sys.deployables.length === 0) return;
+  const served = new Set(
+    sys.deployables.filter((d) => !descriptorFor(d.platform).isFrontend).flatMap((d) => d.serves),
+  );
+  const resourceBound = new Set(sys.dataSources.map((r) => r.apiName).filter(Boolean));
+  const backends = sys.deployables
+    .filter((d) => !descriptorFor(d.platform).isFrontend)
+    .map((d) => `'${d.name}'`);
+  for (const api of sys.apis) {
+    if (served.has(api.name) || resourceBound.has(api.name)) continue;
+    diags.push({
+      severity: "warning",
+      code: "loom.api-unserved",
+      message: diagMessage("loom.api-unserved", {
+        name: api.name,
+        backends: backends.length > 0 ? backends.join(", ") : "(none declared)",
+      }),
+      source: `${sys.name}/${api.name}`,
+    });
   }
 }

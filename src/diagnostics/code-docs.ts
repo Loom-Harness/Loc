@@ -84,6 +84,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
+  "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
   "loom.match-empty": "05-expressions.md#ternary--match",
   "loom.match-no-else": "05-expressions.md#ternary--match",
@@ -112,6 +113,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
+  "loom.dunder-field-name": "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
+  "loom.elixir-part-timestamp-field":
+    "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
   // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
@@ -146,6 +150,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
+  "loom.paged-query-handler-shape":
+    "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -327,6 +334,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.ui-multi-backend-unsupported": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-aggregate-unserved": "15-ui-pages-structure.md#ui-block--deployable-binding",
   "loom.ui-read-unresolved": "16-ui-walker-primitives.md#queryview--async-data-branching",
@@ -376,6 +384,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",
   "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",

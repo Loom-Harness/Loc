@@ -8,7 +8,7 @@ import type {
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { contextFilterPredicate, writeScopePredicate } from "./find-predicate.js";
@@ -185,18 +185,18 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
     if (isRefCollectionField(f)) {
       const target = refTarget(f);
       kwargs.push(
-        `${snake(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${snake(f.name)})]`,
+        `${pythonIdent(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${pythonIdent(f.name)})]`,
       );
       continue;
     }
-    kwargs.push(`${snake(f.name)}=${hydrateField("row", f, ctx)}`);
+    kwargs.push(`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`);
   }
   for (const c of agg.contains) {
     const fromDoc = `_${snake(c.partName)}_from_doc`;
     kwargs.push(
       c.collection
-        ? `${snake(c.name)}=[${fromDoc}(__x) for __x in ${PY.cast}(list[object], row.${snake(c.name)})]`
-        : `${snake(c.name)}=(None if row.${snake(c.name)} is None else ${fromDoc}(row.${snake(c.name)}))`,
+        ? `${pythonIdent(c.name)}=[${fromDoc}(__x) for __x in ${PY.cast}(list[object], row.${pythonIdent(c.name)})]`
+        : `${pythonIdent(c.name)}=(None if row.${pythonIdent(c.name)} is None else ${fromDoc}(row.${pythonIdent(c.name)}))`,
     );
   }
   return lines(
@@ -213,7 +213,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
     if (isRefCollectionField(f)) {
-      pairs.push([snake(f.name), `[str(__x) for __x in aggregate.${snake(f.name)}]`]);
+      pairs.push([snake(f.name), `[str(__x) for __x in aggregate.${pythonIdent(f.name)}]`]);
       continue;
     }
     pairs.push(...persistField("aggregate", f, ctx));
@@ -223,8 +223,8 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     pairs.push([
       snake(c.name),
       c.collection
-        ? `[${toDoc}(__e) for __e in aggregate.${snake(c.name)}]`
-        : `(None if aggregate.${snake(c.name)} is None else ${toDoc}(aggregate.${snake(c.name)}))`,
+        ? `[${toDoc}(__e) for __e in aggregate.${pythonIdent(c.name)}]`
+        : `(None if aggregate.${pythonIdent(c.name)} is None else ${toDoc}(aggregate.${pythonIdent(c.name)}))`,
     ]);
   }
   const versioned = aggregateIsVersioned(agg);

@@ -58,7 +58,8 @@ const BACKEND_AND_UI = `
     deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
     test e2e "create a product" against api {
       let p = api.products.create({ sku: "WIDGET-1" })
-      expect(p.sku).toBe("WIDGET-1")
+      let read = api.products.getById(p)
+      expect(read.sku).toBe("WIDGET-1")
     }
   }
 `;
@@ -81,7 +82,8 @@ const TWO_BACKENDS = `
     }
     test e2e "create an order" against ordersApi {
       let o = api.orders.create({ ref: "A-1" })
-      expect(o.ref).toBe("A-1")
+      let read = api.orders.getById(o)
+      expect(read.ref).toBe("A-1")
     }
   }
 `;
@@ -276,6 +278,11 @@ describe("README.md — the test projects", () => {
     const md = await readme(BACKEND_AND_UI);
     expect(md).toContain("#### State between tests");
     expect(md).toContain("once before it starts");
+    // H-30: the reset is opt-in, token-gated, and NOT enabled by compose.
+    expect(md).toContain("only when **you opt in**");
+    expect(md).toContain("LOOM_TEST_RESET_TOKEN");
+    expect(md).toContain("The generated `docker-compose.yml` does **not** enable it");
+    expect(md).not.toContain("already sets it on every backend service");
     // The sharing that REMAINS, and the way out of it.
     expect(md).toContain("Blocks within one run still share that database");
     expect(md).toContain("E2E_RESET=per-test");

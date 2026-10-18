@@ -1,6 +1,6 @@
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent } from "../../../util/naming.js";
 import { PY_IMPORTS } from "../../_imports/python.js";
 import { PY } from "../py-symbols.js";
 import { renderPyType } from "../render-expr.js";
@@ -50,6 +50,6 @@ function renderPyEvent(ev: EventIR): string[] {
     `@${PY.dataclass}(frozen=True)`,
     `class ${ev.name}:`,
     `    type: ${PY.ClassVar}[str] = "${ev.name}"`,
-    ...ev.fields.map((f) => `    ${snake(f.name)}: ${renderPyType(f.type)}`),
+    ...ev.fields.map((f) => `    ${pythonIdent(f.name)}: ${renderPyType(f.type)}`),
   ];
 }

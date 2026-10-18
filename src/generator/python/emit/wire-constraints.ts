@@ -16,19 +16,32 @@ import {
   pickErrorPath,
   type SingleFieldPattern,
   singleFieldConstraints,
+  singleFieldShape,
 } from "../../../ir/validate/invariant-classify.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
+import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
+import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
 
 // The pydantic carriers, written as `ref()` markers — the importing module's
 // block derives from whichever survive into its text.
 const FIELD = pyRef("pydantic", "Field");
+const FIELD_VALIDATOR = pyRef("pydantic", "field_validator");
 const MODEL_VALIDATOR = pyRef("pydantic", "model_validator");
 const VALIDATION_ERROR = pyRef("pydantic", "ValidationError");
+const VALIDATION_INFO = pyRef("pydantic", "ValidationInfo");
+const WRAP_HANDLER = pyRef("pydantic", "ValidatorFunctionWrapHandler");
 const INIT_ERROR_DETAILS = pyRef("pydantic_core", "InitErrorDetails");
 const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
+
+/** One `Field(...)` kwarg plus the wire message its violation answers — the
+ *  one node sends for the rule that produced it. */
+interface FieldKwarg {
+  kw: string;
+  message: string;
+}
 
 /** Map of `field → Field(...)` constraint string for every single-field,
  *  message-less invariant over one of `available`.  Multiple constraints
@@ -38,7 +51,92 @@ export function createFieldConstraints(
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
 ): Map<string, string> {
-  const byField = new Map<string, SingleFieldPattern[]>();
+  const out = new Map<string, string>();
+  for (const [field, kwargs] of fieldKwargs(invariants, available)) {
+    out.set(field, `${FIELD}(${kwargs.map((k) => k.kw).join(", ")})`);
+  }
+  return out;
+}
+
+/** The Pydantic error `type`s a `Field(...)` kwarg denies with.  `min_length` /
+ *  `max_length` answer `string_too_*` on a string and `too_*` on a sequence. */
+const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
+  ge: ["greater_than_equal"],
+  gt: ["greater_than"],
+  le: ["less_than_equal"],
+  lt: ["less_than"],
+  min_length: ["string_too_short", "too_short"],
+  max_length: ["string_too_long", "too_long"],
+  pattern: ["string_pattern_mismatch"],
+};
+
+/** A `@field_validator(..., mode="wrap")` that re-words the `Field(...)`
+ *  constraint violations `createFieldConstraints` arms with the SAME
+ *  sentence node's zod schema denies with — the synthesized
+ *  `singleFieldMessage` (e.g. "Billing Email is not in the expected format")
+ *  for a shape node chains natively, else node's refine default — ruling D10
+ *  (#15d).
+ *  Before it a message-less rule answered Pydantic's default text, which for a
+ *  `pattern=` leaked the regex onto the wire (`String should match pattern
+ *  '^[^@]+@…'`) and diverged from node for every other shape too.
+ *
+ *  The table is per MODEL (one field name can carry different bounds on two
+ *  request DTOs) and keyed by `(field, pydantic error type)`, so only the
+ *  constraint errors this table arms are re-worded: a type error
+ *  (`string_type`, `int_parsing`) or a nested model's own error (non-empty
+ *  relative `loc`) re-raises untouched.  The re-raise keeps the Pydantic
+ *  `type` — no `msg.` prefix — so the 422 handler still omits `errors[].code`,
+ *  exactly as node omits it for a message-less rule.  `null` when no field
+ *  carries a constraint. */
+export function createFieldMessageValidator(
+  invariants: InvariantIR[],
+  available: ReadonlySet<string>,
+): string | null {
+  const table = fieldKwargs(invariants, available);
+  if (table.size === 0) return null;
+  const entries: string[] = [];
+  for (const [field, kwargs] of table) {
+    for (const { kw, message } of kwargs) {
+      for (const type of KWARG_ERROR_TYPES[kw.slice(0, kw.indexOf("="))] ?? []) {
+        entries.push(
+          `                (${JSON.stringify(pythonWireIdent(field))}, ${JSON.stringify(type)}): ${JSON.stringify(message)},`,
+        );
+      }
+    }
+  }
+  // Pydantic names a field by its python ATTRIBUTE (`lambda_`), never its
+  // wire alias (`lambda`) — both in the decorator and in `info.field_name`.
+  const fields = [...table.keys()].map((f) => JSON.stringify(pythonWireIdent(f))).join(", ");
+  return lines(
+    "",
+    `    @${FIELD_VALIDATOR}(${fields}, mode="wrap")`,
+    "    @classmethod",
+    "    def _wire_messages(",
+    `        cls, value: object, handler: ${WRAP_HANDLER}, info: ${VALIDATION_INFO}`,
+    "    ) -> object:",
+    "        try:",
+    "            return handler(value)",
+    `        except ${VALIDATION_ERROR} as err:`,
+    "            messages: dict[tuple[str, str], str] = {",
+    ...entries,
+    "            }",
+    "            for e in err.errors():",
+    '                hit = messages.get((info.field_name or "", e["type"]))',
+    '                if hit is not None and not e["loc"]:',
+    `                    raise ${PYDANTIC_CUSTOM_ERROR}(e["type"], hit) from None`,
+    "            raise",
+  );
+}
+
+/** Per field, the `Field(...)` kwargs every single-field, message-less
+ *  invariant over one of `available` contributes — the one source both
+ *  `createFieldConstraints` (the check) and `createFieldMessageValidator` (its
+ *  wire message) read, so the two cannot disagree on which bound applies. */
+function fieldKwargs(
+  invariants: InvariantIR[],
+  available: ReadonlySet<string>,
+): Map<string, FieldKwarg[]> {
+  const byField = new Map<string, Array<{ pattern: SingleFieldPattern; message: string }>>();
   for (const inv of invariants) {
     if (!classifyForWire(inv, { available })) continue;
     // A messaged rule carries author text, so it routes through the
@@ -48,24 +146,34 @@ export function createFieldConstraints(
     if (inv.message) continue;
     const cons = singleFieldConstraints(inv);
     if (!cons) continue;
+    // The message node sends for this rule.  Node classifies the WHOLE
+    // invariant (`singleFieldShape`, as `takeSingleFieldChain` does): a
+    // recognised compound like `seats >= 1 && seats <= 500` is ONE `between`
+    // with one sentence, even though Pydantic needs it as two kwargs.  A
+    // conjunction node does not recognise (`email.matches(r) && email.length
+    // <= 120`) is a zod `.refine` carrying the derived default instead.
+    const shape = singleFieldShape(inv);
+    const message = shape
+      ? singleFieldMessage(shape.field, shape.pattern)
+      : `Invariant violated: ${inv.source}`;
     for (const { field, pattern } of cons) {
       if (!available.has(field)) continue;
-      byField.set(field, [...(byField.get(field) ?? []), pattern]);
+      byField.set(field, [...(byField.get(field) ?? []), { pattern, message }]);
     }
   }
-  const out = new Map<string, string>();
+  const out = new Map<string, FieldKwarg[]>();
   for (const [field, patterns] of byField) {
-    const kwargs: string[] = [];
+    const kwargs: FieldKwarg[] = [];
     const seen = new Set<string>();
-    for (const p of patterns) {
-      for (const kw of pydanticKwargs(p)) {
+    for (const { pattern, message } of patterns) {
+      for (const kw of pydanticKwargs(pattern)) {
         const key = kw.slice(0, kw.indexOf("="));
         if (seen.has(key)) continue; // first constraint wins on a duplicate key
         seen.add(key);
-        kwargs.push(kw);
+        kwargs.push({ kw, message });
       }
     }
-    if (kwargs.length > 0) out.set(field, `${FIELD}(${kwargs.join(", ")})`);
+    if (kwargs.length > 0) out.set(field, kwargs);
   }
   return out;
 }
@@ -104,19 +212,32 @@ function pyRawRegex(src: string): string {
 
 /** Splice a derived `Field(...)` onto a request-field declaration, folding any
  *  existing default (`= None` / `= False`) into `Field(default=…, …)` so the
- *  field's optionality is preserved. */
+ *  field's optionality is preserved.
+ *
+ *  `name` is the WIRE name.  A wire name that is a python keyword (`def`)
+ *  cannot be the attribute, so the attribute is the escaped
+ *  `pythonWireIdent` spelling (`def_`) and the wire key is kept by an
+ *  explicit `alias="def"` folded into the same `Field(...)` (eval item 6,
+ *  ruling D2).  Every other name is byte-identical. */
 export function withFieldConstraint(
   name: string,
   decl: string,
   fieldExpr: string | undefined,
 ): string {
-  if (!fieldExpr) return `    ${name}: ${decl}`;
+  const attr = pythonWireIdent(name);
+  const alias = pythonWireNeedsAlias(name) ? `alias=${JSON.stringify(name)}` : null;
+  const expr = alias
+    ? fieldExpr
+      ? `${FIELD}(${fieldExpr.slice(`${FIELD}(`.length, -1)}, ${alias})`
+      : `${FIELD}(${alias})`
+    : fieldExpr;
+  if (!expr) return `    ${attr}: ${decl}`;
   const eq = decl.indexOf(" = ");
-  if (eq === -1) return `    ${name}: ${decl} = ${fieldExpr}`;
+  if (eq === -1) return `    ${attr}: ${decl} = ${expr}`;
   const type = decl.slice(0, eq);
   const dflt = decl.slice(eq + 3);
-  const inner = fieldExpr.slice(`${FIELD}(`.length, -1);
-  return `    ${name}: ${type} = ${FIELD}(default=${dflt}, ${inner})`;
+  const inner = expr.slice(`${FIELD}(`.length, -1);
+  return `    ${attr}: ${type} = ${FIELD}(default=${dflt}, ${inner})`;
 }
 
 /** A Pydantic `@model_validator(mode="after")` enforcing the wire-scoped

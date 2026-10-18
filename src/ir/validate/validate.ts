@@ -1,7 +1,11 @@
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
-import { validateApplicationHandlers, validateRoutes } from "./checks/api-checks.js";
+import {
+  validateApplicationHandlers,
+  validateRoutes,
+  validateUnservedApis,
+} from "./checks/api-checks.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
@@ -16,6 +20,7 @@ import {
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
+import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -26,6 +31,7 @@ import {
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
+import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -86,6 +92,7 @@ import {
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
+  validatePagedQueryHandlerShape,
   validatePageGateExprs,
   validatePermissions,
   validateProvenancedStorage,
@@ -123,7 +130,11 @@ import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-che
 // Public surface kept stable: LoomDiagnostic (now defined in checks/diagnostic)
 // and firstNonQueryableNode (in checks/shared) are re-exported here so existing
 // importers of "./validate.js" are unaffected.
-export type { LoomDiagnostic } from "./checks/diagnostic.js";
+export {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+} from "./checks/diagnostic.js";
 export { firstNonQueryableNode } from "./checks/shared.js";
 
 // ---------------------------------------------------------------------------
@@ -168,6 +179,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
+    validateUnservedApis(sys, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can
@@ -188,6 +200,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // merits, in every `auth { enforcement: }` mode.
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
+    validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
@@ -225,6 +238,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // `// flutter pack: no renderer` comment.  Fail fast instead.
     validateFlutterPrimitiveSupport(sys, diags);
     validateRelayTargetNotSubscribed(sys, diags);
+    validatePagedQueryHandlerShape(sys, diags);
     validateColumnlessProjectionSources(sys, diags);
     validateDocumentAggregationFilters(sys, diags);
     validateDefaultDeny(sys, diags);
@@ -243,12 +257,12 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // the normal IR-warning channel (api → LSP / playground / `parse --json`).
     // Warning-only, so it can't flip `ok` or block generation (both error-gated).
     validateIndexSuggestions(sys, diags);
-    // Advisory update-gate lint (audit D3) — WARNING-severity
-    // `loom.update-gate-suggestion` for a field that a `requires`-gated
-    // operation assigns AND `crudish`'s generic `update` mass-assigns, so the
-    // gate is bypassable through `update`.  Points at `immutable`, which
-    // removes the field from the update input while leaving the operation free
-    // to assign it.  Same advisory channel as the index lint above.
+    // Update-gate bypass lint (audit D3, helpdesk H-01) — a counted WARNING
+    // `loom.update-gate-suggestion` for a field that a gated operation
+    // (`requires`, `when`, or a `precondition` reading the field) assigns AND
+    // `crudish`'s generic `update` mass-assigns, so the gate is bypassable
+    // through `update`.  Points at `immutable` (and `managed` for the create
+    // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
@@ -275,6 +289,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validatePagedParamNames(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);

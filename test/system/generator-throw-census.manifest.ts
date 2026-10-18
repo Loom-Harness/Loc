@@ -715,6 +715,18 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "`slot` and `action` types are only legal on a component's parameter list, so they never reach a backend typespec.",
   },
 
+  // src/generator/elixir/vanilla/domain-core-emit.ts
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
+    deferred:
+      "The event-sourced pure core reads the same command body as the ES command runner, so it shares that runner's gap: an `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate.",
+    mission: "M-T9.79",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
+    invariant:
+      "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
+  },
+
   // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
