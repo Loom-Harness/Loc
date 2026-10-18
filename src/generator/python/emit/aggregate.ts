@@ -428,7 +428,9 @@ function serverInitSeed(t: TypeIR): string {
     case "empty-collection":
       return "[]";
     default:
-      return "None";
+      // A `guid` has no language-defined seed, but a lifecycle stamp may
+      // write it later (`createdBy`): the factory still names a str placeholder.
+      return base.kind === "primitive" && base.name === "guid" ? '""' : "None";
   }
 }
 

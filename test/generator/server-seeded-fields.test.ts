@@ -99,3 +99,41 @@ describe("server-owned fields with no default are seeded in every create factory
     expect(py).toContain("labels=[],");
   });
 });
+
+// A stamped guid (`auditable`'s `createdBy`) has no language-defined seed — the
+// gate refuses an UNWRITTEN guid — but its stamp fills it at persist time, so
+// node and python still name a string-typed placeholder in the factory. `null`
+// there fails `tsc` / `mypy --strict` (the node `ts-build` and python-build
+// legs build this same fixture).
+describe("a stamped non-optional id keeps a type-valid factory placeholder", () => {
+  const stamped = (platform: string): string => `
+system Stamps {
+  user { id: guid  name: string }
+  subdomain D {
+    context Desk {
+      aggregate Order with crudish, auditable {
+        label: string
+      }
+      repository Orders for Order { }
+    }
+  }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Desk, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Desk], dataSources: [st], serves: A, auth: required, port: 4000 }
+}
+`;
+
+  it('node: createdBy / updatedBy are "", never null', async () => {
+    const ts = fileEndingWith(await generateSystemFiles(stamped("node")), "domain/order.ts");
+    expect(ts).toContain('createdBy: "",');
+    expect(ts).toContain('updatedBy: "",');
+    expect(ts).not.toMatch(/(created|updated)By: null,/);
+  });
+
+  it('python: created_by / updated_by are "", never None', async () => {
+    const py = fileEndingWith(await generateSystemFiles(stamped("python")), "app/domain/order.py");
+    expect(py).toContain('created_by=""');
+    expect(py).toContain('updated_by=""');
+  });
+});
