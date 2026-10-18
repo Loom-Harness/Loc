@@ -39,7 +39,11 @@ import {
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -1316,6 +1320,7 @@ function emitProjectFromContexts(
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
+      ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
       let idValueType = "uuid";

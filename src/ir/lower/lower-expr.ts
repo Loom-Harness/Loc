@@ -72,6 +72,7 @@ import {
   PRINCIPAL_ORG_CONTEXT_PATH,
 } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
@@ -968,6 +969,39 @@ function applySuffixToRecv(
         }
         return { recv: orExpr, recvType: bool };
       }
+    }
+    // `<vo>.equals(other)` — VALUE equality, the value-object intrinsic
+    // (src/util/value-object-intrinsics.ts).  It lowers to the SAME
+    // `binary ==` node a `vo == other` writes, so every backend renders it
+    // through its one value-equality leaf (python `==` on the frozen
+    // dataclass, java `Objects.equals`, .NET record `==`, elixir struct `==`,
+    // node `.equals(…)`) instead of each emitter meeting a `method-call` named
+    // `equals` it has no idiom for — python rendered `x.equals(…)` (no such
+    // attribute; mypy rejects it) and elixir's test emitter threw.  A value
+    // object that declares its OWN `equals` member keeps the ordinary call.
+    if (
+      args.length === 1 &&
+      recvType.kind === "valueobject" &&
+      isValueObjectEqualsIntrinsic(
+        findValueObjectByName(env, recvType.name)?.members ?? [],
+        ms.member,
+      )
+    ) {
+      const bool: TypeIR = { kind: "primitive", name: "bool" };
+      const eq: ExprIR = {
+        kind: "binary",
+        op: "==",
+        left: recv,
+        right: args[0]!,
+        leftType: recvType,
+        rightType: recvType,
+        resultType: bool,
+      };
+      // Parenthesized: the source was a postfix ATOM, the replacement is a
+      // low-precedence binary.  Bare, `!berth.equals(o)` rendered
+      // `!this.Berth == o` on .NET (CS0023) and `not record.berth == o` on
+      // elixir (`not` binds tighter than `==` — ArgumentError at runtime).
+      return { recv: { kind: "paren", inner: eq }, recvType: bool };
     }
     // `this.<fn>(args)` / `this.<op>(args)` — an EXPLICIT self-call on an
     // aggregate-local `function` or `operation`.  The bare spelling

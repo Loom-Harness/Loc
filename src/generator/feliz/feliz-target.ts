@@ -964,6 +964,9 @@ export const felizTarget: WalkerTarget = {
 
   // --- Markup seams — F# flavoured ---------------------------------------
   renderComment: (text: string) => `(* ${text} *)`,
+  // A comment-only body leaves `let view … =` with no expression — follow the
+  // comment with `Html.none` so the view still returns an element.
+  wrapCommentOnlyRoot: (comment: string) => `${comment}\nHtml.none`,
   // A VISIBLE degradation notice — an F# comment inside a `children` list is
   // not an expression at all, so on this target the "honest skip" was neither
   // honest (the reader saw an empty card) nor safe.  `Html.p` renders through
@@ -1205,7 +1208,7 @@ export const felizTarget: WalkerTarget = {
   renderFilteredRows({ rowsExpr, filter, columns }) {
     const q = `model.${upperFirst(filter.name)}`;
     if (columns.length === 0) return rowsExpr;
-    const vals = columns.map((f) => `string r.${f}`).join("; ");
+    const vals = columns.map((f) => `string r.${fsIdent(f)}`).join("; ");
     return (
       `(${rowsExpr} |> List.filter (fun r -> let __q = (${q}).Trim().ToLower() in ` +
       `__q = "" || ([ ${vals} ] |> List.exists (fun v -> v.ToLower().Contains(__q)))))`

@@ -197,3 +197,46 @@ describe("NON-optional id claim — the dev-stub principal CONSTRUCTS the id", (
     expect(joined).toContain(`"customer_id" => "${ZERO_ID}"`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The FOREIGN twin — `agentId: Agent id?` on a deployable that does NOT host
+// `Agent` (D6 of `eval-claims/FIX-PLAN.md`).  The `user { … }` shape is
+// system-wide, so `payments` emits the same `User` type as `agents`, naming the
+// `AgentId` brand — which its ids module only declared for HOSTED aggregates.
+// node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim
+// shape is now a foreign-id source (`src/ir/util/foreign-ids.ts`).
+// ---------------------------------------------------------------------------
+
+const FOREIGN_FEATURE = "auth-id-claim-foreign";
+
+/** The `payments` deployable's files only (it hosts `Billing`, not `Agents`). */
+async function emitPayments(backend: Backend): Promise<Map<string, string>> {
+  const all = await generateSystemFiles(corpusSourceFor(FOREIGN_FEATURE, backend));
+  return new Map([...all].filter(([p]) => p.startsWith("payments/")));
+}
+
+describe("id claim naming a NON-hosted aggregate — the brand is declared locally", () => {
+  it("node: domain/ids.ts exports the AgentId brand the auth modules name", async () => {
+    const files = await emitPayments("node");
+    expect(file(files, "auth/user-types.ts")).toContain("Ids.AgentId");
+    expect(file(files, "domain/ids.ts")).toContain("export type AgentId =");
+  });
+
+  it("python: app/domain/ids.py declares the AgentId NewType user.py imports", async () => {
+    const files = await emitPayments("python");
+    expect(file(files, "app/auth/user.py")).toContain("from app.domain.ids import AgentId");
+    expect(file(files, "app/domain/ids.py")).toContain('AgentId = NewType("AgentId", str)');
+  });
+
+  it("dotnet: Domain/Ids/AgentId.cs exists", async () => {
+    const files = await emitPayments("dotnet");
+    expect(file(files, "Auth/User.cs")).toContain("AgentId? AgentId");
+    expect(file(files, "Domain/Ids/AgentId.cs")).toContain("record struct AgentId(");
+  });
+
+  it("java: domain/ids/AgentId.java exists", async () => {
+    const files = await emitPayments("java");
+    expect(file(files, "auth/User.java")).toContain("AgentId agentId");
+    expect(file(files, "domain/ids/AgentId.java")).toContain("public record AgentId(");
+  });
+});
