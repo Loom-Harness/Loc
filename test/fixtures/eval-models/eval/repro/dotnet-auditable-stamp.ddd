@@ -1,0 +1,12 @@
+// `with auditable` on .NET: created_by / updated_by are never stamped, so every
+// create violates the NOT NULL constraint the same toolchain emitted → 500.
+system X {
+  user { id: string  role: string }
+  subdomain S { context C {
+    aggregate Thing with auditable, crudish { name: string  derived display: string = name }
+    repository Things for Thing { }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: dotnet, contexts: [C], dataSources: [r], auth: required, port: 8080 }
+}

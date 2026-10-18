@@ -1,0 +1,991 @@
+// FieldOps — multi-tenant B2B field-service platform.
+// Written for the Loom adoption spike. Grown in slices; this is the full model.
+
+requirement US-001 {
+  type: UserStory
+  title: "A dispatcher can schedule a work order to a qualified technician"
+  status: InProgress
+  priority: 1
+}
+
+requirement AC-001 parent US-001 {
+  type: AcceptanceCriteria
+  title: "A work order can only be scheduled to a technician holding the asset's required skill"
+}
+
+requirement US-002 {
+  type: UserStory
+  title: "Completing a work order decrements parts stock atomically"
+  status: InProgress
+  priority: 1
+}
+
+requirement US-003 {
+  type: UserStory
+  title: "A technician may only see their own work orders"
+  status: InProgress
+  priority: 1
+}
+
+testCase TC-001 verifies AC-001 {
+  title: "Scheduling to an unskilled technician is rejected"
+}
+
+testCase TC-002 verifies US-002 {
+  title: "Completing with insufficient stock fails the whole operation"
+}
+
+testCase TC-003 verifies US-003 {
+  title: "A technician's work order list excludes other technicians' orders"
+}
+
+migration "add-bin-location" {
+  Part.binCode = "UNASSIGNED"
+}
+
+system FieldOps {
+
+  user {
+    id: guid
+    email: string
+    orgId: string
+    role: string
+    permissions: string[]
+  }
+
+  auth {
+    enforcement: opt
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+
+  tenancy by user.orgId of Organization
+
+  subdomain Ops {
+
+    permissions {
+      manageWorkOrders
+      viewCostRates
+      exportPlatformReport
+    }
+
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Urgent }
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      // --- tenant registry (named in `tenancy by … of Organization`) ---
+      aggregate Organization with crudish {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Customer with tenantOwned, auditable, crudish {
+        name: string
+        contactEmail: string sensitive(pii)
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site with tenantOwned, crudish {
+        customerId: Customer id
+        label: string
+        addressLine: string sensitive(pii)
+        derived display: string = label
+      }
+
+      aggregate Asset with tenantOwned, crudish {
+        siteId: Site id
+        serialNumber: string
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: Skill
+        unique (tenantId, serialNumber)
+        derived display: string = serialNumber
+      }
+
+      aggregate Technician with tenantOwned, crudish {
+        userId: guid
+        fullName: string
+        skills: Skill[]
+        // masked field: cost rate hidden from non-admins
+        costRate: money mask unless currentUser.role == "admin"
+        derived display: string = fullName
+
+        function hasSkill(s: Skill): bool = skills.contains(s)
+      }
+
+      aggregate Part with tenantOwned, crudish {
+        sku: string
+        binCode: string              // RENAME: binLocation -> binCode
+        onHand: int
+        unitPrice: money
+        currency: string
+        invariant onHand >= 0
+        unique (tenantId, sku)
+        derived display: string = sku
+
+        operation consume(qty: int) {
+          precondition qty > 0
+          precondition onHand >= qty
+          onHand := onHand - qty
+        }
+
+        test "consuming more than stock is rejected" verifies TC-002 {
+          let p = Part.create({ sku: "SKU-1", binCode: "A-1", onHand: 2, unitPrice: money("10.00"), currency: "EUR" })
+          expect(p.consume(5)).toThrow()
+        }
+      }
+
+      event WorkOrderCompleted { workOrder: WorkOrder id, at: datetime, org: string }
+      event WorkOrderScheduled { workOrder: WorkOrder id, technician: Technician id, at: datetime }
+
+      channel WorkOrderEvents { carries: WorkOrderCompleted, delivery: broadcast, retention: ephemeral }
+
+      aggregate WorkOrder with tenantOwned, auditable {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        technicianUserId: guid?   // WORKAROUND F-007: denormalized so the row-level filter is queryable
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        photo: File?
+        contains lines: WorkOrderLine[]
+
+        derived total: money = lines.sum(l => l.amount)
+        derived display: string = serialLabel()
+        derived timeToComplete: int = 0
+
+        // multi-currency invariant: every line shares the order's currency
+        invariant lines.all(l => l.currency == currency)
+        invariant currency.length == 3
+
+        function serialLabel(): string = "WO"
+
+        create() { }
+        function isEditable(): bool = status == Draft
+
+        operation addLabour(description: string, hours: decimal, rate: money, lineCurrency: string) {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          precondition isEditable()
+          precondition hours > 0
+          precondition lineCurrency == currency
+          lines += WorkOrderLine {
+            description: description,
+            quantity: hours,
+            unitPrice: rate,
+            currency: lineCurrency
+          }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) when status == Draft {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          technicianId := tech
+          scheduledAt := at
+          status := Scheduled
+        }
+
+        operation start() when status == Scheduled {
+          status := InProgress
+          startedAt := now()
+        }
+
+        operation complete(note: string) when status == InProgress {
+          status := Completed
+          completedAt := now()
+          resolutionNote := note
+          emit WorkOrderCompleted { workOrder: id, at: now(), org: "" }
+        }
+
+        operation cancel(reason: string) when status != Completed {
+          status := Cancelled
+          resolutionNote := reason
+        }
+
+        entity WorkOrderLine {
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived amount: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+
+      }
+
+      aggregate Invoice with tenantOwned, auditable {
+        workOrderId: WorkOrder id
+        issuedAt: datetime?
+        amount: money immutable
+        currency: string immutable
+        derived issued: bool = issuedAt != null
+        derived display: string = currency
+
+        operation issue() when issuedAt == null {
+          issuedAt := now()
+        }
+      }
+
+      repository Organizations for Organization { }
+      repository Customers for Customer { }
+      repository Sites for Site { }
+      repository Assets for Asset { }
+      repository Technicians for Technician { }
+      repository Parts for Part { }
+      repository WorkOrders for WorkOrder { }
+      repository Invoices for Invoice { }
+
+      // --- row-level rule: a technician sees only their own work orders ---
+      criterion MineAsTechnician() of WorkOrder =
+        this.technicianUserId == currentUser.id
+      retrieval MyWorkOrders() of WorkOrder {
+        where: MineAsTechnician()
+        sort: [priority desc]
+      }
+
+      criterion OpenWorkOrders() of WorkOrder = this.status != Completed
+
+      // --- reporting: dashboard ---
+      projection OpenByStatus {
+        status: WorkOrderStatus
+        howMany: int
+        from WorkOrder as w
+        group by w.status
+        select status = w.status, howMany = count()
+      }
+
+      projection RevenueThisMonth {
+        revenue: money
+        from Invoice as i
+        select revenue = sum(i.amount)
+      }
+
+      // --- workflow: schedule spanning WorkOrder + Technician, transactional ---
+      workflow scheduleWorkOrder transactional {
+        create(workOrder: WorkOrder id, technician: Technician id, at: datetime) {
+          requires currentUser.permissions.contains(permissions.manageWorkOrders)
+          let wo = WorkOrders.getById(workOrder)
+          let tech = Technicians.getById(technician)
+          wo.schedule(technician, at)
+          emit WorkOrderScheduled { workOrder: workOrder, technician: technician, at: at }
+        }
+      }
+    }
+  }
+
+
+  subdomain Extra1 {
+    context Ctx1 {
+      enum Status11 { New, Active, Closed }
+      aggregate Entity11 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status11
+        openedAt: datetime
+        contains rows11: Row11[]
+        derived display: string = code
+        derived total: money = rows11.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row11 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity11s for Entity11 { }
+      criterion Open11() of Entity11 = this.status != Closed
+      retrieval Open11List() of Entity11 { where: Open11()  sort: [code asc] }
+      projection Count11 {
+        status: Status11
+        howMany: int
+        from Entity11 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status12 { New, Active, Closed }
+      aggregate Entity12 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status12
+        openedAt: datetime
+        contains rows12: Row12[]
+        derived display: string = code
+        derived total: money = rows12.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row12 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity12s for Entity12 { }
+      criterion Open12() of Entity12 = this.status != Closed
+      retrieval Open12List() of Entity12 { where: Open12()  sort: [code asc] }
+      projection Count12 {
+        status: Status12
+        howMany: int
+        from Entity12 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status13 { New, Active, Closed }
+      aggregate Entity13 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status13
+        openedAt: datetime
+        contains rows13: Row13[]
+        derived display: string = code
+        derived total: money = rows13.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row13 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity13s for Entity13 { }
+      criterion Open13() of Entity13 = this.status != Closed
+      retrieval Open13List() of Entity13 { where: Open13()  sort: [code asc] }
+      projection Count13 {
+        status: Status13
+        howMany: int
+        from Entity13 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status14 { New, Active, Closed }
+      aggregate Entity14 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status14
+        openedAt: datetime
+        contains rows14: Row14[]
+        derived display: string = code
+        derived total: money = rows14.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row14 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity14s for Entity14 { }
+      criterion Open14() of Entity14 = this.status != Closed
+      retrieval Open14List() of Entity14 { where: Open14()  sort: [code asc] }
+      projection Count14 {
+        status: Status14
+        howMany: int
+        from Entity14 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status15 { New, Active, Closed }
+      aggregate Entity15 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status15
+        openedAt: datetime
+        contains rows15: Row15[]
+        derived display: string = code
+        derived total: money = rows15.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row15 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity15s for Entity15 { }
+      criterion Open15() of Entity15 = this.status != Closed
+      retrieval Open15List() of Entity15 { where: Open15()  sort: [code asc] }
+      projection Count15 {
+        status: Status15
+        howMany: int
+        from Entity15 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status16 { New, Active, Closed }
+      aggregate Entity16 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status16
+        openedAt: datetime
+        contains rows16: Row16[]
+        derived display: string = code
+        derived total: money = rows16.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row16 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity16s for Entity16 { }
+      criterion Open16() of Entity16 = this.status != Closed
+      retrieval Open16List() of Entity16 { where: Open16()  sort: [code asc] }
+      projection Count16 {
+        status: Status16
+        howMany: int
+        from Entity16 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+    }
+  }
+  subdomain Extra2 {
+    context Ctx2 {
+      enum Status21 { New, Active, Closed }
+      aggregate Entity21 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status21
+        openedAt: datetime
+        contains rows21: Row21[]
+        derived display: string = code
+        derived total: money = rows21.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row21 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity21s for Entity21 { }
+      criterion Open21() of Entity21 = this.status != Closed
+      retrieval Open21List() of Entity21 { where: Open21()  sort: [code asc] }
+      projection Count21 {
+        status: Status21
+        howMany: int
+        from Entity21 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status22 { New, Active, Closed }
+      aggregate Entity22 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status22
+        openedAt: datetime
+        contains rows22: Row22[]
+        derived display: string = code
+        derived total: money = rows22.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row22 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity22s for Entity22 { }
+      criterion Open22() of Entity22 = this.status != Closed
+      retrieval Open22List() of Entity22 { where: Open22()  sort: [code asc] }
+      projection Count22 {
+        status: Status22
+        howMany: int
+        from Entity22 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status23 { New, Active, Closed }
+      aggregate Entity23 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status23
+        openedAt: datetime
+        contains rows23: Row23[]
+        derived display: string = code
+        derived total: money = rows23.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row23 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity23s for Entity23 { }
+      criterion Open23() of Entity23 = this.status != Closed
+      retrieval Open23List() of Entity23 { where: Open23()  sort: [code asc] }
+      projection Count23 {
+        status: Status23
+        howMany: int
+        from Entity23 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status24 { New, Active, Closed }
+      aggregate Entity24 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status24
+        openedAt: datetime
+        contains rows24: Row24[]
+        derived display: string = code
+        derived total: money = rows24.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row24 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity24s for Entity24 { }
+      criterion Open24() of Entity24 = this.status != Closed
+      retrieval Open24List() of Entity24 { where: Open24()  sort: [code asc] }
+      projection Count24 {
+        status: Status24
+        howMany: int
+        from Entity24 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status25 { New, Active, Closed }
+      aggregate Entity25 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status25
+        openedAt: datetime
+        contains rows25: Row25[]
+        derived display: string = code
+        derived total: money = rows25.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row25 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity25s for Entity25 { }
+      criterion Open25() of Entity25 = this.status != Closed
+      retrieval Open25List() of Entity25 { where: Open25()  sort: [code asc] }
+      projection Count25 {
+        status: Status25
+        howMany: int
+        from Entity25 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status26 { New, Active, Closed }
+      aggregate Entity26 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status26
+        openedAt: datetime
+        contains rows26: Row26[]
+        derived display: string = code
+        derived total: money = rows26.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row26 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity26s for Entity26 { }
+      criterion Open26() of Entity26 = this.status != Closed
+      retrieval Open26List() of Entity26 { where: Open26()  sort: [code asc] }
+      projection Count26 {
+        status: Status26
+        howMany: int
+        from Entity26 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+    }
+  }
+  subdomain Extra3 {
+    context Ctx3 {
+      enum Status31 { New, Active, Closed }
+      aggregate Entity31 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status31
+        openedAt: datetime
+        contains rows31: Row31[]
+        derived display: string = code
+        derived total: money = rows31.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row31 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity31s for Entity31 { }
+      criterion Open31() of Entity31 = this.status != Closed
+      retrieval Open31List() of Entity31 { where: Open31()  sort: [code asc] }
+      projection Count31 {
+        status: Status31
+        howMany: int
+        from Entity31 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status32 { New, Active, Closed }
+      aggregate Entity32 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status32
+        openedAt: datetime
+        contains rows32: Row32[]
+        derived display: string = code
+        derived total: money = rows32.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row32 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity32s for Entity32 { }
+      criterion Open32() of Entity32 = this.status != Closed
+      retrieval Open32List() of Entity32 { where: Open32()  sort: [code asc] }
+      projection Count32 {
+        status: Status32
+        howMany: int
+        from Entity32 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status33 { New, Active, Closed }
+      aggregate Entity33 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status33
+        openedAt: datetime
+        contains rows33: Row33[]
+        derived display: string = code
+        derived total: money = rows33.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row33 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity33s for Entity33 { }
+      criterion Open33() of Entity33 = this.status != Closed
+      retrieval Open33List() of Entity33 { where: Open33()  sort: [code asc] }
+      projection Count33 {
+        status: Status33
+        howMany: int
+        from Entity33 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status34 { New, Active, Closed }
+      aggregate Entity34 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status34
+        openedAt: datetime
+        contains rows34: Row34[]
+        derived display: string = code
+        derived total: money = rows34.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row34 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity34s for Entity34 { }
+      criterion Open34() of Entity34 = this.status != Closed
+      retrieval Open34List() of Entity34 { where: Open34()  sort: [code asc] }
+      projection Count34 {
+        status: Status34
+        howMany: int
+        from Entity34 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status35 { New, Active, Closed }
+      aggregate Entity35 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status35
+        openedAt: datetime
+        contains rows35: Row35[]
+        derived display: string = code
+        derived total: money = rows35.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row35 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity35s for Entity35 { }
+      criterion Open35() of Entity35 = this.status != Closed
+      retrieval Open35List() of Entity35 { where: Open35()  sort: [code asc] }
+      projection Count35 {
+        status: Status35
+        howMany: int
+        from Entity35 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status36 { New, Active, Closed }
+      aggregate Entity36 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status36
+        openedAt: datetime
+        contains rows36: Row36[]
+        derived display: string = code
+        derived total: money = rows36.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row36 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity36s for Entity36 { }
+      criterion Open36() of Entity36 = this.status != Closed
+      retrieval Open36List() of Entity36 { where: Open36()  sort: [code asc] }
+      projection Count36 {
+        status: Status36
+        howMany: int
+        from Entity36 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+    }
+  }
+  subdomain Extra4 {
+    context Ctx4 {
+      enum Status41 { New, Active, Closed }
+      aggregate Entity41 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status41
+        openedAt: datetime
+        contains rows41: Row41[]
+        derived display: string = code
+        derived total: money = rows41.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row41 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity41s for Entity41 { }
+      criterion Open41() of Entity41 = this.status != Closed
+      retrieval Open41List() of Entity41 { where: Open41()  sort: [code asc] }
+      projection Count41 {
+        status: Status41
+        howMany: int
+        from Entity41 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status42 { New, Active, Closed }
+      aggregate Entity42 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status42
+        openedAt: datetime
+        contains rows42: Row42[]
+        derived display: string = code
+        derived total: money = rows42.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row42 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity42s for Entity42 { }
+      criterion Open42() of Entity42 = this.status != Closed
+      retrieval Open42List() of Entity42 { where: Open42()  sort: [code asc] }
+      projection Count42 {
+        status: Status42
+        howMany: int
+        from Entity42 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status43 { New, Active, Closed }
+      aggregate Entity43 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status43
+        openedAt: datetime
+        contains rows43: Row43[]
+        derived display: string = code
+        derived total: money = rows43.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row43 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity43s for Entity43 { }
+      criterion Open43() of Entity43 = this.status != Closed
+      retrieval Open43List() of Entity43 { where: Open43()  sort: [code asc] }
+      projection Count43 {
+        status: Status43
+        howMany: int
+        from Entity43 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status44 { New, Active, Closed }
+      aggregate Entity44 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status44
+        openedAt: datetime
+        contains rows44: Row44[]
+        derived display: string = code
+        derived total: money = rows44.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row44 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity44s for Entity44 { }
+      criterion Open44() of Entity44 = this.status != Closed
+      retrieval Open44List() of Entity44 { where: Open44()  sort: [code asc] }
+      projection Count44 {
+        status: Status44
+        howMany: int
+        from Entity44 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status45 { New, Active, Closed }
+      aggregate Entity45 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status45
+        openedAt: datetime
+        contains rows45: Row45[]
+        derived display: string = code
+        derived total: money = rows45.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row45 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity45s for Entity45 { }
+      criterion Open45() of Entity45 = this.status != Closed
+      retrieval Open45List() of Entity45 { where: Open45()  sort: [code asc] }
+      projection Count45 {
+        status: Status45
+        howMany: int
+        from Entity45 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+      enum Status46 { New, Active, Closed }
+      aggregate Entity46 with tenantOwned, crudish {
+        code: string
+        label: string
+        amount: money
+        status: Status46
+        openedAt: datetime
+        contains rows46: Row46[]
+        derived display: string = code
+        derived total: money = rows46.sum(r => r.value)
+        invariant code.length > 0
+        unique (tenantId, code)
+        function isOpen(): bool = status != Closed
+        operation close() when status != Closed { status := Closed }
+        operation rename(newLabel: string) { precondition newLabel.length > 0  label := newLabel }
+        entity Row46 { name: string  value: money  invariant value >= money("0.00") }
+      }
+      repository Entity46s for Entity46 { }
+      criterion Open46() of Entity46 = this.status != Closed
+      retrieval Open46List() of Entity46 { where: Open46()  sort: [code asc] }
+      projection Count46 {
+        status: Status46
+        howMany: int
+        from Entity46 as e
+        group by e.status
+        select status = e.status, howMany = count()
+      }
+    }
+  }
+
+  // --- infrastructure ---
+  storage primary { type: postgres }
+  storage bus     { type: redis }
+  storage photos  { type: s3, config: { bucket: "fieldops-photos", region: "eu-central-1" } }
+  storage mail    { type: smtp, config: { from: "no-reply@fieldops.example" } }
+
+  resource fieldState { for: Field, kind: state,       use: primary }
+  resource ctx1State { for: Ctx1, kind: state, use: primary }
+  resource ctx2State { for: Ctx2, kind: state, use: primary }
+  resource ctx3State { for: Ctx3, kind: state, use: primary }
+  resource ctx4State { for: Ctx4, kind: state, use: primary }
+
+  resource fieldPhotos{ for: Field, kind: objectStore, use: photos }
+  resource fieldMail  { for: Field, kind: mailer,      use: mail }
+  channelSource woBus { for: WorkOrderEvents, use: bus }
+
+  ui WebApp with scaffold(subdomains: [Ops, Extra1, Extra2, Extra3, Extra4]) { }
+
+  deployable api {
+    platform: node,
+    contexts: [Field, Ctx1, Ctx2, Ctx3, Ctx4],
+    dataSources: [fieldState, ctx1State, ctx2State, ctx3State, ctx4State, fieldPhotos, fieldMail],
+    channels: [woBus],
+    auth: required,
+    port: 3000
+  }
+
+  deployable webApp {
+    platform: react,
+    targets: api,
+    ui: WebApp,
+    design: mantine,
+    port: 3001
+  }
+}
+
+solution SOL-001 for AC-001 {
+  title: "Skill matching enforced in the scheduleWorkOrder workflow"
+  entitles [ Ops.Field.scheduleWorkOrder ]
+}

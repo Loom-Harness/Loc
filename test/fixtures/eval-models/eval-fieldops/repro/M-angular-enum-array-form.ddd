@@ -1,0 +1,18 @@
+// An enum COLLECTION field (`Skill[]`) makes the Angular scaffolded create/update
+// forms initialise it to null, which does not type-check against the request DTO.
+system P {
+  subdomain S { context C {
+    enum Skill { Electrical, Plumbing }
+    aggregate Tech with crudish {
+      fullName: string
+      skills: Skill[]
+      derived display: string = fullName
+    }
+    repository Techs for Tech {}
+  } }
+  ui W with scaffold(subdomains: [S]) { }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+  deployable web { platform: angular, targets: api, ui: W, design: angularMaterial, port: 3001 }
+}

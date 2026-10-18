@@ -322,7 +322,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     // Two services on purpose — the defect is only reachable on the deployable
     // that does not host the claim's aggregate.
     deployables: ["agents", "payments"],
-    note: "D6 of eval-claims/FIX-PLAN.md — the system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+    note: "The system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
   },
   {
     id: "auth-id-claim-stub",

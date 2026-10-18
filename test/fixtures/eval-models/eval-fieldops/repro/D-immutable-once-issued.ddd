@@ -1,0 +1,17 @@
+system P {
+  subdomain S { context C {
+    aggregate Invoice {
+      amount: money
+      issuedAt: datetime?
+      derived issued: bool = issuedAt != null
+      derived display: string = "inv"
+      operation issue() when issuedAt == null { issuedAt := now() }
+      // THE REQUIREMENT: immutable once issued
+      operation adjust(newAmount: money) when issuedAt == null { amount := newAmount }
+    }
+    repository Invoices for Invoice {}
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

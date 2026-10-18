@@ -1,0 +1,28 @@
+// NOT a defect — a hypothesis I tested and REFUTED, kept as evidence.
+// Question: an `audited` aggregate stores `after: repo.toWire(...)` (the
+// UNMASKED serializer) in audit_records, and serves GET /{id}/history.
+// Does `mask unless` leak there?  Answer: NO.  The generated
+// `personAuditEntry(row, currentUser)` DROPS the masked field's change entry
+// for a non-admin, and the emitted code explains why it drops rather than
+// redacts: "a redacted-but-present entry would still disclose that it changed,
+// when, and by whom, which is the disclosure the mask exists to prevent." 
+system Leak {
+  subdomain S {
+    permissions { manage }
+    context C {
+      aggregate Person audited with crudish {
+        name: string
+        ssn: string mask unless currentUser.role == "admin"
+        derived display: string = name
+        operation rename(n: string) { requires true  name := n }
+      }
+      repository People for Person {
+        find all(): Person[] requires true
+      }
+    }
+  }
+  user { id: string  role: string }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], auth: required, port: 3200 }
+}

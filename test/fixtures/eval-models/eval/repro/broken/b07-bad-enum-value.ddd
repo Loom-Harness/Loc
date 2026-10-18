@@ -1,0 +1,14 @@
+// 7. reference to an enum value that doesn't exist
+system X {
+  subdomain S {
+    context C {
+      enum St { Open, Closed }
+      aggregate Order with crudish { st: St  derived display: string = "x"
+        invariant st == Pending }
+      repository Orders for Order { }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

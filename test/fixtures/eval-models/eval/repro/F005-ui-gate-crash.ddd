@@ -1,7 +1,9 @@
-// A named `policy` function used as a `requires` gate (the spelling docs/auth.md
-// and docs/scaffold-macros.md prescribe) with a React UI mounted.  `generate
-// system` once crashed on it ("expression kind 'call' is not supported in a UI
-// gate"); it also stays on the `denyByDefault` enforcement default.
+// F-005 minimal repro: a named `policy` function used as a `requires` gate
+// -- the spelling docs/auth.md and docs/scaffold-macros.md both prescribe --
+// crashes `generate system` when a React UI is mounted.
+//   node bin/cli.js parse    eval/repro/F005-ui-gate-crash.ddd   -> OK, 0 errors
+//   node bin/cli.js generate system eval/repro/F005-ui-gate-crash.ddd -o /tmp/f5
+//   -> Error: UI gate: expression kind 'call' is not supported in a UI gate.
 system Repro {
   subdomain S {
     permissions { manage }

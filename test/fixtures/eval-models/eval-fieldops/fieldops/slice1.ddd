@@ -1,0 +1,139 @@
+// FieldOps — slice 1: core domain only (no UI, no auth, no tenancy).
+system FieldOps {
+
+  subdomain Ops {
+    context Field {
+
+      enum WorkOrderStatus { Draft, Scheduled, InProgress, Completed, Cancelled }
+      enum Priority { Low, Normal, High, Urgent }
+      enum Skill { Electrical, Plumbing, HVAC, Refrigeration }
+
+      aggregate Customer {
+        name: string
+        invariant name.length > 0
+        derived display: string = name
+      }
+
+      aggregate Site {
+        customerId: Customer id
+        label: string
+        addressLine: string
+        derived display: string = label
+      }
+
+      aggregate Asset {
+        siteId: Site id
+        serialNumber: string
+        model: string
+        warrantyExpiry: datetime?
+        requiredSkill: Skill
+        derived display: string = serialNumber
+      }
+
+      aggregate Technician {
+        fullName: string
+        skills: Skill[]
+        costRate: money
+        derived display: string = fullName
+      }
+
+      aggregate Part {
+        sku: string
+        onHand: int
+        unitPrice: money
+        invariant onHand >= 0
+        derived display: string = sku
+
+        operation consume(qty: int) {
+          precondition qty > 0
+          precondition onHand >= qty
+          onHand := onHand - qty
+        }
+      }
+
+      event WorkOrderCompleted { workOrder: WorkOrder id, at: datetime }
+
+      aggregate WorkOrder {
+        customerId: Customer id
+        siteId: Site id
+        assetId: Asset id?
+        technicianId: Technician id?
+        status: WorkOrderStatus
+        priority: Priority
+        currency: string
+        scheduledAt: datetime?
+        startedAt: datetime?
+        completedAt: datetime?
+        resolutionNote: string?
+        contains lines: WorkOrderLine[]
+
+        derived total: money = lines.sum(l => l.amount)
+        derived display: string = resolutionNote ?? "Work order"
+
+        // multi-currency invariant: every line shares the order's currency
+        invariant lines.all(l => l.currency == currency)
+
+        function isEditable(): bool = status == Draft
+
+        operation addLabour(description: string, hours: decimal, rate: money, lineCurrency: string) {
+          precondition isEditable()
+          precondition hours > 0
+          precondition lineCurrency == currency
+          lines += WorkOrderLine {
+            description: description,
+            quantity: hours,
+            unitPrice: rate,
+            currency: lineCurrency
+          }
+        }
+
+        operation schedule(tech: Technician id, at: datetime) {
+          precondition status == Draft
+          technicianId := tech
+          scheduledAt := at
+          status := Scheduled
+        }
+
+        operation start() {
+          precondition status == Scheduled
+          status := InProgress
+          startedAt := now()
+        }
+
+        operation complete(note: string) {
+          precondition status == InProgress
+          status := Completed
+          completedAt := now()
+          resolutionNote := note
+          emit WorkOrderCompleted { workOrder: id, at: now() }
+        }
+
+        entity WorkOrderLine {
+          description: string
+          quantity: decimal
+          unitPrice: money
+          currency: string
+          derived amount: money = unitPrice * quantity
+          invariant quantity > 0
+        }
+      }
+
+      repository Customers for Customer { }
+      repository Sites for Site { }
+      repository Assets for Asset { }
+      repository Technicians for Technician { }
+      repository Parts for Part { }
+      repository WorkOrders for WorkOrder { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource fieldState { for: Field, kind: state, use: primary }
+
+  deployable api {
+    platform: node,
+    contexts: [Field],
+    dataSources: [fieldState],
+    port: 3000
+  }
+}

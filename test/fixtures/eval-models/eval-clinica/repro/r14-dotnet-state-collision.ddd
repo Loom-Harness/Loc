@@ -1,0 +1,14 @@
+// Probe: a field named `state` — which docs/language.md's own soft-keyword
+// example shows as legal — collides with the nested `State` rehydration class
+// the .NET emitter generates on every aggregate.
+system R14 {
+  subdomain S { context C {
+    aggregate Order {
+      state: string
+    }
+    repository Orders for Order { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: dotnet, contexts: [C], dataSources: [st], port: 8080 }
+}

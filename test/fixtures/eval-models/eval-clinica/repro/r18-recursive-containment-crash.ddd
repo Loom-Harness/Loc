@@ -1,0 +1,9 @@
+system E05 {
+  subdomain M { context C {
+    aggregate Tree { contains kids: Node[]
+      entity Node { label: string  contains kids: Node[] } }
+    repository Trees for Tree { }
+  } }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}

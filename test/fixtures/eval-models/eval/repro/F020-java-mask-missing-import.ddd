@@ -1,0 +1,22 @@
+// F-020 minimal repro: `mask unless` lowers to `Objects.equals(...)` in the
+// Java response mapper, but `import java.util.Objects` is never emitted.
+//   node bin/cli.js parse    eval/repro/F020-java-mask-missing-import.ddd -> 0 errors
+//   node bin/cli.js generate system ... -o /tmp/f20                       -> 0 errors
+//   docker run --rm --network host -v /tmp/f20/api_java:/src -w /src \
+//     -v /root/.ccr:/root/.ccr:ro -e JAVA_TOOL_OPTIONS="$JAVA_TOOL_OPTIONS" \
+//     gradle:9-jdk25 gradle --no-daemon testClasses
+//   -> error: cannot find symbol  symbol: variable Objects
+system Repro {
+  subdomain S { context C {
+    aggregate Person with crudish {
+      name: string
+      ssn: string mask unless currentUser.role == "admin"
+      derived display: string = name
+    }
+    repository People for Person { }
+  } }
+  user { id: string  role: string }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable apiJava { platform: java, contexts: [C], dataSources: [cState], auth: required, port: 8081 }
+}

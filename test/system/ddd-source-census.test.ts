@@ -100,7 +100,14 @@ function projectMembers(files: readonly string[]): Set<string> {
  *  does not parse" is worth one line of explanation — and because the README
  *  advertises it beside files that DO parse, which is a docs-truth gap this pin
  *  is the evidence for. */
-const UNPARSEABLE = ["examples/sales-ui.ddd"] as const;
+const UNPARSEABLE = [
+  "examples/sales-ui.ddd",
+  // A `for` body that chains a call onto a repository read
+  // (`for l in ls { Parts.getById(l.partId).consume(l.qty) }`), which does not
+  // parse: a `let` is required there.  When the grammar accepts the chained
+  // form this pin goes stale and the check below says so.
+  "test/fixtures/eval-models/eval/repro/wf-for-let-d.ddd",
+] as const;
 
 /** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
  *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
@@ -117,6 +124,50 @@ const DELIBERATELY_INVALID = [
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
+  // Evaluation repro models (`test/fixtures/eval-models/`): each carries one
+  // realistic authoring mistake or a construct a gate refuses.  Being refused
+  // IS the assertion, so the negative control below turns them into a
+  // regression net: if a validator change lets one validate clean, it fails.
+  //
+  // A `valueobject Money` constructed with `currency` omitted (construction
+  // validation must reach a record named after a walker primitive).
+  "test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd",
+  "test/fixtures/eval-models/eval/adversarial/05-missing-ctor-field.ddd",
+  // A row-level "own rows" probe whose claim is typed `string`, refused until
+  // the claim is typed `Member id` in `user { }`.
+  "test/fixtures/eval-models/eval/probe/rowlevel.ddd",
+  // `meilisearch` bound to a `replica` resource — no resource kind accepts it.
+  "test/fixtures/eval-models/eval/probe/searchstore.ddd",
+  // Cyclic containment, refused by `loom.containment-cycle` at the AST layer
+  // with a real file:line.
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/05-cyclic-containment.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b05-cyclic-containment.ddd",
+  // A cross-aggregate `invariant` reaching a repository, refused by
+  // `checkRuleExprPurity` at the rule's own line.
+  "test/fixtures/eval-models/eval-fieldops/repro/A-cross-agg-invariant.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/H-rowlevel-currentuser.ddd",
+  // The error-quality corpora: one ordinary mistake per model, used to score
+  // what the toolchain says back.  Only the ones refused at the AST layer are
+  // listed (this census does not run the IR validator); `b09` is refused by
+  // `loom.unknown-member` because the typing pass types a `QueryView` row.
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/01-typo-type.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/03-wrong-arity.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/06-duplicate-names.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/07-bad-enum-value.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/10-type-mismatch.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b01-typo-type.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b02-missing-field.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b03-wrong-arity.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b04-bare-aggregate-ref.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b06-duplicate-names.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b07-bad-enum-value.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b09-page-wrong-aggregate.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b10-money-decimal-mix.ddd",
   // The helpdesk evaluation's H-24, kept as written: `openTicket` passes the
   // `Customer id?` claim `currentUser.customerId` into the non-optional
   // `Ticket.requester` behind a `requires … != null` that does not narrow.  It

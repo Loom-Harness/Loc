@@ -1,29 +1,29 @@
 {
   "floors": {
     "docs": 2800,
-    "expressions": 130000
+    "expressions": 250000
   },
   "classes": {
-    "agree": 107103,
+    "agree": 223852,
     "conflict": 0,
-    "declaration-name": 27127,
+    "declaration-name": 62297,
     "new-differs": 0,
     "new-only": 0,
-    "new=ir": 2026,
-    "new=lang": 5201,
-    "nobody-knows": 2642,
-    "not-lowered-agree": 1684,
+    "new=ir": 3313,
+    "new=lang": 6099,
+    "nobody-knows": 3111,
+    "not-lowered-agree": 2557,
     "not-lowered-differ": 20,
     "unreached": 0
   },
   "unknownCauses": {
-    "not-a-value": 27127,
-    "no-rule": 2016,
-    "unresolved-member": 613,
-    "unresolved-name": 310,
-    "contextual-lambda": 133,
-    "unresolved-type": 87,
-    "ill-typed-operands": 1,
+    "not-a-value": 62297,
+    "no-rule": 2393,
+    "unresolved-member": 739,
+    "unresolved-name": 492,
+    "contextual-lambda": 127,
+    "unresolved-type": 89,
+    "ill-typed-operands": 2,
     "parse-broken": 1
   }
 }

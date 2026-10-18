@@ -1,0 +1,18 @@
+// When an aggregate carries TWO capabilities that each contribute an `onCreate`
+// stamp (`tenantOwned` + `auditable`), the .NET interceptor emits only ONE of them.
+// created_at / created_by are never set → every create violates the NOT NULL
+// constraint the same toolchain emitted → HTTP 500.
+system X {
+  user { id: string  tenantId: string }
+  tenancy by user.tenantId of Org
+  subdomain S {
+    context Orgs { aggregate Org with crudish { name: string  derived display: string = name }
+                   repository Orgs for Org { } }
+    context C { aggregate Thing with tenantOwned, auditable, crudish { name: string  derived display: string = name }
+                repository Things for Thing { } }
+  }
+  storage p { type: postgres }
+  resource ro { for: Orgs, kind: state, use: p }
+  resource rc { for: C, kind: state, use: p }
+  deployable api { platform: dotnet, contexts: [Orgs, C], dataSources: [ro, rc], auth: required, port: 8080 }
+}

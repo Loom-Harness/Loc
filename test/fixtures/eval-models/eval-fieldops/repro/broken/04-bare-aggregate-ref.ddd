@@ -1,0 +1,7 @@
+system B { subdomain S { context C {
+  aggregate Other { m: string  derived display: string = m }
+  aggregate A { ref: Other  derived display: string = "a" }
+  repository As for A {}
+  repository Others for Other {}
+} } storage db { type: postgres } resource r { for: C, kind: state, use: db }
+deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }
