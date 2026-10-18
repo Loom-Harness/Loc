@@ -1831,6 +1831,34 @@ would have fixed the document by annotating something untrue.
 Gated by `test/generator/java/wire-boundary-null-skip.test.ts` plus the Route
 literals in `generator-java-openapi-customizer.test.ts`.
 
+### F34 — an operation returning `T or <Error>` published its error arm as a 200 body
+**Waiver:** none (this tier never reached it) · **Severity: medium** · **Status: FIXED (2026-10-04, M-FT.24 OpenAPI half).**
+
+```
+POST /api/orders/{id}/reject      # operation reject(): string or NotFound
+→ 404 application/problem+json {"type":"/errors/not-found", …, "resource":"A","attemptedCode":"A"}
+# published: 200 = stringOrNotFound (oneOf string | NotFound), 404 = ProblemDetails
+```
+
+All five backends answer an `error` arm as a problem at the arm's status, with
+the arm's fields on the body, and all five published the whole union (error arm
+included) as the 200 schema and plain `ProblemDetails` at the arm's status. This
+leg could not see it, for two reasons. Neither fixture (`storefront-system`,
+`sales-system`) has an operation returning a union with an error arm. And even
+with one, the response-conformance check passes: the 404 body is a valid
+`ProblemDetails`, and the 200 never carries the error arm. The defect is
+an under-declared contract, which a client generator sees and a fuzzer does not.
+
+Now every backend publishes the same split, from one helper
+(`opUnionResponses`, `src/generator/_payload/union-wire.ts`):
+- 200 → `<Union>Success`, the success arms only.
+- The arm's status → `anyOf: [ProblemDetails, <Tag>Problem]`, where
+  `<Tag>Problem` is ProblemDetails plus the arm's fields, required.
+
+All five booted documents were checked by hand when the fix landed. The fix is
+gated per-PR by `test/conformance/op-union-openapi-parity.test.ts`. Adding an
+error-arm union to a fuzz fixture is follow-up slice 6.
+
 
 ### The elixir leg
 It ships as a **discovery cell**: the matrix runs it, but `continue-on-error`
@@ -1915,3 +1943,7 @@ packet of its own".
    because the bearer material would have to be handed to schemathesis. That is
    where the #2261/#2442 malformed-token class lives, so it is the highest-value
    extension of this leg.
+6. **An operation-return union with an `error` arm in a fixture** (F34). Neither
+   shared fixture has one, so this leg has never fuzzed an exception-less
+   operation. With one, it would check the `anyOf` problem body at the arm's
+   status and the narrowed 200 against a live server.

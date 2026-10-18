@@ -379,6 +379,16 @@ describe("Model v2 — system-level constructs render as nodes", () => {
     ]);
   });
 
+  it("auth with no `enforcement:` shows the denyByDefault it lowers to, not a dash (M-T1.36 F11)", () => {
+    const src = SRC.replace(/,\s*enforcement: denyByDefault/, "");
+    expect(src).not.toBe(SRC);
+    const g = buildViewGraph(parse(src), [{ kind: "system", name: "Shop" }]);
+    expect(byId(g, "auth:0").summary).toEqual([
+      "provider: keycloak",
+      "enforcement: denyByDefault (default)",
+    ]);
+  });
+
   it("user shows the claim-field count; theme shows its tokens", () => {
     expect(byId(sysGraph(), "user:0").summary).toEqual(["2 claims"]);
     expect(byId(sysGraph(), "theme:0").summary).toEqual(["1 token", "primary"]);
