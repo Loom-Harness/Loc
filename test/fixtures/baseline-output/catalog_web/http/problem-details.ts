@@ -83,6 +83,20 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
   ).join("/");
 }
 
+/** Is the issue's path ABSENT from the request input?  An absent required
+ *  field answers the one word every backend sends for it (RS-39) instead of
+ *  zod's type-mismatch sentence ("expected string, received undefined"). */
+function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
+  if (path.length === 0) return false;
+  let node: unknown = input;
+  for (const seg of path.slice(0, -1)) {
+    if (node === null || typeof node !== "object") return false;
+    node = (node as Record<PropertyKey, unknown>)[seg];
+  }
+  return node !== null && typeof node === "object" && !(path[path.length - 1]! in node);
+}
+
+
 /** Default Zod-validation hook.  When a route's request validator
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field `errors[]` extension.  The shape
@@ -97,12 +111,12 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
  *  server refuses on SEMANTIC grounds, which is what RFC 9110 reserves 422
  *  for, and it makes the denial ladder identical on all five backends.  400
  *  stays for a genuinely malformed/unparseable request. */
-export function defaultHook(result: { success: boolean; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
+export function defaultHook(result: { success: boolean; data?: unknown; error?: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string; params?: { loomCode?: string } }> } }, c: Context): Response | undefined {
   if (result.success) return undefined;
   const trace_id = c.get("requestId") ?? "";
   const errors = (result.error?.issues ?? []).map((issue) => ({
     pointer: pointerOf(issue.path),
-    message: issue.message,
+    message: isAbsent(result.data, issue.path) ? "Required" : issue.message,
     // A messaged invariant/precondition carries a stable content-hash code (via
     // the refine's params.loomCode) so a client can localise the error;
     // structural zod errors (type/min) have none.

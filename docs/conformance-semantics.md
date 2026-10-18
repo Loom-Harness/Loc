@@ -1891,7 +1891,7 @@ nothing and the test passes vacuously.
   422 with one `errors[]` entry per absent key —
   `{ "pointer": "/reason", "message": "Required" }` — before the row is
   loaded, on operations, workflows and `route`d handlers. Elixir used to hand
-  the nil to the operation body and answer **500**; the `__require_params`
+  the nil to the operation body and answer **500**; the `require_command_params`
   controller plug refuses it first. The sentence was each framework's own
   (node `Invalid input: expected string, received undefined`, python `Field
   required`, .NET `The reason field is required.`, java `must not be null`); it

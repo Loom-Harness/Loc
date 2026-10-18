@@ -729,11 +729,11 @@ export function renderRequiredParamsPlug(
   const actions = entries.map(([action]) => `:${action}`).join(", ");
   return `
   @required_params %{${map}}
-  plug :__require_params when action in [${actions}]
+  plug :require_command_params when action in [${actions}]
 
   # A command body missing a required parameter answers 422 \`errors[]\` —
   # one entry per absent key — before the action runs (RS-39).
-  defp __require_params(conn, _opts) do
+  defp require_command_params(conn, _opts) do
     required = Map.fetch!(@required_params, action_name(conn))
 
     case ${problemDetailsAlias}.missing_params(conn.params, required) do

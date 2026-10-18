@@ -249,10 +249,10 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     expect(problem).toContain("if Keyword.get(opts, :validation) == :required, do: @missing_field");
     const order = fileEndingWith(m, "controllers/order_controller.ex");
     expect(order).toContain('@required_params %{rename: ["newName"]}');
-    expect(order).toContain("plug :__require_params when action in [:rename]");
+    expect(order).toContain("plug :require_command_params when action in [:rename]");
     // The required-params plug runs after the path-id cast and before any action.
     expect(order.indexOf("plug :__cast_path_id")).toBeLessThan(
-      order.indexOf("plug :__require_params"),
+      order.indexOf("plug :require_command_params"),
     );
     const workflows = fileEndingWith(m, "controllers/workflows_controller.ex");
     expect(workflows).toContain('@required_params %{escalate: ["note"]}');
@@ -272,6 +272,6 @@ describe("RS-39 — elixir `route`d handlers refuse an absent required body key"
     const controller =
       [...m.entries()].find(([k]) => k.endsWith("_routes_controller.ex"))?.[1] ?? "";
     expect(controller).toContain('@required_params %{place_order: ["customerId"]}');
-    expect(controller).toContain("plug :__require_params when action in [:place_order]");
+    expect(controller).toContain("plug :require_command_params when action in [:place_order]");
   });
 });
