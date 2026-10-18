@@ -15,7 +15,7 @@
 //     ISO string for its own parser).
 //   - matchers → Python `assert ==`; Java `assertEquals` / BigDecimal
 //     `compareTo` for money-like comparisons.
-//   - toThrow → Python `with pytest.raises(Exception):`; Java
+//   - toThrow → Python `with pytest.raises((DisallowedError, DomainError, ForbiddenError)):`; Java
 //     `assertThrows(DomainException.class, () -> …)`.
 
 import { describe, expect, it } from "vitest";
@@ -117,7 +117,9 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     // value matcher → `assert ==`.
     expect(src).toContain("assert p.budget == 0.0");
     // toThrow → pytest.raises context manager wrapping the call.
-    expect(src).toContain("    with pytest.raises(Exception):");
+    expect(src).toContain(
+      "    with pytest.raises((DisallowedError, DomainError, ForbiddenError)):",
+    );
     expect(src).toContain('        p.rename("")');
   });
 
