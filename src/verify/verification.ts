@@ -156,7 +156,7 @@ function aliasedSuites(
 
 /** Undo the two deliberate title divergences on every result. */
 function resolveResults(
-  index: VerificationIndex,
+  index: Pick<TraceabilityIR, "execTests">,
   results: readonly TestOutcome[],
   slugs: ReadonlySet<string> | undefined,
 ): ResolvedOutcome[] {
@@ -170,57 +170,73 @@ function resolveResults(
   }));
 }
 
-/** Pick the result for one executable test.  Prefer an exact
- *  (suite, name) match; fall back to a name-only match when the result
+/** Every result attributable to one executable test.  Prefer exact
+ *  (suite, name) matches; fall back to name-only matches when the result
  *  carries no suite AND the name is unique across the whole test set.
- *  Returns the chosen outcome, or undefined when nothing ran for it.
+ *  Returns an empty array when nothing ran for it.
+ *
+ *  ALL candidates are returned, not one: an api-e2e block replayed against
+ *  two backends produces two results for one declared test, and both are
+ *  that test's evidence — the status is the worst of them (`worst`), and
+ *  neither may be reported as "matching no declared test".
  *
  *  `sharedNames` holds every test name claimed by more than one
  *  `ExecTestRef`.  Without it, a single suiteless result
- *  `{name:"create works"}` was attributed to EVERY same-named ref — so two
- *  aggregates each declaring `test "create works"` (verifying different
- *  requirements) both went VERIFIED off one run, over-attributing a false
- *  green (and symmetrically over-attributing a FAIL). */
-function outcomeFor(
+ *  `{name:"create works"}` would be attributed to EVERY same-named ref — so
+ *  two aggregates each declaring `test "create works"` (verifying different
+ *  requirements) would both go VERIFIED off one run, over-attributing a
+ *  false green (and symmetrically over-attributing a FAIL). */
+function outcomesFor(
   ref: ExecTestRef,
   byName: Map<string, ResolvedOutcome[]>,
   sharedNames: ReadonlySet<string>,
-): ResolvedOutcome | undefined {
+): ResolvedOutcome[] {
   const named = byName.get(ref.name);
-  if (!named || named.length === 0) return undefined;
+  if (!named || named.length === 0) return [];
   const exact = named.filter((r) => r.suite === ref.suite);
-  if (exact.length > 0) return worst(exact);
+  if (exact.length > 0) return exact;
   // No suite-qualified match.  Only attribute a bare-name result when it
   // can't be confused with another test of the same name — i.e. the name
   // is owned by exactly one executable test.
-  if (sharedNames.has(ref.name)) return undefined;
-  const suiteless = named.filter((r) => r.suite === undefined);
-  if (suiteless.length > 0) return worst(suiteless);
-  return undefined;
+  if (sharedNames.has(ref.name)) return [];
+  return named.filter((r) => r.suite === undefined);
 }
 
 /** Of several runs of one test, the most pessimistic: fail > skip > pass. */
-function worst(rs: ResolvedOutcome[]): ResolvedOutcome {
-  return (
-    rs.find((r) => r.outcome.status === "fail") ??
-    rs.find((r) => r.outcome.status === "skip") ??
-    rs[0]!
-  );
+function worst(rs: readonly TestOutcome[]): TestOutcome {
+  return rs.find((r) => r.status === "fail") ?? rs.find((r) => r.status === "skip") ?? rs[0]!;
+}
+
+/** The join itself: which results back which declared executable test.
+ *
+ *  Covers EVERY declared test, including one with no `verifies` — its
+ *  results are not scored, but they are not "unknown" either: the test is
+ *  declared, it just verifies nothing.  Keeping that distinction is what
+ *  lets the gate tell "a test nobody declared" (a drifted title) apart from
+ *  "a declared test that backs no test case" (normal, and harmless). */
+export interface ResultAttribution {
+  /** Each declared executable test → the results attributed to it (empty
+   *  when nothing ran for it).  Keyed by the `index.execTests` objects. */
+  byRef: ReadonlyMap<ExecTestRef, readonly TestOutcome[]>;
+  /** Results attributed to at least one declared test whose `verifies`
+   *  names a test case — the results that are scored. */
+  linked: ReadonlySet<TestOutcome>;
+  /** Results attributed ONLY to declared tests with no `verifies`. */
+  unlinked: ReadonlySet<TestOutcome>;
+  /** Results attributed to no declared test at all. */
+  unknown: readonly TestOutcome[];
 }
 
 /**
- * @param index           the precomputed traceability slice (read, not recomputed)
- * @param requirementIds  every requirement id, in source order (stable output)
- * @param results         normalized test outcomes from any runner
- * @param join            optional model facts the index cannot carry — the
- *                        deployable slugs that close the api-e2e suffix set
+ * Attribute every result to the declared executable test(s) it is a run of.
+ * Pure; `computeVerification` is a rollup over this, and the CLI reads it
+ * directly to explain a missing result.
  */
-export function computeVerification(
-  index: VerificationIndex,
-  requirementIds: readonly string[],
+export function attributeResults(
+  index: Pick<TraceabilityIR, "execTests">,
   results: readonly TestOutcome[],
   join?: VerificationJoinInfo,
-): VerificationIR {
+): ResultAttribution {
   const slugs = join?.serviceSlugs ? new Set(join.serviceSlugs) : undefined;
   const resolved = resolveResults(index, results, slugs);
 
@@ -241,6 +257,39 @@ export function computeVerification(
     if (count > 1) sharedNames.add(name);
   }
 
+  const byRef = new Map<ExecTestRef, readonly TestOutcome[]>();
+  const linked = new Set<TestOutcome>();
+  const attributed = new Set<TestOutcome>();
+  for (const ref of index.execTests) {
+    const hits = outcomesFor(ref, byName, sharedNames).map((r) => r.outcome);
+    byRef.set(ref, hits);
+    for (const h of hits) {
+      attributed.add(h);
+      if (ref.testCaseId != null) linked.add(h);
+    }
+  }
+  const unlinked = new Set([...attributed].filter((r) => !linked.has(r)));
+  const unknown = results.filter((r) => !attributed.has(r));
+  return { byRef, linked, unlinked, unknown };
+}
+
+/**
+ * @param index           the precomputed traceability slice (read, not recomputed)
+ * @param requirementIds  every requirement id, in source order (stable output)
+ * @param results         normalized test outcomes from any runner — several
+ *                        reports concatenated is fine: two runs of one test
+ *                        resolve to the worst of them
+ * @param join            optional model facts the index cannot carry — the
+ *                        deployable slugs that close the api-e2e suffix set
+ */
+export function computeVerification(
+  index: VerificationIndex,
+  requirementIds: readonly string[],
+  results: readonly TestOutcome[],
+  join?: VerificationJoinInfo,
+): VerificationIR {
+  const attribution = attributeResults(index, results, join);
+
   // Group executable tests by the testCase they verify.  `testCaseId`
   // is a resolved cross-reference (the linker rejects a `verifies <TC>`
   // that doesn't exist — it lands as null), so every non-null id here
@@ -251,7 +300,6 @@ export function computeVerification(
     pushInto(refsByTestCase, ref.testCaseId, ref);
   }
 
-  const consumed = new Set<TestOutcome>();
   const testCases: VerificationIR["testCases"] = {};
   const testCaseStatus = new Map<string, TestCaseStatus>();
 
@@ -262,9 +310,8 @@ export function computeVerification(
     let anyNotPassed = false; // any non-pass: missing, skip, or fail
 
     for (const ref of refs) {
-      const hit = outcomeFor(ref, byName, sharedNames);
-      if (hit) consumed.add(hit.outcome);
-      const status = hit ? hit.outcome.status : "missing";
+      const hits = attribution.byRef.get(ref) ?? [];
+      const status = hits.length > 0 ? worst(hits).status : "missing";
       if (status === "fail") anyFail = true;
       if (status !== "pass") anyNotPassed = true;
       backing.push({ name: ref.name, status });
@@ -302,10 +349,6 @@ export function computeVerification(
     requirements[reqId] = { verdict, testCaseIds: tcIds, failingTestCaseIds };
   }
 
-  // Results that ran but matched no declared executable test (e.g. a
-  // hand-written test, or a renamed one).  Surfaced, never scored.
-  const unknownTests = results.filter((r) => !consumed.has(r));
-
   return {
     version: 1,
     testCases,
@@ -317,6 +360,14 @@ export function computeVerification(
       unverified,
       total: requirementIds.length,
     },
-    diagnostics: { unknownTests, unmappedTestCases: [] },
+    diagnostics: {
+      // Ran, but no declared executable test has that title (a hand-written
+      // test, a renamed one, a drifted suite).  Surfaced, never scored.
+      unknownTests: [...attribution.unknown],
+      // Ran, and IS a declared test — one whose block carries no `verifies`.
+      // Not scored (it backs no test case), and not a join failure either.
+      unlinkedTests: results.filter((r) => attribution.unlinked.has(r)),
+      unmappedTestCases: [],
+    },
   };
 }

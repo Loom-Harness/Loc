@@ -26,7 +26,7 @@ import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -529,7 +529,9 @@ function renderEntity(
   }
 
   const fns = e.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const params = fn.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     // PUBLIC, like the operations below.  A `function` is not an internal
     // helper the class keeps to itself: the generated code calls it from
     // OUTSIDE the class in three places the model itself asks for — the
@@ -589,7 +591,9 @@ function renderEntity(
     // The authorization gate is the CALLER's job — the handler evaluates it
     // post-load, before this method is entered (op-gates.ts).
     const opBody = operationBody(op);
-    const baseParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+    const baseParams = op.params
+      .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+      .join(", ");
     const userParam = usesUser ? "currentUser: User" : "";
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -599,7 +603,10 @@ function renderEntity(
       // `protected abstract <op>Extern(...)` the scaffold-once subclass fills.
       const checkName = `check${op.name[0]!.toUpperCase()}${op.name.slice(1)}`;
       const hookName = `${lowerFirst(op.name)}Extern`;
-      const callArgs = [op.params.map((p) => p.name).join(", "), usesUser ? "currentUser" : ""]
+      const callArgs = [
+        op.params.map((p) => escapeTsIdent(p.name)).join(", "),
+        usesUser ? "currentUser" : "",
+      ]
         .filter(Boolean)
         .join(", ");
       const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
@@ -842,7 +849,7 @@ function renderEntity(
           `  }`,
           "",
           `  private _init(${esCreate.params
-            .map((p) => `${p.name}: ${renderTsType(p.type)}`)
+            .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
             .join(", ")}): void {`,
           renderTsStatements(esCreate.statements, emitProvenance, {
             emitTrace,
@@ -935,7 +942,7 @@ function renderEntity(
               eventSourced: true,
             });
             return [
-              `  private _apply${ap.event}(${ap.param}: Events.${ap.event}): void {`,
+              `  private _apply${ap.event}(${escapeTsIdent(ap.param)}: Events.${ap.event}): void {`,
               ...(body.length > 0 ? [body] : []),
               "  }",
               "",
