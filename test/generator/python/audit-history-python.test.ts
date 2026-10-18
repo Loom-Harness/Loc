@@ -1,10 +1,12 @@
 // Entity history on Python/FastAPI — the read side of the `audited` trail
 // (docs/audit.md).  The RUNTIME contract is proven by the behavioral leg
-// (`node run-python.mjs audit-history` diffs the booted app's responses against
-// the node-minted wire golden), and `ruff` + `mypy --strict` prove the emitted
-// project is sound.  This suite is the fast per-PR net over the emission SHAPE,
-// and specifically over the guards — a masking or scoping regression should
-// fail here in seconds rather than waiting for a backend boot.
+// (`node run-python.mjs audit-history audit-history-guarded` diffs the booted
+// app's responses against the node-minted wire goldens), and `ruff` +
+// `mypy --strict` prove the emitted project is sound — including the BOTH-
+// accessors import of a gated AND masked history route, which
+// `audit-history-guarded`'s `Payslip` compiles.  The guards' runtime claims
+// (mask drop, inherited gate, stamps out of the diff, no route when unaudited)
+// live there too; this suite keeps what neither can see.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
@@ -49,10 +51,11 @@ const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
 };
 
 describe("entity history — python route surface", () => {
-  it("queries audit_records on the indexed (target_type, target_id) pair, oldest first", async () => {
+  it("filters the trail on the target TYPE too, oldest first", async () => {
     const repo = fileEndingWith(await emit(MASKED), "app/db/repositories/employee_repository.py");
+    // The TYPE half of the pair is invisible on the wire with uuid ids, and a
+    // dropped ORDER BY usually still returns insertion order.
     expect(repo).toContain('AuditRecordRow.target_type == "Employee"');
-    expect(repo).toContain("AuditRecordRow.target_id == str(id)");
     expect(repo).toContain(".order_by(AuditRecordRow.at)");
   });
 
@@ -76,35 +79,12 @@ describe("entity history — python route surface", () => {
 });
 
 describe("entity history — python negative authz", () => {
-  it("DROPS a masked field's change entry rather than redacting it", async () => {
-    const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
-    // Unmasked fields go through the unconditional loop; `salary` must not.
-    expect(routes).toContain('for key in ("name",)');
-    expect(routes).not.toContain('for key in ("name", "salary")');
-    // Its entry is appended only inside the predicate guard, so a caller who
-    // fails the predicate sees no entry at all — a redacted-but-present entry
-    // would still disclose that it changed, when, and by whom.
-    expect(routes).toMatch(
-      /if _mask_user is not None and \([^\n]*\):\n(?:.*\n)*?\s+changes\.append\(\{"field": "salary"/,
-    );
-  });
-
   it("is fail-closed on an unauthenticated caller", async () => {
     const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
     // The NON-raising ambient getter: no principal → None → every masked entry
     // drops, same shape as `to_wire_masked`.
     expect(routes).toContain("_mask_user = current_user()");
     expect(routes).toContain("_mask_user is not None and");
-  });
-
-  it("never lets a stamp, the version counter, or the id into the diff", async () => {
-    const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
-    const mapper = routes.slice(routes.indexOf("def _employee_audit_entry"));
-    const keyLoop = mapper.slice(0, mapper.indexOf("return {"));
-    expect(keyLoop).not.toContain("updated_at");
-    expect(keyLoop).not.toContain("created_at");
-    expect(keyLoop).not.toContain('"version"');
-    expect(keyLoop).not.toContain('"id"');
   });
 });
 
@@ -142,15 +122,6 @@ describe("entity history — the gate is a second reader of the ambient principa
     expect(routes).toContain("from app.auth.user import require_current_user");
   });
 
-  it("imports BOTH accessors when the history find is gated AND masked", async () => {
-    const routes = fileEndingWith(await emit(MASKED), "app/http/employee_routes.py");
-    // Mapper: non-raising (absence drops the masked entry).  Route gate:
-    // raising.  One import line, both names.
-    expect(routes).toContain("from app.auth.user import current_user, require_current_user");
-    expect(routes).toContain("_mask_user = current_user()");
-    expect(routes).toContain("current_user_ = require_current_user()");
-  });
-
   it("omits the accessor import when neither reader exists", async () => {
     // Ungated AND unmasked: no `requires` on the list read the history find
     // inherits, no `mask unless` — importing an accessor would be ruff F401.
@@ -163,11 +134,8 @@ describe("entity history — the gate is a second reader of the ambient principa
 });
 
 describe("entity history — aggregates that serve none", () => {
-  it("emits no history route or module when nothing is audited", async () => {
+  it("emits no shared history module when nothing is audited", async () => {
     const files = await emit(MASKED.replace("aggregate Employee audited", "aggregate Employee"));
     expect([...files.keys()].some((p) => p.endsWith("app/audit/history.py"))).toBe(false);
-    expect(fileEndingWith(files, "app/http/employee_routes.py")).not.toContain(
-      '@router.get("/{id}/history"',
-    );
   });
 });
