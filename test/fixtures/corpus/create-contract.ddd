@@ -41,10 +41,6 @@ system CreateContract {
           status := Confirmed
         }
 
-        operation complete(summary: string) when status == Confirmed {
-          status := Completed
-          notes := summary
-        }
 
         test "the factory initialises every field the create does not list" {
           let a = Appointment.create({ patient: "p", minutes: 30, fee: Fee { amount: 50.00, currency: "EUR" } })
@@ -88,6 +84,10 @@ system CreateContract {
     api.appointments.confirm(a)
     let confirmed = api.appointments.getById(a)
     expect(confirmed.status).toBe("Confirmed")
+    // The `when` gate holds from there: a second confirm is refused.
+    expect(api.appointments.confirm(a)).toThrow(409)
+    let listed = api.appointments.all({ sort: "patient", dir: "asc" })
+    expect(listed.total).toBe(1)
 
     // The narrowed input still carries the aggregate's invariant.
     expect(api.appointments.create({ patient: "p-2", minutes: 5, fee: { amount: 1.00, currency: "EUR" } })).toThrow(422)

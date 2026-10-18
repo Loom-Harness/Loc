@@ -536,6 +536,9 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   "corpus/state-gate": {
     canCancelOrder: R.gateProbe,
   },
+  "corpus/create-contract": {
+    canConfirmAppointment: R.gateProbe,
+  },
   // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
   // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
   // bindings, and all five are now driven (`api.sales.echo(…)` &c) along with
@@ -1220,7 +1223,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
-  gateProbe: 1,
+  gateProbe: 2,
   clockDependentFind: 1,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking

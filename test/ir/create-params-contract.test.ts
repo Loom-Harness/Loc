@@ -90,7 +90,7 @@ describe("a declared create's params are the create input", () => {
     aggregate A persistedAs: eventLog {
       who: string
       create open(who: string) { emit Opened { a: id, who: who } }
-      apply Opened { who := event.who }
+      apply(e: Opened) { who := e.who }
     }
     repository As for A { }
   } }

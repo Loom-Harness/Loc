@@ -128,10 +128,10 @@ async function main() {
       check("the listed params were taken", a.patient === "p-1" && a.minutes === 30, JSON.stringify(a));
 
       // The state machine still runs from the defaulted state.
-      const done = await post(`/api/appointments/${id}/complete`, { summary: "x" });
-      check("complete() is refused from Requested (when-gate holds)", done.status >= 400 && done.status < 500, `status=${done.status}`);
       const conf = await post(`/api/appointments/${id}/confirm`, {});
       check("confirm() runs from Requested", conf.status >= 200 && conf.status < 300, `status=${conf.status}`);
+      const again = await post(`/api/appointments/${id}/confirm`, {});
+      check("a second confirm() is refused (the when-gate holds)", again.status === 409, `status=${again.status}`);
     }
 
     process.stdout.write("▶ a required create param is still required\n");
