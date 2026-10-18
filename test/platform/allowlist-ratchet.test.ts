@@ -340,6 +340,18 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The same leg's ExUnit waivers: corpus projects whose emitted `mix test
+  // --warnings-as-errors` suite fails while the prod build compiles.  Empty —
+  // every project that emits a suite passes it — and pinned at zero so a
+  // failing suite is fixed in the emitter, not waived unseen.  The leg itself
+  // fails a waived suite that passes (stale), so this pin and that check
+  // ratchet the register from both sides.
+  {
+    file: "test/e2e/corpus-elixir-build.test.ts",
+    name: "ELIXIR_TEST_WAIVERS",
+    kind: "record",
+    max: 0,
+  },
   // The Flutter parity freeze's pinned-gap allowlist — the sibling of
   // `KNOWN_HEEX_GAPS` above, and the one suppression construct the 2026-07-13
   // sweep that built this register MISSED (M-T1.18 recorded the omission in
@@ -743,14 +755,23 @@ const REGISTERED: Ratchet[] = [
     // three) and 3g's six drains come off that — the merged register holds
     // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
     // both ways (19 fails naming 20; 999 fails as slack).
-    // 20 -> 21 (2026-10-12, claims-eval wave 2): `context-named-like-app`, a
+    //
+    // 20 -> 21 (claims eval D6, PR #3232): a reviewed RAISE of one.
+    // `auth-id-claim-foreign` is the foreign-deployable twin of
+    // `auth-id-claim` — same disposition, and like it NOT a tier gap: the
+    // defect is a missing id-brand DECLARATION, which the corpus compile
+    // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
+    // missing symbol), and nothing in the fixture reads the claim at runtime.
+    //
+    // 21 -> 22 (2026-10-12, claims-eval wave 2; re-derived on merge as main's
+    // 21 + this PR's one): `context-named-like-app`, a
     // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
     // controller's `alias Claims.Claims` shadowed the app module, so
     // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
     // the fix (spelling the facade fully qualified) is not observable on the
     // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
     // as base + each side's delta (see the #3024 note above).
-    max: 21,
+    max: 22,
   },
 ];
 

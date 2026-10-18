@@ -65,7 +65,8 @@ const BANK_THREE_BACKEND = `
 
     test e2e "create a campaign" against marketingApi {
       let c = api.campaigns.create({ name: "Spring" })
-      expect(c.name).toBe("Spring")
+      let read = api.campaigns.getById(c)
+      expect(read.name).toBe("Spring")
     }
   }
 `;
