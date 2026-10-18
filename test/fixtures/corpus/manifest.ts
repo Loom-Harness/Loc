@@ -55,30 +55,6 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  key returns the day that gate closes. */
 const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
-/** The backends that correctly MATERIALISE a value object resolved from a SIBLING
- *  context — i.e. that emit every artifact the VO needs, not just the reference
- *  to it.
- *
- *  `python` is absent, and this is the NAME of that exclusion: its emitter
- *  resolves a VO name through `ctx.valueObjects` only, so the CALL SITE (derived
- *  from the aggregate's wire shape, which spans contexts) is emitted while the
- *  DEFINITION (derived from the context's own VO list) is not.  elixir resolves
- *  its wire serializers through `valueObjectPool` (own ∪ siblings) and is in.
- *
- *    python  `db/schema.py` and the migration create `ship_to_line1` /
- *            `ship_to_geo_lat` / `ship_to_geo_lng`, while `receipt_repository.py`
- *            binds `"ship_to": aggregate.ship_to` on insert, `root["ship_to"]` on
- *            upsert and reads `ship_to=row.ship_to` on hydrate — a column in
- *            NEITHER artifact, so every read and every write of the consuming
- *            context's aggregate fails.  `mypy --strict` sees only the hydrate
- *            site (the two bind sites are untyped dict literals), so the compile
- *            tier catches 1 of the 3.
- *
- *  This is the platform evaluation's F-008.  The fix is to resolve through the
- *  sibling pool (as `findValueObjectInScope` already does elsewhere); python's key
- *  returns the day its emitter does. */
-const SIBLING_VO_RESOLUTION: readonly Backend[] = ALL.filter((b) => b !== "python");
-
 /** The backends whose transactional workflow dispatches an aggregate event only
  *  AFTER its transaction commits — the one runtime-distinguishable half of
  *  banking-eval B-04 (docs/new-plan/T4-eventing-temporal.md, M-T4.3 item 6).
@@ -363,6 +339,16 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
   {
+    id: "auth-id-claim-foreign",
+    title: "id-typed user claim naming an aggregate the deployable does NOT host",
+    doc: "auth",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the claim's aggregate.
+    deployables: ["agents", "payments"],
+    note: "D6 of eval-claims/FIX-PLAN.md — the system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+  },
+  {
     id: "auth-id-claim-stub",
     title:
       "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
@@ -446,6 +432,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by M-T6.36 (wave C2 packet 2d).  `reserved-words.ddd`'s closing note names this class and declines it: a host-language keyword breaks the generated DTO / entity, not the SQL, and no backend claimed it.  Java was the one that could not simply escape — C# has verbatim identifiers, TS allows any property name, python/elixir escape locals only — because a Java record component name IS the Jackson property, the springdoc schema key and the Spring binding path, so a rename moves the wire on java alone.  That is why the shape was REFUSED (`loom.java-reserved-identifier-unsupported`) rather than emitted.  The fix pairs a mangled host identifier with an explicit wire annotation at every such site, and this fixture is the ratchet on the pairing: the names are reserved in JAVA ONLY and are not Postgres reserved words, so the other four backends must keep emitting them bare (that is the `ALL` row, not a java-only one) and the SQL-quoting concern stays with `reserved-words.ddd`.",
   },
   {
+    id: "python-reserved-words",
+    title:
+      "member / parameter / enum-value names that are PYTHON keywords (`def`, `lambda`, `pass`, `yield`, `nonlocal`, `del`, `except`, `raise`, `elif`, an operation named `class`) plus a member named after a generated private helper (`assertInvariants`)",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by eval-closure item 6 / ruling D2 — the python twin of `java-reserved-words` (M-T6.36).  `generate system` answered `0 error(s)` and the python project did not even PARSE: `def __init__(self, *, def: str, …)`, `def: Mapped[str]`, `class ThingResponse: def: str`, `aggregate.def`, `def class(self)`.  Fixed by ONE funnel (`pythonIdent` / `pythonWireIdent` in `src/util/naming.ts` → `def_`) at every identifier position, with the two outward names kept: the DB column via `mapped_column(\"def\", …)` and the wire key via a pydantic `Field(alias=\"def\")` / `Query(alias=\"def\")`.  The e2e block reads every key back off the wire, so a moved alias fails the behavioural leg, not only the compile tier.  `assertInvariants` is the second collision in the same item: .NET emitted a private `AssertInvariants()` next to the member's `AssertInvariants` property (CS0102), and the python aggregate's backing field `self._assert_invariants` overwrote its `_assert_invariants()` method (a runtime TypeError on the first invariant check) — both helpers now step aside only when a member takes their name, so every other model is byte-identical.  The names are python-reserved and NOT Postgres-reserved (`reserved-words.ddd` owns SQL quoting); the row is ALL so the other four backends keep compiling the same names.",
+  },
+  {
     id: "dotnet-bcl-type-collision",
     title:
       "a domain type whose name is also a BCL type the .NET `using` set brings into scope (`aggregate Task` vs `System.Threading.Tasks.Task`, `aggregate Queue` vs `System.Collections.Generic.Queue`)",
@@ -482,8 +476,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a value object referenced ACROSS a context boundary (`Billing.Receipt.shipTo` → `valueobject Addr` in sibling context `Directory`) — the flattening must produce the same leaf columns from the sibling pool as from the local one",
     doc: "language",
-    backends: SIBLING_VO_RESOLUTION,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): NO model in the repo referenced a value object across a context boundary — not one of the 406 models under test/, examples/, web/src/examples/, journey/ and docs/audits/models/ — although `BoundedContextIR.siblingValueObjects` exists precisely to serve it and a type shared between two contexts is the ordinary DDD move.  So every emitter that materialises a referenced VO had two lookup paths (`ctx.valueObjects` for a local declaration, the sibling pool for a foreign one) and only the first was ever exercised.  The evaluation's F-008 is what that cost: the consuming context emitted ONE column under the UNFLATTENED name while the owning context flattened correctly, so migration and ORM disagreed on column name AND type, observable only against a live database.  node/dotnet/java are correct (`ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` in the drizzle schema + DDL, `OwnsOne` column names, nested `@AttributeOverride`) and ride as the contrast.  PYTHON IS BROKEN and this fixture is how we know: `db/schema.py` and the migration create the three flattened columns while `receipt_repository.py` binds `\"ship_to\": aggregate.ship_to` on insert, `root[\"ship_to\"]` on upsert and reads `ship_to=row.ship_to` on hydrate — a column in NEITHER.  Only the hydrate site type-errors, so `mypy --strict` catches 1 of the 3 sites and a live request fails on all 3.  TWO backends fail it, for ONE root cause — the call site comes from the aggregate's wire shape (which spans contexts) and the definition from the context's own VO list (which does not). python's is the column mismatch above; ELIXIR's is a `** (CompileError) undefined function serialize_addr/1`: `receipt_controller.ex` calls the serializer and defines neither it nor the nested `serialize_geo/1`, while the owning context's `person_controller.ex` defines both. Both are excluded from `backends:` here via the named `SIBLING_VO_RESOLUTION` set above (a reasoned exclusion, not a compile-skip — see `gate-ledger.test.ts`); each key returns when its emitter resolves through the sibling pool. Elixir was first recorded as FREE on the reasoning that a VO is one `:map` cell there — sound reasoning, wrong conclusion, reached by INSPECTING the emitted schema instead of compiling it, and corrected by `mix compile` in CI within minutes.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
+    backends: ALL,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): a type shared between two contexts is the ordinary DDD move and the README's own Quick Example shape, and `BoundedContextIR.siblingValueObjects` exists to serve it — so every emitter that materialises a referenced VO has two lookup paths to keep in step, `ctx.valueObjects` for a local declaration and the sibling pool for a foreign one.  The call site comes from the aggregate's wire shape (which spans contexts); the definition must come from the pool.  The evaluation's F-008 is what a context-local lookup costs: the consuming context emits ONE column under the UNFLATTENED name while the owning context flattens, so migration and ORM disagree on column name AND type, observable only against a live database.  All five backends resolve through the pool and gate here: the flattened `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` columns on node/dotnet/java/python (python's `mypy --strict` reads the hydrate site; its two bind sites are untyped dict literals the compile tier cannot see), and elixir's sibling-context `serialize_addr/1` + nested `serialize_geo/1`, which only `mix compile --warnings-as-errors` catches missing — grade a backend here by compiling it, not by reading its schema.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
   },
   {
     id: "nested-valueobject",

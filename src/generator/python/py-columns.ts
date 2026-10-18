@@ -1,5 +1,6 @@
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Column mapping shared by the SQLAlchemy schema emitter and the
@@ -10,6 +11,16 @@ import { snake, upperFirst } from "../../util/naming.js";
 //   - scalar / enum collections map to native Postgres arrays
 //   - enums store their value text
 //   - money is NUMERIC(19,4); ids are TEXT
+//
+// A value-object name resolves through `findValueObjectInScope` (own
+// `valueObjects` ∪ `siblingValueObjects`), never a bare `ctx.valueObjects.find`:
+// an unresolved VO does not fail, it FALLS BACK to one opaque column named
+// after the field — a column that exists in neither the DDL nor the row model.
+// The schema emitter calls these on the MERGED context, where a sibling VO is an
+// own one, so it never missed; the repository builder (`tphAssertNarrow`) and
+// `find-predicate` call them PER CONTEXT, where a VO declared in another context
+// is only a sibling.  Own names shadow, so this is a no-op wherever the bare
+// lookup already hit.
 // ---------------------------------------------------------------------------
 
 export interface PyColumn {
@@ -23,6 +34,15 @@ export interface PyColumn {
   saType: string;
   optional: boolean;
   primaryKey?: boolean;
+}
+
+/** The python ATTRIBUTE a row-model column is mapped under: its snake
+ *  column name, escaped when that is a python keyword (`def` → `def_`, the
+ *  SQL name staying `def` via `mapped_column("def", …)`).  Every
+ *  `row.<attr>` / `<Row>.<attr>` / insert-values key goes through this
+ *  (eval item 6, ruling D2). */
+export function pyColumnAttr(c: Pick<PyColumn, "attr">): string {
+  return escapePythonIdent(c.attr);
 }
 
 /** SQLAlchemy row-model class name for an aggregate / part. */
@@ -90,7 +110,7 @@ export function valueCollectionChildColumns(
   ctx: BoundedContextIR,
   prefix = "",
 ): PyColumn[] {
-  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  const vo = findValueObjectInScope(ctx, voName);
   if (!vo) return [];
   return vo.fields.flatMap((vf) => {
     const name = prefix ? `${prefix}_${snake(vf.name)}` : snake(vf.name);
@@ -164,7 +184,7 @@ export function columnsFor(
       // Stored as the value text (parity with pgEnum's stored form).
       return [{ attr, pyType: "str", saType: "Text", optional: opt }];
     case "valueobject": {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (!vo) return [{ attr, pyType: "str", saType: "Text", optional: opt }];
       return vo.fields.flatMap((vf) => columnsFor(`${fieldName}_${vf.name}`, vf.type, opt, ctx));
     }
