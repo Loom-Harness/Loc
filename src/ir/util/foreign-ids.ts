@@ -15,7 +15,7 @@
 // new place ids can be referenced is one edit here, not four.
 // ---------------------------------------------------------------------------
 
-import type { TypeIR, WorkflowIR } from "../types/loom-ir.js";
+import type { TypeIR, UserIR, WorkflowIR } from "../types/loom-ir.js";
 
 /** Every `TypeIR` position in a workflow that can name a foreign aggregate id:
  *  persisted correlation/saga STATE, plus the STARTER PARAMS a command or
@@ -29,6 +29,15 @@ export function workflowIdTypeSources(workflows: readonly WorkflowIR[]): TypeIR[
   return out;
 }
 
+/** Every `TypeIR` position in the system `user { … }` claim shape.  The auth
+ *  tree's `User` type names each claim's type, so a `agentId: Agent id?` claim
+ *  on a deployable that does not host `Agent` needs the `AgentId` brand
+ *  declared locally — every `auth: required` deployable carries the SAME
+ *  system-wide claim shape, whichever contexts it hosts. */
+export function userClaimIdTypeSources(user: UserIR | undefined): TypeIR[] {
+  return (user?.fields ?? []).map((f) => f.type);
+}
+
 /** The distinct id-target names among `sources` that `hostedIdNames` doesn't
  *  cover — i.e. the brands this deployable has to declare locally. */
 export function foreignIdBrandNames(
@@ -38,9 +47,19 @@ export function foreignIdBrandNames(
   return [
     ...new Set(
       sources
-        .filter((t): t is Extract<TypeIR, { kind: "id" }> => t.kind === "id")
+        .map(unwrapIdType)
+        .filter((t): t is Extract<TypeIR, { kind: "id" }> => t?.kind === "id")
         .map((t) => t.targetName)
         .filter((n) => !hostedIdNames.has(n)),
     ),
   ];
+}
+
+/** The `id` type a position names through its `optional` / `array` wrappers —
+ *  `Agent id?` and `Agent id[]` reference the `AgentId` brand exactly as a bare
+ *  `Agent id` does. */
+function unwrapIdType(t: TypeIR): TypeIR | undefined {
+  if (t.kind === "optional") return unwrapIdType(t.inner);
+  if (t.kind === "array") return unwrapIdType(t.element);
+  return t;
 }
