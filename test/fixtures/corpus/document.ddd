@@ -2,9 +2,15 @@
 system DocSys {
   subdomain Cms {
     context Cms {
+      // An ENUM field with a declared default, inside the jsonb document.  The
+      // document stores the enum as its declared-case string, so the default
+      // has to land as that string in the embed; a create that omits the field
+      // gets it, on every backend.
+      enum Stage { Pending, Published }
       aggregate Article shape: document, with crudish {
         title: string
         viewCount: int
+        stage: Stage = Pending
         contains sections: Section[]
         entity Section { heading: string  body: string }
         operation addSection(heading: string, body: string) {
@@ -49,15 +55,19 @@ system DocSys {
     api.articles.addSection(a, { heading: "H", body: "B" })
     let read = api.articles.getById(a)
     expect(read.title).toBe("T1")
+    expect(read.stage).toBe("Pending")
 
     // The canonical `update` on a `shape: document` aggregate rewrites the
     // ROOT scalars only — `sections` is a containment, not an update param —
     // yet the whole tree lives in ONE jsonb column, so the update has to
     // re-serialize the containment it never received.  A backend that rebuilt
     // the document from the update input alone loses the section here.
-    api.articles.update(a, { title: "T2", viewCount: 5 })
+    // The update is full-replacement, so it carries `stage` too: a default is a
+    // construction rule and relaxes no update field (RS-26).
+    api.articles.update(a, { title: "T2", viewCount: 5, stage: "Published" })
     let updated = api.articles.getById(a)
     expect(updated.title).toBe("T2")
+    expect(updated.stage).toBe("Published")
     expect(updated.viewCount).toBe(5)
     expect(updated.sections.length).toBe(1)
 

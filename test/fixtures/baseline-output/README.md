@@ -87,7 +87,7 @@ Emitted from the model's `test` blocks: the domain rules, exercised in process. 
 
 ```bash
 cd api
-dotnet test
+dotnet test Tests/Api.Tests
 ```
 
 ### `e2e/` — API tests over HTTP
@@ -103,6 +103,7 @@ npm test
 Each deployable's base URL comes from an environment variable, defaulting to its port above. Override them to point the suite at a stack that is not on `localhost`:
 
 ```bash
+cd e2e
 E2E_API_BASE=http://localhost:8080 \
 E2E_CATALOG_WEB_BASE=http://localhost:3000 \
 E2E_CATALOG_API_BASE=http://localhost:8081 \
