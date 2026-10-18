@@ -10,7 +10,7 @@
     "new-differs": 0,
     "new-only": 0,
     "new=ir": 3313,
-    "new=lang": 6099,
+    "new=lang": 6272,
     "nobody-knows": 3284,
     "not-lowered-agree": 2557,
     "not-lowered-differ": 20,
@@ -21,7 +21,7 @@
     "no-rule": 2529,
     "unresolved-member": 739,
     "unresolved-name": 492,
-    "contextual-lambda": 127,
+    "contextual-lambda": 166,
     "unresolved-type": 89,
     "ill-typed-operands": 2,
     "parse-broken": 1
