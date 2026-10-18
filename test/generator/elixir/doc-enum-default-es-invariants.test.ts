@@ -103,7 +103,7 @@ describe("elixir event-sourced commands — aggregate invariants", () => {
     const floor = create.indexOf(
       ':ok <- ensure(folded.balance >= 0, {:precondition_failed, "Invariant violated: balance >= 0"})',
     );
-    const append = create.indexOf(":ok <- D.Ledger.AccountRepository.append(id, events)");
+    const append = create.indexOf(":ok <- D.Ledger.AccountRepository.append(id, 0, events)");
     expect(fold).toBeGreaterThan(-1);
     expect(cap).toBeGreaterThan(fold);
     expect(floor).toBeGreaterThan(cap);
@@ -117,10 +117,12 @@ describe("elixir event-sourced commands — aggregate invariants", () => {
     const ctx = file(await generateSystemFiles(ES), "lib/d/ledger.ex");
     const op = ctx.slice(ctx.indexOf("def deposit_account("));
     expect(op).toContain(
-      "folded = Enum.reduce(events, state, fn ev, acc -> D.Ledger.AccountFold.apply_event(acc, ev) end)",
+      "folded = Enum.reduce(events, %{state | __stream_version__: state.__stream_version__ + length(events)}, fn ev, acc -> D.Ledger.AccountFold.apply_event(acc, ev) end)",
     );
     expect(op.indexOf(":ok <- ensure(folded.balance <= 100")).toBeLessThan(
-      op.indexOf(":ok <- D.Ledger.AccountRepository.append(state.id, events)"),
+      op.indexOf(
+        ":ok <- D.Ledger.AccountRepository.append(state.id, state.__stream_version__, events)",
+      ),
     );
     // A guard-free context still gets the `ensure/2` helper its invariants use.
     expect(ctx).toContain("defp ensure(false, reason), do: {:error, reason}");

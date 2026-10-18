@@ -117,7 +117,16 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     // document aggregate comes from `data`, so bumping only the row left it
     // frozen at its created value forever.  `data.version` and the column can
     // no longer disagree.
-    expect(repo).toContain("var __nextVersion = __existing == null ? 1 : __existing.Version + 1;");
+    // M-T6.98: the write-time CAS compares against the HANDLE's version (or
+    // `If-Match`) — the concurrency token's original value — not the re-read
+    // tracked row a sibling handle may already have advanced.
+    expect(repo).toContain(
+      "var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+    );
+    expect(repo).toContain(
+      "if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+    );
+    expect(repo).toContain("var __nextVersion = __existing == null ? 1 : __expected + 1;");
     expect(repo).toContain(
       "var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot() with { Version = __nextVersion }, __json);",
     );

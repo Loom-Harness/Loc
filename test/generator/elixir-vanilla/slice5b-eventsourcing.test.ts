@@ -74,7 +74,8 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
   it("emits the aggregate as a plain in-memory struct (no Ecto state table)", async () => {
     const f = await files();
     const struct = get(f, "/accounts/account.ex");
-    expect(struct).toContain("defstruct [:id, :owner, :balance]");
+    // `__stream_version__` — the version the struct was folded to (M-T6.98).
+    expect(struct).toContain("defstruct [:id, :owner, :balance, __stream_version__: 0]");
     expect(struct).not.toContain("use Ecto.Schema");
     expect(struct).not.toContain("timestamps(");
   });
@@ -115,7 +116,10 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
   it("emits an event-store repository (load+fold reads, gap-free append)", async () => {
     const repo = get(await files(), "/accounts/account_repository.ex");
     expect(repo).toContain("def find_by_id(id) when is_binary(id)");
-    expect(repo).toContain("def append(id, events) when is_binary(id) and is_list(events)");
+    // Expected-version append (M-T6.98): the caller passes the folded version.
+    expect(repo).toContain(
+      "def append(id, prior, events) when is_binary(id) and is_integer(prior) and is_list(events) do",
+    );
     expect(repo).toContain("Repo.transaction(fn ->");
     expect(repo).toContain("Enum.with_index(prior + 1)");
     // event <-> JSONB round-trip
@@ -133,7 +137,7 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     const ctx = get(await files(), "lib/api/accounts.ex");
     expect(ctx).toContain("def create_account(attrs) do");
     expect(ctx).toContain("id = UUIDv7.generate()");
-    expect(ctx).toContain("Api.Accounts.AccountRepository.append(id, events)");
+    expect(ctx).toContain("Api.Accounts.AccountRepository.append(id, 0, events)");
     expect(ctx).toContain("def deposit_account(%Api.Accounts.Account{} = state, attrs) do");
     expect(ctx).toContain("ensure(amount > 0, {:precondition_failed, ");
     expect(ctx).toContain("defp ensure(true, _reason), do: :ok");
