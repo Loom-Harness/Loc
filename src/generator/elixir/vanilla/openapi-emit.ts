@@ -671,7 +671,7 @@ function renderApiSpec(
           operationId: "${camelId(opCreate(agg.name))}",
           tags: ["${aggSlug}"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(createInputFields(agg))},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${createReqMod}}
             }

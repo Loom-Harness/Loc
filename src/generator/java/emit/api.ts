@@ -1,3 +1,4 @@
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -11,9 +12,11 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
   problemTitle,
   UNPROCESSABLE_ENTITY,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
@@ -497,7 +500,9 @@ export function renderJavaController(
   const createRoute = createEntry
     ? [
         `    @PostMapping${relativeOpPath(createEntry) === "" ? "" : `("${relativeOpPath(createEntry)}")`}`,
-        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody Create${agg.name}Request request) {`,
+        // RS-39 — a create with no input fields publishes an optional body (the
+        // filter hands an empty one over as `{}`, so `request` is never null).
+        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody${commandBodyOptional(createInputFields(agg)) ? "(required = false)" : ""} Create${agg.name}Request request) {`,
         `        var id = service.create${agg.name}(request);`,
         `        CatalogLog.event(${javaLogEvent("aggregateCreated")}, "aggregate", "${agg.name}", "id", id.value());`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "create");`,
@@ -1003,9 +1008,11 @@ export function renderApiExceptionAdvice(
     // authored English — when the bundle has no entry for this locale.  The
     // message-less sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
+    // An absent required field (`@NotNull` on the boxed record component) reads
+    // the same on every backend (RS-39).
     localizeMessages
-      ? `                entry.put("message", resolveMessage(err, locale));`
-      : `                entry.put("message", err.getDefaultMessage());`,
+      ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : resolveMessage(err, locale));`
+      : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
     `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
     `                return entry;`,

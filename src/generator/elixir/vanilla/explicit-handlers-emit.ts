@@ -59,6 +59,7 @@ import {
   PAGE_WITH_CLAUSES,
   pagingElseArm,
 } from "./page-param.js";
+import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
 import {
   type BodyLine,
   collectParamRefs,
@@ -610,6 +611,10 @@ export function emitExplicitRoutesController(
   // Set when any route is a paged-run queryHandler — the controller then carries
   // a `page_param/3` coercion helper (Phoenix delivers query params as strings).
   let hasPaged = false;
+  // action → the BODY keys its request must carry (RS-39): each param's wire
+  // key — a command/query record's fields stand in for the record, exactly as
+  // the request schema flattens them — minus the route's own `{tokens}`.
+  const requiredBodyKeys = new Map<string, string[]>();
   for (const r of routes) {
     const resolved = resolveRoute(r, byName);
     if (!resolved) continue;
@@ -649,6 +654,14 @@ ${pagingElseArm("ProblemDetails", "    ")}
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
     const coercions = pathParamCoercions(r, handler);
+    if (["POST", "PUT", "PATCH"].includes(r.method.toUpperCase())) {
+      const routeTokens = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
+      const slots = handler.params.flatMap((p) => requestRecordFor(p.type, ctx)?.fields ?? [p]);
+      requiredBodyKeys.set(
+        action,
+        requiredWireParams(slots.filter((f) => !routeTokens.has(f.name))),
+      );
+    }
     actions.push(`  def ${action}(conn, params) do
 ${coercions}    respond(conn, ${handlerMod}.run(params))
   end`);
@@ -685,7 +698,7 @@ defmodule ${webModule}.${controller} do
   HTTP entry points for the explicit \`route ... -> <Ctx>.<Handler>\` bindings
   of api \`${apiName}\`.
   """
-
+${renderRequiredParamsPlug(requiredBodyKeys)}
 ${actions.join("\n\n")}
 
   # Shared result handler.  Each handler's run/1 result flows through here;

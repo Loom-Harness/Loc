@@ -1,4 +1,5 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
   forCreateInput,
@@ -909,7 +910,7 @@ function createRoute(
       .join(", ");
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", status_code=201, response_model=Create${agg.name}Response, operation_id="${camelId(opCreate(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def create_${snake(agg.name)}(body: Create${agg.name}Request, session: SessionDep) -> dict[str, object]:`,
+      `async def create_${snake(agg.name)}(${pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg))}, session: SessionDep) -> dict[str, object]:`,
       `    created = ${agg.name}.create(${args})`,
       auditCreate ? "    repo = _repo(session)" : null,
       auditCreate ? "    await repo.save(created)" : "    await _repo(session).save(created)",
@@ -952,7 +953,7 @@ function createRoute(
   const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
-    `body: Create${agg.name}Request`,
+    pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
     ...(bindPrincipal ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");

@@ -35,6 +35,7 @@ import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import {
   DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
   problemTitle,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../../ir/util/openapi-errors.js";
@@ -2095,6 +2096,7 @@ _JSON_MEDIA_TYPE = re.compile(
 )
 _BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
 UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}
+MISSING_FIELD = ${JSON.stringify(MISSING_FIELD_MESSAGE)}
 
 
 class JsonBodyMiddleware:
@@ -2220,7 +2222,8 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         for e in err.errors():
             entry: dict[str, str] = {
                 "pointer": _pointer(tuple(e["loc"])),
-                "message": str(e["msg"]),
+                # An absent required field reads the same on every backend (RS-39).
+                "message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),
             }
             # A messaged rule raises PydanticCustomError with a "msg.<hash>"
             # type — the stable content-hash wire code (i18n key). A message-less

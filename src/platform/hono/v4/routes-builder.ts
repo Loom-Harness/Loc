@@ -1017,7 +1017,8 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
+      // RS-39 — a create with no input fields has an optional body.
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } }${commandBodyOptional(createInputFields(agg)) ? ", required: false" : ""} },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);

@@ -74,7 +74,11 @@ import {
   renderReturningOpControllerAction,
 } from "./operation-returns-emit.js";
 import { PAGE_CALL_ARGS, PAGE_WITH_CLAUSES, pagingElseArm } from "./page-param.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { hasRefColls } from "./ref-collection-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
@@ -898,7 +902,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
   alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
+${renderRequiredParamsPlug(new Map(memberOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
 ${indexAction}
 
   def show(conn, %{"id" => id}) do
