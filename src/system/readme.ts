@@ -56,6 +56,10 @@ export interface SystemReadmeContext {
   /** The Postgres image the emitted compose stack runs, so the host-side
    *  `docker run` the README hands the reader cannot drift from it. */
   dbImage: string;
+  /** The bundled dev Keycloak's issuer and client id, when the compose stack
+   *  carries one — the same values the compose file hands each backend, so
+   *  the host-side recipe cannot drift from them. */
+  devIdp?: { issuer: string; clientId: string };
 }
 
 /** The generated system's `README.md`. */
@@ -167,7 +171,44 @@ function runIt(sys: SystemIR, ctx: SystemReadmeContext): string[] {
       lines.push("```");
       lines.push("");
     }
+    lines.push(...idpForLocalRuns(sys, ctx));
   }
+  return lines;
+}
+
+/**
+ * What a deployable run outside compose needs when the model declares
+ * `auth { oidc … }`.  The `oidc` block replaces the accept-all dev-stub
+ * verifier on every backend (D-AUTH-OIDC), so a host-side run has no
+ * `x-loom-dev-claims` path and needs a real IdP.  Saying nothing left the
+ * recipes above looking complete while every authenticated request 401s.
+ */
+function idpForLocalRuns(sys: SystemIR, ctx: SystemReadmeContext): string[] {
+  if (!sys.auth) return [];
+  const lines = [
+    "This system declares `auth { oidc … }`, so its deployables verify real OIDC tokens. There is no dev-stub verifier (`x-loom-dev-claims`) here — the stub is generated only for a model without an `oidc` block — so a deployable started on its own still needs the identity provider.",
+    "",
+  ];
+  if (ctx.devIdp) {
+    lines.push(
+      "Start the bundled dev Keycloak from the compose file and give each authenticated deployable its issuer (log in as `demo` / `demo`):",
+    );
+    lines.push("");
+    lines.push("```bash");
+    lines.push("docker compose up -d keycloak");
+    lines.push(`export OIDC_ISSUER=${ctx.devIdp.issuer}`);
+    lines.push(`export OIDC_CLIENT_ID=${ctx.devIdp.clientId}`);
+    lines.push("```");
+    lines.push("");
+    lines.push(
+      "The issuer names `host.docker.internal`, which must resolve on the host too: Docker Desktop provides it; on Linux add `127.0.0.1 host.docker.internal` to `/etc/hosts`.",
+    );
+  } else {
+    lines.push(
+      "Set `OIDC_ISSUER` and `OIDC_CLIENT_ID` (and `OIDC_CLIENT_SECRET` if your provider needs one) to your provider's tenant before starting an authenticated deployable.",
+    );
+  }
+  lines.push("");
   return lines;
 }
 

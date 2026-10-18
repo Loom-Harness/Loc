@@ -405,6 +405,25 @@ Raw SQL is verbatim — **schema-qualify every relation** (`sales.orders`, not
 `search_path` does not include context schemas, so an unqualified name fails
 at apply time (Flyway/Drizzle/psql alike).
 
+**Moving data between tables is a raw `sql` step.** A backfill fills one column
+from its *own* row, so a reshape that moves rows elsewhere — splitting a
+contained collection into a new aggregate, say, or turning internal comments
+into `InternalNote` rows — has no keyword form. Declare the new table, then
+copy into it with `INSERT … SELECT` in the same generation (the raw step runs
+after the generation's DDL, so the target exists), and drop the old column or
+table in a later, destructive-gated generation:
+
+```ddd
+migration "split-internal-notes" {
+  sql "INSERT INTO support.internal_notes (id, ticket_id, body) SELECT gen_random_uuid(), ticket_id, body FROM support.comments WHERE internal"
+}
+```
+
+This is the intended pressure valve, not a gap awaiting syntax
+(D-MIG-DSL-STEPS): a cross-table move is one-shot DML whose shape is specific
+to the model, and the raw step already runs once, in order, on all five
+backends.
+
 A raw step is pinned to the module its block's *other* steps name; a block
 with only `sql` steps targets the system's single owner module, and an
 ambiguous scope (a block spanning modules, or no affinity in a multi-module

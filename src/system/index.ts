@@ -318,6 +318,7 @@ export function generateSystemsFromLoom(
         slugOf: serviceSlug,
         emitted: out,
         dbImage: POSTGRES_IMAGE,
+        devIdp: bundlesKeycloak(sys) ? keycloakConfig(sys) : undefined,
       }),
     );
   }

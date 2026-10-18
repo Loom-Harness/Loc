@@ -298,6 +298,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         code: "loom.retrieval-where-not-queryable",
         message: diagMessage("loom.retrieval-where-not-queryable", { name: r.name, offending }),
         source: src,
+        origin: r.origin,
       });
     } else if (agg) {
       // Same reasoning as the find site above — `agg` is an ordinary aggregate,
@@ -315,6 +316,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             aggName: agg.name,
           }),
           source: src,
+          origin: r.origin,
         });
       }
       const bothCols = firstColumnVsColumn(r.where);
@@ -324,6 +326,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
           code: "loom.retrieval-where-column-column",
           message: diagMessage("loom.retrieval-where-column-column", { name: r.name, bothCols }),
           source: src,
+          origin: r.origin,
         });
       }
     }
@@ -344,6 +347,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             suggestion: nearestAggregateMember(agg, head.name),
           }),
           source: src,
+          origin: r.origin,
         });
       }
     }
@@ -364,6 +368,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         code: "loom.retrieval-loads-unsupported",
         message: diagMessage("loom.retrieval-loads-unsupported", { name: r.name }),
         source: src,
+        origin: r.origin,
       });
     }
   }

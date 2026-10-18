@@ -220,6 +220,8 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // about it.  A warning turns a SILENT hole into an honest, visible one
       // today; when the surface lands, the check gains its `if (gated)
       // continue;` and can be promoted to an error under the same code.
+      const aggregateOrigin = (name: string) =>
+        c.aggregates.find((a) => a.name === name)?.origin ?? c.origin;
       for (const op of deriveContextOperations(c)) {
         // The aggregate LIST read, `GET /api/<aggs>` (eval item 22, ruling
         // D5).  It is backed by the repository find named `all` — usually the
@@ -250,6 +252,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               listType: listReadSpelling(op.aggregate, op.find),
             }),
             source: `${c.name}/${op.aggregate}/all`,
+            // The repository is where the silencing `find all … requires`
+            // goes; an aggregate with no declared repository points at itself.
+            origin: repo?.origin ?? aggregateOrigin(op.aggregate),
           });
           continue;
         }
@@ -262,7 +267,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             path: op.path,
           }),
           source: `${c.name}/${op.aggregate}`,
-          origin: c.origin,
+          // The aggregate whose synthesised read this is — not the context,
+          // which would put every aggregate's warning on one line.
+          origin: aggregateOrigin(op.aggregate),
         });
       }
       // Repository finds: each author-declared named find is its own GET route

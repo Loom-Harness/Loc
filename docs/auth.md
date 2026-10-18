@@ -1181,6 +1181,26 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
+> **The stub exists only without an `auth { oidc … }` block.** Declaring one
+> replaces the stub with the generated OIDC verifier on every backend
+> (D-AUTH-OIDC): there is no `x-loom-dev-claims` path and no env switch that
+> brings it back, so every request needs a real bearer token. Local
+> development with an `oidc` block therefore needs an IdP:
+>
+> - **Self-hosted provider** (`provider: keycloak`, `provider: custom`, or a
+>   bare `oidc { issuer … }`) — `docker compose up` starts the bundled dev
+>   Keycloak (realm import from the emitted `keycloak/realm.json`, demo user
+>   included), and the backends are wired to its issuer. Running a single
+>   deployable outside compose still needs that Keycloak: start it with
+>   `docker compose up -d keycloak` and point `OIDC_ISSUER` / `OIDC_CLIENT_ID`
+>   at it.
+> - **Hosted preset** (`google`, `auth0`, …) — no bundled service; set the
+>   `OIDC_*` variables to your tenant.
+>
+> To exercise gates with hand-written claims instead, generate a copy of the
+> model without the `oidc` block (keep `auth: required` and the `user { … }`
+> block) — that build gets the stub.
+
 > **The encoding is load-bearing.** A header that is **present but does not
 > decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
 > is refused on all five backends with **400**, before any route runs
