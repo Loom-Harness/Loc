@@ -23,15 +23,18 @@ import type {
   FieldIR,
   OperationIR,
   SystemIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { serverSeededFields } from "../../construction-default.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -50,6 +53,7 @@ import {
   voHasConstraints,
 } from "./changeset-validators.js";
 import { INT32_RANGE_MESSAGE } from "./context-emit.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -240,6 +244,15 @@ function renderChangeset(
       return value === null ? null : `    |> __default(:${snake(f.name)}, ${value})`;
     })
     .filter((l): l is string => l !== null);
+  // A server-owned field (`openedAt: datetime managed`) is off the create input
+  // and carries no default: it takes the language-defined absent value from the
+  // shared seed table, the value every other backend's create factory names.
+  // Without it the insert put a NULL into its `null: false` column (500).
+  for (const { field, seed } of serverSeededFields(agg.fields)) {
+    defaultLines.push(
+      `    |> __default(:${snake(field.name)}, ${elixirServerInitSeed(seed, field.type)})`,
+    );
+  }
   const defaultBlock = defaultLines.length > 0 ? `\n${defaultLines.join("\n")}` : "";
   const defaultHelper =
     defaultLines.length > 0
@@ -841,4 +854,21 @@ function renderActionHelper(
     |> cast(attrs, ${allowList})
     |> validate_required(${allowList})
   end`;
+}
+
+/** The Elixir spelling of a shared server-init seed kind. */
+function elixirServerInitSeed(seed: ServerInitSeed, type: TypeIR): string {
+  switch (seed) {
+    case "now":
+      return normalizeDatetime("DateTime.utc_now()");
+    case "zero":
+      // A `decimal` column holds a `Decimal`, which the serializer reads as one.
+      return type.kind === "primitive" && type.name === "decimal" ? "Decimal.new(0)" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+  }
 }

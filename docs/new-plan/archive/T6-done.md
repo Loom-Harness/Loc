@@ -1419,3 +1419,40 @@ and the genuine optional twin still takes the presence-ternary path before `matc
 > All five legs: **0 wire divergences**. The step-aside is scoped, not broad — 55
 > of 63 goldens still carry the probe answering `400` (reaching its actual
 > subject), and the whole node tier re-runs at 63 cases / 0 divergences.
+
+## M-T6.89 — A server-owned field with no default is NULL on create on .NET / Java / Elixir — `done` · **S–M** · P1
+
+> **CLOSED 2026-10-18. All five backends seed it from the one shared table, and
+> `corpus/managed-seeds` pins it on every leg.**
+>
+> A `managed` / `token` / `internal` field is off the create input. The docs
+> say a non-optional one with no default starts at its type's seed (datetime →
+> now, number → 0, bool → false, string → `""`, list → `[]`), and
+> `src/ir/util/server-init-seed.ts` was already the table
+> `loom.unconstructible-server-field` read. Only node and python's create
+> factories consumed it, though. Measured on booted backends (`create(title)`,
+> then GET):
+>
+> | field | node | python | .NET | java | elixir |
+> |---|---|---|---|---|---|
+> | `datetime managed` | now | now | `0001-01-01` | 500 (NULL) | 500 |
+> | `int managed` | 0 | 0 | 0 | 0 | 500 |
+> | `decimal managed` | 0 | 0 | 0 | 500 | 500 |
+> | `bool managed` | false | false | false | false | 500 |
+> | `string managed` | `""` | `""` | 500 | 500 | 500 |
+> | `string[] managed` | `[]` | `[]` | 500 | 500 | 500 |
+> | `datetime internal` | 201 | 201 | 201 | 500 | 422 |
+>
+> **Fix at the shared layer:** `serverSeededFields`
+> (`src/generator/construction-default.ts`) picks the fields that need a seed
+> (server-owned, non-optional, no literal default, a type the table covers).
+> The java / .NET create factories and the elixir base changeset each spell the
+> seed. Python's local table now reads the shared one. After the fix, all five
+> return 201 with every seed. **`guid` dropped out of the seed table**:
+> `""` is not a uuid (a Postgres uuid column refuses it), so a non-optional
+> `guid managed` with no default is now refused by
+> `loom.unconstructible-server-field` like money / enum / VO / `X id`.
+>
+> Gates: `test/generator/server-seeded-fields.test.ts`, mutation-proven (with
+> the seed loop given no fields, the java / .NET / elixir arms fail), plus
+> `test/ir/server-init-seed.test.ts` and the `managed-seeds` wire golden.

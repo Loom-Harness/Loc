@@ -30,7 +30,8 @@
 
 import type { WithAccess } from "../ir/enrich/wire-projection.js";
 import { forCreateInput } from "../ir/enrich/wire-projection.js";
-import type { ExprIR } from "../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../ir/types/loom-ir.js";
+import { type ServerInitSeed, serverInitSeed } from "../ir/util/server-init-seed.js";
 import { renderDefaultSeed } from "./_frontend/default-seed.js";
 import type { FieldWithDefault } from "./_frontend/server-default.js";
 
@@ -70,4 +71,30 @@ export function constructionSeededFields<T extends WithAccess & FieldWithDefault
       f.default !== undefined &&
       isConstructionSeedableDefault(f.default),
   );
+}
+
+/**
+ * Fields the `create` factory seeds with their LANGUAGE-DEFINED absent value
+ * (`src/ir/util/server-init-seed.ts`): outside the create input, not optional,
+ * and carrying no construction-seedable default — `openedAt: datetime managed`
+ * is created at now, `hits: int managed` at 0, `labels: string[] managed` at
+ * `[]`.
+ *
+ * The seed table decides WHICH types have a value; this decides WHICH fields
+ * take one; each backend only spells the seed in its own language.  A field the
+ * table has no seed for is not returned — `loom.unconstructible-server-field`
+ * has already refused it.
+ */
+export function serverSeededFields<
+  T extends WithAccess & FieldWithDefault & { optional: boolean; type: TypeIR },
+>(fields: readonly T[]): { field: T; seed: ServerInitSeed }[] {
+  const inputNames = new Set(forCreateInput(fields).map((f) => f.name));
+  const defaulted = new Set(constructionSeededFields(fields).map((f) => f.name));
+  const out: { field: T; seed: ServerInitSeed }[] = [];
+  for (const f of fields) {
+    if (inputNames.has(f.name) || defaulted.has(f.name) || f.optional) continue;
+    const seed = serverInitSeed(f.type);
+    if (seed !== null) out.push({ field: f, seed });
+  }
+  return out;
 }
