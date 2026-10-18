@@ -865,6 +865,9 @@ export function renderJavaRepositoryImpl(
   // tenancy), the provenance-records repo, and (§11.6) the EntityManager when a
   // read bypasses a promoted @Filter (the impl unwraps it to a Hibernate Session
   // to disableFilter/enableFilter).
+  // M-T6.93: a versioned aggregate's repeat load / stale-handle save reaches
+  // the Hibernate Session (`independentHandleLines` below).
+  if (versioned) needsEntityManager = true;
   if (needsEntityManager) imports.add("jakarta.persistence.EntityManager");
   if (needsEntityManager) imports.add("jakarta.persistence.PersistenceContext");
   const pagedAll = isPagedAutoAll(repo);
@@ -956,7 +959,9 @@ export function renderJavaRepositoryImpl(
           `        }`,
         ]
       : []),
-    `        var saved = jpa.save(aggregate);`,
+    versioned
+      ? `        var saved = _isSecondHandle(aggregate) ? _saveSecondHandle(aggregate) : jpa.save(aggregate);`
+      : `        var saved = jpa.save(aggregate);`,
     // Provenance flush (provenance.md): drain the per-write lineage buffer and
     // persist one provenance_records row per write, BEFORE the @Transactional
     // method returns, so the history commits atomically with the state (the
@@ -993,7 +998,13 @@ export function renderJavaRepositoryImpl(
     ``,
     `    @Override`,
     `    public Optional<${agg.name}> findById(${idClass} id) {`,
-    `        return jpa.findById(id);`,
+    ...(versioned
+      ? [
+          `        var __shared = _isManaged(id);`,
+          `        var found = jpa.findById(id);`,
+          `        return __shared && found.isPresent() ? Optional.of(_loadSecondHandle(id)) : found;`,
+        ]
+      : [`        return jpa.findById(id);`]),
     `    }`,
     ``,
     `    @Override`,
@@ -1002,14 +1013,25 @@ export function renderJavaRepositoryImpl(
     // scope is narrower than its read scope, load through the write-scoped
     // `findByIdForWrite` @Query — a readable-but-not-writable (or missing) row
     // → 404.  Otherwise the ordinary read-scoped `findById` (byte-identical).
+    // M-T6.93: whether an earlier load in this transaction already holds the
+    // row is read BEFORE the load — the scoped load still runs (its 404 / write
+    // scope is the authority), and only then is a shared instance swapped for
+    // an independent handle.
+    versioned ? `        var __shared = _isManaged(id);` : null,
     `        var found = jpa.${agg.writeScopeFilter ? "findByIdForWrite" : "findById"}(id);`,
     // aggregate_loaded (debug) — mirrors the Hono/.NET repo emission; `found` is
     // a bool so a downstream filter can grep failed loads by
     // (event="aggregate_loaded", found=false).
     `        CatalogLog.event(${javaLogEvent("aggregateLoaded")}, "aggregate", "${agg.name}", "id", String.valueOf(id.value()), "found", found.isPresent());`,
-    `        return found.orElseThrow(() ->`,
-    `            ${javaNotFoundThrow(agg.name)});`,
+    ...(versioned
+      ? [
+          `        var handle = found.orElseThrow(() ->`,
+          `            ${javaNotFoundThrow(agg.name)});`,
+          `        return __shared ? _loadSecondHandle(id) : handle;`,
+        ]
+      : [`        return found.orElseThrow(() ->`, `            ${javaNotFoundThrow(agg.name)});`]),
     `    }`,
+    ...(versioned ? independentHandleLines(agg.name, idClass) : []),
     ``,
     `    @Override`,
     `    public List<${agg.name}> findAll() {`,
@@ -1044,6 +1066,68 @@ export function renderJavaRepositoryImpl(
     `}`,
     ``,
   );
+}
+
+/** M-T6.93 — two loads of one row are two HANDLES, each carrying the version
+ *  it read (node / python / .NET after M-T6.90).  JPA's persistence context is
+ *  an identity map: a second `findById` of a row the transaction already
+ *  manages returns the SAME instance, so `save(first)` bumps the version the
+ *  second handle then reads, its CAS succeeds and a stale write commits.
+ *
+ *  The fix stays out of the single-load path entirely:
+ *  - a REPEAT load (the row is already managed) reads a DETACHED copy through
+ *    a child Session that shares the transaction's JDBC connection — so it sees
+ *    the transaction's own writes (the parent is flushed first) and carries the
+ *    version the row has NOW;
+ *  - saving such a handle (detached, while another instance of the row is
+ *    managed) merges + flushes it in a child Session too, so the managed first
+ *    handle is NOT overwritten: it keeps the version it read, and its own later
+ *    save is the stale one (409), exactly as on node.
+ *  The `bumpVersion` CAS stays the conflict authority on both paths; a merge
+ *  onto the managed instance would have copied the bumped version onto it. */
+function independentHandleLines(aggName: string, idClass: string): string[] {
+  return [
+    ``,
+    // `getManagedEntities(Class)` matches by instance, so a TPH/TPC subtype row
+    // managed under a subtype class still matches.  (`Session.contains(String,
+    // Object)` is deprecated for removal in Hibernate 7, and the SPI
+    // `EntityKey` route trips a javac classfile warning — both fatal under the
+    // -Werror build.)  The entity-count guard is load-bearing: Hibernate 7.4's
+    // `getManagedEntities` NPEs on a persistence context that has never held
+    // an entity (its by-key map is created lazily) — i.e. on every create.
+    `    /** True when this transaction's persistence context already manages the row. */`,
+    `    private boolean _isManaged(${idClass} id) {`,
+    `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        if (__session.getStatistics().getEntityCount() == 0) return false;`,
+    `        return __session.getManagedEntities(${aggName}.class).stream()`,
+    `            .anyMatch(__e -> __e.id().equals(id));`,
+    `    }`,
+    ``,
+    `    /** A handle that is not the managed instance of a row another handle holds. */`,
+    `    private boolean _isSecondHandle(${aggName} aggregate) {`,
+    `        return !em.contains(aggregate) && _isManaged(aggregate.id());`,
+    `    }`,
+    ``,
+    `    /** An independent, detached handle on a row an earlier load already holds. */`,
+    `    private ${aggName} _loadSecondHandle(${idClass} id) {`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        __session.flush();`,
+    `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
+    `            return __fork.find(${aggName}.class, id);`,
+    `        }`,
+    `    }`,
+    ``,
+    `    /** Write a second handle without merging it onto the managed first one. */`,
+    `    private ${aggName} _saveSecondHandle(${aggName} aggregate) {`,
+    `        var __session = em.unwrap(org.hibernate.Session.class);`,
+    `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
+    `            __fork.merge(aggregate);`,
+    `            __fork.flush();`,
+    `        }`,
+    `        return aggregate;`,
+    `    }`,
+  ];
 }
 
 /** The offset/limit `Pageable` behind the call-site `page:` tuple on
