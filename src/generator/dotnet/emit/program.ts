@@ -104,6 +104,9 @@ export function renderProgram(
      *  auth. */
     userFields?: string[];
     usesValidators?: boolean;
+    /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
+     *  operation-return union with an `error` arm, M-FT.24); registers it. */
+    opUnionFilter?: boolean;
     /** When true, at least one aggregate carries `flags.isAuditable`
      *  (any aggregate has contextStamps from one or more macros).
      *  Program.cs registers the `AuditableInterceptor` and attaches
@@ -1064,7 +1067,14 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<ProblemDetailsResponsesFilter>();
     // Promote inline array list responses to named <Agg>ListResponse
     // components (matches Hono/Phoenix, which name the wrapper).
-    c.DocumentFilter<ListResponseWrapperFilter>();
+    c.DocumentFilter<ListResponseWrapperFilter>();${
+      options?.opUnionFilter
+        ? `
+    // An operation returning \`T or <Error>\`: 200 carries the success arms,
+    // each error arm's status carries its problem body (M-FT.24).
+    c.DocumentFilter<OpUnionResponsesFilter>();`
+        : ""
+    }
     // Mark non-nullable reference-type properties as required in the
     // schema — matches Hono/Phoenix, which mark every non-optional field
     // required.  Without this Swashbuckle leaves the required set empty.
