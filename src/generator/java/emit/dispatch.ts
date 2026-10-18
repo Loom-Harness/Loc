@@ -18,6 +18,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import {
+  API_CLIENT_CLASS,
   collectJavaExprImports,
   type JavaRenderContext,
   renderJavaExpr,
@@ -88,6 +89,26 @@ export interface DispatchCtx {
    *  the LocalOutboxRelay invokes these methods post-commit (crash-safe,
    *  at-least-once), never inline. */
   localDurableEvents?: ReadonlySet<string>;
+  /** Resource name → generated client class (`S3Resources`) — the same map
+   *  the workflow service renders with, so a resource-op in a reactor or an
+   *  event-triggered `create` body reaches its client exactly as one in a
+   *  command `create` body does. */
+  resourceClasses?: Map<string, string>;
+  /** The resource-client package (`…resources`) — imported when a handler
+   *  calls a resource client or the typed in-system api client. */
+  resourcesPkg?: string;
+}
+
+/** The resource map each handler's render context reads, keyed by the context
+ *  being rendered.  Set once per `renderJavaDispatcher` call so the per-handler
+ *  renderers need no extra parameter. */
+const resourcesByCtx = new WeakMap<object, Map<string, string>>();
+
+function reactorResources(ctx: EnrichedBoundedContextIR): {
+  resourceClasses?: Map<string, string>;
+} {
+  const resourceClasses = resourcesByCtx.get(ctx);
+  return resourceClasses?.size ? { resourceClasses } : {};
 }
 
 interface ResolvedHandler {
@@ -395,6 +416,7 @@ export function renderJavaDispatcher(
     ctx.projections,
   );
   if (subs.length === 0) return null;
+  resourcesByCtx.set(ctx, dctx.resourceClasses ?? new Map());
 
   const className = `${ctx.name}Dispatcher`;
   const imports = new Set<string>();
@@ -514,6 +536,14 @@ export function renderJavaDispatcher(
     );
   }
   if (methods.length === 0) return null;
+  // A handler body calling a resource client (`S3Resources.salesFilesPut(…)`)
+  // or the typed in-system api client needs the resources package — derived
+  // from the rendered text so an unused import is never emitted.
+  const clientClasses = [...new Set(dctx.resourceClasses?.values() ?? []), API_CLIENT_CLASS];
+  const callsResourceClient =
+    !!dctx.resourcesPkg &&
+    dctx.resourcesPkg !== dctx.pkg &&
+    methods.some((m) => clientClasses.some((c) => m.includes(`${c}.`)));
 
   // Injected collaborators: every aggregate repo the handler bodies touch +
   // one saga-state repo per subscribed correlation workflow.
@@ -643,6 +673,7 @@ export function renderJavaDispatcher(
       `import ${dctx.basePkg}.domain.ids.*;`,
       `import ${dctx.basePkg}.domain.valueobjects.*;`,
       `import ${dctx.basePkg}.config.CatalogLog;`,
+      callsResourceClient ? `import ${dctx.resourcesPkg}.*;` : null,
       ``,
       `@Component`,
       `@Transactional`,
@@ -732,7 +763,11 @@ function renderHandler(
   // The body's own bindings are locals of the same method — moved off the
   // reserved names and the event param (`withLetLocals`; identity otherwise).
   const renderCtx = withLetLocals(
-    withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
+    withEventParam(
+      { thisName: "state", accessorProps: true, ...reactorResources(ctx) },
+      sub.param,
+      param,
+    ),
     workflowBoundNames([resolved.statements]),
     new Set([...reserved, param]),
   );
@@ -869,7 +904,7 @@ function renderEsHandler(
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
   const renderCtx = withLetLocals(
-    withEventParam({ thisName: "state" }, sub.param, param),
+    withEventParam({ thisName: "state", ...reactorResources(ctx) }, sub.param, param),
     workflowBoundNames([resolved.statements]),
     new Set([...reserved, param]),
   );
@@ -1037,7 +1072,7 @@ function esMergedBranchLines(
   const streamType = wf.name;
   const hasEmit = bodyHasEmit(resolved.statements);
   const branchCtx = withLetLocals(
-    withEventParam({ thisName: "state" }, branchParam, branchLocal),
+    withEventParam({ thisName: "state", ...reactorResources(ctx) }, branchParam, branchLocal),
     workflowBoundNames([resolved.statements]),
     new Set([...reserved, methodParam, branchLocal]),
   );
@@ -1125,7 +1160,11 @@ function renderEsMergedHandler(
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
-  const renderCtx = withEventParam({ thisName: "state" }, createSub.param, param);
+  const renderCtx = withEventParam(
+    { thisName: "state", ...reactorResources(ctx) },
+    createSub.param,
+    param,
+  );
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
