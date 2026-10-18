@@ -21,6 +21,7 @@ import {
   type TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -578,7 +579,7 @@ function renderEntity(
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
           `            raise DisallowedError(${JSON.stringify(
-            `operation '${op.name}' is not allowed in the current state of ${e.name}.`,
+            disallowedDetail(op.name, e.name, op.whenSource),
           )})`,
         ]
       : [];

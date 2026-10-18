@@ -21,6 +21,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { aggregateUsesMoney } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -582,7 +583,7 @@ function renderEntity(
   const whenGate = (op: (typeof e.operations)[number]): string | null =>
     op.when
       ? `    if (!(${renderTsExpr(op.when)})) throw new DisallowedError(${JSON.stringify(
-          `operation '${op.name}' is not allowed in the current state of ${e.name}.`,
+          disallowedDetail(op.name, e.name, op.whenSource),
         )});`
       : null;
   for (const op of e.operations) {

@@ -2935,12 +2935,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A
   // WARNING with its own code, the same tier as the by-id read above — but
   // this one HAS recourse, so the message names the exact line to write.
-  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
+  "loom.default-deny-list-ungated": (p: {
+    name: unknown;
+    path: unknown;
+    repo: unknown;
+    listType: unknown;
+  }) =>
     `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
     `\`requires\` gate, so it serves every row to ANY authenticated caller. Gate it by ` +
     `declaring the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
-    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one and is ` +
-    `enforced on all five backends (use \`requires true\` to mark it intentionally public).`,
+    `${p.listType} requires <expr> }\` — which replaces the compiler-injected one, keeps its ` +
+    `response shape, and is enforced on all five backends (use \`requires true\` to mark it ` +
+    `intentionally public).`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for the same RECOURSE reason as the by-id read above: the author cannot gate
   // this one either — a body `requires` here is refused outright by
@@ -2987,8 +2993,9 @@ export const DIAGNOSTIC_MESSAGES = {
     aggregateName: unknown;
     aggregateName2: unknown;
     name: unknown;
+    listType: unknown;
   }) =>
-    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but its list read declares no \`requires\` gate — the change history is reachable by any authenticated caller. Declare \`find all(): ${p.aggregateName}[] requires <expr>\` on '${p.name}'; history inherits that gate (use \`requires true\` to allow anonymous access).`,
+    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but its list read declares no \`requires\` gate — the change history is reachable by any authenticated caller. Declare \`find all(): ${p.listType} requires <expr>\` on '${p.name}'; history inherits that gate (use \`requires true\` to allow anonymous access).`,
   "loom.ui-id-ref-unknown-aggregate": (p: {
     deployableName: unknown;
     source: unknown;

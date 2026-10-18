@@ -140,7 +140,7 @@ import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
-import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
+import { UUID_WIRE_MESSAGE, UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
   byLayerLayoutAdapter,
@@ -410,10 +410,13 @@ ${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../doma
  *  \`format: uuid\` is preserved for the spec (the paramTypeDiffs parity
  *  dimension compares \`type\` + \`format\`); the regex additionally publishes
  *  \`pattern\`, which is what Python already published, so the two specs now
- *  agree where they previously differed. */
+ *  agree where they previously differed.
+ *
+ *  A miss answers \`${UUID_WIRE_MESSAGE}\` — the regex itself never
+ *  reaches the client. */
 export const UuidString = z
   .string()
-  .regex(${UUID_WIRE_REGEX_LITERAL})
+  .regex(${UUID_WIRE_REGEX_LITERAL}, ${JSON.stringify(UUID_WIRE_MESSAGE)})
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
