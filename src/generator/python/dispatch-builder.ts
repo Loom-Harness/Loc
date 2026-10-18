@@ -16,7 +16,7 @@ import type {
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { escapePythonIdent, snake } from "../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
@@ -27,7 +27,7 @@ import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { esEventRow, esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -679,7 +679,7 @@ export function allocateKwargs(wf: WorkflowIR): string {
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
-    parts.push(`${snake(f.name)}=${zeroFor(f)}`);
+    parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
 }
@@ -795,7 +795,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -856,7 +856,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -959,11 +959,11 @@ function outboxBlock(
     : "InProcessDispatcher(session)";
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -1106,11 +1106,11 @@ function outboxBlock(
 function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean): string {
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,

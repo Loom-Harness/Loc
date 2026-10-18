@@ -12,14 +12,14 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { escapePythonIdent, snake } from "../../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import {
   coerceMatcherExpected,
   coerceTestArgs,
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 
 /** Python leaves for the shared test-literal coercion rule
@@ -51,7 +51,10 @@ const TEST_ACTOR_PY =
 //   expect(x).toBe(y)        → `assert x == y` (comparison matchers map
 //                               1:1 onto operators; `.not.` inverts)
 //   expect <bool-expr>       → `assert <bool-expr>`
-//   expectThrows <call>      → `with pytest.raises(Exception): <call>`
+//   expect(<call>).toThrow() → `with pytest.raises((DisallowedError, DomainError,
+//                               ForbiddenError)): <call>` — a DOMAIN rejection
+//                               only (`DOMAIN_REJECTION_ERRORS`), so a NameError
+//                               from broken code fails the test
 //   let x = …                → `x = …`
 //
 // `<Agg>.create({ … })` literals coerce each field to its declared
@@ -60,6 +63,11 @@ const TEST_ACTOR_PY =
 // declared field order (omitted optionals → None), datetime literals
 // parse via `datetime.fromisoformat`.
 // ---------------------------------------------------------------------------
+
+/** What a bare `toThrow()` accepts: the domain floor's refusal classes, as the
+ *  tuple `pytest.raises` takes.  Not `Exception` — that admitted a `NameError`
+ *  out of broken generated code as a passing negative test (claims D2). */
+const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.join(", ")})`;
 
 export function renderPyTestsFile(agg: AggregateIR, ctx: BoundedContextIR): string | null {
   return renderPySubjectTests(agg.name, agg.tests, ctx, {
@@ -152,6 +160,17 @@ function renderPySubjectTests(
 
   const out: string[] = [];
   out.push(`"""Domain tests for ${describeName}.  Auto-generated."""`);
+  // A test observes state a METHOD changed — `assert wo.status == S.Scheduled`,
+  // `wo.complete()`, `assert wo.status == S.Completed`.  mypy keeps the first
+  // assert's narrowing across the call, so the second compare reads as
+  // non-overlapping (`comparison-overlap` under --strict) on every enum
+  // progression.  The file-level inline config scopes the waiver to this test
+  // module (a pyproject `tests.*` override cannot: `tests/` has no
+  // `__init__.py`, so mypy names the module `test_<x>`), and only a file that
+  // compares at all carries it.
+  if (/^\s+assert .*[=!]= /m.test(bodyStr)) {
+    out.push(`# mypy: disable-error-code="comparison-overlap"`);
+  }
   if (usesDatetime || usesTimedelta || usesDecimal || usesMath || usesPytest || usesActor) {
     out.push("");
   }
@@ -174,6 +193,9 @@ function renderPySubjectTests(
   }
   for (const name of siblingAggs) {
     out.push(`from app.domain.${snake(name)} import ${name}`);
+  }
+  if (bodyStr.includes(`pytest.raises(${DOMAIN_REJECTION_TUPLE})`)) {
+    out.push(`from app.domain.errors import ${DOMAIN_REJECTION_ERRORS.join(", ")}`);
   }
   if (idNames.length > 0) {
     out.push(`from app.domain.ids import ${idNames.join(", ")}`);
@@ -252,7 +274,7 @@ export function renderTestExpr(
     const recv = renderTestExpr(e.receiver, ctx, lets);
     const rt = e.receiver.memberType;
     const inner = rt.kind === "optional" ? rt.inner : rt;
-    return `cast(${renderPyType(inner)}, ${recv}).${snake(e.member)}`;
+    return `cast(${renderPyType(inner)}, ${recv}).${pythonIdent(e.member)}`;
   }
   // Calls of currentUser-gated ops thread the synthetic actor as the
   // trailing argument (mirrors the TS test emitter).  The aggregate
@@ -285,7 +307,7 @@ export function renderTestExpr(
       // A currentUser-gated op's method signature carries a trailing
       // `current_user` parameter; thread the synthetic actor.
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
-      return `${recv}.${snake(e.member)}(${args.join(", ")})`;
+      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
     }
   }
   if (
@@ -322,7 +344,7 @@ export function renderCreateInput(
   return obj.fields
     .map((f) => {
       const t = declared.get(f.name);
-      return `${snake(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
+      return `${pythonIdent(f.name)}=${t === undefined ? renderPyExpr(f.value) : coerceCreateValue(f.value, t, ctx)}`;
     })
     .join(", ");
 }
@@ -434,7 +456,7 @@ export function renderTestStmt(
       const pattern = throwKindPatternSource(s.throwKind);
       return [`    with pytest.raises(Exception, match=r"${pattern}"):`, call];
     }
-    return ["    with pytest.raises(Exception):", call];
+    return [`    with pytest.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
   }
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];
