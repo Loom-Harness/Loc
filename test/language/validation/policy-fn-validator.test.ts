@@ -88,9 +88,9 @@ describe("validator — named policy functions", () => {
   });
 });
 
-// Eval item 39, ruling D9: policies are context-local.  A call from another
-// context names that instead of the old `'requires' must be of type 'bool',
-// got 'unknown'`.
+// Ruling D9: policies are context-local.  A call from another context names
+// that instead of the misdirecting `'requires' must be of type 'bool', got
+// 'unknown'` — in both the bare and the context-qualified spelling.
 describe("validator — a policy function called from another context", () => {
   const twoContexts = (call: string, localDecl = "") => `
     system Shop {
@@ -121,6 +121,24 @@ describe("validator — a policy function called from another context", () => {
       ),
     ]);
     expect(errors.join("\n")).not.toMatch(/got 'unknown'/);
+  });
+
+  it("reports the qualified spelling `Orders.IsAdmin()` the same way — and nothing else", async () => {
+    const { diagnostics, errors } = await parseString(twoContexts("Orders.IsAdmin()"));
+    expect(lspCodes(diagnostics)).toContain("loom.policy-out-of-scope");
+    expect(errors).toEqual([
+      expect.stringContaining(
+        "policy 'IsAdmin' is declared in context 'Orders'; policies are context-local — redeclare it in 'Billing'",
+      ),
+    ]);
+  });
+
+  it("leaves a qualified name the context does not declare as a policy to the type error", async () => {
+    // Vacuity control for the case above: the qualified check claims only a
+    // real policy of that context, so a typo still surfaces as a typing error.
+    const { diagnostics, errors } = await parseString(twoContexts("Orders.IsAdmn()"));
+    expect(lspCodes(diagnostics)).not.toContain("loom.policy-out-of-scope");
+    expect(errors.join("\n")).toMatch(/got 'unknown'/);
   });
 
   it("is silent when the calling context declares its own policy of that name", async () => {
