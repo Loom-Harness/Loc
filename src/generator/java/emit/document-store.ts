@@ -348,16 +348,18 @@ export function renderJavaDocumentRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${agg.name} save(${agg.name} aggregate) {`,
-    ...(aggregateIsVersioned(agg) ? versionedSaveLines : [
-    `        try {`,
-    `            jdbc.update(`,
-    `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
-    `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
-    `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
-    `        } catch (tools.jackson.core.JacksonException e) {`,
-    `            throw new IllegalStateException("document serialization failed", e);`,
-    `        }`,
-    ]),
+    ...(aggregateIsVersioned(agg)
+      ? versionedSaveLines
+      : [
+          `        try {`,
+          `            jdbc.update(`,
+          `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
+          `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
+          `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
+          `        } catch (tools.jackson.core.JacksonException e) {`,
+          `            throw new IllegalStateException("document serialization failed", e);`,
+          `        }`,
+        ]),
     // repository_save (debug) — after the upsert; (aggregate, id) prefix mirrors
     // the relational repo + .NET/Hono emission (children omitted).
     `        CatalogLog.event(${javaLogEvent("repositorySave")}, "aggregate", "${agg.name}", "id", String.valueOf(aggregate.id().value()));`,
