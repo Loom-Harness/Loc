@@ -86,7 +86,8 @@ describe("validator — e2e unresolved ref", () => {
   it("rejects a call to a function that resolves to nothing", async () => {
     const codes = await codesFor(`
     let o = api.orders.create({ code: "C1", status: "Draft" })
-    expect(number(o.code)).toBe(1)
+    let r = api.orders.getById(o)
+    expect(number(r.code)).toBe(1)
   `);
     expect(codes).toContain("loom.e2e-unresolved-call");
   });
@@ -96,7 +97,8 @@ describe("validator — e2e unresolved ref", () => {
       await buildLoomModel(
         SOURCE(`
     let o = api.orders.create({ code: "C1", status: "Draft" })
-    expect(number(o.code)).toBe(1)
+    let r = api.orders.getById(o)
+    expect(number(r.code)).toBe(1)
   `),
       ),
     );
@@ -110,8 +112,9 @@ describe("validator — e2e unresolved ref", () => {
     // gate must not reach them, or every money/decimal assertion breaks.
     const codes = await codesFor(`
     let o = api.orders.create({ code: "C1", status: "Draft" })
+    let r = api.orders.getById(o)
     let all = api.orders.all()
-    expect(string(o.code)).toBe("C1")
+    expect(string(r.code)).toBe("C1")
     expect(all.items.count()).toBe(1)
   `);
     expect(codes).not.toContain("loom.e2e-unresolved-call");
