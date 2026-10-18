@@ -17,6 +17,7 @@ import { lowerFirst, upperFirst } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { fsString } from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
 
 type Ctx = Record<string, string | number | boolean | readonly string[] | undefined>;
 
@@ -610,12 +611,12 @@ function primitiveChart(c: Ctx): string {
   // The accessors are lambdas over the ROW record, whose fields are the wire
   // names verbatim (`wireShape`), so the walker's `dataKey`/`seriesField`
   // strings are already the F# field names.
-  const xOf = `(fun r -> string r.${String(c.dataKey ?? "")})`;
+  const xOf = `(fun r -> string r.${fsIdent(String(c.dataKey ?? ""))})`;
   // `float` is the one coercion every series type a chart can carry needs and
   // survives: `money`/`decimal` land as F# `decimal`, `int` as `int`, and F#'s
   // `float` conversion is defined on both — the F# spelling of the tsx leg's
   // `Number(...)`.
-  const yOf = `(fun r -> float r.${String(c.seriesField ?? "")})`;
+  const yOf = `(fun r -> float r.${fsIdent(String(c.seriesField ?? ""))})`;
   return `(View.chart ${isBar} ${label} ${rows} ${xOf} ${yOf})`;
 }
 

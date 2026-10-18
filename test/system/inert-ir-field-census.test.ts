@@ -86,7 +86,6 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "rootEnums",
   "rootPayloads",
   "rootValueObjects",
-  "runtimeString",
   "sessions",
   "sourceAlias",
   "sourceModule",
