@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  addComponentImports,
+  templateComponents,
+} from "../../../src/generator/vue/component-imports.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -130,6 +134,57 @@ describe("route-level code splitting — Vue", () => {
   });
 });
 
+// A library registered app-wide lands in the entry chunk whatever the routes
+// do, so Vuetify is never registered wholesale: each SFC imports the components
+// its own template renders and those ride its lazy chunk.
+describe("route-level code splitting — Vuetify components are imported per SFC", () => {
+  it("registers no component library in theme.ts", async () => {
+    const files = await webFiles(`platform: vue, design: "vuetify@v3"`);
+    const theme = files.get("src/theme.ts")!;
+    expect(theme).toContain("createVuetify(");
+    expect(theme).not.toMatch(/from "vuetify\/(components|directives)"/);
+    for (const [p, c] of files) {
+      expect(c, `${p} imports the whole component library`).not.toMatch(
+        /import \* as \w+ from "vuetify\/(components|directives)"/,
+      );
+    }
+  });
+
+  it("every <v-*> tag an SFC renders is imported by that SFC", async () => {
+    const files = await webFiles(`platform: vue, design: "vuetify@v3"`);
+    let checked = 0;
+    for (const [p, sfc] of files) {
+      if (!p.endsWith(".vue")) continue;
+      const markup = sfc.slice(sfc.indexOf("<template"), sfc.lastIndexOf("</template>"));
+      const rendered = new Set(
+        [...markup.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<(v-[a-z0-9-]+)[\s/>]/g)].map((m) =>
+          m[1]!
+            .split("-")
+            .map((s) => s[0]!.toUpperCase() + s.slice(1))
+            .join(""),
+        ),
+      );
+      const imported = new Set(
+        (/import \{ ([^}]+) \} from "vuetify\/components";/.exec(sfc)?.[1] ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+      for (const name of rendered) expect(imported, `${p} renders ${name}`).toContain(name);
+      // ... and imports nothing it does not render (the chunk carries no dead weight).
+      for (const name of imported) expect(rendered, `${p} imports unused ${name}`).toContain(name);
+      if (rendered.size > 0) checked++;
+    }
+    // The shell + 2 aggregates × list/new/detail + Landing/Kiosk/Home all render Vuetify.
+    expect(checked).toBeGreaterThanOrEqual(8);
+  });
+
+  it("leaves a pack without the opt-in (shadcnVue) untouched", async () => {
+    const files = await webFiles(`platform: vue, design: "shadcnVue@v1"`);
+    for (const [p, c] of files) expect(c, p).not.toContain('from "vuetify/components"');
+  });
+});
+
 describe("route-level code splitting — Angular", () => {
   it.each([
     "angularMaterial@v1",
@@ -162,5 +217,30 @@ describe("route-level code splitting — Svelte", () => {
     for (const [p, c] of files) {
       expect(c, `${p} imports a +page.svelte`).not.toMatch(/from ["'][^"']*\+page\.svelte["']/);
     }
+  });
+});
+
+describe("per-SFC component imports — the derivation itself", () => {
+  const SPEC = { tagPrefix: "v-", from: "vuetify/components" };
+
+  it("maps kebab tags to export names, skipping comments and non-library tags", () => {
+    const sfc = `<script setup lang="ts"></script>
+<template>
+  <!-- a <v-snackbar> host lives in App.vue -->
+  <v-card><v-card-text>hi</v-card-text><div><v-btn /></div><router-link to="/" /></v-card>
+</template>`;
+    expect(templateComponents(sfc, SPEC)).toEqual(["VBtn", "VCard", "VCardText"]);
+  });
+
+  it("opens a <script setup> when the SFC has none; leaves library-free SFCs untouched", () => {
+    const files = new Map([
+      ["a.vue", "<template><v-alert /></template>\n"],
+      ["b.vue", "<template><p>plain</p></template>\n"],
+    ]);
+    addComponentImports(files, SPEC);
+    expect(files.get("a.vue")).toBe(
+      '<script setup lang="ts">\nimport { VAlert } from "vuetify/components";\n</script>\n<template><v-alert /></template>\n',
+    );
+    expect(files.get("b.vue")).toBe("<template><p>plain</p></template>\n");
   });
 });

@@ -82,6 +82,7 @@ import {
 } from "../react/emit-templates.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
+import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
 import { buildVueRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { VUE_REF_LABEL, VUE_REF_LABEL_PATH } from "./ref-label-runtime.js";
@@ -757,6 +758,10 @@ export function generateVueForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+  // Last, over the finished file set: each SFC imports exactly the library
+  // components its template renders (for a pack that opts in), so nothing
+  // registers the whole library in the entry chunk.
+  if (pack.manifest.componentImports) addComponentImports(out, pack.manifest.componentImports);
 
   // Path-prefix transform — applied once at the end (mirrors the
   // React generator) so every emitter above stays path-agnostic.
