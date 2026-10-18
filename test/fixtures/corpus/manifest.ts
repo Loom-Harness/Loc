@@ -82,6 +82,23 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
 const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python"];
 
+/** The backends whose in-workflow stale save of a `shape: document` row or a
+ *  `persistedAs: eventLog` stream answers the RS-39 409
+ *  (`workflow-two-handles-document-eventlog`, M-T6.95 / M-T6.98).
+ *
+ *  ELIXIR is out until M-T6.92 (#3247) lands on top of RS-39 (#3246).  Its
+ *  store already refuses the stale write (`{:error, :conflict}` — proven
+ *  locally, the e2e passes with #3247's workflow arm applied), but:
+ *   - the workflows controller has no `{:error, :conflict}` arm, so the
+ *     transactional workflow answers 500 (#3247 adds it);
+ *   - that term carries no aggregate/id, so the RS-39 `detail` sentence cannot
+ *     be built from it once #3247 is rebased onto `conflict_response/3`;
+ *   - elixir persists each op call inside a workflow (the other four save a
+ *     handle once at the end), so `hitSameTwice` bumps the document `version`
+ *     twice — `$.version` reads one higher than the golden (M-T6.99).
+ *  Arm it by adding `"vanilla"` here when those close. */
+const WORKFLOW_DOC_ES_CONFLICT: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
+
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
  *
@@ -580,8 +597,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-39 409",
     doc: "workflow",
-    backends: ALL,
-    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.",
+    backends: WORKFLOW_DOC_ES_CONFLICT,
+    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out until #3247 — see `WORKFLOW_DOC_ES_CONFLICT`.",
   },
   {
     id: "audit-history",

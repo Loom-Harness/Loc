@@ -547,6 +547,36 @@ aggregate Account persistedAs: eventLog {
 }
 ```
 
+- **The stream is the concurrency control (expected-version appends).** A
+  loaded handle remembers the stream version it was folded to, and its save
+  appends the versions *after* that one. If another append landed in between,
+  the first re-used version collides with the `(stream_type, stream_id,
+  version)` key and the save answers the optimistic-concurrency 409
+  ([RS-39](conformance-semantics.md) sentence, [RS-40](conformance-semantics.md)
+  rule). A decision taken on a stale fold is never kept. That is why
+  `versioned` is not spliced onto an event-sourced aggregate. One handle
+  changed twice does not conflict with itself.
+
+```
+workflow withdrawTwice transactional {
+  create(a: Account id, amount: int) {
+    let first = Accounts.getById(a)
+    let second = Accounts.getById(a)
+    first.withdraw(amount)
+    second.withdraw(amount)   // stale fold → 409, neither withdrawal kept
+  }
+}
+```
+
+```ts
+// node — AccountRepository.save (excerpt)
+let version = aggregate._streamVersion;          // the version this handle folded
+const rows = pending.map((event) => ({ …, version: ++version, … }));
+try { await this.db.insert(schema.ledgerEvents).values(rows); }
+catch (err) { if (/* 23505 */) throw new ConcurrencyError("Account", aggregate.id); throw err; }
+aggregate._streamVersion = version;
+```
+
 Storage emission ships on **node, .NET, Python, Java, and Phoenix** (plain
 Ecto/Phoenix): an event-sourced aggregate persists to an append-only
 `<agg>_events` table, constructs and mutates through emitted events, and

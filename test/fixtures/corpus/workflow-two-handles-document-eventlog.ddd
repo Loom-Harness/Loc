@@ -15,8 +15,9 @@
 // time — so a decision taken on a stale fold (here, a `precondition` against a
 // balance the other handle had already spent) was kept.
 //
-// The same handle saved twice is NOT a conflict: after a save the handle moves
-// to the version it wrote.
+// One handle changed twice is NOT a conflict.  Four backends save it once at
+// the end of the workflow; elixir persists each op call, and rebinds the handle
+// to the record that call saved so its next save carries the moved version.
 system WorkflowTwoHandlesDocumentEventlog {
   subdomain Bank {
     context Ledger {
@@ -56,7 +57,7 @@ system WorkflowTwoHandlesDocumentEventlog {
         }
       }
 
-      // One handle, two changes: its second save follows its first.
+      // One handle, two changes: never a conflict with itself.
       workflow hitSameTwice {
         create(n: Note id) {
           let only = Notes.getById(n)
