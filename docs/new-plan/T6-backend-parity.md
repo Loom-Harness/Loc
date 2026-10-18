@@ -750,7 +750,7 @@ Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `
 Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
 
 
-## M-T6.99 — A stamp that reads its aggregate is refused on an elixir document-shaped aggregate — `open` · **S–M** · P3
+## M-T6.99 — Elixir stamp parity: document-shaped self-reading stamps, `onUpdate` on operations, workflow and reactor actors — `open` · **M** · P2
 
 *Minted 2026-10-18 by fleet slice H10 of the helpdesk evaluation (claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259)).*
 
@@ -758,4 +758,10 @@ A `stamp onCreate { dueAt := now() + hours(slaHours()) }` reads the aggregate's 
 
 **Done when:** the elixir document repository builds the record first, applies `apply_changes` the way the relational path's `then(fn cs -> …)` step does, and evaluates the stamp against it. The refusal and its register row are deleted, and a generated document-shaped elixir project with a self-reading stamp compiles and stores the computed value (`mix compile` + a Postgres round trip).
 
-**Evidence:** `test/generator/stamp-per-aggregate-self-read.test.ts` (the validator arm); `src/ir/util/stamp-self-read.ts`.
+**Also in scope.** Fleet slice H12 found these on a booted elixir app:
+1. A named operation (`bump_ticket`) saves through `persist_change` with no `onUpdate` stamp, on REST and in workflows alike, so `updated_at` / `updated_by` keep the creator's values. Node, .NET and python stamp every update.
+2. A reactor that creates an `auditable` aggregate passes no actor, so the NOT NULL `created_by` gets nil (python writes `''`). The fix rides the system principal: `currentUser.isSystem`, #3103.
+3. A cross-context workflow create gets no actor.
+4. A `requires true` create gate leaves an unused `defp ensure(false, …)` clause, which fails `mix compile --warnings-as-errors`.
+
+**Evidence:** `test/generator/stamp-per-aggregate-self-read.test.ts` (the validator arm), `test/generator/elixir/elixir-workflow-stamp-actor.test.ts`, `src/ir/util/stamp-self-read.ts`.
