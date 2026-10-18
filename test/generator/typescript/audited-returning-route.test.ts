@@ -79,7 +79,7 @@ describe("an audited operation that returns a value gets the returning route", (
     // 1. The RETURNING route shape: a declared 200 carrying the tagged union,
     //    the error-variant translation, and the result on the success path.
     expect(handler, "the union's 200 must be declared").toContain(
-      '200: { description: "OK", content: { "application/json": { schema: intOrNotFound } } }',
+      '200: { description: "OK", content: { "application/json": { schema: intOrNotFoundSuccess } } }',
     );
     expect(handler, "the error variant must translate to ProblemDetails").toContain(
       'if (result.type === "NotFound") {',

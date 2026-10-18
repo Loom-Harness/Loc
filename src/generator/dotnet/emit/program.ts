@@ -104,6 +104,9 @@ export function renderProgram(
      *  auth. */
     userFields?: readonly FieldIR[];
     usesValidators?: boolean;
+    /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
+     *  operation-return union with an `error` arm, M-FT.24); registers it. */
+    opUnionFilter?: boolean;
     /** When true, at least one aggregate carries `flags.isAuditable`
      *  (any aggregate has contextStamps from one or more macros).
      *  Program.cs registers the `AuditableInterceptor` and attaches
@@ -1064,7 +1067,14 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<ProblemDetailsResponsesFilter>();
     // Promote inline array list responses to named <Agg>ListResponse
     // components (matches Hono/Phoenix, which name the wrapper).
-    c.DocumentFilter<ListResponseWrapperFilter>();
+    c.DocumentFilter<ListResponseWrapperFilter>();${
+      options?.opUnionFilter
+        ? `
+    // An operation returning \`T or <Error>\`: 200 carries the success arms,
+    // each error arm's status carries its problem body (M-FT.24).
+    c.DocumentFilter<OpUnionResponsesFilter>();`
+        : ""
+    }
     // Mark non-nullable reference-type properties as required in the
     // schema — matches Hono/Phoenix, which mark every non-optional field
     // required.  Without this Swashbuckle leaves the required set empty.
@@ -1514,6 +1524,13 @@ export function renderCsproj(
          (the StringComparison overloads throw at query compile), and it runs
          as an anchored SQL prefix test where the collation decides, so the
          catalogue's ordinal contract holds.
+         CA1866: the same queryable \`startsWith\` with a ONE-character literal
+         prefix (\`startsWith("w")\`) — the analyzer wants StartsWith(char), but
+         EF Core 10 / Npgsql does NOT translate the char overloads (measured via
+         ToQueryString: StartsWith/EndsWith/Contains(char) all throw "could not
+         be translated"; StartsWith("w") lowers to LIKE 'w%').  The DOMAIN
+         position does take the char overload (its CA1865 twin is not
+         suppressed — render-expr.ts \`csSingleCharLiteral\`).
          MSG0005: Mediator 3's source generator warns on any IMessage with no
          registered handler.  Loom emits domain-event notifications that have
          no in-process subscriber by design (they exist for the outbox / event
@@ -1537,8 +1554,15 @@ export function renderCsproj(
          rule polices a decision Loom does not own, and it fires on a model that
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
-         hand-written libraries, not a mapped domain model. -->
-    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         hand-written libraries, not a mapped domain model.
+         CA1720: "identifier contains type name" — the same bargain for MEMBER
+         names.  A field \`Guid: string\` or \`single: bool\` (→ \`Single\`)
+         is legal .ddd on every backend, and its C# property name
+         is the wire field (and the column) on all five, so the generator may
+         not rename it and refusing it would reject a valid model for a C#
+         naming guideline.  The rule fires on the property, the request /
+         response record parameters and the command — every surface of it. -->
+    <NoWarn>CA1707;CA1711;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->

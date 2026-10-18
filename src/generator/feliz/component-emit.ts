@@ -147,6 +147,11 @@ export interface FelizComponentCtx {
    *  collection the record is built from.  A component body may name these and
    *  nothing else off `model`; see `needsMvuScope`. */
   modelFields: ReadonlySet<string>;
+  /** Components whose `state {}` is seeded from a param with no single
+   *  init-time value (`src/ir/util/feliz-component-state-init.ts`) — the app
+   *  `init` cannot seed the cell, so the component stays deferred
+   *  (`loom.user-component-deferred-target` reports it). */
+  deferred?: ReadonlySet<string>;
 }
 
 /** F# type for a component param — the WIRE spelling (a param carries a wire
@@ -564,7 +569,9 @@ export function emitFelizUserComponents(
   components: readonly ComponentIR[],
   ctx: FelizComponentCtx,
 ): { decls: string[]; params: Map<string, readonly ParamIR[]> } {
-  let candidates = components.filter((c) => isCandidate(c, ctx.emittedRecords));
+  let candidates = components.filter(
+    (c) => isCandidate(c, ctx.emittedRecords) && !ctx.deferred?.has(c.name),
+  );
   // Nested components make emittability TRANSITIVE (a body may only call a
   // function that is itself emitted), so iterate to a fixpoint.  The scope map
   // is the CALL-SITE shape (`callSiteParams`), not the declared params: a

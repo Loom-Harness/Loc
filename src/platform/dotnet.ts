@@ -4,6 +4,7 @@ import { byLayerLayoutAdapter } from "../generator/dotnet/adapters/by-layer-layo
 import { cqrsStyleAdapter } from "../generator/dotnet/adapters/cqrs-style.js";
 import { dapperPersistenceAdapter } from "../generator/dotnet/adapters/dapper-persistence.js";
 import { efcorePersistenceAdapter } from "../generator/dotnet/adapters/efcore-persistence.js";
+import { dotnetRootNamespace } from "../generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../generator/dotnet/emit/program.js";
 import { generateDotnetForContexts } from "../generator/dotnet/index.js";
 import {
@@ -16,9 +17,13 @@ import {
  *  value `generateDotnetForContexts` uses for `<ns>.csproj` (see
  *  `emitProject` below) and the DLL name the M26 `coreclr` debug config
  *  points at (`bin/Debug/<TFM>/<ns>.dll`).  Factored into one helper so
- *  `emitProject` and `debugLaunch` can never drift apart. */
-export function dotnetNamespace(name: string): string {
-  return name[0]!.toUpperCase() + name.slice(1);
+ *  `emitProject` and `debugLaunch` can never drift apart.  A name equal to a
+ *  hosted type takes a suffix (`dotnetRootNamespace`, CS0118). */
+export function dotnetNamespace(
+  name: string,
+  contexts: Parameters<typeof dotnetRootNamespace>[1],
+): string {
+  return dotnetRootNamespace(name, contexts);
 }
 
 const dotnetPlatform: PlatformSurface = {
@@ -55,7 +60,7 @@ const dotnetPlatform: PlatformSurface = {
     sourcemap,
     sourceTexts,
   }): Map<string, string> {
-    const namespace = dotnetNamespace(deployable.name);
+    const namespace = dotnetNamespace(deployable.name, contexts);
     // The orchestrator (`generator/dotnet/index.ts`) dispatches
     // per-aggregate CQRS emission + byLayer path routing through the
     // deployable's RESOLVED style / layout adapters
@@ -135,8 +140,8 @@ const dotnetPlatform: PlatformSurface = {
   // output — the .NET sibling of the node config above.  No
   // `preLaunchTask`: like node's "assumes a prior boot" story, this assumes
   // a prior `dotnet build` — a build task is the developer's own to wire.
-  debugLaunch({ deployable, slug }): Record<string, unknown> {
-    const ns = dotnetNamespace(deployable.name);
+  debugLaunch({ deployable, slug, contexts }): Record<string, unknown> {
+    const ns = dotnetNamespace(deployable.name, contexts);
     return {
       type: "coreclr",
       request: "launch",
