@@ -1133,7 +1133,8 @@ function listLabelFor(agg: Aggregate): ListLabel | undefined {
   if (!display) return undefined;
   const label: ListLabel = { name: "display", derived: true };
   const reads = [...new Set(labelReads(agg, label))];
-  const only = reads.length === 1 ? propertiesOf(agg.members).find((p) => p.name === reads[0]) : undefined;
+  const only =
+    reads.length === 1 ? propertiesOf(agg.members).find((p) => p.name === reads[0]) : undefined;
   return only
     ? { ...label, sortField: String(only.name), sortFieldServerSortable: serverSortable(only) }
     : label;

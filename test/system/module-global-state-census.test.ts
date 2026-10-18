@@ -64,7 +64,8 @@ interface Pin {
 const PINNED: Record<string, Pin> = {
   "src/language/storage-config-key.ts:clauses": {
     discipline: "build-once-cache",
-    reason: "Memoised clause names of the grammar's `Storage` rule — built once from the static grammar, never mutated.",
+    reason:
+      "Memoised clause names of the grammar's `Storage` rule — built once from the static grammar, never mutated.",
   },
   "src/generator/_payload/provenanced-wire.ts:provNamesCache": {
     discipline: "keyed-cache",
