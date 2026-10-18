@@ -3,6 +3,7 @@
 // truth (never hand-maintained, never drifting):
 //   - Layer 0 scalar intrinsics  → src/util/intrinsics.ts
 //   - collection operations      → src/util/collection-ops.ts
+//   - value-object equality      → src/util/value-object-intrinsics.ts
 //   - Layer 1 ambient prelude    → src/language/stdlib-source.ts
 //
 // `scripts/gen-stdlib-docs.mjs` writes the output; a drift test
@@ -16,6 +17,10 @@
 import { STD_SOURCES } from "../language/stdlib-source.js";
 import { COLLECTION_OP_SIGNATURES } from "../util/collection-ops.js";
 import { INTRINSIC_SIGNATURES, type IntrinsicReceiver } from "../util/intrinsics.js";
+import {
+  VALUE_OBJECT_EQUALS,
+  valueObjectEqualsSignature,
+} from "../util/value-object-intrinsics.js";
 
 /** Do-not-edit banner — points a reader who opens the file at the regen
  *  command instead of hand-editing. */
@@ -143,6 +148,29 @@ export function renderStdlibMarkdown(): string {
     "| op | signature |",
     "| --- | --- |",
     ...COLLECTION_OP_SIGNATURES.map((s) => `| \`${s.name}\` | \`${s.signature}\` |`),
+    "",
+  );
+
+  // ---- value-object intrinsics -------------------------------------------
+  out.push("## Value-object equality");
+  out.push("");
+  out.push(
+    "Every value object answers one member it does not declare:",
+    "",
+    "| op | signature |",
+    "| --- | --- |",
+    `| \`${VALUE_OBJECT_EQUALS}\` | \`${valueObjectEqualsSignature("Self")}\` |`,
+    "",
+    `\`a.${VALUE_OBJECT_EQUALS}(b)\` is VALUE equality — field by field, the`,
+    "defining property of a value object — and means exactly what `a == b` means",
+    "on two value objects.  It lowers to that same comparison, so each backend",
+    "renders its own value-equality idiom: python `==` (frozen-dataclass",
+    "`__eq__`), Java `Objects.equals` (record `equals`), .NET record `==`, Elixir",
+    "`==`, TypeScript the `equals()` method every value-object class emits.  The",
+    "argument must be the same value object type and the receiver must be",
+    "non-null (the `loom.intrinsic-*` diagnostics); a value object that declares",
+    `its own \`${VALUE_OBJECT_EQUALS}\` member keeps it.  Domain logic only — in a`,
+    "page expression compare the fields you mean instead.",
     "",
   );
 
