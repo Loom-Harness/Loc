@@ -12,9 +12,9 @@
 // Every relation-backed shape that can lose an element is crossed here, each
 // read back through the API so the DATABASE is the witness:
 //   - an entity part (`lines`), removed by a plain operation;
-//   - a NESTED part (`Line.notes`), removed by rebuilding its line — the line
-//     row and its note rows are replaced, so the nested child table has to
-//     follow the parent's delete + insert;
+//   - a NESTED part table (`Line.notes`): every line carries a note, so a
+//     dropped line takes a nested row with it (the sibling fixture
+//     `contained-part-rebuild` removes ONE nested note and reads the rest back);
 //   - a value-object collection (`charges: Charge[]`, a child table on the
 //     relational backends);
 //   - a reference collection (`tags: Tag id[]`, join rows) — already correct on
@@ -43,17 +43,9 @@ system ContainedPartRemoval {
         entity Note { text: string }
 
         operation addLine(sku: string, qty: int) {
-          lines += Line { sku: sku, qty: qty, notes: [Note { text: "a" }, Note { text: "b" }] }
+          lines += Line { sku: sku, qty: qty, notes: [Note { text: sku }] }
         }
         operation drop(sku: string) { lines -= lines.where(l => l.sku == sku).first() }
-        // A part has no operations of its own, so a nested child is removed the
-        // way a domain model would: replace its parent line with one that no
-        // longer carries it.
-        operation dropNote(sku: string, text: string) {
-          let old = lines.where(l => l.sku == sku).first()
-          lines -= old
-          lines += Line { sku: old.sku, qty: old.qty, notes: old.notes.where(n => n.text != text) }
-        }
         operation dropCounted(sku: string): int {
           lines -= lines.where(l => l.sku == sku).first()
           return lines.count
@@ -71,8 +63,6 @@ system ContainedPartRemoval {
           c.addLine("A", 1)
           c.addLine("B", 2)
           c.drop("A")
-          expect(c.lines.count).toBe(1)
-          c.dropNote("B", "a")
           expect(c.lines.count).toBe(1)
           c.addCharge("x")
           c.addCharge("y")
@@ -115,14 +105,8 @@ system ContainedPartRemoval {
     let one = api.carts.getById(c)
     expect(one.lines.length).toBe(1)
     expect(one.lines.first().sku).toBe("B")
-    expect(one.lines.first().notes.length).toBe(2)
-
-    // Nested part: line B is replaced by one carrying a single note.
-    api.carts.dropNote(c, { sku: "B", text: "a" })
-    let trimmed = api.carts.getById(c)
-    expect(trimmed.lines.length).toBe(1)
-    expect(trimmed.lines.first().notes.length).toBe(1)
-    expect(trimmed.lines.first().notes.first().text).toBe("b")
+    expect(one.lines.first().notes.length).toBe(1)
+    expect(one.lines.first().notes.first().text).toBe("B")
 
     // Returning operation: its own persist tail.
     api.carts.addLine(c, { sku: "C", qty: 3 })

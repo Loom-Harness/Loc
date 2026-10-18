@@ -106,6 +106,11 @@ const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
  *    other four read.  That fork wants settling before a key is minted here. */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
 
+// M-T6.95: .NET EF cannot re-host a part's nested OWNED instances under a new
+// owner (they are deleted with the old one), so the rebuild shape is held off
+// .NET until that lands — then this becomes ALL.
+const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
+
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
   readonly id: string;
@@ -156,10 +161,18 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "contained-part-removal",
     title:
-      "an operation REMOVES a contained child (`lines -= l`) — entity part, nested part, value-object collection, `X id[]` join row, returning op, workflow save — and the row is gone on re-read",
+      "an operation REMOVES a contained child (`lines -= l`) — entity part (carrying nested parts), value-object collection, `X id[]` join row, returning op, workflow save — and the row is gone on re-read",
     doc: "language",
     backends: ALL,
-    note: "M-T6.94 (filed by #3249).  elixir answered 2xx and left the child row: the op persist tail built its changeset over the already-mutated struct, so `put_assoc`/`force_change` diffed the new child list against itself and issued no DELETE (an ADD survived only because a PK-less child reads as an insert either way).  The other four backends were already correct and ride as regression pins.",
+    note: "M-T6.94 (filed by #3249).  elixir answered 2xx and left the child row: the op persist tail built its changeset over the already-mutated struct, so `put_assoc` diffed the new child list against itself and issued no DELETE (an ADD survived only because a PK-less child reads as an insert either way); a value-object collection op `force_change`d an association and 500'd on add and remove alike.  The case also found two non-elixir gaps, fixed with it: .NET EF's `X id[]` join-table configuration named neither the schema nor the snake columns (every save of such an aggregate 500'd — no behavioural fixture had ever carried a relational `X id[]`), and java's create stored a caller's immutable `List.of()` so the first `+=` in a domain `test` threw.  node and python were already correct.",
+  },
+  {
+    id: "contained-part-rebuild",
+    title:
+      "a NESTED contained child removed by rebuilding its parent part (`lines -= old; lines += Line { …, notes: old.notes.where(…) }`) — the kept nested children re-hosted under a new parent",
+    doc: "language",
+    backends: PART_REBUILD,
+    note: "M-T6.94 sibling.  elixir answered a stale-entry 409 (the kept notes reached `put_assoc` as loaded structs).  .NET EF (and so its Dapper leg, which rides the same `dotnet` key) is not declared: EF loses the kept notes — an owned entity cannot move between owners, and the copy cannot keep its id because the owned key is the id alone — measured on a booted EF leg (the re-read answers 0 where 1 is expected; Dapper passes).  M-T6.95 fixes it and widens this row to ALL.",
   },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {

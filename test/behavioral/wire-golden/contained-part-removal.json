@@ -39,11 +39,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "a"
-              },
-              {
-                "id": "<volatile:key>",
-                "text": "b"
+                "text": "A"
               }
             ],
             "qty": 1,
@@ -54,11 +50,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "a"
-              },
-              {
-                "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -91,11 +83,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "a"
-              },
-              {
-                "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -110,52 +98,19 @@
     {
       "seq": 6,
       "method": "POST",
-      "path": "/api/carts/{id}/drop_note",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 7,
-      "method": "GET",
-      "path": "/api/carts/{id}",
-      "status": 200,
-      "body": {
-        "charges": [],
-        "id": "<volatile:key>",
-        "lines": [
-          {
-            "id": "<volatile:key>",
-            "notes": [
-              {
-                "id": "<volatile:key>",
-                "text": "b"
-              }
-            ],
-            "qty": 2,
-            "sku": "B"
-          }
-        ],
-        "name": "c",
-        "tags": [],
-        "version": 5
-      }
-    },
-    {
-      "seq": 8,
-      "method": "POST",
       "path": "/api/carts/{id}/add_line",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 7,
       "method": "POST",
       "path": "/api/carts/{id}/drop_counted",
       "status": 200,
       "body": 1
     },
     {
-      "seq": 10,
+      "seq": 8,
       "method": "GET",
       "path": "/api/carts/{id}",
       "status": 200,
@@ -168,7 +123,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -177,25 +132,25 @@
         ],
         "name": "c",
         "tags": [],
-        "version": 7
+        "version": 6
       }
     },
     {
-      "seq": 11,
+      "seq": 9,
       "method": "POST",
       "path": "/api/carts/{id}/add_line",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 12,
+      "seq": 10,
       "method": "POST",
       "path": "/api/workflows/drop_via",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 13,
+      "seq": 11,
       "method": "GET",
       "path": "/api/carts/{id}",
       "status": 200,
@@ -208,7 +163,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -217,32 +172,32 @@
         ],
         "name": "c",
         "tags": [],
-        "version": 9
+        "version": 8
       }
     },
     {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/carts/{id}/add_charge",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/carts/{id}/add_charge",
+      "status": 204,
+      "body": ""
+    },
+    {
       "seq": 14,
-      "method": "POST",
-      "path": "/api/carts/{id}/add_charge",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 15,
-      "method": "POST",
-      "path": "/api/carts/{id}/add_charge",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 16,
       "method": "POST",
       "path": "/api/carts/{id}/drop_charge",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 15,
       "method": "GET",
       "path": "/api/carts/{id}",
       "status": 200,
@@ -260,7 +215,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -269,50 +224,50 @@
         ],
         "name": "c",
         "tags": [],
-        "version": 12
+        "version": 11
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/tags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/tags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
       }
     },
     {
       "seq": 18,
       "method": "POST",
-      "path": "/api/tags",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
+      "path": "/api/carts/{id}/add_tag",
+      "status": 204,
+      "body": ""
     },
     {
       "seq": 19,
       "method": "POST",
-      "path": "/api/tags",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
+      "path": "/api/carts/{id}/add_tag",
+      "status": 204,
+      "body": ""
     },
     {
       "seq": 20,
-      "method": "POST",
-      "path": "/api/carts/{id}/add_tag",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 21,
-      "method": "POST",
-      "path": "/api/carts/{id}/add_tag",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 22,
       "method": "POST",
       "path": "/api/carts/{id}/drop_tag",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 21,
       "method": "GET",
       "path": "/api/carts/{id}",
       "status": 200,
@@ -330,7 +285,7 @@
             "notes": [
               {
                 "id": "<volatile:key>",
-                "text": "b"
+                "text": "B"
               }
             ],
             "qty": 2,
@@ -341,11 +296,11 @@
         "tags": [
           "<uuid>"
         ],
-        "version": 15
+        "version": 14
       }
     },
     {
-      "seq": 24,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/carts",
       "status": 405,
@@ -358,7 +313,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -371,7 +326,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 24,
       "method": "POST",
       "path": "/api/carts",
       "status": 400,

@@ -1,0 +1,73 @@
+// shape: a NESTED contained child (`Line.notes`) is removed by REBUILDING its
+// parent part — the sibling of `contained-part-removal` (M-T6.94).
+//
+// A part declares no operations of its own, so a domain model removes one note
+// from a line the only way the language offers: drop the line and add a new one
+// that carries the notes it keeps.  The kept notes are the OLD line's note
+// objects, re-hosted under a new parent, so every backend has to persist "old
+// line + its notes gone, new line + the kept notes inserted":
+//   - elixir answered a stale-entry 409: the kept notes reached `put_assoc` as
+//     LOADED structs, which Ecto reads as existing rows of the parent they are
+//     cast under.  `__put_assoc_parts/1` now normalises nested parts to maps too.
+//   - .NET (EF) loses the kept notes: an owned entity cannot move between
+//     owners, so deleting the old line deletes the instances the new line holds
+//     (M-T6.95 — .NET is not declared in this row's manifest backends until then).
+system ContainedPartRebuild {
+  subdomain Shop {
+    context Carts {
+      aggregate Cart with crudish {
+        name: string
+        contains lines: Line[]
+        entity Line {
+          sku: string
+          qty: int
+          contains notes: Note[]
+        }
+        entity Note { text: string }
+
+        operation addLine(sku: string, qty: int) {
+          lines += Line { sku: sku, qty: qty, notes: [Note { text: "a" }, Note { text: "b" }] }
+        }
+        operation dropNote(sku: string, text: string) {
+          let old = lines.where(l => l.sku == sku).first()
+          lines -= old
+          lines += Line { sku: old.sku, qty: old.qty, notes: old.notes.where(n => n.text != text) }
+        }
+
+        test "rebuilding a line drops exactly one nested note" {
+          let c = Cart.create({ name: "u" })
+          c.addLine("B", 2)
+          c.dropNote("B", "a")
+          expect(c.lines.count).toBe(1)
+          expect(c.lines.first().notes.count).toBe(1)
+        }
+      }
+      repository Carts for Cart { }
+    }
+  }
+
+  api CartsApi from Shop
+  storage pg { type: postgres }
+  resource cartsState { for: Carts, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Carts]
+    dataSources: [cartsState]
+    serves: CartsApi
+    port: 4000
+  }
+
+  test e2e "a nested child removed by rebuilding its parent is gone, its siblings stay" against d {
+    let c = api.carts.create({ name: "c" })
+    api.carts.addLine(c, { sku: "B", qty: 2 })
+    // No read of the two-note line: two notes inserted by ONE command have no
+    // order every backend agrees on (the Dapper adapter read them back as b, a),
+    // so only the one-note result is observed.
+    api.carts.dropNote(c, { sku: "B", text: "a" })
+    let after = api.carts.getById(c)
+    expect(after.lines.length).toBe(1)
+    expect(after.lines.first().notes.length).toBe(1)
+    expect(after.lines.first().notes.first().text).toBe("b")
+  }
+}
