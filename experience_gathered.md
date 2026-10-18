@@ -6892,3 +6892,29 @@ ships nothing — the evidence you meant to read is missing. Set
 The Angular cell of the same leg depends on CI's floating `node-version: '22'`
 resolving above the Angular CLI's 22.22.3 floor (see `docs/tools.md`); a local
 repro on the sandbox's 22.22.2 fails for a reason CI never sees.
+
+## 133. A text golden pins whatever shipped, defects included (2026-10-18)
+
+Two evaluation defects survived because tests had frozen the broken output:
+`test/generator/elixir/phoenix-find-gate.test.ts` asserted `if not (true) do`,
+which Elixir 1.18+ rejects as a typing violation under the generated project's
+own `--warnings-as-errors`, and `test/system/storage-sidecars.test.ts` asserted
+`image: minio/minio:latest`, an image withdrawn from Docker Hub. A
+string-contains golden proves the emitter is unchanged, not that the output is
+right: a golden over emitted source must have been compiled or booted once, and
+a fix that "breaks" a golden may be exposing it.
+
+Related: the node/Hono Dockerfile was a `const`, not a renderer, so it sat
+outside `generation-defaults.test.ts`'s `allDockerfiles()` sweep and inherited
+none of its invariants. An artifact built outside the shared renderer path
+silently opts out of every sweep over that path.
+
+## 134. `parseString(src, { validate: false })` always returns empty errors (2026-10-18)
+
+Langium fills `doc.diagnostics` only while validating, so
+`const { errors } = await parseString(src, { validate: false }); expect(errors).toEqual([])`
+passes for any input, including one that does not parse. Eleven tests named
+"parses cleanly" did this, and one of them pinned a live grammar defect (a field
+named `ignoring` did not parse). Use `parseErrorsOf` / `parseRawOk` from
+`test/_helpers/parse.ts`; `test/system/vacuous-parse-assertion.test.ts` gates the
+pattern.

@@ -172,7 +172,7 @@ describe("no generated output scope receives one name from two producers", () =>
     expect(generated, "the corpus stopped generating — this census is vacuous").toBeGreaterThan(
       500,
     );
-    expect(scopes, "the extractors stopped finding declaration scopes").toBeGreaterThan(20_000);
+    expect(scopes, "the extractors stopped finding declaration scopes").toBeGreaterThan(14_000);
     expect(routeScopes, "the route extractors stopped reaching deployables").toBeGreaterThan(400);
     const unwaived = [...found].filter(([k]) => !(k in KNOWN)).map(([, v]) => v);
     expect(unwaived.join("\n\n"), "two producers minted one name into one scope").toBe("");

@@ -735,6 +735,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/ir/validate/checks/migration-checks.ts:74",
     what: "backfill exprs are a narrow validated ExprIR subset by design",
+    mission: "#3513",
     verified: true,
   },
   {
