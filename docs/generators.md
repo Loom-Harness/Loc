@@ -691,7 +691,10 @@ none` pages — in `<React.Suspense fallback={<RouteLoading />}>`, where
 smoke spec waits for that fallback to clear before asserting the page did not
 crash; the page objects already wait on each page's root testid.  Vue
 (`component: () => import(…)`) and Angular (`loadComponent`) split the same
-way; SvelteKit splits per `+page.svelte` on its own.  Pinned by
+way — on vuetify each `.vue` file also imports the components its template
+renders (`import { VBtn, VCard } from "vuetify/components"`, derived from the
+emitted markup) rather than `createVuetify` registering the whole library, so
+those components ride the page's chunk; SvelteKit splits per `+page.svelte` on its own.  Pinned by
 `test/generator/_frontend/lazy-route-pages.test.ts`.
 
 ### Page-object classes
@@ -829,7 +832,7 @@ web_app/
 │   ├── main.ts             # createApp + router + VueQueryPlugin (+ vuetify instance / globals.css)
 │   ├── App.vue             # app chrome + <router-view/> + onErrorCaptured boundary
 │   ├── router.ts           # createRouter(createWebHistory) route table (each page `component: () => import(…)`, its own chunk) + NotFound catch-all
-│   ├── theme.ts            # createVuetify tokens (vuetify) / `export {}` stub (shadcnVue — CSS vars)
+│   ├── theme.ts            # createVuetify tokens, no global component registration (vuetify) / `export {}` stub (shadcnVue — CSS vars)
 │   ├── lib/form.ts         # useLoomForm — vee-validate useForm over the shared zod schema (local toTypedSchema) + per-field error map
 │   ├── lib/format.ts       # formatting FUNCTIONS (the React packs' format components, fn-style)
 │   ├── lib/toast.ts        # channels only: reactive pushToast() queue the app-shell host renders

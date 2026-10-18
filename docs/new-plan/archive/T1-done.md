@@ -221,4 +221,4 @@ The generated smoke spec now waits for `route-loading` to clear before it checks
 
 **Booking trial model, initial-load JS (raw / gzip)**: mantine@v9 845 → 541 kB / 256 → 168 kB. shadcn@v4 723 → 398 / 219 → 123. shadcnVue 543 → 269 / 169 → 92. angularMaterial 1.05 MB → 758 kB (ng initial total). The full table is in the PR.
 
-**Residual:** vuetify still has a 715 kB entry chunk. The cause is `theme.ts` registering all of `vuetify/components` (a deliberate no-auto-import-plugin choice), not routing.
+**Vuetify:** `theme.ts` used to register all of `vuetify/components` + `directives`, which kept the whole library in the entry chunk (715 kB) whatever the routes did. Now each emitted `.vue` file imports exactly the Vuetify components its own template renders. The set is derived from the emitted markup (`src/generator/vue/component-imports.ts`, opted into by the pack manifest's `componentImports`), and no auto-import plugin is involved. Vuetify initial load: 898 → 324 KiB (276 → 110 gzip).
