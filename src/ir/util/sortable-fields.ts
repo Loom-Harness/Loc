@@ -13,13 +13,11 @@
 // ordering side-channel, not just a useless option.
 //
 // Shared across every backend's route/repo emitter, so the accepted sort keys
-// agree across backends.  The FRONTEND does not read this list: the scaffolded
-// list page marks every rendered column `sortable:` and posts its key straight
-// through, so a column this whitelist excludes emits a header the server
-// rejects.  That mismatch predates the `mask unless` exclusion — the default-on
-// `version` token below already had it — and closing it belongs in the scaffold
-// column builder (src/macros/stdlib/scaffold/_body-builders.ts), not here:
-// widening the whitelist to match the frontend is exactly the leak.
+// agree across backends.  The scaffolded SERVER-paged list page marks only these
+// columns `sortable:` — the macro runs on the AST, so it carries an AST-side twin
+// (`serverSortable` in src/macros/stdlib/scaffold/_body-builders.ts), pinned
+// equal to this list by test/macro/scaffold-sortable-allowlist.test.ts.  Change
+// one, change both; never widen this list to match a frontend — that is the leak.
 
 import { wireFieldsForAggregate } from "../enrich/wire-projection.js";
 import type { AggregateIR } from "../types/loom-ir.js";

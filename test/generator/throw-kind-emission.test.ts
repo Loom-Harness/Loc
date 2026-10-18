@@ -180,3 +180,49 @@ describe("toThrow(<kind>) — the emitted unit assertion pins the rung on all fi
     expect(out).toContain("aggregate invariants are enforced in the Ecto changeset");
   });
 });
+
+// A BARE `toThrow()` asserts a DOMAIN rejection, never "anything threw" (claims
+// eval D2).  node once lowered it to vitest `.toThrow()` and python to
+// `pytest.raises(Exception)`, both satisfied by a ReferenceError / NameError out
+// of broken generated code: the eval's negative test passed only because codegen
+// had emitted an undefined enum name.  .NET / Java / elixir already named their
+// domain exception; this pins all five so none of them drifts back to catch-all.
+// The runtime half (the seeded ReferenceError / NameError really failing the
+// emitted test) is proven in the PR body against the generated suites.
+const BARE_PINS: Record<string, { must: string[]; mustNot: string[] }> = {
+  node: {
+    must: [
+      'import { DisallowedError, DomainError, ForbiddenError } from "./errors";',
+      "function expectDomainRejection(call: () => unknown): void {",
+      "if (err instanceof DisallowedError || err instanceof DomainError || err instanceof ForbiddenError) return;",
+      // A non-domain error is rethrown, so it FAILS the test with its own stack.
+      "    throw err;",
+      'expect.fail("expected the call to be rejected by the domain, but it returned");',
+      "expectDomainRejection(() => { wo.complete(); });",
+    ],
+    mustNot: [".toThrow();"],
+  },
+  python: {
+    must: [
+      "from app.domain.errors import DisallowedError, DomainError, ForbiddenError",
+      "with pytest.raises((DisallowedError, DomainError, ForbiddenError)):",
+    ],
+    mustNot: ["pytest.raises(Exception)"],
+  },
+  dotnet: { must: ["Assert.Throws<DomainException>("], mustNot: ["Assert.ThrowsAny<Exception>"] },
+  java: {
+    must: ["assertThrows(DomainException.class, "],
+    mustNot: ["assertThrows(Exception.class", "assertThrows(RuntimeException.class"],
+  },
+  elixir: { must: [".GuardError, fn ->"], mustNot: ["assert_raise RuntimeError"] },
+};
+
+describe("bare toThrow() — a domain rejection, never any error (claims D2)", () => {
+  for (const platform of Object.keys(BARE_PINS)) {
+    it(`${platform}: the bare form names the domain floor's refusal class(es)`, async () => {
+      const out = await unitTest(platform, "toThrow()");
+      for (const pin of BARE_PINS[platform]!.must) expect(out).toContain(pin);
+      for (const pin of BARE_PINS[platform]!.mustNot) expect(out).not.toContain(pin);
+    });
+  }
+});
