@@ -39,6 +39,10 @@ import {
   isEventDecl,
   isPayloadDecl,
   isValueObject,
+  isVariantArm,
+  isVariantStmtArm,
+  type VariantArm,
+  type VariantStmtArm,
 } from "./generated/ast.js";
 import { nearestType, primitiveTypeNames, typeAliasFor } from "./type-catalogue.js";
 
@@ -76,6 +80,9 @@ export class DddLinker extends DefaultLinker {
  *  the name is a near miss, the far more common case (`strng` for `string`) —
  *  which one was probably meant. */
 function unknownTypeMessage(name: string, container: AstNode): string {
+  if (name === "duration") return DURATION_NOT_A_TYPE;
+  const enumArm = enumValueArmMessage(name, container);
+  if (enumArm) return enumArm;
   // Declared TYPES reachable from this document, so the hint can land on a
   // user's own `valueobject` / `enum` as readily as on a primitive.
   //
@@ -114,5 +121,53 @@ function unknownTypeMessage(name: string, container: AstNode): string {
     `Unknown type '${name}'.${hint ? ` Did you mean ${hint}?` : ""}  Field types are: ` +
     `${primitives.join(", ")} — or an enum / valueobject / event / payload declared in ` +
     `scope; a reference to another aggregate is spelled '<Aggregate> id'.`
+  );
+}
+
+/** `duration` is a real expression type (`hours(4)`, `a - b` over datetimes)
+ *  but has no storage or wire form, so it is never a field / parameter /
+ *  return type.  Said directly, because the generic "Unknown type" list reads
+ *  as though the author misspelled something. */
+const DURATION_NOT_A_TYPE =
+  "'duration' cannot be written as a type: a duration exists only inside expressions " +
+  "(`hours(4)`, `openedAt + days(2)`, `now - openedAt`) and has no field, parameter or " +
+  "return form, because it has no wire or storage shape. Carry the amount as an 'int' " +
+  "in a fixed unit instead (`function slaHours(p: Priority): int`) and build the " +
+  "duration where it is used (`openedAt + hours(slaHours(priority))`).";
+
+/** A `match subject { X => … }` arm names a TYPE: the variant form
+ *  discriminates a union by the subject's runtime type.  An enum VALUE written
+ *  there (`match p { Urgent => … }`) is the common mistake, and the bare
+ *  "Unknown type 'Urgent'" sends the author hunting for a missing declaration.
+ *  The first such arm of a match gets the explanation and the predicate-form
+ *  rewrite; each later arm points back to it, so one mistake reads as one. */
+function enumValueArmMessage(name: string, container: AstNode): string | undefined {
+  const arm = AstUtils.getContainerOfType(
+    container,
+    (n): n is VariantArm | VariantStmtArm => isVariantArm(n) || isVariantStmtArm(n),
+  );
+  if (!arm) return undefined;
+  const root = AstUtils.findRootNode(container);
+  const enumOf = new Map<string, string>();
+  for (const node of AstUtils.streamAllContents(root)) {
+    if (!isEnumDecl(node)) continue;
+    for (const v of node.values) if (!enumOf.has(v.name)) enumOf.set(v.name, node.name);
+  }
+  const enumName = enumOf.get(name);
+  if (!enumName) return undefined;
+  const arms =
+    (arm.$container as { varArms?: readonly (VariantArm | VariantStmtArm)[] }).varArms ?? [];
+  const firstEnumArm = arms.find((a) => {
+    const ref = (a.varType.base as { target?: { $refText?: string } }).target;
+    return ref?.$refText !== undefined && enumOf.has(ref.$refText);
+  });
+  if (firstEnumArm && firstEnumArm !== arm) {
+    return `'${name}' is a value of enum '${enumName}', not a type — see the first arm of this match.`;
+  }
+  return (
+    `'${name}' is a value of enum '${enumName}', not a type. \`match <subject> { X => … }\` ` +
+    `matches on the subject's TYPE (the variants of a union), so its arms must name types. ` +
+    `To branch on an enum value, use the predicate form: ` +
+    `\`match { <subject> == ${name} => …, … else => … }\`.`
   );
 }

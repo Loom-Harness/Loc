@@ -2166,6 +2166,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.op}(…)' produces '${p.result}'. The DECLARED type is what the response ` +
     `schema and every backend's numeric coercion are built from, so the mismatch ` +
     `would silently re-code the value. Declare '${p.field}: ${p.result}'${p.hint}.`,
+  "loom.projection-aggregate-arity#count": (p: { name: unknown; field: unknown }) =>
+    `projection '${p.name}': 'select ${p.field} = count(…)' passes a column to 'count', which ` +
+    `takes none — 'count()' counts the rows (per group under 'group by'), never the values of ` +
+    `a column. To count only the rows where a condition holds, narrow them with the ` +
+    `projection's 'where' (in a projection of its own), or keep an int 0/1 column and 'sum' it.`,
+  "loom.projection-aggregate-arity#column": (p: {
+    name: unknown;
+    field: unknown;
+    op: unknown;
+    argCount: unknown;
+  }) =>
+    `projection '${p.name}': 'select ${p.field} = ${p.op}(…)' passes ${p.argCount} argument(s), ` +
+    `but '${p.op}' aggregates exactly one source column — write '${p.op}(<alias>.<field>)'.`,
   "loom.projection-select-unresolved": (p: {
     name: unknown;
     field: unknown;
@@ -4554,6 +4567,26 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
+  "loom.single-row-find-not-unique": (p: {
+    repo: unknown;
+    find: unknown;
+    agg: unknown;
+    cols: unknown;
+  }) =>
+    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
+    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
+    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
+    `(it also derives the DB unique index and the 409 on a duplicate), or return a list.`,
+  "loom.persisted-table-collision": (p: {
+    ctx: unknown;
+    first: unknown;
+    second: unknown;
+    table: unknown;
+  }) =>
+    `context '${p.ctx}': ${p.first} and ${p.second} both persist to table '${p.table}' — ` +
+    `table names are derived from declared names (snake case, pluralised), so the migration ` +
+    `would create '${p.table}' twice and every backend would bind two models to one relation. ` +
+    `Rename one of them.`,
   "loom.workflow-function-uses-state": (p: { ctxName: unknown; name: unknown; fnName: unknown }) =>
     `context '${p.ctxName}': workflow '${p.name}' function '${p.fnName}' reads the workflow's state (\`this\`). A workflow function is a pure helper over its parameters — pass the value in as an argument instead.`,
   "loom.canonical-create-duplicate-workflow": (p: { name: unknown; length: unknown }) =>
