@@ -29,6 +29,7 @@ import { tableOwnerName } from "../../../ir/util/inheritance.js";
 import { apiRoutePrefix } from "../../../util/api-base.js";
 import { plural } from "../../../util/naming.js";
 import type { EmitCtx, EmittedArtifact, Lines, StyleAdapter } from "../../_adapters/index.js";
+import { dotnetRootNamespace } from "../bcl-collision.js";
 import { emitOperationCommandAndHandler } from "../cqrs/commands.js";
 import { buildOperationSpec } from "../cqrs/controller.js";
 import { emitCqrs } from "../cqrs-emit.js";
@@ -37,13 +38,12 @@ import { renderOperationActionBlock } from "../emit/api.js";
 import type { DotnetArtifactCategory } from "./by-layer-layout.js";
 
 /** Namespace string the dotnet emitter threads everywhere as `ns`.
- *  The orchestrator computes it as `deployable.name` with the first
- *  letter capitalised (see `src/platform/dotnet.ts:emitProject`); the
- *  adapter mirrors that so adapter-dispatched emit produces the same
+ *  Both the orchestrator (`src/platform/dotnet.ts:emitProject`) and this
+ *  adapter take it from `dotnetRootNamespace`, so adapter-dispatched emit
+ *  produces the same
  *  `using <Ns>.…;` + `namespace <Ns>.…;` lines as the direct path. */
 function nsOf(ctx: EmitCtx): string {
-  const name = ctx.deployable.name;
-  return name[0]!.toUpperCase() + name.slice(1);
+  return dotnetRootNamespace(ctx.deployable.name, ctx.contexts);
 }
 
 function contextOf(ctx: EmitCtx, aggName: string): EnrichedBoundedContextIR | undefined {

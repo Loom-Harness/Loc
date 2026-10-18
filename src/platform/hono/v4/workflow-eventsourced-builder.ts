@@ -204,8 +204,8 @@ export function emitWorkflowFoldHelpers(
   out.push(`  switch (ev.type) {`);
   for (const ap of wf.appliers ?? []) {
     out.push(`    case ${JSON.stringify(ap.event)}: {`);
-    out.push(`      const ${ap.param} = ev as Events.${ap.event};`);
-    out.push(`      void ${ap.param};`);
+    out.push(`      const ${escapeTsIdent(ap.param)} = ev as Events.${ap.event};`);
+    out.push(`      void ${escapeTsIdent(ap.param)};`);
     for (const s of ap.statements) out.push(renderApplierStmt(s, "      "));
     out.push(`      break;`);
     out.push(`    }`);

@@ -643,6 +643,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "`slot` and `action` types are only legal on a component's parameter list, so they never reach a backend typespec.",
   },
 
+  // src/generator/elixir/vanilla/domain-core-emit.ts
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
+  },
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
+    invariant:
+      "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
+  },
+
   // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
