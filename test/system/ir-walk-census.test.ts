@@ -371,11 +371,12 @@ const MAX_DEFERRAL_DAYS = 180;
  * leaned on it, which is the point: the drain those waivers deferred becomes
  * due the same day the reason for deferring it stops being true.
  *
- * Empty is the healthy state.  It is empty right now because CR1-d drained the
- * twelve `#2736`/`#2729`/`#2742` entries that were fenced when they were
- * written and are not fenced any more.
+ * Empty is the healthy state.
  */
-const LIVE_FENCES: Record<string, string> = {};
+const LIVE_FENCES: Record<string, string> = {
+  "#3183":
+    "rewrites src/generator/elixir/dispatch-emit.ts#renderStmt (all four reactor kinds rendered) and src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt (let / expression / if) and deletes both waivers; delete this row with them",
+};
 
 // ---------------------------------------------------------------------------
 // Shared reasons.  A `standing` reason is a rationale; a `deferred` one is an
@@ -516,6 +517,7 @@ const PARITY_ELIXIR_REACTOR_STMTS = {
   deferred:
     "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable on four kinds — `repo-delete` / `resource-call` / `domain-service-call` / `if-let` in a workflow reactor body each print `0 error(s), 0 warning(s)` and then abort `ddd generate system` with `dispatch-emit: unsupported reactor statement kind '<k>'`, while `platform: node` emits all four. Not a language limit and not a diagnostic — one backend behind. Do NOT re-waive as `standing`",
   reviewUntil: "2026-12-31",
+  blockedBy: "#3183",
 } as const;
 
 /** Already rides a sanctioned walker (`walkWorkflowStmtChildren` /
@@ -537,22 +539,6 @@ const DELEGATES_TO_SANCTIONED_WALKER = {
 // ---------------------------------------------------------------------------
 
 const WAIVERS: Record<string, Waiver> = {
-  // `main` EXTRACTED this helper (the `for` + `if-let` nested-body walk) out of
-  // two inline copies while this wave was open, and one of those copies was the
-  // site CR1-e drained. The DEFECT the drain existed for — a `repo-let` inside a
-  // branch body not registering its binding — is therefore already fixed here,
-  // by main's own extraction, and this PR takes main's version.
-  //
-  // What is left is exhaustiveness of a helper main owns: it is an if-chain plus
-  // a large switch with no `never` arm. Reworking that inside this 190-file PR
-  // is the wrong trade — it is someone else's fresh code and the edit is not
-  // small. `deferred`, not `standing`, because it genuinely means NOT YET.
-  "src/ir/validate/checks/workflow-checks.ts#checkNestedBodyOpCalls": {
-    deferred:
-      "main extracted this helper after this wave branched; the repo-let defect it " +
-      "covers is already fixed here, only the never-check is outstanding",
-    reviewUntil: "2026-11-28",
-  },
   "src/ir/util/ui-gate.ts#firstNonUiGateNode": UI_GATE_CLOSED_SUBSET,
   "src/ir/util/ui-gate.ts#printGateExpr": UI_GATE_CLOSED_SUBSET,
   // NOTE — the two BULK deferral buckets that stood here are GONE.
@@ -582,6 +568,12 @@ const WAIVERS: Record<string, Waiver> = {
   // feeding `serviceReadPorts`) was carrying a live defect: a `reading`-tier
   // domain-service call inside a `match` arm derived no read port, and the
   // emitted Hono workflow handler named an undeclared repository binding.
+  //
+  // No traversal or child-list-builder waiver remains: those sites ride
+  // `walk.ts` (`walkExprDeep`, `walkWorkflowStmtExprsDeep`, `walkExprChildren`,
+  // and `mapExprChildren` for an IR→IR rewrite).  The four `deferred` rows
+  // left are emitters that silently drop or abort on a statement kind another
+  // backend renders — each needs rendering work, not a walk migration.
 
   // --- already delegates to a sanctioned walker for recursion --------------
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
@@ -670,6 +662,7 @@ const WAIVERS: Record<string, Waiver> = {
     deferred:
       "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable — a `let` binding in an event-sourced workflow's `apply(...)` fold prints `0 error(s), 0 warning(s)` and then aborts with `python es-workflow applier: unexpected statement kind 'let'`, while elixir / java / .NET all emit it (node crashes identically at src/platform/hono/v4/workflow-eventsourced-builder.ts, whose waiver is the in-flight bucket's, not this one's). Two backends behind, not a language limit",
     reviewUntil: "2026-12-31",
+    blockedBy: "#3183",
   },
 
   // -- MISFILED: the default arm does not throw ----------------------------

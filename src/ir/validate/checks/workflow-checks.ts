@@ -1101,33 +1101,78 @@ function validateWorkflowStatements(
     nesting: "for" | "if-let",
   ): void => {
     const bodyLocal: string[] = [];
+    /** Check a body nested one level further, with `v` bound for it only (a
+     *  binding it shadows is restored after). */
+    const nestedWith = (
+      inner: import("../../types/loom-ir.js").WorkflowStmtIR[],
+      v: string | undefined,
+      agg: string,
+      innerVar: string,
+      innerNesting: "for" | "if-let",
+    ): void => {
+      const shadowed = v === undefined ? undefined : bindingAgg.get(v);
+      if (v !== undefined) bindingAgg.set(v, agg);
+      checkNestedBodyOpCalls(inner, innerVar, innerNesting);
+      if (v !== undefined) {
+        if (shadowed === undefined) bindingAgg.delete(v);
+        else bindingAgg.set(v, shadowed);
+      }
+    };
     for (const inner of body) {
-      if (inner.kind === "op-call") {
-        markMutated();
-        // A binding poisoned by a cross-context repository read is already
-        // reported at its `let` — see the top-level op-call arm.
-        if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
-          diags.push({
-            severity: "error",
-            code: "loom.workflow-foreach-unknown-binding",
-            message:
-              nesting === "for"
-                ? diagMessage("loom.workflow-foreach-unknown-binding#workflow-in-for-references", {
-                    name: wf.name,
-                    var: loopVar,
-                    target: inner.target,
-                    op: inner.op,
-                  })
-                : diagMessage(
-                    "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
-                    { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
-                  ),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
+      switch (inner.kind) {
+        case "op-call":
+          markMutated();
+          // A binding poisoned by a cross-context repository read is already
+          // reported at its `let` — see the top-level op-call arm.
+          if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
+            diags.push({
+              severity: "error",
+              code: "loom.workflow-foreach-unknown-binding",
+              message:
+                nesting === "for"
+                  ? diagMessage(
+                      "loom.workflow-foreach-unknown-binding#workflow-in-for-references",
+                      { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
+                    )
+                  : diagMessage(
+                      "loom.workflow-foreach-unknown-binding#workflow-in-if-let-references",
+                      { name: wf.name, var: loopVar, target: inner.target, op: inner.op },
+                    ),
+              source: `${ctx.name}/${wf.name}`,
+              origin: wf.origin,
+            });
+          }
+          break;
+        case "emit":
+        case "factory-let":
+          markMutated();
+          break;
+        // A loop or `if let` nested inside this body: its own body is checked
+        // the same way, with its variable bound for it — the top-level arms
+        // reach only the first level, and every backend renders deeper ones.
+        case "for-each":
+          nestedWith(inner.body, inner.var, inner.varAggName, inner.var, "for");
+          break;
+        case "if-let":
+          nestedWith(inner.thenBody, inner.var, inner.aggName, inner.var, "if-let");
+          nestedWith(inner.elseBody ?? [], undefined, inner.aggName, inner.var, "if-let");
+          break;
+        // No op-call binding to check; effects are counted by the deep walk in
+        // `validateWorkflowBody`, and a `let`'s binding is registered below.
+        case "precondition":
+        case "requires":
+        case "expr-let":
+        case "assign":
+        case "repo-let":
+        case "repo-delete":
+        case "repo-run":
+        case "resource-call":
+        case "domain-service-call":
+          break;
+        default: {
+          const _exhaustive: never = inner;
+          void _exhaustive;
         }
-      } else if (inner.kind === "emit" || inner.kind === "factory-let") {
-        markMutated();
       }
       if (
         (inner.kind === "repo-let" || inner.kind === "factory-let") &&
