@@ -133,7 +133,7 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
     const m = await files("dotnet");
     const mw = fileEndingWith(m, "Middleware/EmptyJsonBodyMiddleware.cs");
     // The binder decides "is there a body?" from this feature, not the stream.
-    expect(mw).toContain("ctx.Features.Set<IHttpRequestBodyDetectionFeature>(HasBody.Instance);");
+    expect(mw).toContain("features.Set<IHttpRequestBodyDetectionFeature>(HasBody.Instance);");
     const program = fileEndingWith(m, "Program.cs");
     expect(program).toMatch(/app\.UseMiddleware<[\w.]+\.Middleware\.EmptyJsonBodyMiddleware>\(\);/);
     expect(program).toContain(
@@ -248,14 +248,14 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     // The changeset path (create/update) reads the same word for `validate_required`.
     expect(problem).toContain("if Keyword.get(opts, :validation) == :required, do: @missing_field");
     const order = fileEndingWith(m, "controllers/order_controller.ex");
-    expect(order).toContain('@required_params %{rename: ["newName"]}');
+    expect(order).toContain("@required_params %{rename: ~w(newName)}");
     expect(order).toContain("plug :require_command_params when action in [:rename]");
     // The required-params plug runs after the path-id cast and before any action.
     expect(order.indexOf("plug :__cast_path_id")).toBeLessThan(
       order.indexOf("plug :require_command_params"),
     );
     const workflows = fileEndingWith(m, "controllers/workflows_controller.ex");
-    expect(workflows).toContain('@required_params %{escalate: ["note"]}');
+    expect(workflows).toContain("@required_params %{escalate: ~w(note)}");
     const spec = fileEndingWith(m, "_web/api/a_spec.ex");
     const at = spec.indexOf('operationId: "createTicket"');
     expect(spec.slice(at, spec.indexOf("requestBody:", at) + 200)).toContain("required: false");
@@ -271,7 +271,7 @@ describe("RS-39 — elixir `route`d handlers refuse an absent required body key"
     const m = await generateSystemFiles(source);
     const controller =
       [...m.entries()].find(([k]) => k.endsWith("_routes_controller.ex"))?.[1] ?? "";
-    expect(controller).toContain('@required_params %{place_order: ["customerId"]}');
+    expect(controller).toContain("@required_params %{place_order: ~w(customerId)}");
     expect(controller).toContain("plug :require_command_params when action in [:place_order]");
   });
 });

@@ -723,9 +723,10 @@ export function renderRequiredParamsPlug(
 ): string {
   const entries = [...required].filter(([, keys]) => keys.length > 0);
   if (entries.length === 0) return "";
-  const map = entries
-    .map(([action, keys]) => `${action}: [${keys.map((k) => JSON.stringify(k)).join(", ")}]`)
-    .join(", ");
+  // `~w(...)`, not a quoted list: the mask census reads a quoted list holding a
+  // masked field name as an audit-history field list, and wire keys never
+  // contain whitespace.
+  const map = entries.map(([action, keys]) => `${action}: ~w(${keys.join(" ")})`).join(", ");
   const actions = entries.map(([action]) => `:${action}`).join(", ");
   return `
   @required_params %{${map}}

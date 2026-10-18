@@ -48,7 +48,8 @@ public sealed class EmptyJsonBodyMiddleware
             req.Body = new MemoryStream(EmptyObject);
             req.ContentLength = EmptyObject.Length;
             req.ContentType = "application/json";
-            ctx.Features.Set<IHttpRequestBodyDetectionFeature>(HasBody.Instance);
+            var features = ctx.Features;
+            features.Set<IHttpRequestBodyDetectionFeature>(HasBody.Instance);
         }
         await _next(ctx);
     }
@@ -64,7 +65,8 @@ public sealed class EmptyJsonBodyMiddleware
     private static async Task<bool> IsEmptyAsync(HttpRequest req)
     {
         if (req.ContentLength is long length) return length == 0;
-        if (req.HttpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false) return true;
+        var features = req.HttpContext.Features;
+        if (features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false) return true;
         // No framing length (a chunked body): look at the body itself.
         req.EnableBuffering();
         var probe = new byte[1];
