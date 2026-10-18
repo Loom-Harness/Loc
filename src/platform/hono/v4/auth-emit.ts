@@ -808,7 +808,8 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
     .map((f) => JSON.stringify(claimPathFor(f.name, auth)));
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
-${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
+${idsImport(user).join("\n")}import { requestLog } from "../obs/als";
+import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
 
 // Resolved from the system \`auth { oidc { … } }\` block.  Env-bound values
@@ -904,7 +905,10 @@ export const oidcVerifier = async (req: Request): Promise<UserClaims | null> => 
   try {
     const { payload } = await jwtVerify(token, await getJwks(), VERIFY_OPTIONS);
     return toUser(payload);
-  } catch {
+  } catch (err) {
+    // A rejected token is a 401, never a 500 — but say WHY at debug, so a
+    // misconfigured issuer / audience is diagnosable from the log stream.
+    ${renderHonoStoreLogCall("authTokenRejected", "reason: err instanceof Error ? err.message : String(err)")}
     return null;
   }
 };

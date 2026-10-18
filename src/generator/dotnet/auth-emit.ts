@@ -184,11 +184,18 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
     ? "checks iss / aud / exp"
     : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
   const args = user.fields.map((f) => csClaimRead(f, auth)).join(",\n            ");
+  // Every reject path answers 401 (never 500) by swallowing the exception —
+  // so each one says WHY at debug, or a misconfigured issuer / audience is
+  // invisible in the log stream.
+  const logRejected = renderDotnetLogCall("authTokenRejected", [
+    { name: "reason", valueExpr: "reason" },
+  ]);
   return `// Auto-generated.
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -215,6 +222,16 @@ public sealed class OidcUserVerifier : IUserVerifier
             new HttpDocumentRetriever { RequireHttps = Issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase) });
     private static readonly JsonWebTokenHandler Handler = new();
 
+    private readonly ILogger<OidcUserVerifier> _log;
+    public OidcUserVerifier(ILogger<OidcUserVerifier> log) => _log = log;
+
+    /// <summary>Reject the presented token (→ 401) and log why at debug.</summary>
+    private User? Rejected(string reason)
+    {
+        ${logRejected}
+        return null;
+    }
+
     public async Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
     {
         string? token = ExtractToken(httpContext.Request);
@@ -229,10 +246,10 @@ public sealed class OidcUserVerifier : IUserVerifier
             configuration = await Configuration.GetConfigurationAsync(cancellationToken);
         }
 #pragma warning disable CA1031 // a discovery failure rejects (401), never 500
-        catch (Exception)
+        catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return null;
+            return Rejected("OIDC discovery failed: " + ex.Message);
         }
 
         var parameters = new TokenValidationParameters
@@ -241,7 +258,10 @@ public sealed class OidcUserVerifier : IUserVerifier
             ValidateIssuer = true,
             IssuerSigningKeys = configuration.SigningKeys,
             ValidateIssuerSigningKey = true,
-            ValidateAudience = Audience is not null,
+            // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud
+            // check — the documented opt-out every backend honours.  Testing
+            // only for null validated every token against "" and rejected all.
+            ValidateAudience = !string.IsNullOrEmpty(Audience),
             ValidAudience = Audience,
             ValidateLifetime = true,
         };
@@ -260,17 +280,17 @@ public sealed class OidcUserVerifier : IUserVerifier
                 configuration = await Configuration.GetConfigurationAsync(cancellationToken);
             }
 #pragma warning disable CA1031 // a refresh failure rejects (401), never 500
-            catch (Exception)
+            catch (Exception ex)
 #pragma warning restore CA1031
             {
-                return null;
+                return Rejected("OIDC discovery refresh failed: " + ex.Message);
             }
             parameters.IssuerSigningKeys = configuration.SigningKeys;
             result = await Handler.ValidateTokenAsync(token, parameters);
         }
         if (!result.IsValid)
         {
-            return null;
+            return Rejected(result.Exception?.Message ?? "token validation failed");
         }
 
         // Re-parse the payload as JSON so dotted claim paths

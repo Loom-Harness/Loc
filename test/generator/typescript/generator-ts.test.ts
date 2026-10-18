@@ -65,7 +65,7 @@ describe("typescript generator", () => {
     const tests = files.get("domain/order.test.ts")!;
     expect(tests).toMatch(/import { describe, it, expect } from "vitest"/);
     expect(tests).toMatch(/it\("money literal builds"/);
-    expect(tests).toMatch(/expect\(\(\) => \{ new Money\(-1\.0, "USD"\); \}\)\.toThrow\(\)/);
+    expect(tests).toMatch(/expectDomainRejection\(\(\) => \{ new Money\(-1\.0, "USD"\); \}\);/);
   });
 
   it("lowers collection `.count` on a let-bound aggregate to `.length`", async () => {
