@@ -43,7 +43,9 @@ describe("python test emission", () => {
     const tests = files.get("api/tests/test_widget.py")!;
     expect(tests).toContain("    assert w.status == WidgetStatus.Active");
     expect(tests).toContain("    assert w.size > 0");
-    expect(tests).toContain("    with pytest.raises(Exception):");
+    expect(tests).toContain(
+      "    with pytest.raises((DisallowedError, DomainError, ForbiddenError)):",
+    );
     expect(tests).toContain("        w.activate()");
   });
 
