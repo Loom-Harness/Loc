@@ -1,4 +1,10 @@
-import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  BinOp,
+  DerivedIR,
+  EnrichedAggregateIR,
+  ExprIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -170,6 +176,16 @@ export interface RenderCtx {
    *  (`snake(field)`), not struct-dot on an unbound `cmd`.  Set only by the
    *  handler emitter; empty/undefined everywhere else (byte-identical). */
   recordParams?: ReadonlySet<string>;
+  /** Render an aggregate `function` call module-qualified on `contextModule`
+   *  (`Api.Ticketing.sla_hours(record)`) instead of bare.  The facade module
+   *  defines every aggregate function, so a bare call only resolves inside it;
+   *  a stamp value rendered into the repository module (`stamp-emit.ts`) sets
+   *  this.  Unset everywhere else (bare call). */
+  qualifyFunctions?: boolean;
+  /** The host aggregate's `derived` definitions, for inlining a `this-derived`
+   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
+   *  only when `agg` is unset. */
+  derivedDefs?: readonly DerivedIR[];
 }
 
 const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
@@ -462,7 +478,7 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // key that raises `KeyError` at runtime (#1765).  Recurse into a
       // derived-of-derived; the `derivedStack` guard breaks a cycle (validator
       // -prevented) and the fallback covers a ctx with no aggregate index.
-      const d = ctx.agg?.derived.find((x) => x.name === e.name);
+      const d = (ctx.agg?.derived ?? ctx.derivedDefs)?.find((x) => x.name === e.name);
       if (d && !ctx.derivedStack?.has(e.name)) {
         const inner: RenderCtx = {
           ...ctx,
@@ -1123,9 +1139,8 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // Elixir.  On the document path (Route A) the receiver is the rehydrated
       // `%<Agg>.Data{}` embed, still bound as `record` (`ctx.thisName`).
       const recv = ctx.thisName;
-      return args.length > 0
-        ? `${snake(e.name)}(${recv}, ${args.join(", ")})`
-        : `${snake(e.name)}(${recv})`;
+      const fn = ctx.qualifyFunctions ? `${ctx.contextModule}.${snake(e.name)}` : snake(e.name);
+      return args.length > 0 ? `${fn}(${recv}, ${args.join(", ")})` : `${fn}(${recv})`;
     }
     case "workflow-fn":
       // A workflow's own `function` — a `defp <snake(fn)>(params)` in the

@@ -1513,6 +1513,25 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
+  // the aggregate's own function: the document write seam has no record to
+  // evaluate it against.
+  "loom.stamp-reads-aggregate-unsupported": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for

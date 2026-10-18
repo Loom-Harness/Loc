@@ -226,6 +226,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
+  "loom.stamp-reads-aggregate-unsupported":
+    "11-capabilities-filters-stamps.md#validator-gated-stamp-cases",
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
   "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",

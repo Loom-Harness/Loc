@@ -22,6 +22,7 @@
 
 import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { stampValueReadsAggregate } from "../../../ir/util/stamp-self-read.js";
 import { snake } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
@@ -136,8 +137,21 @@ export function stampPutChanges(
   principalIdKey: string,
   indent: string,
 ): string {
-  const lines = stampAssignmentPairs(agg, events, contextModule, principalIdKey).map(
-    ([field, value]) => `${indent}|> Ecto.Changeset.put_change(:${field}, ${value})`,
+  const lines = stampAssignments(agg, events, contextModule, principalIdKey).flatMap(
+    ({ field, value, readsRecord }) =>
+      // A value reading the aggregate (`dueAt := now() + hours(slaHours())`)
+      // evaluates against the record AS IT WILL BE PERSISTED — the changeset
+      // with its changes applied — bound as `record` inside the pipe step.  The
+      // insert pipe starts from attrs (no struct in scope) and the update pipe's
+      // loaded struct predates the change, so neither can read it directly.
+      readsRecord
+        ? [
+            `${indent}|> then(fn cs ->`,
+            `${indent}  record = Ecto.Changeset.apply_changes(cs)`,
+            `${indent}  Ecto.Changeset.put_change(cs, :${field}, ${value})`,
+            `${indent}end)`,
+          ]
+        : [`${indent}|> Ecto.Changeset.put_change(:${field}, ${value})`],
   );
   return lines.length > 0 ? `\n${lines.join("\n")}` : "";
 }
@@ -156,12 +170,36 @@ export function stampAssignmentPairs(
   contextModule: string,
   principalIdKey: string,
 ): [string, string][] {
-  const ctx: RenderCtx = { thisName: "record", contextModule };
+  return stampAssignments(agg, events, contextModule, principalIdKey).map((s) => [
+    s.field,
+    s.value,
+  ]);
+}
+
+/** Each stamp assignment for `events`: the snake-cased target column, the
+ *  rendered value, and whether that value reads the aggregate (so the stamp
+ *  site must bind `record` first).  Self reads render against `record`; a call
+ *  to one of the aggregate's own `function`s is qualified on the context
+ *  facade (`Api.Ticketing.sla_hours(record)`), which defines it — the stamp
+ *  renders into the repository module, where a bare call would not resolve. */
+function stampAssignments(
+  agg: AggregateIR,
+  events: readonly ("create" | "update")[],
+  contextModule: string,
+  principalIdKey: string,
+): { field: string; value: string; readsRecord: boolean }[] {
+  const ctx: RenderCtx = {
+    thisName: "record",
+    contextModule,
+    qualifyFunctions: true,
+    derivedDefs: agg.derived,
+  };
   return (agg.contextStamps ?? [])
     .filter((r) => events.includes(r.event))
     .flatMap((r) => r.assignments)
-    .map((a) => [
-      snake(a.field),
-      renderStampValue(a.value, ctx, principalIdKey, stampFieldIsDatetime(agg, a.field)),
-    ]);
+    .map((a) => ({
+      field: snake(a.field),
+      value: renderStampValue(a.value, ctx, principalIdKey, stampFieldIsDatetime(agg, a.field)),
+      readsRecord: stampValueReadsAggregate(a.value),
+    }));
 }
