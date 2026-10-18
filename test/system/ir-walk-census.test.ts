@@ -680,15 +680,6 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "MISFILED by the old bucket, but correct as it stands: `default: return null` is a documented BEST-EFFORT fallback (the caller keeps its type-zero seed), never a throw. Wrong bucket, right behaviour — shape-wise it is a CLOSED_PREDICATE (packet CR1-e's class)",
   },
-  // An IR→IR substitution map, not an emitter: `default: return e` leaves a
-  // `param` ref UNSUBSTITUTED inside a `list` / `match` / `convert` /
-  // `i18nFormat` / `duration` / `lambda`, which emits Elixir naming an
-  // undefined variable — the #2720/M-T6.50 shape exactly.
-  "src/generator/elixir/domain-service-emit.ts#substituteRefs": {
-    deferred:
-      "MISFILED by the old bucket: `default: return e` — a silent no-op, not a throw. It is an IR→IR MAP (workflow call-arg inlining) whose unhandled kinds (list / match / convert / i18nFormat / duration / lambda) leave a `param` ref unsubstituted, i.e. the M-T6.50 silent-drop shape. A walk.ts migration candidate, CR1-e's class",
-    reviewUntil: "2026-12-31",
-  },
   "src/generator/elixir/store-emit.ts#renderStoreStmt": {
     deferred:
       'MISFILED by the old bucket: `default: return { value: "state" }` — the statement is silently dropped and the struct passed through. Note the gate it would lean on does NOT cover it: `loom.ui-body-statement-kind` exempts `phoenixLiveView`, which is the only framework this emitter serves',

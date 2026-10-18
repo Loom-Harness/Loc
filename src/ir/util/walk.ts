@@ -251,6 +251,143 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
 }
 
 // ---------------------------------------------------------------------------
+// Structural maps — the IR→IR twins of the shallow visitors.  A rewrite
+// (substitute a ref, desugar a node) that hand-rebuilds each kind drifts the
+// same way a hand-rolled visitor does: a kind it does not list is returned
+// unchanged, with the rewrite silently skipped beneath it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuild `e` with every immediate child expression replaced by `f(child)` —
+ * one level, every other field kept.  A block-bodied lambda's statements are
+ * rebuilt with {@link mapStmtChildExprs}, so `f` reaches their expressions too.
+ * A recursive rewrite is `f` calling back into this function.
+ *
+ * Exhaustive + `never`-checked over every `ExprIR.kind`, child slot for child
+ * slot with {@link walkExprChildren}.
+ */
+export function mapExprChildren(e: ExprIR, f: (child: ExprIR) => ExprIR): ExprIR {
+  switch (e.kind) {
+    case "literal":
+    case "this":
+    case "id":
+    case "ref":
+    case "action-ref":
+      return e;
+    case "member":
+      return { ...e, receiver: f(e.receiver) };
+    case "method-call":
+      return { ...e, receiver: f(e.receiver), args: e.args.map(f) };
+    case "call":
+      return {
+        ...e,
+        args: e.args.map(f),
+        ...(e.style
+          ? { style: { entries: e.style.entries.map((s) => ({ ...s, value: f(s.value) })) } }
+          : {}),
+      };
+    case "lambda":
+      return {
+        ...e,
+        ...(e.body ? { body: f(e.body) } : {}),
+        ...(e.block ? { block: e.block.map((s) => mapStmtChildExprs(s, f)) } : {}),
+      };
+    case "new":
+    case "object":
+      return { ...e, fields: e.fields.map((fl) => ({ ...fl, value: f(fl.value) })) };
+    case "list":
+      return { ...e, elements: e.elements.map(f) };
+    case "authz-filter":
+      return e.filter.kind === "scope"
+        ? {
+            ...e,
+            filter: {
+              ...e.filter,
+              anchorClaim: f(e.filter.anchorClaim),
+              tenantClaim: f(e.filter.tenantClaim),
+            },
+          }
+        : e;
+    case "paren":
+      return { ...e, inner: f(e.inner) };
+    case "unary":
+      return { ...e, operand: f(e.operand) };
+    case "binary":
+      return { ...e, left: f(e.left), right: f(e.right) };
+    case "ternary":
+      return {
+        ...e,
+        cond: f(e.cond),
+        // biome-ignore lint/suspicious/noThenProperty: `then` is the IR ternary's branch field, not a thenable.
+        then: f(e.then),
+        otherwise: f(e.otherwise),
+      };
+    case "convert":
+      return { ...e, value: f(e.value) };
+    case "duration":
+      return { ...e, amount: f(e.amount) };
+    case "i18nFormat":
+      return { ...e, inner: f(e.inner) };
+    case "match":
+      return {
+        ...e,
+        ...(e.subject ? { subject: f(e.subject) } : {}),
+        arms: e.arms.map((a) => ({ ...a, cond: f(a.cond), value: f(a.value) })),
+        variantArms: e.variantArms.map((a) => ({ ...a, value: f(a.value) })),
+        ...(e.otherwise ? { otherwise: f(e.otherwise) } : {}),
+      };
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Rebuild an operation-body statement with every child expression replaced by
+ * `f(child)`; nested `if` / `variant-match` bodies are rebuilt the same way, so
+ * `f` reaches every expression the statement holds.  Exhaustive +
+ * `never`-checked, slot for slot with {@link walkStmtChildren}.
+ */
+export function mapStmtChildExprs(s: StmtIR, f: (child: ExprIR) => ExprIR): StmtIR {
+  const body = (stmts: StmtIR[]): StmtIR[] => stmts.map((n) => mapStmtChildExprs(n, f));
+  switch (s.kind) {
+    case "precondition":
+    case "requires":
+    case "let":
+    case "expression":
+      return { ...s, expr: f(s.expr) };
+    case "assign":
+    case "add":
+    case "remove":
+    case "return":
+      return { ...s, value: f(s.value) };
+    case "emit":
+      return { ...s, fields: s.fields.map((fl) => ({ ...fl, value: f(fl.value) })) };
+    case "call":
+      return { ...s, args: s.args.map(f) };
+    case "variant-match":
+      return {
+        ...s,
+        subject: f(s.subject),
+        arms: s.arms.map((a) => ({ ...a, body: body(a.body) })),
+        ...(s.elseBody ? { elseBody: body(s.elseBody) } : {}),
+      };
+    case "if":
+      return {
+        ...s,
+        cond: f(s.cond),
+        thenBody: body(s.thenBody),
+        ...(s.elseBody ? { elseBody: body(s.elseBody) } : {}),
+      };
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Recursive helpers — visit EVERY reachable sub-expression.  Defined purely in
 // terms of the shallow visitors above, so they inherit the exhaustiveness
 // guarantee.  These are what most call sites want.
