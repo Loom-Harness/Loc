@@ -58,6 +58,7 @@ import type {
   UserBlock,
   Workflow,
 } from "../../../../src/language/generated/ast.js";
+import { DEFAULT_ENFORCEMENT } from "../../../../src/ir/lower/lower-auth.js";
 import { spliceNodeIfParses } from "../edit-engine";
 import { parseDdd } from "../parse";
 import {
@@ -614,7 +615,9 @@ function systemView(ast: Model, name: string): ViewGraph {
           name: "auth",
           summary: [
             `provider: ${a.provider ?? "—"}`,
-            `enforcement: ${a.enforcement ?? "—"}`,
+            // An unset `enforcement:` is not "none" — lowering defaults it to
+            // `denyByDefault` (M-T1.36 F11), so say what actually applies.
+            `enforcement: ${a.enforcement ?? `${DEFAULT_ENFORCEMENT} (default)`}`,
             ...(a.sessions ? [`sessions: ${a.sessions}`] : []),
             ...(a.oidc ? ["oidc configured"] : []),
           ],

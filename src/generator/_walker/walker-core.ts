@@ -85,7 +85,7 @@ import {
 import { escapeHtmlAttr } from "./a11y-emit.js";
 import { tryDetectApiHook } from "./api-hook-detector.js";
 import { registerApiHook } from "./api-hook-register.js";
-import { giveUp, giveUpText } from "./give-up.js";
+import { giveUp, giveUpText, wrapLoneRootComment } from "./give-up.js";
 import { storeMemberLocal, upperFirstName } from "./js-target-helpers.js";
 import { emitUserComponent } from "./primitives/controls.js";
 import { WALKER_PRIMITIVES } from "./registry.js";
@@ -581,7 +581,7 @@ export function walkBody(
     usedActions: new Set(),
     usedStores: new Map(),
   };
-  const tsx = walk(body, ctx, 0, "value");
+  const tsx = wrapLoneRootComment(target, walk(body, ctx, 0, "value"));
   // PACK-DECLARED chrome (`pack.json`'s `chrome` map) reaches the page through
   // a `.hbs` this walk rendered, so no emitter here registered the `t` those
   // bindings resolve against — the string lives in the template, behind the
