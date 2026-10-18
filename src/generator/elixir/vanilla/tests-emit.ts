@@ -84,6 +84,21 @@ export interface Env {
    *  its name is here; a derived NOT here has no pure accessor (non-relational or
    *  non-pure expression), so reading it degrades to `@tag :skip`. */
   derivedAccessors: Set<string>;
+  /** The context's `persistedAs: eventLog` aggregates → their canonical
+   *  `create` (absent when the aggregate declares none).  An event-sourced pure
+   *  `create/1` runs THAT command (`domain-core-emit.ts`), so whether a failed
+   *  create is observable, and whether it needs an actor, is read off it. */
+  esCreates?: ReadonlyMap<string, OperationIR | undefined>;
+  /** The context's `shape: document` aggregates.  Their pure core's record is
+   *  the `<Agg>.Data` embed, which stores an enum as its declared-case STRING
+   *  (not the `Ecto.Enum` atom the relational struct holds). */
+  docAggs?: ReadonlySet<string>;
+  /** Test-local names bound to a document aggregate's record, collected while a
+   *  test renders (`let d = Doc.create(…)`), so a later read or op call on `d`
+   *  speaks the embed's string enums. */
+  docVars?: Set<string>;
+  /** Render enum values as strings (inside a document record's attrs/reads). */
+  enumAsString?: boolean;
 }
 
 const MATCHER_OP: Record<string, string> = {
@@ -140,11 +155,19 @@ function skipBody(reason: string): string[] {
   ];
 }
 
+/** The per-context shape facts a unit-test body needs to reach a SIBLING
+ *  aggregate's pure core (`Env.esCreates` / `Env.docAggs`). */
+export interface ShapeFacts {
+  esCreates: ReadonlyMap<string, OperationIR | undefined>;
+  docAggs: ReadonlySet<string>;
+}
+
 export function renderVanillaAggregateTestModule(
   agg: AggregateIR,
   contextModule: string,
   appModule: string,
   validatableVos: Set<string>,
+  shapes?: ShapeFacts,
 ): string {
   const env: Env = {
     agg,
@@ -153,6 +176,7 @@ export function renderVanillaAggregateTestModule(
     appModule,
     validatableVos,
     derivedAccessors: pureDerivedAccessorNames(contextModule, agg as EnrichedAggregateIR),
+    ...shapes,
   };
   return renderSubjectTestModule(agg.name, agg.tests, contextModule, env);
 }
@@ -164,6 +188,7 @@ export function renderVanillaVoTestModule(
   contextModule: string,
   appModule: string,
   validatableVos: Set<string>,
+  shapes?: ShapeFacts,
 ): string {
   const env: Env = {
     agg: null,
@@ -172,6 +197,7 @@ export function renderVanillaVoTestModule(
     appModule,
     validatableVos,
     derivedAccessors: new Set(),
+    ...shapes,
   };
   return renderSubjectTestModule(vo.name, vo.tests, contextModule, env);
 }
@@ -183,6 +209,7 @@ export function renderVanillaServiceTestModule(
   contextModule: string,
   appModule: string,
   validatableVos: Set<string>,
+  shapes?: ShapeFacts,
 ): string {
   const env: Env = {
     agg: null,
@@ -191,6 +218,7 @@ export function renderVanillaServiceTestModule(
     appModule,
     validatableVos,
     derivedAccessors: new Set(),
+    ...shapes,
   };
   return renderSubjectTestModule(svc.name, svc.tests, contextModule, env);
 }
@@ -213,7 +241,8 @@ end
 `;
 }
 
-function renderTest(t: TestIR, env: Env): string[] {
+function renderTest(t: TestIR, outer: Env): string[] {
+  const env: Env = { ...outer, docVars: new Set() };
   try {
     const used = usedRefNames(t.statements);
     const lines = t.statements.flatMap((s, i) => renderStmt(s, env, used, i));
@@ -234,7 +263,9 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
       const name = used.has(s.name) ? escapeElixirIdent(snake(s.name)) : `_${snake(s.name)}`;
       if (isCreate(s.expr)) {
         // A bound create is the happy path → bind the {:ok, _} struct.
-        return [`{:ok, ${name}} = ${renderCreate(s.expr, env)}`];
+        const line = `{:ok, ${name}} = ${renderCreate(s.expr, env)}`;
+        if (env.docAggs?.has(createTarget(s.expr) ?? "")) env.docVars?.add(s.name);
+        return [line];
       }
       return [`${name} = ${vtExpr(s.expr, env)}`];
     }
@@ -277,7 +308,7 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   const op = MATCHER_OP[expr.member];
   const actual = vtExpr(inner, env);
   const arg = expr.args[0];
-  const expected = arg ? vtExpr(arg, env) : "";
+  const expected = arg ? vtExpr(arg, readsDocRecord(inner, env) ? docEnv(env) : env) : "";
   const verb = (s: string): string => (negate ? `refute ${s}` : `assert ${s}`);
 
   // Absence.  An Elixir struct field that holds nothing holds `nil`, so the
@@ -327,6 +358,25 @@ export function renderExpect(expr: ExprIR, env: Env): string {
 
 function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): string[] {
   const inner = expr.kind === "paren" ? expr.inner : expr;
+  if (isCreate(inner) && env.esCreates?.has(createTarget(inner) ?? "")) {
+    // An event-sourced create runs its command: a failed `precondition` /
+    // `requires` returns the runner's `{:error, {<rung>, message}}` denial.
+    // That is ALL that can fail it — the event-sourced command path runs no
+    // invariant floor — so a create without a guard has nothing to trip.
+    const create = env.esCreates.get(createTarget(inner) ?? "");
+    const guarded = (create?.statements ?? []).some(
+      (st) => st.kind === "precondition" || st.kind === "requires",
+    );
+    if (!guarded || kind === "invariant") {
+      throw new UnsupportedTestShapeError(
+        "toThrow over an event-sourced create: the elixir event-sourced command path runs " +
+          "the create's guards only (no invariant floor), and this create has no guard " +
+          "that could reject the input",
+      );
+    }
+    const term = kind === "precondition" ? "{:error, {:precondition_failed, _}}" : "{:error, _}";
+    return [`assert ${term} = ${renderCreate(inner, env)}`];
+  }
   if (isCreate(inner)) {
     // A failed create returns {:error, changeset}; it does not raise.
     //
@@ -413,7 +463,9 @@ export function vtExpr(e: ExprIR, env: Env): string {
       // `Ecto.Enum` field's loaded form for assertions AND casts cleanly when
       // passed in a create-attrs map.  Locals are snake names.  (Value names are
       // grammar identifiers, so the atom is never quoted — `:"Public"` would warn.)
-      return e.refKind === "enum-value" ? `:${e.name}` : snake(e.name);
+      if (e.refKind === "enum-value")
+        return env.enumAsString ? JSON.stringify(e.name) : `:${e.name}`;
+      return snake(e.name);
     case "member": {
       const recv = vtExpr(e.receiver, env);
       if (e.receiverType.kind === "array" && (e.member === "count" || e.member === "length")) {
@@ -534,15 +586,42 @@ function binOp(op: string): string {
 /** `Agg.create(%{...})` over the create call's object-literal argument. */
 function renderCreate(e: ExprIR, env: Env): string {
   if (e.kind !== "method-call") throw new Error("renderCreate: not a method-call");
+  const target = createTarget(e);
+  // An event-sourced aggregate is constructed by its `create` command; one that
+  // declares none is constructed out of band and has no pure `create/1` to call.
+  const esCreate = target !== undefined && env.esCreates?.has(target);
+  const create = esCreate ? env.esCreates?.get(target) : undefined;
+  if (esCreate && !create) {
+    throw new UnsupportedTestShapeError(
+      `'${target}' is event-sourced and declares no \`create\`, so it has no pure constructor`,
+    );
+  }
+  const attrEnv = target !== undefined && env.docAggs?.has(target) ? docEnv(env) : env;
   const arg = e.args[0];
   const attrs =
     arg && arg.kind === "object"
-      ? `%{${arg.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, env)}`).join(", ")}}`
+      ? `%{${arg.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, attrEnv)}`).join(", ")}}`
       : "%{}";
   // `Agg.create(...)` — the receiver is the bare aggregate ref; honour its name.
-  const mod =
-    e.receiver.kind === "ref" ? `${env.ctxModule}.${upperFirst(e.receiver.name)}` : env.aggMod;
-  return `${mod}.create(${attrs})`;
+  const mod = target !== undefined ? `${env.ctxModule}.${upperFirst(target)}` : env.aggMod;
+  // An event-sourced create whose guard reads `currentUser` takes the actor.
+  const actor = create && opUsesCurrentUser(create) ? `, ${TEST_ACTOR}` : "";
+  return `${mod}.create(${attrs}${actor})`;
+}
+
+/** The aggregate a `<Agg>.create(...)` call constructs (its bare receiver). */
+function createTarget(e: ExprIR): string | undefined {
+  return e.kind === "method-call" && e.receiver.kind === "ref" ? e.receiver.name : undefined;
+}
+
+/** True when `e` reads a field off a test-local bound to a document record. */
+function readsDocRecord(e: ExprIR, env: Env): boolean {
+  return e.kind === "member" && e.receiver.kind === "ref" && !!env.docVars?.has(e.receiver.name);
+}
+
+/** The env a document record's values render in: enums as declared-case strings. */
+function docEnv(env: Env): Env {
+  return { ...env, enumAsString: true };
 }
 
 /** `Agg.<op>(recv, %{"param" => value, ...})` over the pure domain core. */
@@ -554,6 +633,7 @@ function renderOp(e: ExprIR, env: Env): string {
   const op = findOp(e.member, env);
   if (!op) throw new Error(`operation '${e.member}' not found on ${env.agg.name}`);
   const recv = vtExpr(e.receiver, env);
+  const argEnv = e.receiver.kind === "ref" && env.docVars?.has(e.receiver.name) ? docEnv(env) : env;
   // Coerce each argument to the operation's declared PARAM type via the shared
   // rule (`_test/arg-coercion.ts`).  An op's PURE CORE (the persistence-free
   // entry point this test calls) reads the attrs map and assigns the value
@@ -568,7 +648,7 @@ function renderOp(e: ExprIR, env: Env): string {
         `${JSON.stringify(op.params[i]?.name ?? `arg${i}`)} => ${coerceTestLiteral(
           op.params[i]?.type,
           a,
-          vtExpr(a, env),
+          vtExpr(a, argEnv),
           EX_TEST_LITERAL,
         )}`,
     )

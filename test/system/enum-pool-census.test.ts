@@ -84,6 +84,50 @@ function enclosingName(node: ts.Node): string {
   return "<module>";
 }
 
+/** Is `recv` statically typed as a bounded context?  THE classifier — the
+ *  one decision that separates `ctx.enums` (a site) from `used.enums` (not). */
+function isContextReceiver(checker: ts.TypeChecker, recv: ts.Expression): boolean {
+  const str = checker.typeToString(
+    checker.getTypeAtLocation(recv),
+    undefined,
+    ts.TypeFormatFlags.NoTruncation,
+  );
+  return /\bBoundedContextIR\b|\bEnrichedBoundedContextIR\b/.test(str);
+}
+
+/** Every context-typed `.enums` read in one source file. */
+function scanSourceFile(
+  sf: ts.SourceFile,
+  rel: string,
+  checker: ts.TypeChecker,
+  nextId: (base: string) => string,
+): Site[] {
+  const out: Site[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === "enums" &&
+      isContextReceiver(checker, node.expression)
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+      const lineText = sf.text.split("\n")[line - 1]?.trim() ?? "";
+      out.push({ id: nextId(`${rel}#${enclosingName(node)}`), file: rel, line, text: lineText });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+function idMinter(): (base: string) => string {
+  const idCounts = new Map<string, number>();
+  return (base) => {
+    const n = (idCounts.get(base) ?? 0) + 1;
+    idCounts.set(base, n);
+    return n === 1 ? base : `${base}$${n}`;
+  };
+}
+
 let cachedSites: Site[] | null = null;
 
 function computeSites(): Site[] {
@@ -95,36 +139,12 @@ function computeSites(): Site[] {
   const checker = program.getTypeChecker();
 
   const sites: Site[] = [];
-  const idCounts = new Map<string, number>();
-  const nextId = (base: string): string => {
-    const n = (idCounts.get(base) ?? 0) + 1;
-    idCounts.set(base, n);
-    return n === 1 ? base : `${base}$${n}`;
-  };
-
+  const nextId = idMinter();
   for (const sf of program.getSourceFiles()) {
     if (sf.isDeclarationFile) continue;
     const rel = path.relative(repoRoot, sf.fileName).replaceAll(path.sep, "/");
     if (!SCANNED_ROOTS.some((r) => rel.startsWith(r))) continue;
-
-    const visit = (node: ts.Node): void => {
-      if (ts.isPropertyAccessExpression(node) && node.name.text === "enums") {
-        const recvType = checker.getTypeAtLocation(node.expression);
-        const str = checker.typeToString(recvType, undefined, ts.TypeFormatFlags.NoTruncation);
-        if (/\bBoundedContextIR\b|\bEnrichedBoundedContextIR\b/.test(str)) {
-          const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-          const lineText = sf.text.split("\n")[line - 1]?.trim() ?? "";
-          sites.push({
-            id: nextId(`${rel}#${enclosingName(node)}`),
-            file: rel,
-            line,
-            text: lineText,
-          });
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sf);
+    sites.push(...scanSourceFile(sf, rel, checker, nextId));
   }
   cachedSites = sites;
   return sites;
@@ -176,6 +196,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/python/explicit-handlers-emit.ts#emitPyExplicitRouteRouter": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
+  "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
 
   // =========================================================================
   // DEFERRED — fleet packet P1 (typescript + hono) drains these.
@@ -244,9 +265,6 @@ const WAIVERS: Record<string, Waiver> = {
   ),
   "src/generator/_frontend/workflows-module.ts#ensure": p4("workflows-module enum lookup"),
   "src/generator/angular/form-fields.ts#fieldInput": p4("angular form field (empty option list)"),
-  "src/generator/angular/workflows-module.ts#instanceEnumDeps": p4(
-    "angular workflow-instance enum deps",
-  ),
   "src/generator/angular/api-module.ts#collectResponseTypes": p4("angular response-type enum map"),
   "src/generator/feliz/feliz-target.ts#enumsFromBc": p4("feliz form enum map"),
   "src/generator/flutter/forms-emit.ts#enumsFromBc": p4("flutter form enum map"),
@@ -309,9 +327,34 @@ describe("enum-pool census — no name resolution of an enum through a context's
   });
 
   it("does not count a non-context `.enums` (type-checked receiver, not a name match)", () => {
-    // `src/generator/_frontend/workflows-module.ts` reads `used.enums` on a
-    // usage record; only its `ctx.enums.find` is a context read.
-    const wf = sites.filter((s) => s.file === "src/generator/_frontend/workflows-module.ts");
-    expect(wf.every((s) => /\bctx\??\.enums\b/.test(s.text))).toBe(true);
+    // Self-contained: a fixed in-memory fixture, so this keeps proving the
+    // classifier even after the fleet drains every real `ctx.enums` site.
+    // Four `.enums` reads; only the two on a context-typed receiver count —
+    // including one whose variable is NOT named `ctx`, and excluding one
+    // whose variable IS (a usage record that happens to be called `ctx`).
+    const fixture = [
+      "interface EnumIR { name: string; values: string[] }",
+      "interface BoundedContextIR { name: string; enums: EnumIR[] }",
+      "interface UsedTypes { enums: Set<string> }",
+      "export function a(ctx: BoundedContextIR) { return ctx.enums.find((e) => e.name === 'K'); }",
+      "export function b(owner: BoundedContextIR | undefined) { return owner?.enums ?? []; }",
+      "export function c(used: UsedTypes) { return used.enums.has('K'); }",
+      "export function d(ctx: UsedTypes) { return ctx.enums.size; }",
+    ].join("\n");
+    const fileName = "/virtual/fixture.ts";
+    const options: ts.CompilerOptions = { strict: true, noLib: true, types: [] };
+    const host = ts.createCompilerHost(options);
+    const realGet = host.getSourceFile.bind(host);
+    host.getSourceFile = (name, lang, ...rest) =>
+      name === fileName
+        ? ts.createSourceFile(name, fixture, lang, true)
+        : realGet(name, lang, ...rest);
+    host.fileExists = (name) => name === fileName || ts.sys.fileExists(name);
+    const program = ts.createProgram({ rootNames: [fileName], options, host });
+    const sf = program.getSourceFile(fileName);
+    expect(sf).toBeDefined();
+    if (!sf) return;
+    const found = scanSourceFile(sf, "fixture.ts", program.getTypeChecker(), idMinter());
+    expect(found.map((s) => s.id)).toEqual(["fixture.ts#a", "fixture.ts#b"]);
   });
 });
