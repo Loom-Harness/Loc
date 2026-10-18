@@ -66,6 +66,7 @@ export {
   contextFilter,
   contextStamp,
   create,
+  createInputProperties,
   destroy,
   field,
   handlerRef,
