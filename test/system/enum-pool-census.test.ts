@@ -204,6 +204,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/python/explicit-handlers-emit.ts#emitPyExplicitRouteRouter": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
+  "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
 
   // =========================================================================
   // DEFERRED — fleet packet P1 (typescript + hono) drains these.
@@ -359,9 +360,6 @@ const WAIVERS: Record<string, Waiver> = {
   ),
   "src/generator/_frontend/workflows-module.ts#ensure": p4("workflows-module enum lookup"),
   "src/generator/angular/form-fields.ts#fieldInput": p4("angular form field (empty option list)"),
-  "src/generator/angular/workflows-module.ts#instanceEnumDeps": p4(
-    "angular workflow-instance enum deps",
-  ),
   "src/generator/angular/api-module.ts#collectResponseTypes": p4("angular response-type enum map"),
   "src/generator/feliz/feliz-target.ts#enumsFromBc": p4("feliz form enum map"),
   "src/generator/flutter/forms-emit.ts#enumsFromBc": p4("flutter form enum map"),
