@@ -254,6 +254,8 @@ system MoneyNullable {
     api.quotes.bid(empty, { x: money("7") })
     let bid = api.quotes.getById(empty)
     expect(bid.feeOverFive).toBe(true)
+    let quotes = api.quotes.all()
+    expect(quotes.items.length).toBe(2)
   }
 
   test e2e "a document aggregate compares and adds money by value" against d {
@@ -279,5 +281,7 @@ system MoneyNullable {
     expect(over.length).toBe(1)
     let none = api.ledgers.over({ min: money("100") })
     expect(none.length).toBe(0)
+    let ledgers = api.ledgers.all()
+    expect(ledgers.length).toBe(1)
   }
 }

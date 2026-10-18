@@ -267,6 +267,48 @@
     },
     {
       "seq": 19,
+      "method": "GET",
+      "path": "/api/quotes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "cap": 4.5,
+            "capAtLeastRate": true,
+            "fee": "10.0000",
+            "feeAtMostFive": false,
+            "feeOverFive": true,
+            "fiveUnderFee": true,
+            "id": "<volatile:key>",
+            "qty": 3,
+            "qtyIsRate": true,
+            "qtyOverRate": false,
+            "rate": 3,
+            "version": 1
+          },
+          {
+            "cap": null,
+            "capAtLeastRate": false,
+            "fee": "7.0000",
+            "feeAtMostFive": false,
+            "feeOverFive": true,
+            "fiveUnderFee": true,
+            "id": "<volatile:key>",
+            "qty": null,
+            "qtyIsRate": false,
+            "qtyOverRate": false,
+            "rate": 2.5,
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 20,
       "method": "POST",
       "path": "/api/ledgers",
       "status": 201,
@@ -275,14 +317,14 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 21,
       "method": "POST",
       "path": "/api/ledgers/{id}/spend",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 21,
+      "seq": 22,
       "method": "POST",
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
@@ -295,7 +337,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 23,
       "method": "POST",
       "path": "/api/ledgers/{id}/spend",
       "status": 422,
@@ -308,7 +350,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "POST",
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
@@ -321,7 +363,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 25,
       "method": "POST",
       "path": "/api/ledgers/{id}/set_limit",
       "status": 422,
@@ -334,14 +376,14 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 26,
       "method": "POST",
       "path": "/api/ledgers/{id}/set_limit",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 26,
+      "seq": 27,
       "method": "GET",
       "path": "/api/ledgers/{id}",
       "status": 200,
@@ -353,7 +395,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 28,
       "method": "GET",
       "path": "/api/ledgers/over?min=9.5",
       "status": 200,
@@ -367,14 +409,28 @@
       ]
     },
     {
-      "seq": 28,
+      "seq": 29,
       "method": "GET",
       "path": "/api/ledgers/over?min=100",
       "status": 200,
       "body": []
     },
     {
-      "seq": 29,
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/ledgers",
+      "status": 200,
+      "body": [
+        {
+          "balance": "20.0000",
+          "id": "<volatile:key>",
+          "limit": "25.0000",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "seq": 31,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -387,7 +443,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -400,7 +456,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 33,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,
