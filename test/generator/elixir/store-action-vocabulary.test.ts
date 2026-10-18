@@ -89,11 +89,13 @@ describe("LiveView store actions refuse what a pure store module cannot hold", (
     ["requires", "requires n > 0\n        count := n"],
     [
       "match await",
-      "match await C.Order.create(customerId: \"c\") {\n          Order o => count := 1\n          else => count := 2\n        }",
+      'match await C.Order.create(customerId: "c") {\n          Order o => count := 1\n          else => count := 2\n        }',
     ],
   ] as const) {
     it(`refuses \`${label}\` with loom.ui-body-statement-kind`, async () => {
-      const codes = await irCodes(system(`      action guarded(n: int) {\n        ${body}\n      }`));
+      const codes = await irCodes(
+        system(`      action guarded(n: int) {\n        ${body}\n      }`),
+      );
       expect(codes).toContain("loom.ui-body-statement-kind");
     });
   }
@@ -104,7 +106,10 @@ describe("LiveView store actions refuse what a pure store module cannot hold", (
       "node",
     )
       .replace("    ui: Web { C: app }\n", "")
-      .replace(/\n}$/, "\n  deployable web { platform: react targets: app ui: Web { C: app } port: 3000 }\n}");
+      .replace(
+        /\n}$/,
+        "\n  deployable web { platform: react targets: app ui: Web { C: app } port: 3000 }\n}",
+      );
     expect(src).toContain("platform: react");
     const codes = await irCodes(src);
     expect(codes).not.toContain("loom.ui-body-statement-kind");

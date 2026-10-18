@@ -255,11 +255,7 @@ end
  *  are the shared `collectLeaves` every backend uses (lambda bodies and variant
  *  bindings skipped, every other child slot visited), so a lineage records the
  *  same input paths here as on node / .NET / java / python. */
-export function collectVanillaLeaves(
-  e: ExprIR,
-  rc: RenderCtx,
-  out: ProvLeaf[] = [],
-): ProvLeaf[] {
+export function collectVanillaLeaves(e: ExprIR, rc: RenderCtx, out: ProvLeaf[] = []): ProvLeaf[] {
   return collectLeaves(e, (leaf) => renderExpr(leaf, rc), out);
 }
 
