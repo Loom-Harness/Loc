@@ -250,7 +250,7 @@ request: {
 async def confirm_appointment(id: …, body: Annotated[ConfirmAppointmentRequest, Body(default_factory=ConfirmAppointmentRequest)], …)
 ```
 
-`curl -X POST …/appointments/$ID/confirm` → `204`. On an operation **with** parameters an empty body is the `{}` that fails validation: `422` with an `errors[]` entry per missing field.
+`curl -X POST …/appointments/$ID/confirm` → `204`. On an operation **with** parameters an empty body is the `{}` that fails validation: `422` with an `errors[]` entry per missing field — `{"pointer": "/reason", "message": "Required"}` on all five backends. A `create` with no input fields publishes an optional body too.
 
 ### `when` also auto-exposes `GET /{id}/can_<op>`
 

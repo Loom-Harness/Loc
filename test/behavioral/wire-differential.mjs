@@ -481,6 +481,26 @@ const __emptyCommandBodyProbes = async (dispatch) => {
     await dispatch({ method: "POST", url, headers: { ...__authHeaders } });
     await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "" });
     await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "text/plain" }, body: "{}" });
+    break;
+  }
+  // The missing-parameter probe: the first instance command the tier sent a
+  // ONE-key body to, re-sent \`{}\` against an absent id.  A required parameter
+  // left out is refused at the wire — 422 with one \`errors[]\` entry,
+  // \`{ pointer: "/<key>", message: "Required" }\`, before the row is loaded — on
+  // every backend; elixir used to hand the nil to the operation body and answer
+  // 500.  One key, so the entry list has one order on every backend.
+  for (let i = 0; i < __wire.length; i++) {
+    const e = __wire[i];
+    if (e.method !== "POST" || e.status < 200 || e.status >= 300) continue;
+    let sent;
+    try { sent = JSON.parse(__bodies[i] ?? ""); } catch { continue; }
+    if (sent === null || typeof sent !== "object" || Array.isArray(sent) || Object.keys(sent).length !== 1) continue;
+    let u;
+    try { u = new URL(__urls[i]); } catch { continue; }
+    const m = /^(\\/api\\/[^/]+)\\/([^/]+)\\/([^/]+)$/.exec(u.pathname);
+    if (!m || m[1] === "/api/workflows" || m[1] === "/api/projections") continue;
+    const url = u.origin + m[1] + "/" + __absentKey(m[2]) + "/" + m[3];
+    await dispatch({ method: "POST", url, headers: { ...__authHeaders, "content-type": "application/json" }, body: "{}" });
     return;
   }
 };

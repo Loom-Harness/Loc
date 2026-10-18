@@ -1886,10 +1886,18 @@ nothing and the test passes vacuously.
   java `config/EmptyJsonBodyFilter.java` plus a body-reading zero-arg route, and
   the Phoenix `BodyParser`. The 415 `detail` is one constant,
   `UNSUPPORTED_MEDIA_TYPE_DETAIL` in `src/ir/util/openapi-errors.ts`.
-- **Not part of the guarantee (named).** On elixir a parametered command's empty
-  body answers 500 — the same 500 an explicit `{}` earns, because elixir does
-  not wire-validate operation params. Empty ≡ `{}` holds; the `{}` answer is
-  the open defect.
+- **An absent required field is one 422 everywhere.** A command WITH
+  parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
+  422 with one `errors[]` entry per absent key —
+  `{ "pointer": "/reason", "message": "Required" }` — before the row is
+  loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  the nil to the operation body and answer **500**; the `__require_params`
+  controller plug refuses it first. The sentence was each framework's own
+  (node `Invalid input: expected string, received undefined`, python `Field
+  required`, .NET `The reason field is required.`, java `must not be null`); it
+  is now `MISSING_FIELD_MESSAGE` (`src/ir/util/openapi-errors.ts`) on all five,
+  create and update included. A `create` with no input fields publishes an
+  optional `requestBody` like a parameterless command does.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden
   `__emptyCommandBodyProbes` (`test/behavioral/wire-differential.mjs`) replays
