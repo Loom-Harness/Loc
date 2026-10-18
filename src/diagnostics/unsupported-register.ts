@@ -713,7 +713,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:221",
+    site: "src/ir/validate/checks/test-checks.ts:242",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -727,7 +727,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:404",
+    site: "src/ir/validate/checks/test-checks.ts:426",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,

@@ -21,6 +21,10 @@ import {
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
+import {
+  mikroOrmOnlyContexts,
+  validatePersistedCollectionPositions,
+} from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -279,6 +283,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // Which backend (needsDb) platforms host each context — drives the TPH
   // storage gate (sharedTable is implemented for Hono only, v1).
   const backendPlatformsByContext = backendPlatformsHostingEachContext(loom);
+  const mikroOnly = mikroOrmOnlyContexts(loom);
   // Per-context checks apply uniformly whether the context is
   // bundled in a system's modules or sits at the top level.
   for (const c of allContexts(loom)) {
@@ -331,6 +336,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
+    validatePersistedCollectionPositions(c, diags, mikroOnly.has(c.name));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

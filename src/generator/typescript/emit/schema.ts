@@ -358,6 +358,10 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
     if (f.name === proj.correlationField) {
       const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
       lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+      // A reference collection on a state row is one jsonb id-array column
+      // (the shared migration's `JSONB NULL`) — there is no join table.
+      lines.push(`  ${f.name}: jsonb("${snake(f.name)}").$type<string[]>(),`);
     } else {
       // Non-key columns NULLABLE — a fold upserts only the fields its event
       // carries, so a row is partial until every contributing event arrives.
@@ -621,6 +625,11 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
     if (f.name === wf.correlationField) {
       const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
       lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+      // A reference collection on a saga row is one jsonb id-array column
+      // (the shared migration's `JSONB`) — there is no join table.
+      const not = f.optional ? "" : ".notNull()";
+      lines.push(`  ${f.name}: jsonb("${snake(f.name)}").$type<string[]>()${not},`);
     } else {
       lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
     }

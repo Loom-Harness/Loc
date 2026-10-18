@@ -492,6 +492,34 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An OPTIONAL reference collection: the schema has no optional form of a
+  // join-table set, and JPA crashed demanding an association for it.
+  "loom.collection-field-unpersisted": `
+system OptRefColl {
+  subdomain S { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Order with crudish {
+      code: string
+      tags: Tag id[]?
+    }
+  } }
+}`,
+  // A query-time projection selecting a \`datetime - datetime\` span: a
+  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
+  "loom.projection-select-duration": `
+system SpanSelect {
+  subdomain S { context C {
+    aggregate Order with crudish {
+      code: string
+      openedAt: datetime
+      closedAt: datetime
+    }
+    projection Spans {
+      from Order as o
+      select code = o.code, span = o.closedAt - o.openedAt
+    }
+  } }
+}`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
   // branch text ("items") is dropped.  The warning says so where it happens.
