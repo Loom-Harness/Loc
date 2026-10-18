@@ -180,8 +180,13 @@ export function renderJavaContextIntegrationTest(
     `import org.springframework.test.context.DynamicPropertyRegistry;`,
     `import org.springframework.test.context.DynamicPropertySource;`,
     ``,
+    // The same domain wildcards the unit-test emitter imports: a test body
+    // constructs value objects (`new Berth(...)`) and names enum constants
+    // (`Size.Large`), and both packages always exist.
     `import ${basePkg}.domain.common.*;`,
+    `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
     ``,
     `@SpringBootTest`,
     `public class ${className} {`,
