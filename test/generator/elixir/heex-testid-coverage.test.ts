@@ -72,7 +72,17 @@ describe("HEEx primitive — testid: emits data-testid (renderPrimitive)", () =>
   // the emitted HEEx.  The regex anchors `data-testid="x"` after
   // an opening tag (`<...>`) — guards against the pre-fix shape
   // where the attribute name was bare `testid` instead.
-  const cases: ReadonlyArray<{ name: string; dsl: string; tagRx: RegExp }> = [
+  const cases: ReadonlyArray<{
+    name: string;
+    dsl: string;
+    tagRx: RegExp;
+    /** The primitive renders through a pack function component that DECLARES
+     *  `attr :testid` (and renders it as `data-testid={@testid}` on its root)
+     *  with no `:global` rest — so the call site must pass `testid=`, not
+     *  `data-testid=` (an undefined attribute there is dropped with a compile
+     *  warning, fatal under `mix compile --warnings-as-errors`). */
+    componentTestid?: true;
+  }> = [
     {
       name: "Stack",
       dsl: `Stack { testid: "s", Text { "x" } }`,
@@ -80,11 +90,13 @@ describe("HEEx primitive — testid: emits data-testid (renderPrimitive)", () =>
     },
     // Card / Paper render through the PACK's `<.card>` function component (the
     // card surface is design vocabulary — daisyUI `card card-body` vs neutral
-    // Tailwind), not a bare `<div>`, so their tag pin names the component.
+    // Tailwind), not a bare `<div>`, so their tag pin names the component —
+    // and its own `testid` attr, which the component renders as `data-testid`.
     {
       name: "Card",
       dsl: `Card { testid: "c", Text { "x" } }`,
-      tagRx: /<\.card [^>]*data-testid="c"/,
+      tagRx: /<\.card [^>]*(?<!-)testid="c"/,
+      componentTestid: true,
     },
     {
       name: "Button",
@@ -112,7 +124,8 @@ describe("HEEx primitive — testid: emits data-testid (renderPrimitive)", () =>
     {
       name: "Paper",
       dsl: `Paper { testid: "p", Text { "x" } }`,
-      tagRx: /<\.card [^>]*data-testid="p"/,
+      tagRx: /<\.card [^>]*(?<!-)testid="p"/,
+      componentTestid: true,
     },
     {
       name: "Grid",
@@ -126,11 +139,22 @@ describe("HEEx primitive — testid: emits data-testid (renderPrimitive)", () =>
     },
   ];
 
-  for (const { name, dsl, tagRx } of cases) {
+  for (const { name, dsl, tagRx, componentTestid } of cases) {
     it(`${name}: testid: "x" → data-testid="x"`, async () => {
       const files = await generateSystemFiles(phoenixSystem(dsl));
       const heex = findLandingHeex(files);
       expect(heex).toMatch(tagRx);
+      if (componentTestid) {
+        // The component's declared attr, never the raw (undeclared) HTML one…
+        expect(heex).not.toMatch(/<\.card [^>]*data-testid=/);
+        // …which the pack's `card/1` renders as `data-testid` on its root.
+        const core = [...files.entries()].find(([k]) => k.endsWith("core_components.ex"))?.[1];
+        expect(core).toMatch(
+          /attr :testid, :string, default: nil\n {2}slot :inner_block\n\n {2}def card/,
+        );
+        expect(core).toContain("data-testid={@testid}");
+        return;
+      }
       // Anti-regression: the bare `testid="x"` attribute (the pre-fix
       // shape) must NOT appear — that's the exact bug this slice fixes.
       // We allow `data-testid="x"` (the new shape) so a substring-style

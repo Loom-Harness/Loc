@@ -325,5 +325,8 @@ export interface PlatformSurface extends PlatformDescriptor {
   debugLaunch?(args: {
     deployable: DeployableIR;
     slug: string;
+    /** The deployable's hosted contexts — a surface whose artefact name
+     *  depends on the declared types (the .NET root namespace) reads them. */
+    contexts: EnrichedBoundedContextIR[];
   }): Record<string, unknown> | undefined;
 }
