@@ -43,7 +43,7 @@ import {
 } from "./audit-history.js";
 import { javaNotFoundThrow } from "./common.js";
 import { exprsCallDomainService } from "./domain-service.js";
-import { claimStampsFor } from "./entity.js";
+import { hookStampsFor } from "./entity.js";
 import {
   declaredFinds,
   isPagedAutoAll,
@@ -216,7 +216,7 @@ export function renderJavaService(
   const docClaimCreateStamps =
     agg.savingShape === "document" &&
     agg.persistedAs !== "eventLog" &&
-    claimStampsFor(agg, "create").length > 0;
+    hookStampsFor(agg, "create").length > 0;
   const auditCreate = !!createAction?.audited;
   const auditDestroy = !!agg.canonicalDestroy?.audited;
   // create: before is JSON null (NullNode → the `null` token, satisfying the
@@ -292,7 +292,7 @@ export function renderJavaService(
         // its claim stamps (`tenantOwned`'s tenantId/dataKey) cannot ride an
         // @PrePersist hook — entity.ts emits them as a plain `_stampOnCreate()`
         // and the call belongs here, mirroring python's route calling
-        // `_stamp_on_create`.  Both halves read `claimStampsFor` so a method
+        // `_stamp_on_create`.  Both halves read `hookStampsFor` so a method
         // without a caller (stamps nothing) or a caller without a method (does
         // not compile) cannot drift apart (§89).
         docClaimCreateStamps ? `        aggregate._stampOnCreate();` : null,

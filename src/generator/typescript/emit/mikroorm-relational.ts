@@ -39,7 +39,14 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited, insertStampEntries, updateStampEntries } from "./audit-stamp.js";
+import {
+  aggregateIsAudited,
+  insertStampEntries,
+  stampImportLine,
+  stampInsertCall,
+  stampUpdateCall,
+  updateStampEntries,
+} from "./audit-stamp.js";
 import {
   MIKRO_OUTBOX_DRAIN_LINES,
   MIKRO_OUTBOX_RECORD_LINE,
@@ -581,7 +588,7 @@ export function renderMikroRepository(
           createOnly.length > 0
             ? `, { onConflictExcludeFields: [${createOnly.map((f) => JSON.stringify(f)).join(", ")}] }`
             : "";
-        return `    await em.upsert(${row}, stampInsert(${saveProjection})${opts});`;
+        return `    await em.upsert(${row}, ${stampInsertCall(agg, saveProjection)}${opts});`;
       })()
     : `    await em.upsert(${row}, ${saveProjection});`;
 
@@ -612,8 +619,8 @@ export function renderMikroRepository(
     ...provEntries,
     { fieldName: "version", expr: "expected + 1" },
   ]);
-  const insertValues = audited ? `stampInsert(${insertProjection})` : insertProjection;
-  const updateSet = audited ? `stampUpdate(${updateData})` : updateData;
+  const insertValues = audited ? stampInsertCall(agg, insertProjection) : insertProjection;
+  const updateSet = audited ? stampUpdateCall(agg, updateData) : updateData;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
@@ -936,7 +943,7 @@ export function renderMikroRepository(
       // Persist-time audit stamping helper — pulled in only when this
       // aggregate's `save()` stamps (audited).  Stamps the audit columns from
       // the ambient request principal at the upsert (db/audit-stamp.ts).
-      audited && `import { stampInsert${versioned ? ", stampUpdate" : ""} } from "../audit-stamp";`,
+      audited && stampImportLine(agg, { update: versioned }),
       // The aggregate root + its contained entity parts (same domain module).
       `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,

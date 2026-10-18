@@ -3302,6 +3302,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
     `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+  "loom.stamp-reads-aggregate-unsupported": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    name: unknown;
+    field: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts document-shaped aggregate ` +
+    `'${p.ctxName}.${p.name}' whose lifecycle stamp of '${p.field}' reads the aggregate itself ` +
+    `(a field, derived value or function of '${p.name}'). This backend merges a document ` +
+    `aggregate's stamps into the request attributes before any record exists, so there is ` +
+    `nothing to evaluate the value against. Compute the value in the create/operation body ` +
+    `instead, keep the stamp to values that do not read the aggregate (now(), currentUser, ` +
+    `literals), or store the aggregate relationally.`,
   "loom.dapper-unsupported": (p: { name: unknown; subject: unknown; reason: unknown }) =>
     `Deployable '${p.name}' selects 'persistence: dapper', but ${p.subject} ${p.reason}. ` +
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +

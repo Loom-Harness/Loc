@@ -293,18 +293,19 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   `src/generator/dotnet/emit/auditable-interceptor.tpl.ts`.  Note
   that this means stamps fire at *save time*, after the operation
   body has already run.
-- **Java / JPA** — context stamps are emitted as entity
-  `_stampOnCreate` / `_stampOnUpdate` hooks (one arm per stamping
-  rule) with the service calling them on create / update; support
-  is gated by `validateJavaStampSupport`.
-- **Hono** (`node`) — context stamps are emitted as `_stampOnCreate` /
-  `_stampOnUpdate` methods on the aggregate (`this._<field> = <value>`)
-  that the route handler calls right before save.  A `now()` value renders
-  to `new Date()`; a `currentUser` value resolves to the principal id
-  (`currentUser.<idField>`), threaded from the request scope (the
-  `auth/middleware.ts` principal).  Support is gated by
-  `validateNodeStampSupport` (a principal stamp without auth, or any stamp on
-  an event-sourced aggregate, stays a fail-fast `loom.node-stamp-unsupported`).
+- **Java / JPA** — a bare `now()` / bare `currentUser` stamp rides Spring
+  Data auditing (`@CreatedDate`/`@LastModifiedDate`,
+  `@CreatedBy`/`@LastModifiedBy`); every other value (a claim read, or a
+  computed value such as `now() + hours(slaHours())`) is assigned in the
+  entity's `@PrePersist _stampOnCreate()` / `@PreUpdate _stampOnUpdate()`
+  hooks against `this`.
+- **Hono** (`node`) — context stamps are applied persist-time by
+  `db/audit-stamp.ts`, which holds one `stampInsert<Agg>` / `stampUpdate<Agg>`
+  pair per stamping aggregate; the repository `save()` wraps its insert row
+  and update set in its own aggregate's pair.  A `now()` value renders to
+  `new Date()`; a bare `currentUser` value resolves to the ambient
+  `ctx.actorId`; a value reading the aggregate renders against the domain
+  instance the save site passes (`aggregate.slaHours()`).
 - **Python / FastAPI** — context stamps are applied right before the
   repository persist: the domain class gets `_stamp_on_create` /
   `_stamp_on_update` methods (`now()` → `datetime.now(UTC)`; a `currentUser`
