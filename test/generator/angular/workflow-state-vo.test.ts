@@ -22,7 +22,7 @@ function source(claimFields: string): string {
         workflow Review {
           claim: Claim id
           address: Address?
-          notes: Note[]
+          note: Note?
           create(e: ClaimFiled) by e.claim { }
         }
       } }
@@ -55,7 +55,7 @@ describe("Angular workflow instance row: value-object state fields (F3)", () => 
     expect(mod).toMatch(
       /export interface ReviewInstanceRow \{[^}]*address: AddressResponse \| null;/,
     );
-    expect(mod).toMatch(/export interface ReviewInstanceRow \{[^}]*notes: NoteResponse\[\];/);
+    expect(mod).toMatch(/export interface ReviewInstanceRow \{[^}]*note: NoteResponse \| null;/);
     expect(mod).not.toMatch(/address: unknown/);
   });
 
