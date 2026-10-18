@@ -109,6 +109,12 @@ export const LogEvents = {
     fields: [],
   },
   authDevStubRegistered: { event: "auth_dev_stub_registered", level: "warn", fields: [] },
+  // The OIDC verifier refused a presented token (bad signature / iss / exp /
+  // aud, or a discovery / JWKS failure) and answers 401.  Every verifier
+  // swallows the exception to keep the 401 a 401 (never a 500), which used to
+  // leave a misconfigured `aud` / issuer with no trace in the log at all —
+  // `debug`, because an expired token is routine traffic, not an incident.
+  authTokenRejected: { event: "auth_token_rejected", level: "debug", fields: ["reason"] },
 
   // ─── domain — info (business narrative) ──────────────────────────────
   aggregateCreated: { event: "aggregate_created", level: "info", fields: ["aggregate", "id"] },
