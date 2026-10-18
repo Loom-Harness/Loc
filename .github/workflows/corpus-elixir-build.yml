@@ -14,6 +14,12 @@ name: Corpus compile gate (Elixir)
 # feature's generated plain-Ecto/Phoenix project is `mix compile
 # --warnings-as-errors`-checked inside the hexpm/elixir image, per PR.
 #
+# That compile is MIX_ENV=prod, which never reads `test/` — so the same cell
+# then runs the project's emitted ExUnit suite (the elixir half of the
+# fixture's `test` blocks) under `MIX_ENV=test mix test --warnings-as-errors`
+# against the Postgres sidecar.  Known-failing suites are ratcheting entries
+# in the test's ELIXIR_TEST_WAIVERS (a waived suite that passes fails as stale).
+#
 # The generate + compile loop lives in `test/e2e/corpus-elixir-build.test.ts`
 # (entrypoint `npm run test:elixir-corpus`); the feature list is computed inside
 # the test from the shared manifest (test/fixtures/corpus/manifest.ts, key
@@ -167,7 +173,9 @@ jobs:
 
   # One job PER corpus feature (sharded).  A fully cold cell is ONE feature:
   # npm ci + toolchain build, generate, then a docker `mix deps.get` + `mix
-  # compile --warnings-as-errors` (~2-3 min) — always fits the timeout.
+  # compile --warnings-as-errors` + migrate (~2-3 min), then a second docker
+  # run that compiles deps + app under MIX_ENV=test and runs `mix test
+  # --warnings-as-errors` (~2-3 min more) — fits the timeout with headroom.
   corpus-elixir:
     needs: configure
     runs-on: ubuntu-latest
@@ -175,7 +183,7 @@ jobs:
       # Surface every broken feature rather than aborting on the first.
       fail-fast: false
       matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     name: ${{ matrix.feature }}
     steps:
       - uses: actions/checkout@v6
@@ -214,7 +222,7 @@ jobs:
       # `--passWithNoTests` so a feature the manifest excludes from `vanilla`
       # (or one in ELIXIR_COMPILE_SKIP) yields an empty `it.each` and still
       # passes — the test's filter, not the matrix, decides what compiles.
-      - name: mix compile this corpus feature (Elixir/Phoenix)
+      - name: mix compile + mix test this corpus feature (Elixir/Phoenix)
         env:
           LOOM_ELIXIR_BUILD: "1"
           LOOM_CORPUS_ELIXIR_CASE: ${{ matrix.feature }}
@@ -225,8 +233,9 @@ jobs:
         run: |
           echo "## Corpus Elixir compile failed: ${{ matrix.feature }}" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'See the "mix compile this corpus feature" step above for the captured `mix deps.get` + `mix compile --warnings-as-errors` diagnostics.' >> $GITHUB_STEP_SUMMARY
-          echo 'This cell generates `test/fixtures/corpus/${{ matrix.feature }}.ddd` on `platform: elixir` compiles it in the hexpm/elixir image and applies its migrations to a Postgres sidecar via `test/e2e/corpus-elixir-build.test.ts` (LOOM_CORPUS_ELIXIR_CASE=${{ matrix.feature }}).' >> $GITHUB_STEP_SUMMARY
+          echo 'See the "mix compile + mix test this corpus feature" step above for the captured `mix compile --warnings-as-errors`, `mix ecto.migrate` and `mix test --warnings-as-errors` diagnostics.' >> $GITHUB_STEP_SUMMARY
+          echo 'This cell generates `test/fixtures/corpus/${{ matrix.feature }}.ddd` on `platform: elixir`, compiles it in the hexpm/elixir image, applies its migrations to a Postgres sidecar, and runs its emitted ExUnit suite under `MIX_ENV=test mix test --warnings-as-errors` via `test/e2e/corpus-elixir-build.test.ts` (LOOM_CORPUS_ELIXIR_CASE=${{ matrix.feature }}).' >> $GITHUB_STEP_SUMMARY
+          echo 'A "STALE ELIXIR_TEST_WAIVERS entry" failure means a waived suite now passes: delete its line in that file (and lower the pin in test/platform/allowlist-ratchet.test.ts).' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix

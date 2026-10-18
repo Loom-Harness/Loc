@@ -24,7 +24,8 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
 
@@ -115,17 +116,17 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string
         // row) before mutating + re-saving.
         const decl = reassigned.has(s.name) ? "let" : "const";
         return [
-          `${decl} ${s.name} = ${create.agg.name}.${create.method}(${input});`,
-          `await ${repoHandle(create.agg.name)}.save(${s.name});`,
+          `${decl} ${escapeTsIdent(s.name)} = ${create.agg.name}.${create.method}(${input});`,
+          `await ${repoHandle(create.agg.name)}.save(${escapeTsIdent(s.name)});`,
         ];
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
         const args = find.args.map((a) => renderTsExpr(a)).join(", ");
         const call = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
-        return [`const ${s.name} = ${find.nullable ? `(${call})!` : call};`];
+        return [`const ${escapeTsIdent(s.name)} = ${find.nullable ? `(${call})!` : call};`];
       }
-      return [`const ${s.name} = ${renderTsExpr(s.expr)};`];
+      return [`const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr)};`];
     }
     case "expression": {
       // A mutating operation on a let-bound aggregate instance → RELOAD fresh,
@@ -196,6 +197,12 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   const usesIds = /\bIds\./.test(bodyStr);
   // A money literal or a money-typed matcher renders `new Decimal(…)`.
   const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
+  // A body that constructs a value object (`let a = Berth { … }`) names its
+  // class — import it, narrowed by the same body scan, as the unit-test
+  // emitter does; without it the file fails `tsc` with TS2304.
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
   // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read).  A workflow-free context has nothing
@@ -216,6 +223,9 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
   if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
+  if (voNames.length > 0) {
+    lines.push(`import { ${voNames.join(", ")} } from "../domain/value-objects";`);
+  }
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(
