@@ -405,3 +405,127 @@ system FieldOps {
     expect(files.get("docker-compose.yml")!).not.toContain("OIDC_POST_LOGIN_REDIRECT:");
   });
 });
+
+// ---------------------------------------------------------------------------
+// D8 of `eval-claims/FIX-PLAN.md` — the bundled realm must be USABLE under the
+// default `enforcement: denyByDefault`, where every client-reachable member is
+// permission-gated.  Four separate gaps made it a wall:
+//   1. no seeded principal held any declared permission;
+//   2. an id-typed claim was seeded `demo-agent-id`, which no backend's id
+//      parse accepts (the .NET / java id types are UUID-backed);
+//   3. the user profile dropped every attribute an operator added through the
+//      admin console / API (Keycloak 24+ `unmanagedAttributePolicy` unset);
+//   4. `audience: env(…)` got no audience mapper, so `aud` stayed `account`
+//      and no `OIDC_AUDIENCE` value could match.
+// ---------------------------------------------------------------------------
+
+interface RealmDoc {
+  roles: { realm: { name: string }[] };
+  clients: {
+    clientId: string;
+    protocolMappers?: { protocolMapper: string; config: Record<string, string> }[];
+  }[];
+  users: { username: string; realmRoles?: string[]; attributes?: Record<string, string[]> }[];
+  components?: Record<string, { providerId: string; config: Record<string, string[]> }[]>;
+}
+
+function claimsSystem(user: string, extraAuth = "", audience = ""): string {
+  return `
+system Claims {
+  user { ${user} }
+  auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")${audience} }${extraAuth} }
+  subdomain Desk {
+    permissions { manageAgents  payClaims }
+    context A {
+      aggregate Agent with crudish { name: string }
+      repository Agents for Agent { }
+    }
+  }
+  storage primary { type: postgres }
+  resource a { for: A, kind: state, use: primary }
+  deployable api { platform: node contexts: [A] dataSources: [a] auth: required port: 3000 }
+}`;
+}
+
+async function realmFor(src: string): Promise<RealmDoc> {
+  return JSON.parse((await filesFor(src)).get("keycloak/realm.json")!) as RealmDoc;
+}
+
+const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+describe("bundled dev Keycloak realm — usable under denyByDefault (D8)", () => {
+  it("seeds `demo-admin` with every declared permission on the flat claim; `demo` keeps none", async () => {
+    const realm = await realmFor(claimsSystem("id: string  role: string  permissions: string[]"));
+    const demo = realm.users.find((u) => u.username === "demo")!;
+    const admin = realm.users.find((u) => u.username === "demo-admin");
+    expect(admin, "an allow-path principal is seeded").toBeDefined();
+    expect(admin!.attributes?.permissions).toEqual(["desk.manageAgents", "desk.payClaims"]);
+    // `demo`'s denial contract (see "emits a mapper + a seeded attribute …").
+    expect(demo.attributes?.permissions).toBeUndefined();
+  });
+
+  it("grants the permissions as realm roles when `permissions` reads realm_access.roles", async () => {
+    const realm = await realmFor(
+      claimsSystem(
+        "id: string  permissions: string[]",
+        `\n    claims: { permissions: "realm_access.roles" }`,
+      ),
+    );
+    const admin = realm.users.find((u) => u.username === "demo-admin")!;
+    expect(admin.realmRoles).toEqual(
+      expect.arrayContaining(["desk.manageAgents", "desk.payClaims"]),
+    );
+    expect(realm.roles.realm.map((r) => r.name)).toEqual(
+      expect.arrayContaining(["desk.manageAgents", "desk.payClaims"]),
+    );
+    // `demo`'s realm roles — the claim the denial gate reads — stay ungranted.
+    const demo = realm.users.find((u) => u.username === "demo")!;
+    expect(demo.realmRoles).not.toContain("desk.manageAgents");
+  });
+
+  it("seeds no `demo-admin` when the system declares no permission", async () => {
+    const realm = await realmFor(system(KEYCLOAK));
+    expect(realm.users.map((u) => u.username)).toEqual(["demo"]);
+  });
+
+  it("seeds an id-typed claim with a UUID, never `demo-<name>`", async () => {
+    const realm = await realmFor(
+      claimsSystem("id: string  agentId: Agent id?  seat: int  vip: bool"),
+    );
+    const attrs = realm.users.find((u) => u.username === "demo")!.attributes!;
+    expect(attrs.agentId).toEqual([ZERO_UUID]);
+    expect(attrs.seat).toEqual(["0"]);
+    expect(attrs.vip).toEqual(["false"]);
+  });
+
+  it("enables the user profile's unmanagedAttributePolicy (attributes added later survive)", async () => {
+    const realm = await realmFor(claimsSystem("id: string  role: string"));
+    const up = realm.components?.["org.keycloak.userprofile.UserProfileProvider"];
+    expect(up).toHaveLength(1);
+    expect(up![0]!.providerId).toBe("declarative-user-profile");
+    const config = JSON.parse(up![0]!.config["kc.user.profile.config"]![0]!) as {
+      unmanagedAttributePolicy: string;
+      attributes: { name: string }[];
+    };
+    expect(config.unmanagedAttributePolicy).toBe("ENABLED");
+    // The import REPLACES the default profile, so the built-ins must be restated.
+    expect(config.attributes.map((a) => a.name)).toEqual([
+      "username",
+      "email",
+      "firstName",
+      "lastName",
+    ]);
+  });
+
+  it("an `env(…)` audience mints the client's own id as `aud`", async () => {
+    const realm = await realmFor(
+      claimsSystem("id: string", "", `  audience: env("OIDC_AUDIENCE")`),
+    );
+    const client = realm.clients[0]!;
+    const aud = (client.protocolMappers ?? []).filter(
+      (m) => m.protocolMapper === "oidc-audience-mapper",
+    );
+    expect(aud).toHaveLength(1);
+    expect(aud[0]!.config["included.client.audience"]).toBe(client.clientId);
+  });
+});

@@ -30,13 +30,14 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
   combineWhere,
   findUsesPrincipal,
+  listUsesPrincipal,
   vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
@@ -300,26 +301,55 @@ function renderRepository(
   // stays unpaged — an honest gate; see renderBaseReader.)
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
+  // The LIST read's effective predicate.  A DECLARED `find all(): X[] where
+  // <pred>` is not a custom find (`customFindsOf` drops `all` — `list` IS its
+  // read), so its `where` must be AND-ed in here or the list silently returns
+  // every row (eval-closure item 2).  Its `ignoring` stance narrows the
+  // capability filter exactly as a named find's does (`renderFindFn`); the TPH
+  // `kind` discriminator is never bypassable.  A synthesized `all` carries no
+  // filter and no bypass, so `listEff === capEff` (byte-identical).
+  const listPrincipal = listUsesPrincipal(agg, allFind);
+  const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
+  const listCap = allBypass
+    ? combineWhere(
+        kindFilter,
+        vanillaCapabilityFilter(agg, contextModule, {
+          actor: principal,
+          bypass: { bypassAll: allFind?.bypassAll, bypassCaps: allFind?.bypassCaps },
+        }),
+      )
+    : capEff;
+  const allWhere = allFind?.filter
+    ? renderExpr(allFind.filter, { thisName: "record", contextModule, filterArgs: true })
+    : null;
+  const listEff = combineWhere(allWhere, listCap);
   const ectoImport =
-    finds.length > 0 || capEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
+    finds.length > 0 || capEff || listEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
-  const listHead = principal ? `def list(${actorParam}) do` : "def list do";
-  const listSpec = principal
+  // The LIST head threads the actor when its read references the principal —
+  // a principal capability filter OR a declared `all` predicate reading
+  // `currentUser`.  The arity is kept whenever it is threaded (callers pass the
+  // actor positionally); only the NAME underscores when an `ignoring` bypass
+  // dropped every principal reference from the body (`--warnings-as-errors`).
+  const listActorParam = `${listEff && /\bcurrent_user\b/.test(listEff) ? "" : "_"}current_user \\\\ nil`;
+  const listHead = listPrincipal ? `def list(${listActorParam}) do` : "def list do";
+  const listSpec = listPrincipal
     ? `@spec list(map() | nil) :: {:ok, [${aggModule}.t()]} | {:error, term()}`
     : `@spec list() :: {:ok, [${aggModule}.t()]} | {:error, term()}`;
-  // `list`: bare `Repo.all(<Agg>)` unless a capability filter scopes it.
+  // `list`: bare `Repo.all(<Agg>)` unless a capability filter (or a declared
+  // `all` predicate) scopes it.
   // `Repo.preload/2` accepts the whole list, so the value-collection has_many
   // and reference-collection many_to_many associations come back loaded (and
   // ordinal-ordered, for value collections) in one round-trip.
   const listBody =
-    (capEff
-      ? `from(record in ${aggModule}, where: ${capEff}) |> Repo.all()`
+    (listEff
+      ? `from(record in ${aggModule}, where: ${listEff}) |> Repo.all()`
       : `Repo.all(${aggModule})`) + preload;
   // The paged `list` block (whole spec + def).  The plain block is byte-identical
   // to before the flip; only a paged auto-findAll takes the envelope path.
-  const listQuery = capEff
-    ? `from(record in ${aggModule}, where: ${capEff})`
+  const listQuery = listEff
+    ? `from(record in ${aggModule}, where: ${listEff})`
     : `from(record in ${aggModule})`;
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
@@ -330,10 +360,10 @@ function renderRepository(
     `page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}`,
     `sort \\\\ "id"`,
     `dir \\\\ "asc"`,
-    ...(principal ? ["current_user \\\\ nil"] : []),
+    ...(listPrincipal ? [listActorParam] : []),
   ].join(", ");
   const listBlock = listPaged
-    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${principal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
+    ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
     total = Repo.aggregate(query, :count, :id)
@@ -569,7 +599,7 @@ function renderFindFn(
     }),
   );
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
   // A `paged` find (`find recent(): Order paged`) returns the cross-backend
   // paged WIRE ENVELOPE — `%{items, page, page_size, total, total_pages}` — not a
   // bare list.  It threads `page` / `page_size` (1-based, with the shared
@@ -657,7 +687,9 @@ function renderFindFn(
     // Convention-finds: per-param `record.<name> == ^<name>` predicate,
     // joined with `and`.  Matches the source-level convention (see
     // examples/sales.ddd's `find byCustomer(customerId: Customer id)`).
-    whereExpr = argNames.map((n) => `record.${n} == ^${n}`).join(" and ");
+    whereExpr = f.params
+      .map((p) => `record.${snake(p.name)} == ^${escapeElixirIdent(snake(p.name))}`)
+      .join(" and ");
   }
   // AND the aggregate's capability filter into the find's own predicate
   // (a find must honour the same soft-delete / scoping the CRUD reads do).

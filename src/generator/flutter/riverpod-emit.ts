@@ -66,9 +66,16 @@ import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUp } from "../_walker/give-up.js";
 import type { WalkerTarget } from "../_walker/target.js";
-import { emitExpr, tryRenderNavigateCall, type WalkContext } from "../_walker/walker-core.js";
+import {
+  emitExpr,
+  propagateChildFlags,
+  targetIdent,
+  tryRenderNavigateCall,
+  type WalkContext,
+} from "../_walker/walker-core.js";
 import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
+import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { dartNavigateArgs, flutterTarget } from "./flutter-target.js";
 import { flutterPack } from "./pack.js";
@@ -127,10 +134,14 @@ export function stateCtx(opts: {
    *  resolver falls back to `/<page-snake>`, which is the router's key only by
    *  coincidence (a `route: "/products/:id"` page would get `/product_detail`). */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** The walker target — `flutterTarget` by default; a component passes
+   *  `flutterComponentTarget`, whose identifier spelling also steers clear of
+   *  the widget/`State` members. */
+  target?: WalkerTarget;
 }): WalkContext {
   const { stateNames, derivedNames, aggregatesByName, locals } = opts;
   return {
-    target: flutterTarget,
+    target: opts.target ?? flutterTarget,
     imports: new Map(),
     pack: flutterPack(),
     paramNames: new Set<string>(opts.paramNames ?? []),
@@ -185,12 +196,14 @@ export function stateCtx(opts: {
  *    (`const SizedBox.shrink() / * … * /`) because it stands in markup-child
  *    position; in a method body that is an expression with no `;`, i.e. Dart
  *    that does not parse.  A method-body give-up is a `//` line instead. */
-const notifierStmtTarget: WalkerTarget = {
-  ...flutterTarget,
-  renderNavigate: (routeTemplate, args, stateExpr) =>
-    `navigateTo(${dartNavigateArgs(routeTemplate, args, stateExpr)})`,
-  renderComment: (text: string) => `// ${text}`,
-};
+function notifierStmtTarget(base: WalkerTarget): WalkerTarget {
+  return {
+    ...base,
+    renderNavigate: (routeTemplate, args, stateExpr) =>
+      `navigateTo(${dartNavigateArgs(routeTemplate, args, stateExpr)})`,
+    renderComment: (text: string) => `// ${text}`,
+  };
+}
 
 /** Fold a (possibly nested) state-write target into the immutable `copyWith`
  *  rebuild.  Level `i` sets `seg[i]` on receiver `state.<seg[0..i)>`, built
@@ -201,6 +214,40 @@ const notifierStmtTarget: WalkerTarget = {
  *  `copyWith` (emitted by `dart-model-emit.ts`). */
 function nestedCopyWith(seg: readonly string[], value: string): string {
   return copyWithChain("state", seg, value);
+}
+
+/** The scope AFTER a `let`: its name binds as a local, so a later read of it
+ *  resolves to the `final` it declared — even when a state cell, a derived or
+ *  a param shares the name (`let count = 100  count := count + 1`).  Without it
+ *  the read fell through to `state.count`: a silent wrong value, the local
+ *  dead.  Every other statement leaves the scope unchanged. */
+function scopeAfter(stmt: StmtIR, ctx: WalkContext): WalkContext {
+  if (stmt.kind !== "let") return ctx;
+  return {
+    ...ctx,
+    lambdaParams: new Map([...ctx.lambdaParams, [stmt.name, targetIdent(ctx, stmt.name)]]),
+  };
+}
+
+/** Render an action / arm statement list in order through `render` (default
+ *  `renderNotifierStmt`), threading each `let` into the scope of the
+ *  statements that follow it (`scopeAfter`).  Flags a statement sets on the
+ *  scoped copy (`usesNavigate`, …) are OR'd back into `ctx`. */
+export function renderNotifierBody(
+  stmts: readonly StmtIR[],
+  ctx: WalkContext,
+  render: (s: StmtIR, scoped: WalkContext) => string[] = (s, scoped) => [
+    renderNotifierStmt(s, scoped),
+  ],
+): string[] {
+  let cur = ctx;
+  const out: string[] = [];
+  for (const s of stmts) {
+    out.push(...render(s, cur));
+    if (cur !== ctx) propagateChildFlags(ctx, cur);
+    cur = scopeAfter(s, cur);
+  }
+  return out;
 }
 
 /** Render one action-body statement into a Notifier-method line.  A state write
@@ -221,7 +268,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       const rhs = emitExpr(stmt.value, ctx);
       // The current value at the (possibly nested) target — the read the compound
       // is relative to (`state.order.items`).
-      const cur = `state.${seg.join(".")}`;
+      const cur = `state.${seg.map(dartMember).join(".")}`;
       // A collection target appends / removes-by-value on the Dart list; a scalar
       // target is an arithmetic compound (`+`/`-`).  `stmt.collection` (set at
       // lowering) is the discriminator — the same flag the JS/F# frontends read.
@@ -234,7 +281,10 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       return `state = ${nestedCopyWith(seg, value)};`;
     }
     case "let":
-      return `final ${stmt.name} = ${emitExpr(stmt.expr, ctx)};`;
+      // Spelled through the target seam (`dartMember`; a component's also
+      // avoids widget/`State` members) — the same spelling `notifierBody`
+      // binds for the statements that follow.
+      return `final ${targetIdent(ctx, stmt.name)} = ${emitExpr(stmt.expr, ctx)};`;
     case "expression":
       return `${emitExpr(stmt.expr, ctx)};`;
     case "call": {
@@ -251,7 +301,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
         // F2-CFE-1).  Routed through the SAME resolver the `then:` path and
         // the page-body walker use — only the RECEIVER differs (see
         // `notifierNavTarget`), so the two spellings agree by construction.
-        const navCtx: WalkContext = { ...ctx, target: notifierStmtTarget };
+        const navCtx: WalkContext = { ...ctx, target: notifierStmtTarget(ctx.target) };
         const nav = tryRenderNavigateCall(stmt.name, stmt.args, navCtx);
         if (nav !== undefined) {
           // A `:param` segment the call supplied no value for interpolates as a
@@ -263,7 +313,7 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
           // (the literal-path form, `navigate("/products/" + …)`).
           if (nav.includes("${")) {
             return giveUp(
-              notifierStmtTarget,
+              navCtx.target,
               "loom.flutter-action-statement-unsupported#navigate-route-param",
               diagMessage("loom.flutter-action-statement-unsupported#navigate-route-param", {
                 page: stmt.args[0]?.kind === "ref" ? stmt.args[0].name : stmt.name,
@@ -305,9 +355,15 @@ export function renderNotifierStmt(stmt: StmtIR, ctx: WalkContext, selfStore?: s
       // own module, where the method is in class scope and reading one's own
       // provider is the circular dependency Riverpod asserts on.
       if (stmt.target === "store-action" && stmt.store) {
-        if (stmt.store === selfStore) return `${stmt.name}(${args});`;
-        return `ref.read(${storeProviderName(stmt.store)}.notifier).${stmt.name}(${args});`;
+        // A store action is a Notifier METHOD, spelled `dartMember` at its
+        // declaration (`store-builder.ts`): `switch` → `switch_`.
+        if (stmt.store === selfStore) return `${dartMember(stmt.name)}(${args});`;
+        return `ref.read(${storeProviderName(stmt.store)}.notifier).${dartMember(stmt.name)}(${args});`;
       }
+      // A sibling action is an in-class method declared under the target's
+      // identifier spelling (`class` → `class_`); an extern ui function keeps
+      // its own name (the app supplies the binding).
+      if (stmt.target === "action") return `${targetIdent(ctx, stmt.name)}(${args});`;
       return `${stmt.name}(${args});`;
     }
     default:
@@ -387,9 +443,12 @@ function renderVariantMatchNotifier(
     const isError =
       arm.isError === true || !!bc?.payloads.some((p) => p.name === tag && p.kind === "error");
     const armCtx: WalkContext = arm.binding
-      ? { ...ctx, lambdaParams: new Map([...ctx.lambdaParams, [arm.binding, arm.binding]]) }
+      ? {
+          ...ctx,
+          lambdaParams: new Map([...ctx.lambdaParams, [arm.binding, dartMember(arm.binding)]]),
+        }
       : ctx;
-    const body = arm.body.map((s) => renderNotifierStmt(s, armCtx));
+    const body = renderNotifierBody(arm.body, armCtx);
     return { tag, binding: arm.binding, body, isError };
   });
   const errorVariants = arms
@@ -434,14 +493,15 @@ function renderVariantMatchNotifier(
   );
   for (const arm of arms) {
     out.push(`  case ${dartString(arm.tag)}:`, "    {");
-    if (arm.binding) out.push(`      final ${arm.binding} = ${arm.tag}.fromJson(result);`);
+    if (arm.binding)
+      out.push(`      final ${dartMember(arm.binding)} = ${arm.tag}.fromJson(result);`);
     for (const b of arm.body) out.push(`      ${b}`);
     out.push("    }");
   }
   if (stmt.elseBody) {
     const elseCtx = ctx;
     out.push("  default:", "    {");
-    for (const s of stmt.elseBody) out.push(`      ${renderNotifierStmt(s, elseCtx)}`);
+    for (const b of renderNotifierBody(stmt.elseBody, elseCtx)) out.push(`      ${b}`);
     out.push("    }");
   }
   out.push("}");
@@ -525,7 +585,7 @@ export function stateSetterMethods(
       out.push(
         "",
         `  void ${setter}(${f.dt} v) {`,
-        ...wrap(`state = state.copyWith(${f.name}: v);`),
+        ...wrap(`state = state.copyWith(${dartMember(f.name)}: v);`),
         "  }",
       );
     }
@@ -534,7 +594,7 @@ export function stateSetterMethods(
       out.push(
         "",
         `  void ${setter}Text(String v) {`,
-        ...wrap(`state = state.copyWith(${f.name}: ${parse});`),
+        ...wrap(`state = state.copyWith(${dartMember(f.name)}: ${parse});`),
         "  }",
       );
     }
@@ -550,20 +610,25 @@ export function renderStateDataClass(
   fields: readonly DartStateField[],
 ): string[] {
   const ctorParams = fields
-    .map((f) => (f.nullable ? `this.${f.name}` : `required this.${f.name}`))
+    .map((f) => (f.nullable ? `this.${dartMember(f.name)}` : `required this.${dartMember(f.name)}`))
     .join(", ");
   const out: string[] = [
     `class ${className} {`,
     `  const ${className}(${ctorParams ? `{${ctorParams}}` : ""});`,
-    ...fields.map((f) => `  final ${f.dt} ${f.name};`),
+    ...fields.map((f) => `  final ${f.dt} ${dartMember(f.name)};`),
   ];
   if (fields.length > 0) {
     out.push("");
     out.push(
-      `  ${className} copyWith({${fields.map((f) => `${f.paramType} ${f.name}`).join(", ")}}) {`,
+      `  ${className} copyWith({${fields.map((f) => `${f.paramType} ${dartMember(f.name)}`).join(", ")}}) {`,
     );
     out.push(
-      `    return ${className}(${fields.map((f) => `${f.name}: ${f.name} ?? this.${f.name}`).join(", ")});`,
+      `    return ${className}(${fields
+        .map((f) => {
+          const m = dartMember(f.name);
+          return `${m}: ${m} ?? this.${m}`;
+        })
+        .join(", ")});`,
     );
     out.push("  }");
   }
@@ -582,8 +647,8 @@ export function buildStateInits(
     f.init
       ? // A money cell holds the wire STRING, and `m: money = 1.50` lowers as a
         // DECIMAL literal — a bare `1.50` seeded into a `String` (M-T1.21).
-        `${f.name}: ${coerceDartMoneyInit(f.type, emitExpr(f.init, ctx))}`
-      : `${f.name}: ${dartZeroValue(f.type)}`,
+        `${dartMember(f.name)}: ${coerceDartMoneyInit(f.type, emitExpr(f.init, ctx))}`
+      : `${dartMember(f.name)}: ${dartZeroValue(f.type)}`,
   );
   // `now()` is a literal KIND but not a compile-time constant — it renders as
   // `DateTime.now().toUtc()`, a runtime call a `const` constructor invocation
@@ -651,7 +716,7 @@ export function renderRiverpod(
   for (const action of page.actions) {
     const param = action.params[0];
     const locals = new Map<string, string>();
-    if (param) locals.set(param.name, param.name);
+    if (param) locals.set(param.name, dartMember(param.name));
     const ctx = stateCtx({
       stateNames,
       derivedNames,
@@ -665,18 +730,21 @@ export function renderRiverpod(
     // route `id` (a leading param the page-shell closure supplies) and is
     // `Future<void> … async`.  Its `variant-match` body renders the await/reify/
     // switch; any sibling statements render as normal Notifier lines.
-    const body = action.body.flatMap((s) =>
+    const body = renderNotifierBody(action.body, ctx, (s, scoped) =>
       s.kind === "variant-match"
-        ? renderVariantMatchNotifier(s, ctx, contexts)
-        : [renderNotifierStmt(s, ctx)],
+        ? renderVariantMatchNotifier(s, scoped, contexts)
+        : [renderNotifierStmt(s, scoped)],
     );
     if (isAsync) asyncEffectActions.add(action.name);
     const idParam = isAsync ? "String id" : "";
-    const actionParam = param ? `${dartType(param.type)} ${param.name}` : "";
+    const actionParam = param ? `${dartType(param.type)} ${dartMember(param.name)}` : "";
     const paramList = [idParam, actionParam].filter(Boolean).join(", ");
+    // The method name is a model name: `class` / `default` are Dart-reserved
+    // (`dartMember` → `class_`), and the page shell's tear-off + every call
+    // site (`escapeIdent`) spell it the same way.
     const sig = isAsync
-      ? `Future<void> ${action.name}(${paramList}) async`
-      : `void ${action.name}(${paramList})`;
+      ? `Future<void> ${dartMember(action.name)}(${paramList}) async`
+      : `void ${dartMember(action.name)}(${paramList})`;
     notifierLines.push("");
     notifierLines.push(`  ${sig} {`);
     for (const b of body) notifierLines.push(`    ${b}`);
