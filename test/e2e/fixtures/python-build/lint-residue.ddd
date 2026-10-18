@@ -1,0 +1,58 @@
+// Two emitted shapes that failed the generated project's own static bar
+// (eval-closure-review #15b / #15c), pinned by the LOOM_PYTHON_BUILD leg:
+//
+//   #15b  `let t = Techs.getById(tech)` read by nothing — a pure existence
+//         check.  The route kept `t = await techs.get_by_id(tech)`: ruff F841.
+//         Fixed: the awaited load stays (a missing id still 404s), the dead
+//         binding goes.  `j` is only an op-call RECEIVER (`j.mark(...)`) and an
+//         exit save — no `ref` expression names it — so it must keep its name.
+//   #15c  a domain `test` asserting an enum PROGRESSION across a method call:
+//         mypy keeps the first assert's narrowing past `wo.complete()`, so the
+//         second compare is `comparison-overlap` under --strict.
+system LintResidue {
+  subdomain Ops {
+    context Ops {
+      enum WoStatus { Draft, Scheduled, Completed }
+      aggregate Tech with crudish { name: string }
+      aggregate Job with crudish {
+        title: string
+        note: string
+        operation mark(n: string) { note := n }
+      }
+      aggregate WorkOrder with crudish {
+        code: string
+        status: WoStatus = Draft
+        operation schedule() when status == Draft { status := Scheduled }
+        operation complete() when status == Scheduled { status := Completed }
+
+        test "progression" {
+          let wo = WorkOrder.create({ code: "W1" })
+          wo.schedule()
+          expect(wo.status).toBe(Scheduled)
+          wo.complete()
+          expect(wo.status).toBe(Completed)
+        }
+      }
+      repository Techs for Tech { }
+      repository Jobs for Job { }
+      repository WorkOrders for WorkOrder { }
+      workflow assign {
+        create(job: Job id, tech: Tech id) {
+          let j = Jobs.getById(job)
+          let t = Techs.getById(tech)
+          j.mark("x")
+        }
+      }
+    }
+  }
+  api OpsApi from Ops
+  storage pg { type: postgres }
+  resource opsState { for: Ops, kind: state, use: pg }
+  deployable api {
+    platform: python
+    contexts: [Ops]
+    dataSources: [opsState]
+    serves: OpsApi
+    port: 8000
+  }
+}

@@ -5,6 +5,11 @@ import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops
 import { intrinsicsForReceiver, isIntrinsicName } from "../util/intrinsics.js";
 import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
+import {
+  isValueObjectEqualsIntrinsic,
+  VALUE_OBJECT_EQUALS,
+  valueObjectEqualsSignature,
+} from "../util/value-object-intrinsics.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -1088,6 +1093,9 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
     }
     case "valueobject": {
       const has = t.ref.members.some((m) => (m as { name?: string }).name === name);
+      // `equals` is the value-equality intrinsic, not an absent member — its
+      // call shape is judged by `checkIntrinsicCalls`.
+      if (!has && name === VALUE_OBJECT_EQUALS) return undefined;
       return has ? undefined : t.ref.name;
     }
     case "payload": {
@@ -1514,8 +1522,19 @@ export function membersOfType(t: DddType): MemberCompletion[] {
     case "aggregate":
     case "entity":
       return entityMemberCompletions(t.ref, true);
-    case "valueobject":
-      return entityMemberCompletions(t.ref, false);
+    case "valueobject": {
+      const own = entityMemberCompletions(t.ref, false);
+      return isValueObjectEqualsIntrinsic(t.ref.members, VALUE_OBJECT_EQUALS)
+        ? [
+            ...own,
+            {
+              name: VALUE_OBJECT_EQUALS,
+              kind: "method",
+              detail: valueObjectEqualsSignature(t.ref.name),
+            },
+          ]
+        : own;
+    }
     case "id":
       // `X id.member` follows the typed reference into X's schema.
       return entityMemberCompletions(t.target, true);

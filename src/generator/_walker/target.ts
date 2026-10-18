@@ -900,6 +900,16 @@ export interface WalkerTarget {
    *  HEEx: `<%!-- text --%>`. */
   renderComment(text: string): string;
 
+  /** OPTIONAL — wrap a body whose ENTIRE rendering is one {@link renderComment}
+   *  (a top-level give-up, e.g. `body: CreateForm { }`) so it is still a valid
+   *  root element.  Needed only where a comment is not an expression on its
+   *  own: TSX's `return ( {/* … *​/} )` is the empty object `{}`, and an F#
+   *  `let view … =` followed only by `(* … *)` has no body.  Markup-template
+   *  targets (Vue/Svelte/Angular) accept a comment-only template, and Flutter's
+   *  comment already carries a widget — those omit it.  `walkBody` calls it only
+   *  for a lone root comment, so every other output is untouched. */
+  wrapCommentOnlyRoot?(comment: string): string;
+
   /** OPTIONAL — render a VISIBLE degradation notice in markup-child position.
    *
    *  A comment is the right shape for a diagnostic aimed at whoever reads the

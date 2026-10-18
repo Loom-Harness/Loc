@@ -24,6 +24,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
@@ -196,6 +197,12 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
   const usesIds = /\bIds\./.test(bodyStr);
   // A money literal or a money-typed matcher renders `new Decimal(…)`.
   const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
+  // A body that constructs a value object (`let a = Berth { … }`) names its
+  // class — import it, narrowed by the same body scan, as the unit-test
+  // emitter does; without it the file fails `tsc` with TS2304.
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
   // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read).  A workflow-free context has nothing
@@ -216,6 +223,9 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
   if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
+  if (voNames.length > 0) {
+    lines.push(`import { ${voNames.join(", ")} } from "../domain/value-objects";`);
+  }
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(

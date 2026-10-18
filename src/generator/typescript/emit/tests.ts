@@ -20,7 +20,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -48,7 +48,11 @@ const TEST_ACTOR =
 //
 //   expect(x).toBe(y)       → vitest `expect(x).toBe(y)` (explicit matcher,
 //                              including `.not.<matcher>` negation)
-//   expect(call).toThrow()  → vitest `expect(() => <call>).toThrow()`
+//   expect(call).toThrow()  → `expectDomainRejection(() => { <call>; })` — a
+//                              file-local helper that passes only on a DOMAIN
+//                              rejection (`DOMAIN_REJECTION_ERRORS`) and
+//                              rethrows anything else (a ReferenceError from
+//                              broken code fails the test, it does not pass it)
 //
 // The container is a plain test file colocated next to the domain class;
 // it imports the aggregate / parts / value objects directly.
@@ -144,9 +148,35 @@ function renderTestsCore(
     lines.push(`import { ${enumNames.join(", ")} } from "./value-objects";`);
   }
   if (usesIds) lines.push(`import * as Ids from "./ids";`);
+  const rejection = /\bexpectDomainRejection\(/.test(bodyStr);
+  if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
   lines.push("");
+  if (rejection) lines.push(...domainRejectionHelper(), "");
   lines.push(...body);
   return lines.join("\n") + "\n";
+}
+
+/** The file-local helper a bare `expect(<call>).toThrow()` lowers to.  vitest's
+ *  `toThrow(Class)` takes ONE class and the domain floor refuses through three
+ *  sibling classes (`DOMAIN_REJECTION_ERRORS`), so the union is an `instanceof`
+ *  chain.  A non-domain error is RETHROWN rather than reported, so the test
+ *  fails with the real `ReferenceError` / `TypeError` and its stack. */
+function domainRejectionHelper(): string[] {
+  const isDomain = DOMAIN_REJECTION_ERRORS.map((n) => `err instanceof ${n}`).join(" || ");
+  return [
+    "/** A bare `toThrow()`: the call must be REFUSED by the domain floor (a precondition,",
+    " *  an invariant, a `when` state gate or a `requires`).  Any other error is a defect in",
+    " *  the code under test, not a rejection, and is rethrown. */",
+    "function expectDomainRejection(call: () => unknown): void {",
+    "  try {",
+    "    call();",
+    "  } catch (err) {",
+    `    if (${isDomain}) return;`,
+    "    throw err;",
+    "  }",
+    '  expect.fail("expected the call to be rejected by the domain, but it returned");',
+    "}",
+  ];
 }
 
 function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
@@ -432,7 +462,7 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     if (s.throwKind) {
       return `  expect(${call}).toThrow(/${throwKindPatternSource(s.throwKind)}/);`;
     }
-    return `  expect(${call}).toThrow();`;
+    return `  expectDomainRejection(${call});`;
   }
   if (s.kind === "let") {
     return `  const ${escapeTsIdent(s.name)} = ${renderTestExpr(s.expr, ctx)};`;

@@ -145,7 +145,7 @@ function baseType(t: TypeIR): TypeIR {
 /** The value objects + enums a response field set references, transitively
  *  (a VO field may reference another VO or an enum).  Their `<VO>Response` /
  *  `<Enum>` types must be emitted so the precise response interface resolves. */
-function collectResponseTypes(
+export function collectResponseTypes(
   types: readonly TypeIR[],
   bc: BoundedContextIR | undefined,
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
@@ -211,7 +211,7 @@ function emitEnumType(e: EnumIR): string {
 }
 
 /** `export interface <VO>Response { … }` over the VO's canonical wire shape. */
-function emitVoResponseInterface(vo: ValueObjectIR): string[] {
+export function emitVoResponseInterface(vo: ValueObjectIR): string[] {
   return [
     `export interface ${vo.name}Response {`,
     ...forApiRead(wireFieldsFor(vo)).map(
