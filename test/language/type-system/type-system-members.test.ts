@@ -59,9 +59,9 @@ describe("type-system — membersOfType (single source for member completion)", 
     );
   });
 
-  it("value object → properties only (no id)", () => {
+  it("value object → properties (no id) + the `equals` value-equality intrinsic", () => {
     const money = find<ValueObject>("ValueObject", "Money");
-    expect(names({ kind: "valueobject", ref: money })).toEqual(["amount", "currency"]);
+    expect(names({ kind: "valueobject", ref: money })).toEqual(["amount", "currency", "equals"]);
   });
 
   it("array → the collection ops", () => {
@@ -136,6 +136,7 @@ describe("type-system — membersOfType (single source for member completion)", 
     expect(names({ kind: "optional", inner: { kind: "valueobject", ref: money } })).toEqual([
       "amount",
       "currency",
+      "equals",
     ]);
   });
 
