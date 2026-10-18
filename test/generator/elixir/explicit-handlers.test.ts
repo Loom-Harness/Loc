@@ -63,9 +63,11 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
     // referenced param destructured off the string-keyed run/1 map:
     expect(h).toContain('%{"order_id" => order_id} = params');
     // repo-let getById → context get_<agg>; op-call → context <op>_<agg> (which
-    // itself persists via persist_change — no redundant update clause):
+    // itself persists via persist_change — no redundant update clause).  The
+    // handle is rebound to the record the call saved, since `o` is read again
+    // (the return) — M-T6.98:
     expect(h).toContain("with {:ok, o} <- Context.get_order(order_id)");
-    expect(h).toContain("{:ok, _} <- Context.cancel_order(o, %{})");
+    expect(h).toContain("{:ok, o} <- Context.cancel_order(o, %{})");
     expect(h).not.toContain("update_order");
     // return projects the aggregate id:
     expect(h).toContain("{:ok, o.id}");
