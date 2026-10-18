@@ -129,7 +129,9 @@ function genShallowModel(seed: number): string {
     const first = fields[0] as { name: string; type: string };
     const create = crudish
       ? ""
-      : `\n        create(${first.name}: ${first.type}) {\n          ${first.name} := ${first.name}\n        }`;
+      : // A declared create's params ARE the create input, so it lists every
+        // (required) field.
+        `\n        create(${fields.map((f) => `${f.name}: ${f.type}`).join(", ")}) {\n          ${first.name} := ${first.name}\n        }`;
 
     // A named operation assigning one field, optionally guarded.
     let ops = "";
@@ -368,7 +370,8 @@ function emitAgg(agg: AggSpec): string {
   const create =
     createField === undefined
       ? ""
-      : `\n        create(${createField.name}: ${createField.type}) {` +
+      : // A declared create's params ARE the create input: every field.
+        `\n        create(${agg.fields.map((f) => `${f.name}: ${f.type}`).join(", ")}) {` +
         `\n          ${createField.name} := ${createField.name}\n        }`;
   const op = agg.op
     ? `\n        operation ${agg.op.name}() {` +

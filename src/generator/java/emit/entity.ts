@@ -1,6 +1,7 @@
 import {
   createInputFields,
   createOmissionValue,
+  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -944,6 +945,21 @@ export function renderJavaEntity(
                 entity.fields,
                 new Set(createInputFieldList.map((f) => f.name)),
               ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
+            : []),
+          // A field a narrowed `create(…)` leaves out with no declared default
+          // is a bare `bool` or a collection (`loom.create-param-required-
+          // omitted` refuses the rest); seed its omission value, or the column
+          // would INSERT null.
+          ...(isAgg(entity)
+            ? forCreateInput(entity.fields)
+                .filter(
+                  (f) =>
+                    !createInputFieldList.some((c) => c.name === f.name) && f.default === undefined,
+                )
+                .flatMap((f) => {
+                  const v = javaFactoryDefault(f);
+                  return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
+                })
             : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
           `        return e;`,

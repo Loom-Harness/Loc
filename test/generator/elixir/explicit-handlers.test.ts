@@ -186,7 +186,7 @@ system HandlerScaffold {
         status: string
         priority: Priority
         total: Money
-        create(code: string) { }
+        create(code: string, priority: Priority, status: string, total: Money) { }
         operation reprice(newTotal: Money) { total := newTotal }
         operation cancel() { status := "cancelled" }
         destroy { }

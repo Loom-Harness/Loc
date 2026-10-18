@@ -61,7 +61,7 @@ function sys(body: string, stateField = "total: int", resources = ""): string {
       enum OrderStatus { Placed Shipped }
       event OrderPlaced { order: Order id, customer: Customer id, at: datetime, __AMOUNT__ }
       aggregate Customer { name: string }
-      aggregate Order { status: OrderStatus  create(customer: Customer id) {} }
+      aggregate Order { status: OrderStatus  create() {} }
       channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
       projection OrderBook keyed by order {
         order: Order id

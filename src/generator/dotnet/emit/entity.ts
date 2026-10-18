@@ -3,6 +3,7 @@ import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import {
   createInputFields,
   createOmissionValue,
+  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -917,6 +918,18 @@ export function renderEntity(
         (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
       )
     : [];
+  // A field a narrowed `create(…)` leaves out with no declared default is a
+  // bare `bool` or a collection (`loom.create-param-required-omitted` refuses
+  // the rest); the CLR leaves a `List<T>` null, so seed its omission value.
+  const createInputNames = new Set(createInputFieldList.map((f) => f.name));
+  const createNarrowedSeeds = isAgg(entity)
+    ? forCreateInput(entity.fields)
+        .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
+        .flatMap((f) => {
+          const v = csFactoryDefault(f);
+          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+        })
+    : [];
   const createPublicLines =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -944,6 +957,7 @@ export function renderEntity(
           `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
+          ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
           emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
           "        return e;",

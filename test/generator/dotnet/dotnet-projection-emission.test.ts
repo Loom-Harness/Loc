@@ -26,7 +26,7 @@ const SRC = `context Orders {
   repository Customers for Customer { }
   aggregate Order {
     status: OrderStatus
-    create(customer: Customer id) {}
+    create() {}
     operation ship() { emit OrderShipped { order: id } }
   }
   repository Orders for Order { }
