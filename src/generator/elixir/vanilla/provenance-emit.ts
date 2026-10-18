@@ -36,7 +36,7 @@ import { type ProvStmt, stmtHasProv } from "../../../ir/util/prov-id.js";
 import { resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
 import { plural, snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { leafPath } from "../../_stmt/leaves.js";
+import { collectLeaves, type ProvLeaf } from "../../_stmt/leaves.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 
 /** The provenanced fields declared on an aggregate (root fields only —
@@ -249,49 +249,18 @@ end
 `;
 }
 
-/** Bounded walk over a provenanced write's RHS collecting leaf inputs — the
- *  `this`-props, params and let-bindings (and member chains rooted at them)
- *  that fed the value, each rendered to its current Elixir value.  Lambdas are
- *  skipped (their bodies reference lambda-local params, not stored leaves).
- *  Elixir sibling of the TS/.NET `collectLeaves`. */
+/** The leaf inputs of a provenanced write's RHS — the `this`-props, params and
+ *  let-bindings (and member chains rooted at them) that fed the value, each
+ *  rendered to its current Elixir value.  The traversal and leaf-selection rule
+ *  are the shared `collectLeaves` every backend uses (lambda bodies and variant
+ *  bindings skipped, every other child slot visited), so a lineage records the
+ *  same input paths here as on node / .NET / java / python. */
 export function collectVanillaLeaves(
   e: ExprIR,
   rc: RenderCtx,
-  out: Array<{ path: string; value: string }> = [],
-): Array<{ path: string; value: string }> {
-  switch (e.kind) {
-    case "ref":
-      if (e.refKind === "this-prop" || e.refKind === "param" || e.refKind === "let") {
-        out.push({ path: e.name, value: renderExpr(e, rc) });
-      }
-      break;
-    case "member":
-      out.push({ path: leafPath(e), value: renderExpr(e, rc) });
-      break;
-    case "method-call":
-      collectVanillaLeaves(e.receiver, rc, out);
-      for (const a of e.args) collectVanillaLeaves(a, rc, out);
-      break;
-    case "call":
-      for (const a of e.args) collectVanillaLeaves(a, rc, out);
-      break;
-    case "paren":
-      collectVanillaLeaves(e.inner, rc, out);
-      break;
-    case "unary":
-      collectVanillaLeaves(e.operand, rc, out);
-      break;
-    case "binary":
-      collectVanillaLeaves(e.left, rc, out);
-      collectVanillaLeaves(e.right, rc, out);
-      break;
-    case "ternary":
-      collectVanillaLeaves(e.cond, rc, out);
-      collectVanillaLeaves(e.then, rc, out);
-      collectVanillaLeaves(e.otherwise, rc, out);
-      break;
-  }
-  return out;
+  out: ProvLeaf[] = [],
+): ProvLeaf[] {
+  return collectLeaves(e, (leaf) => renderExpr(leaf, rc), out);
 }
 
 // ---------------------------------------------------------------------------

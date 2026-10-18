@@ -518,41 +518,6 @@ const PARITY_ELIXIR_REACTOR_STMTS = {
   reviewUntil: "2026-12-31",
 } as const;
 
-/** A shallow, ONE-LEVEL child-list builder (an `exprChildren`-shaped function)
- *  feeding a caller's own recursion — structurally the same concept as
- *  `walk.ts`'s `walkExprChildren`, and a genuine migration candidate.
- *
- *  DEFERRED.  CR1-d drained the hono twin of exactly this shape and it was
- *  carrying a real defect (see the note on `serviceReadPorts` in
- *  `platform/hono/v4/workflow-builder.ts`): the hand-rolled child list had no
- *  arm for `match` / `list` / `convert` / `duration` / `i18nFormat` /
- *  `authz-filter` / a block-bodied lambda's statements, so a domain-service
- *  call in any of those slots was invisible to the scan.  Treat the remaining
- *  four as suspects, not as safe.
- *
- *  CR1-e strengthened that: draining the 52 shape-classified waivers turned up
- *  SIX more of the same shape — five VALIDATOR gates that never entered an `if`
- *  branch, and one emitter that produced Elixir which does not compile.  The
- *  suspicion is now evidence. */
-const SHALLOW_CHILD_BUILDER = {
-  deferred:
-    "one-level child-list builder (walkExprChildren-shaped) feeding the caller's own recursion — a walk.ts migration candidate. The hono twin of this exact shape was drained in CR1-d and WAS carrying a live defect (no `match`/`list`/lambda-block arm), and CR1-e found six more instances of the shape; these are suspects",
-  reviewUntil: "2026-12-31",
-} as const;
-
-/** A hand-rolled recursive traversal (`walk`/`visit`/collector-shaped)
- *  identified as a genuine migration candidate but not reached.
- *
- *  With `CLOSED_PREDICATE` gone (CR1-e), this is the last bucket whose members
- *  are traversals BY THEIR OWN ADMISSION — and CR1-e's finding is that a
- *  traversal misfiled as a predicate is exactly where the defects were.  Drain
- *  this one next. */
-const TRAVERSAL_TIME_BOXED = {
-  deferred:
-    "hand-rolled traversal identified as a walk.ts migration candidate, not yet migrated — the highest-risk category left in this register (it is the #2720/#2705/M-T6.50 shape itself, and CR1-e found six live instances of that shape hiding among the shape-classified predicates). Drain this bucket before SHALLOW_CHILD_BUILDER",
-  reviewUntil: "2026-12-31",
-} as const;
-
 /** Already rides a sanctioned walker (`walkWorkflowStmtChildren` /
  *  `walkExprDeep`) for the RECURSION step, with its own narrow, local per-kind
  *  logic layered on top — the census's if-chain detector still flags the local
@@ -780,22 +745,6 @@ const WAIVERS: Record<string, Waiver> = {
     reviewUntil: "2026-12-31",
   },
 
-  // --- shallow one-level child-list builders (walkExprChildren-shaped) -----
-  "src/generator/feliz/wire.ts#exprChildren": SHALLOW_CHILD_BUILDER,
-  "src/generator/flutter/forms-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
-  "src/generator/flutter/inputs-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
-  "src/generator/flutter/reads-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
-
-  // --- hand-rolled traversals identified but not migrated ------------------
-  "src/generator/elixir/vanilla/provenance-emit.ts#collectVanillaLeaves": TRAVERSAL_TIME_BOXED,
-  "src/generator/elixir/vanilla/tests-emit.ts#childExprs": TRAVERSAL_TIME_BOXED,
-  // `#collectWorkflowStmtParamRefs` waiver DELETED, and it is the census
-  // earning its keep: the waived switch covered 13 of the 14 `WorkflowStmtIR`
-  // kinds, with no `default`, and the missing one was `assign` — so a create
-  // that assigned workflow state from a param (`orderId := order`) never
-  // surfaced that param into the `run/1` destructure and the emitted Elixir
-  // named an undefined variable.  Migrated onto `walkWorkflowStmtChildren`
-  // (F58 / M-T6.62); the waiver goes with the fix, per the ratchet convention.
 };
 
 describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/WorkflowStmtIR", () => {

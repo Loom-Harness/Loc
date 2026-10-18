@@ -16,8 +16,8 @@
 // walk + the leaf-selection rule (`this-prop` / `param` / `let` refs and every
 // member access) now live once.
 //
-// Elixir keeps its own `collectVanillaLeaves` (a deliberately narrower switch)
-// but shares `leafPath`.
+// Elixir's `collectVanillaLeaves` is a thin wrapper over the same function, so
+// all five backends record the same leaf paths.
 //
 // `provTempNames` + `wrapProvCapture` below are the second half of the same
 // convergence: the four backends' provenance wraps agree on the `__prov_<i>` /
