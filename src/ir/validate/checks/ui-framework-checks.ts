@@ -28,7 +28,12 @@ import {
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
-import { walkExprDeep, walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
+import {
+  walkExprDeep,
+  walkExprStmtsDeep,
+  walkStmtDeep,
+  walkStmtExprsDeep,
+} from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -934,6 +939,76 @@ function backendBodyKinds(stmts: readonly StmtIR[]): string[] {
     });
   }
   return [...found].sort();
+}
+
+// -------------------------------------------------------------------------
+// `loom.ui-this-unbound` — `this` in a ui body on a walker frontend.
+//
+// A page / component / store has no aggregate instance in scope: it binds its
+// data through params, `state` and api reads.  The shared JS walker
+// (`_walker/walker-core.ts`) and Feliz's update renderer (`feliz/fs-expr.ts`)
+// both THROW on a `this` node, so `action a() { label := string(this) }`
+// reported `0 error(s), 0 warning(s)` and then aborted `ddd generate system`
+// with a raw `Error:` on all six of them.  Phoenix LiveView is exempt: its
+// HEEx renderer binds `this` to the page's `@record` assign.
+// -------------------------------------------------------------------------
+
+/** Every `this` node in an expression tree, block-bodied lambdas included. */
+function usesThis(e: ExprIR | undefined): boolean {
+  let found = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "this") found = true;
+  });
+  return found;
+}
+
+function stmtsUseThis(stmts: readonly StmtIR[]): boolean {
+  let found = false;
+  for (const s of stmts) {
+    walkStmtExprsDeep(s, (n) => {
+      if (n.kind === "this") found = true;
+    });
+  }
+  return found;
+}
+
+export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") continue;
+      const flag = (where: string, hit: boolean): void => {
+        if (!hit) return;
+        diags.push({
+          severity: "error",
+          code: "loom.ui-this-unbound",
+          message: diagMessage("loom.ui-this-unbound", {
+            where,
+            uiName: ui.name,
+            fw: fw || "unknown",
+            dName: d.name,
+          }),
+          source: `${ui.name}/${where}`,
+        });
+      };
+      const hosts = [
+        ...ui.pages.map((p) => ({ label: `page '${p.name}'`, h: p })),
+        ...ui.components.map((c) => ({ label: `component '${c.name}'`, h: c })),
+      ];
+      for (const { label, h } of hosts) {
+        flag(`${label} body`, usesThis(h.body));
+        for (const a of h.actions) flag(`${label} action '${a.name}'`, stmtsUseThis(a.body));
+        for (const dv of h.derived) flag(`${label} derived '${dv.name}'`, usesThis(dv.expr));
+        for (const f of h.state) flag(`${label} state '${f.name}'`, usesThis(f.init));
+      }
+      for (const p of ui.pages) flag(`page '${p.name}' title`, usesThis(p.title));
+      for (const st of ui.stores) {
+        for (const a of st.actions) {
+          flag(`store '${st.name}' action '${a.name}'`, stmtsUseThis(a.body));
+        }
+        for (const f of st.state) flag(`store '${st.name}' state '${f.name}'`, usesThis(f.init));
+      }
+    }
+  }
 }
 
 /** Statement kinds a Phoenix LiveView STORE action cannot hold, → keyword.  The

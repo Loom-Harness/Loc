@@ -716,16 +716,6 @@ const WAIVERS: Record<string, Waiver> = {
       "a REFUSING default — a new ExprIR kind fails closed into `loom.ui-gate-expr-unsupported` (a readable refusal) instead of the gate renderers' bare `throw`, which is the direction this check exists to enforce; an exhaustive arm would repeat the same refusal 21 times",
   },
 
-  // -- not re-verified this packet ------------------------------------------
-  // The only genuine deferral left.  Its own comment argues all three missing
-  // kinds (`this`, `action-ref`, `authz-filter`) are shapes the frontend
-  // pipeline does not produce; that argument was READ, not probed, and a
-  // probe is what this wave is about.
-  "src/generator/feliz/fs-expr.ts#renderFsExpr": {
-    deferred:
-      "a real throw, and the site's own comment argues its three missing kinds (`this`, `action-ref`, `authz-filter`) are never produced by the frontend pipeline — an argument CR1-f READ but did not probe. Re-verify with a `.ddd` that puts an `action-ref` in an update-arm value position before promoting to `standing`",
-    reviewUntil: "2026-12-31",
-  },
 
 };
 

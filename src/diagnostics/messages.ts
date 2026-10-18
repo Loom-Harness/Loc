@@ -2532,6 +2532,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `and returns the next one, with no socket to flash or halt on, no value sink and no ` +
     `remote-call seam. Keep the store action to state writes, \`let\`s and sibling-action ` +
     `calls, and move the \`${p.keyword}\` into the page or component action that calls it.`,
+  "loom.ui-this-unbound": (p: { where: unknown; uiName: unknown; fw: unknown; dName: unknown }) =>
+    `\`this\` is used in ${p.where} on ui '${p.uiName}', which the ${p.fw} frontend cannot ` +
+    `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
+    `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
+    `\`data:\` lambda, and read its fields off that name.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
