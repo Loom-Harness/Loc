@@ -716,7 +716,11 @@ ${audienceFn}
          :ok <- require_claims(claims) do
       {:ok, claims}
     else
-      _ -> {:error, :invalid_token}
+      # A rejected token is a 401 — but say WHY at debug, so a misconfigured
+      # issuer / audience is diagnosable from the log stream.
+      reason ->
+        ${renderPhoenixLogCall("authTokenRejected", [{ name: "reason", valueExpr: "inspect(reason)" }])}
+        {:error, :invalid_token}
     end
   rescue
     # A STRUCTURALLY-malformed token (undecodable header, missing \`kid\`, JWKS
@@ -725,7 +729,9 @@ ${audienceFn}
     # escapes the plug as a 500.  Any verification exception is an invalid token:
     # reject with 401, matching the other four backends (which 401 on a thrown
     # verify).
-    _ -> {:error, :invalid_token}
+    e ->
+      ${renderPhoenixLogCall("authTokenRejected", [{ name: "reason", valueExpr: "Exception.message(e)" }])}
+      {:error, :invalid_token}
   end
 
   # joken's validators only run for claims PRESENT in the token, so enforce the
