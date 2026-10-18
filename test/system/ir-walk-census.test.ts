@@ -792,8 +792,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/flutter/reads-emit.ts#exprChildren": SHALLOW_CHILD_BUILDER,
 
   // --- hand-rolled traversals identified but not migrated ------------------
-  "src/generator/elixir/vanilla/explicit-handlers-emit.ts#collectRecordFieldsInStmt":
-    TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/provenance-emit.ts#collectVanillaLeaves": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/tests-emit.ts#childExprs": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefs": TRAVERSAL_TIME_BOXED,
