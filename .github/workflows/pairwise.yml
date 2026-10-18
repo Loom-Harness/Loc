@@ -102,6 +102,8 @@ on:
       - 'test/e2e/pairwise-corpus-tsc.test.ts'
       - 'test/e2e/pairwise-corpus-schema-load.test.ts'
       - 'test/e2e/support/migration-evolution-harness.ts'
+      # javac -Xlint:all -Werror — pairwise-corpus-java mounts it and passes `-I`.
+      - 'test/e2e/support/java-werror.init.gradle'
       - 'package.json'
       - '.github/workflows/pairwise.yml'
   pull_request:

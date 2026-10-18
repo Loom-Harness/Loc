@@ -179,7 +179,7 @@ function fakeVerification(loom: LoomModel, verdict: RequirementVerdict): Verific
       unverified: 0,
       total: loom.requirements.length,
     },
-    diagnostics: { unknownTests: [], unmappedTestCases: [] },
+    diagnostics: { unknownTests: [], unlinkedTests: [], unmappedTestCases: [] },
   };
 }
 
