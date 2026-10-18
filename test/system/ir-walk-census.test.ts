@@ -747,11 +747,6 @@ const WAIVERS: Record<string, Waiver> = {
       "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in docs/new-plan/waves/handoffs/wave-cr1-f.md",
     reviewUntil: "2026-12-31",
   },
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranch": {
-    deferred:
-      "MISFILED by the old bucket: the terminal `else` does not throw — it routes every unlisted kind into the emit/resource-call branch renderer, so an `if-let` / `for-each` / `repo-delete` nested in an `if let` branch is mis-rendered rather than refused",
-    reviewUntil: "2026-12-31",
-  },
   // `default`-less and NOT total: assign/add/remove/emit/call/variant-match
   // fall out of the loop, pushing no line.  Unreachable, but by a gate the
   // bucket never named.
@@ -794,9 +789,6 @@ const WAIVERS: Record<string, Waiver> = {
   // --- hand-rolled traversals identified but not migrated ------------------
   "src/generator/elixir/vanilla/provenance-emit.ts#collectVanillaLeaves": TRAVERSAL_TIME_BOXED,
   "src/generator/elixir/vanilla/tests-emit.ts#childExprs": TRAVERSAL_TIME_BOXED,
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefs": TRAVERSAL_TIME_BOXED,
-  "src/generator/elixir/vanilla/workflow-execution-emit.ts#collectParamRefsInStmt":
-    TRAVERSAL_TIME_BOXED,
   // `#collectWorkflowStmtParamRefs` waiver DELETED, and it is the census
   // earning its keep: the waived switch covered 13 of the 14 `WorkflowStmtIR`
   // kinds, with no `default`, and the missing one was `assign` — so a create

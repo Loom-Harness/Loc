@@ -77,7 +77,6 @@ import {
   type IsolationLevel,
   type OperationIR,
   operationUsesCurrentUser,
-  type StmtIR,
   type SystemIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -687,40 +686,67 @@ function lowerStatement(
           for (let i = 0; i < body.length; i++) {
             const inner = body[i]!;
             const rest = body.slice(i + 1);
-            if (inner.kind === "precondition") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "requires") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "op-call") {
-              clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
-            } else if (inner.kind === "factory-let") {
-              const fields = inner.fields
-                .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-                .join(", ");
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(
-                `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
-              );
-            } else if (inner.kind === "expr-let") {
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
-            } else if (NESTED_FLOW_KINDS.has(inner.kind)) {
-              // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
-              // lowers to a `<-` clause that threads {:error, _} up this branch.
-              // The branch's own result is `{:ok, <present>}`, so a nested bind
-              // nothing later reads is `_`-discardable (M-T6.21).
-              pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
-            } else {
-              // emit / resource-call — pure side-effects, run in the do-branch.
-              tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+            switch (inner.kind) {
+              case "precondition":
+              case "requires":
+                clauses.push(
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+                );
+                break;
+              case "op-call":
+                clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
+                break;
+              case "factory-let": {
+                const fields = inner.fields
+                  .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+                  .join(", ");
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(
+                  `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+                );
+                break;
+              }
+              case "expr-let": {
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
+                break;
+              }
+              case "domain-service-call": {
+                // A `mutating` service call is fallible persistence, exactly
+                // like an op-call: its inlined context mutating-fn clauses
+                // join this branch's with-chain IN ORDER (the loop body does
+                // the same), so a later op-call sees the service's writes and
+                // a failed save threads `{:error, _}` up instead of raising.
+                const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
+                if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
+                else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
+                break;
+              }
+              case "for-each":
+              case "if-let":
+              case "repo-run":
+              case "repo-let":
+              case "repo-delete":
+                // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
+                // lowers to a `<-` clause that threads {:error, _} up this branch.
+                // The branch's own result is `{:ok, <present>}`, so a nested bind
+                // nothing later reads is `_`-discardable (M-T6.21).
+                pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
+                break;
+              case "emit":
+              case "resource-call":
+              case "assign":
+                // Pure side-effects / own-state rebinds — run in the do-branch.
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                break;
+              default: {
+                const _exhaustive: never = inner;
+                void _exhaustive;
+              }
             }
           }
           return [
@@ -1253,91 +1279,15 @@ function renderBranchStmt(
 // destructured off the `run/1` map.
 // ---------------------------------------------------------------------------
 
-/** Add every `refKind: "param"` name reachable from `e` into `acc`.
- *  Exhaustive over the child-bearing `ExprIR` kinds (a stricter superset
- *  of the validate-layer `walkExpr` — it also descends `list` / `convert`
- *  / `match`, which can appear in a workflow create-body). */
+/** Add every `refKind: "param"` name reachable from `e` into `acc` — at any
+ *  depth, through every child slot `walk.ts` knows (a `match` subject, a
+ *  `duration` amount, an `i18nFormat` hole, a block-bodied lambda's
+ *  statements).  A param read only in one of those slots and not destructured
+ *  off `run/1` is an undefined variable in the emitted Elixir. */
 export function collectParamRefs(e: ExprIR | undefined, acc: Set<string>): void {
-  if (!e) return;
-  switch (e.kind) {
-    case "ref":
-      if (e.refKind === "param") acc.add(e.name);
-      return;
-    case "member":
-      collectParamRefs(e.receiver, acc);
-      return;
-    case "method-call":
-      collectParamRefs(e.receiver, acc);
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "lambda":
-      collectParamRefs(e.body, acc);
-      if (e.block) for (const s of e.block) collectParamRefsInStmt(s, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectParamRefs(f.value, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectParamRefs(el, acc);
-      return;
-    case "paren":
-      collectParamRefs(e.inner, acc);
-      return;
-    case "unary":
-      collectParamRefs(e.operand, acc);
-      return;
-    case "binary":
-      collectParamRefs(e.left, acc);
-      collectParamRefs(e.right, acc);
-      return;
-    case "ternary":
-      collectParamRefs(e.cond, acc);
-      collectParamRefs(e.then, acc);
-      collectParamRefs(e.otherwise, acc);
-      return;
-    case "convert":
-      collectParamRefs(e.value, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectParamRefs(arm.cond, acc);
-        collectParamRefs(arm.value, acc);
-      }
-      collectParamRefs(e.otherwise, acc);
-      return;
-    default:
-      // Leaf kinds (`literal` / `this` / `id`) bind no params.
-      return;
-  }
-}
-
-/** A `StmtIR` (lambda block body) — only the expression-bearing arms can
- *  carry a param reference; collect from each. */
-function collectParamRefsInStmt(s: StmtIR, acc: Set<string>): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      collectParamRefs(s.expr, acc);
-      return;
-    case "assign":
-    case "add":
-    case "remove":
-    case "return":
-      collectParamRefs(s.value, acc);
-      return;
-    case "emit":
-      for (const f of s.fields) collectParamRefs(f.value, acc);
-      return;
-    case "call":
-      for (const a of s.args) collectParamRefs(a, acc);
-      return;
-  }
+  walkExprDeep(e, (sub) => {
+    if (sub.kind === "ref" && sub.refKind === "param") acc.add(sub.name);
+  });
 }
 
 /** Collect referenced create-params from EVERY lowered statement kind: each
