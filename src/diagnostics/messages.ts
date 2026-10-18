@@ -2520,6 +2520,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
+  "loom.ui-body-statement-kind#liveview-store": (p: {
+    where: unknown;
+    uiName: unknown;
+    keyword: unknown;
+    dName: unknown;
+  }) =>
+    `A \`${p.keyword}\` statement is used in ${p.where} on ui '${p.uiName}', which the ` +
+    `phoenixLiveView frontend cannot render in a store (deployable '${p.dName}'). On ` +
+    `LiveView a store is a pure per-process module: each action takes the store struct ` +
+    `and returns the next one, with no socket to flash or halt on, no value sink and no ` +
+    `remote-call seam. Keep the store action to state writes, \`let\`s and sibling-action ` +
+    `calls, and move the \`${p.keyword}\` into the page or component action that calls it.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;

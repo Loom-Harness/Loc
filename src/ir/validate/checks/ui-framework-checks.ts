@@ -936,9 +936,49 @@ function backendBodyKinds(stmts: readonly StmtIR[]): string[] {
   return [...found].sort();
 }
 
+/** Statement kinds a Phoenix LiveView STORE action cannot hold, → keyword.  The
+ *  LiveView handler renderer has arms for the first three, but a store is not a
+ *  handler: `store-emit.ts` renders each action as a pure struct → struct
+ *  function, with no socket to flash or halt on, no value sink and no
+ *  remote-call seam, so these four have nowhere to go there. */
+const LIVEVIEW_STORE_REFUSED_KINDS: Readonly<Record<string, string>> = {
+  ...BACKEND_BODY_UI_STMT_KINDS,
+  "variant-match": "match await",
+};
+
+function liveViewStoreRefusedKinds(stmts: readonly StmtIR[]): string[] {
+  const found = new Set<string>();
+  for (const s of stmts) {
+    walkStmtDeep(s, (n) => {
+      if (n.kind in LIVEVIEW_STORE_REFUSED_KINDS) found.add(n.kind);
+    });
+  }
+  return [...found].sort();
+}
+
 export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") {
+        for (const st of ui.stores) {
+          for (const a of st.actions) {
+            const where = `store '${st.name}' action '${a.name}'`;
+            for (const kind of liveViewStoreRefusedKinds(a.body)) {
+              diags.push({
+                severity: "error",
+                code: "loom.ui-body-statement-kind",
+                message: diagMessage("loom.ui-body-statement-kind#liveview-store", {
+                  where,
+                  uiName: ui.name,
+                  keyword: LIVEVIEW_STORE_REFUSED_KINDS[kind],
+                  dName: d.name,
+                }),
+                source: `${ui.name}/${where}`,
+              });
+            }
+          }
+        }
+      }
       if (BACKEND_BODY_STMT_FRAMEWORKS.has(fw)) continue;
       const flag = (where: string, stmts: readonly StmtIR[]): void => {
         for (const kind of backendBodyKinds(stmts)) {

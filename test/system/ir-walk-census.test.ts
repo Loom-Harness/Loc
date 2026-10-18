@@ -680,16 +680,6 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "MISFILED by the old bucket, but correct as it stands: `default: return null` is a documented BEST-EFFORT fallback (the caller keeps its type-zero seed), never a throw. Wrong bucket, right behaviour — shape-wise it is a CLOSED_PREDICATE (packet CR1-e's class)",
   },
-  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
-    deferred:
-      'MISFILED by the old bucket: `default: return { value: "state" }` — the statement is silently dropped and the struct passed through. Note the gate it would lean on does NOT cover it: `loom.ui-body-statement-kind` exempts `phoenixLiveView`, which is the only framework this emitter serves',
-    reviewUntil: "2026-12-31",
-  },
-  "src/generator/elixir/store-emit.ts#renderStoreExpr": {
-    deferred:
-      'MISFILED by the old bucket: `default: return "nil"` — a store-action RHS outside the subset (a method call, a `match`, a conversion) silently becomes `nil` in the emitted Elixir, not a throw',
-    reviewUntil: "2026-12-31",
-  },
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
       "MISFILED by the old bucket: `default: break` — the statement is silently dropped. The ES command discipline it cites does refuse assign/add/remove/call, but `expression` / `return` / `variant-match` were NOT re-verified against a gate in CR1-f",
