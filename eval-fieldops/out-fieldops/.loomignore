@@ -1,3 +1,0 @@
-# Pin our hand-tuned repository method and the minio image fix
-api/db/repositories/part-repository.ts
-/docker-compose.yml
