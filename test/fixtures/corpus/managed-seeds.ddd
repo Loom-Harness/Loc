@@ -52,5 +52,7 @@ system ManagedSeeds {
     expect(read.labels.length).toBe(0)
     // `openedAt` is now — the wire golden pins that it is a timestamp, not null.
     expect(read.openedAt).not.toBeNull()
+    let listed = api.tickets.all()
+    expect(listed.items.length).toBe(1)
   }
 }

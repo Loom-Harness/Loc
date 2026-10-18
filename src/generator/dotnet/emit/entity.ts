@@ -922,7 +922,7 @@ export function renderEntity(
         // takes the shared language-defined seed — the value node and python
         // name too.  Left to the CLR default it read back as 0001-01-01, and a
         // `string` / list one went in as NULL (500).
-        ...serverSeededFields(entity.fields).map(
+        ...serverSeededFields(entity).map(
           ({ field, seed }) =>
             `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
         ),

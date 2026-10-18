@@ -248,7 +248,7 @@ function renderChangeset(
   // and carries no default: it takes the language-defined absent value from the
   // shared seed table, the value every other backend's create factory names.
   // Without it the insert put a NULL into its `null: false` column (500).
-  for (const { field, seed } of serverSeededFields(agg.fields)) {
+  for (const { field, seed } of serverSeededFields(agg)) {
     defaultLines.push(
       `    |> __default(:${snake(field.name)}, ${elixirServerInitSeed(seed, field.type)})`,
     );

@@ -30,8 +30,9 @@
 
 import type { WithAccess } from "../ir/enrich/wire-projection.js";
 import { forCreateInput } from "../ir/enrich/wire-projection.js";
-import type { ExprIR, TypeIR } from "../ir/types/loom-ir.js";
+import type { ContextStampIR, ExprIR, TypeIR } from "../ir/types/loom-ir.js";
 import { type ServerInitSeed, serverInitSeed } from "../ir/util/server-init-seed.js";
+import { stampedFields } from "../ir/util/stamped-fields.js";
 import { renderDefaultSeed } from "./_frontend/default-seed.js";
 import type { FieldWithDefault } from "./_frontend/server-default.js";
 
@@ -87,12 +88,19 @@ export function constructionSeededFields<T extends WithAccess & FieldWithDefault
  */
 export function serverSeededFields<
   T extends WithAccess & FieldWithDefault & { optional: boolean; type: TypeIR },
->(fields: readonly T[]): { field: T; seed: ServerInitSeed }[] {
-  const inputNames = new Set(forCreateInput(fields).map((f) => f.name));
-  const defaulted = new Set(constructionSeededFields(fields).map((f) => f.name));
+>(agg: {
+  fields: readonly T[];
+  contextStamps?: readonly ContextStampIR[];
+}): { field: T; seed: ServerInitSeed }[] {
+  const inputNames = new Set(forCreateInput(agg.fields).map((f) => f.name));
+  const defaulted = new Set(constructionSeededFields(agg.fields).map((f) => f.name));
+  // A stamp target is written at persist time; the stamp owns its value.
+  const stamped = stampedFields(agg);
   const out: { field: T; seed: ServerInitSeed }[] = [];
-  for (const f of fields) {
-    if (inputNames.has(f.name) || defaulted.has(f.name) || f.optional) continue;
+  for (const f of agg.fields) {
+    if (inputNames.has(f.name) || defaulted.has(f.name) || stamped.has(f.name) || f.optional) {
+      continue;
+    }
     const seed = serverInitSeed(f.type);
     if (seed !== null) out.push({ field: f, seed });
   }

@@ -950,7 +950,7 @@ export function renderJavaEntity(
           // name too.  Left unassigned it went into its NOT NULL column as NULL
           // (500), for every type Java has no primitive zero for.
           ...(isAgg(entity)
-            ? serverSeededFields(entity.fields).map(
+            ? serverSeededFields(entity).map(
                 ({ field, seed }) =>
                   `        e.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
               )
