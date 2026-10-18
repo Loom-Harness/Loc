@@ -159,6 +159,12 @@ export interface JavaEntityOptions {
    *  the way python's `_stamp_on_create` is called by its route.
    *  NOT set for event-sourced roots: their stamps are gated upstream. */
   documentClaimStamps?: boolean;
+  /** A `shape: document` ROOT (M-T6.95).  Its JdbcTemplate store guards the
+   *  upsert on the loaded `version` and reflects the bumped counter back onto
+   *  the instance through `_applyVersion`, exactly as the relational
+   *  repository does — so the mutator is emitted although `persistence` is
+   *  undefined. */
+  documentRoot?: boolean;
   /** JPA mapping inputs — when present the class is annotated against
    *  the Flyway-owned schema (`schemaFromModule` naming).  The
    *  orchestrator always passes it; absent only in focused unit tests. */
@@ -754,7 +760,7 @@ export function renderJavaEntity(
   // enough: `directoryLayout` can put the repository impl in a different package
   // from the entity.
   const versionFieldName =
-    persistence && isAgg(entity) && aggregateIsVersioned(entity)
+    (persistence || options.documentRoot === true) && isAgg(entity) && aggregateIsVersioned(entity)
       ? entity.fields.find((f) => f.access === "token" && !superType?.fieldNames.has(f.name))?.name
       : undefined;
   const applyVersionLines: string[] =
@@ -816,12 +822,33 @@ export function renderJavaEntity(
     applierLines.push(`        }`);
     applierLines.push(`    }`);
     applierLines.push("");
+    // The stream version this instance was folded to (M-T6.98) — the EXPECTED
+    // version of its next append.  The event store continues from it and then
+    // advances it, so a second handle loaded at the same version re-inserts a
+    // version the first already wrote and loses the (stream_type, stream_id,
+    // version) key — the RS-39 409 — instead of keeping a decision taken on a
+    // stale fold.  Public accessors: `directoryLayout` can put the store in a
+    // different package from the entity.
+    applierLines.push(`    private transient int _streamVersion;`);
+    applierLines.push("");
+    applierLines.push(`    /** Internal: the stream version this instance was folded to. */`);
+    applierLines.push(`    public int _streamVersion() {`);
+    applierLines.push(`        return _streamVersion;`);
+    applierLines.push(`    }`);
+    applierLines.push("");
+    applierLines.push(`    /** Internal: advance the folded stream version after an append. */`);
+    applierLines.push(`    public void _streamVersion(int next) {`);
+    applierLines.push(`        this._streamVersion = next;`);
+    applierLines.push(`    }`);
+    applierLines.push("");
     applierLines.push(
       `    public static ${entity.name} _fromEvents(${idClass} id, List<DomainEvent> events) {`,
     );
     applierLines.push(`        var e = new ${entity.name}();`);
     applierLines.push(`        e.id = id;`);
     applierLines.push(`        for (var ev : events) e._apply(ev);`);
+    // A stream is gap-free from 1, so the folded count IS its head version.
+    applierLines.push(`        e._streamVersion = events.size();`);
     applierLines.push(
       emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
     );

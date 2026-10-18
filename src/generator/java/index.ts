@@ -1826,6 +1826,7 @@ function emitAggregate(
       // A document root's claim stamps emit as plain methods the service calls
       // — there is no JPA persistence context to fire an @PrePersist hook.
       documentClaimStamps: isDocument && agg.persistedAs !== "eventLog",
+      documentRoot: isDocument,
       persistence:
         agg.persistedAs === "eventLog" || isDocument
           ? undefined
