@@ -11,7 +11,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
@@ -293,16 +293,26 @@ export function renderRepositoryImpl(
         .filter((wf) => wf !== "id")
         .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map(
+          (t, i) =>
+            `.${i === 0 ? (t.direction === "desc" ? "OrderByDescending" : "OrderBy") : t.direction === "desc" ? "ThenByDescending" : "ThenBy"}(e => e.${upperFirst(t.field)})`,
+        )
+        .join("");
       const orderExpr = (asc: boolean): string =>
         `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
         `        var ${L("offset")} = (page - 1) * pageSize;`,
-        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"Id"'} };`,
         `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
+        declaredOrder
+          ? // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            `        var ${L("ordered")} = ${L("sortColumn")} is null ? _db.${setName}${ignore}${filter}${declaredOrder} : dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`
+          : `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
         `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(cancellationToken);`,
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },

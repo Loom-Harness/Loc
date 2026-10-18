@@ -143,6 +143,9 @@ interface DomainBlock {
   source: string;
   /** The single bounded-context name the deployment wires to. */
   context: string;
+  /** An `api` declaration the backend deployable serves, when the domain
+   *  exposes a read beyond the aggregates' own CRUD routes. */
+  api?: { name: string; source: string };
 }
 
 function blankDomain(): DomainBlock {
@@ -165,8 +168,17 @@ function blankDomain(): DomainBlock {
 function crudDomain(): DomainBlock {
   return {
     context: "Projects",
+    api: {
+      name: "TasksApi",
+      // The api half of the paged read: the GET route bound to the handler
+      // `scaffoldPaged` emits on the context.  The aggregates' CRUD routes are
+      // derived either way.
+      source: `  api TasksApi with scaffoldPagedApi(of: TasksInProject) from Core { }`,
+    },
     source: `  subdomain Core {
-    context Projects {
+    // \`scaffoldPaged\` exposes the named read below as a paged queryHandler,
+    // ordered by the retrieval's \`sort:\` (unfold it to see the source).
+    context Projects with scaffoldPaged(of: TasksInProject) {
       aggregate Project with crudish {
         name: string
         invariant name.length > 0
@@ -182,9 +194,8 @@ function crudDomain(): DomainBlock {
       }
 
       // A list read is a criterion + retrieval pair, not a bespoke repository
-      // find: a list-returning "find byX(...)" is deprecated
-      // (loom.repository-find-deprecated), and the starter used to ship one — so
-      // a fresh "ddd new" warned on its own first parse.
+      // find (a list-returning "find byX(...)" is deprecated —
+      // loom.repository-find-deprecated).
       criterion InProject(p: Project id) of Task = project == p
       retrieval TasksInProject(p: Project id) of Task {
         where: InProject(p)
@@ -197,9 +208,15 @@ function crudDomain(): DomainBlock {
   };
 }
 
-function renderDeployment(platform: StarterPlatform, design: DesignPack, context: string): string {
+function renderDeployment(
+  platform: StarterPlatform,
+  design: DesignPack,
+  context: string,
+  api?: string,
+): string {
   const storage = `  storage primary { type: postgres }
   resource appState { for: ${context}, kind: state, use: primary }`;
+  const serves = api ? `\n    serves: ${api},` : "";
 
   if (isLiveView(platform, design)) {
     // Phoenix LiveView on `platform: elixir`: a single fullstack deployable
@@ -209,7 +226,7 @@ function renderDeployment(platform: StarterPlatform, design: DesignPack, context
   deployable app {
     platform: elixir,
     contexts: [${context}],
-    dataSources: [appState],
+    dataSources: [appState],${serves}
     ui: WebApp,
     port: ${BACKEND_PORT.elixir},
     design: ${design}
@@ -232,7 +249,7 @@ function renderDeployment(platform: StarterPlatform, design: DesignPack, context
   deployable api {
     platform: ${platform},
     contexts: [${context}],
-    dataSources: [appState],
+    dataSources: [appState],${serves}
     port: ${BACKEND_PORT[platform]}
   }
 
@@ -256,7 +273,7 @@ export function renderStarter(opts: {
 }): string {
   const sys = toSystemName(opts.name);
   const domain = opts.template === "crud" ? crudDomain() : blankDomain();
-  const deployment = renderDeployment(opts.platform, opts.design, domain.context);
+  const deployment = renderDeployment(opts.platform, opts.design, domain.context, domain.api?.name);
 
   return `// ${sys} — scaffolded by \`ddd new\` (template: ${opts.template}, platform: ${opts.platform}).
 // Edit this model, then regenerate:
@@ -272,7 +289,7 @@ system ${sys} {
   // the gates it asks for, and the \`enforcement: opt\` escape.
 
 ${domain.source}
-
+${domain.api ? `\n${domain.api.source}\n` : ""}
   ui WebApp with scaffold(subdomains: [Core]) {
   }
 
@@ -386,7 +403,9 @@ a \`requires <expr>\` gate, or the build fails with
   covers it, role separation within a tenant does not.
 - \`with crudish\` generates create/update/destroy — gate them by naming a
   \`policy\` and handing it to the macro:
-  \`aggregate X with crudish(requires: <Policy>)\`.
+  \`aggregate X with crudish(requires: <Policy>)\`.  The paged read
+  \`scaffoldPaged\` exposes takes the same argument:
+  \`context X with scaffoldPaged(of: <Read>, requires: <Policy>)\`.
 
 To keep the older opt-in posture — only the members that declare a
 \`requires\` are gated, everything else serves any authenticated caller —

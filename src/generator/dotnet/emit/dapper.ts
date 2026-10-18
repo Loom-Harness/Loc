@@ -43,7 +43,7 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
   DATA_KEY_PATH_DELIMITER,
   deepScopeAnchorClaim,
@@ -1839,16 +1839,26 @@ export function renderDapperRepository(
         // compile tier because the whole thing is a string (M-T6.42).
         .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `${sqlIdent(snake(t.field))} ${t.direction.toUpperCase()}`)
+        .join(", ");
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
         `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
         `        var ${L("offset")} = (page - 1) * pageSize;`,
-        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "id" };`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"id"'} };`,
         `        var ${L("sortDir")} = dir == "desc" ? "DESC" : "ASC";`,
+        // An unwhitelisted `sort` (the route's `""` default) takes the read's
+        // declared order (`defaultSortOrder`).
+        ...(declaredOrder
+          ? [
+              `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}";`,
+            ]
+          : []),
         `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: cancellationToken));`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY {${L("sortColumn")}} {${L("sortDir")}} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: cancellationToken));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: cancellationToken));`,
         ...(hasContains
           ? [
               `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,

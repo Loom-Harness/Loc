@@ -32,12 +32,17 @@ import {
  * as PUBLISHED (springdoc reads `@Min`/`@Max` into `minimum`/`maximum`).  Both
  * annotations are fully qualified so no import is added to any controller.
  */
-export const JAVA_PAGED_QUERY_PARAMS: readonly string[] = [
-  `@RequestParam(defaultValue = "${PAGED_DEFAULT_PAGE}") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${PAGED_MAX_PAGE}) int page`,
-  `@RequestParam(defaultValue = "${PAGED_DEFAULT_PAGE_SIZE}") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${PAGED_MAX_PAGE_SIZE}) int pageSize`,
-  `@RequestParam(defaultValue = "id") String sort`,
-  `@RequestParam(defaultValue = "asc") String dir`,
-];
+export function javaPagedQueryParams(sortDefault = "id"): readonly string[] {
+  return [
+    `@RequestParam(defaultValue = "${PAGED_DEFAULT_PAGE}") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${PAGED_MAX_PAGE}) int page`,
+    `@RequestParam(defaultValue = "${PAGED_DEFAULT_PAGE_SIZE}") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(${PAGED_MAX_PAGE_SIZE}) int pageSize`,
+    `@RequestParam(defaultValue = ${JSON.stringify(sortDefault)}) String sort`,
+    `@RequestParam(defaultValue = "asc") String dir`,
+  ];
+}
+
+/** The paged controls with the shared `id` sort default. */
+export const JAVA_PAGED_QUERY_PARAMS: readonly string[] = javaPagedQueryParams();
 
 /** A value object's invariant refused a value (M-T5.1) — a DomainException
  *  subclass, so every existing catch and `assertThrows(DomainException.class)`

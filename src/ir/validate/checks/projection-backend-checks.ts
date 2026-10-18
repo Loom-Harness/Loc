@@ -15,7 +15,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { SystemIR } from "../../types/loom-ir.js";
 import { isQueryTimeProjection } from "../../types/loom-ir.js";
-import { pagedRetrievalRunStmt, pagedRunStmt } from "../../util/paged-run.js";
+import { pagedRunBodyIsPure, pagedRunStmt } from "../../util/paged-run.js";
 import {
   columnlessProjectionSource,
   documentAggregationSource,
@@ -136,33 +136,56 @@ export function validateDocumentAggregationFilters(sys: SystemIR, diags: LoomDia
   }
 }
 
-// paged-run body shape (item 7): every backend's paged branch renders exactly
-// `let r = Repo.run(<Criterion>(args)); return r` — a criterion-backed run
-// the enrich pass turns into a paged FIND repo method.  Any other body — most
-// commonly `Repo.run(<Retrieval>(args))`, whose `where`/`sort` bundle has no
-// paged FIND — passed validation and then crashed `generate` on all five
-// backends with an `internal: … Please file a bug`.  Refuse it here instead.
-// Platform-independent (no backend renders another shape), so it is keyed on
-// the context, not the deployable.  An `extern` handler has no body to check.
+// paged-run body shape: every backend's paged branch renders exactly
+// `let r = Repo.run(<Criterion | Retrieval>(args)); return r` — a run the
+// enrich pass turns into a paged FIND repo method.  Any other body passed
+// validation and then crashed `generate` on all five backends with an
+// `internal: … Please file a bug`; it is refused here instead.  A retrieval's
+// declared `sort:` becomes the page's default order, which the five SQL paged
+// finds apply; an event-log / document / embedded / inheritance-subtype
+// aggregate pages in memory without it, so a sorted retrieval over one is
+// refused rather than silently reordered.  Platform-independent (no backend
+// renders another shape), so it is keyed on the context, not the deployable.
+// An `extern` handler has no body to check.
 
 export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const sd of sys.subdomains) {
     for (const c of sd.contexts) {
       for (const h of c.queryHandlers ?? []) {
-        if (h.extern || !pagedReturn(h.returnType) || pagedRunStmt(h)) continue;
-        const retRun = pagedRetrievalRunStmt(h);
-        const crit = retRun
-          ? (c.retrievals ?? []).find((r) => r.name === retRun.retrievalName)?.criterionRef?.name
-          : undefined;
-        const hint = !retRun
-          ? "Bind the criterion run to a `let` at the top of the body and return that name."
-          : crit
-            ? `\`${retRun.repoName}.run(${retRun.retrievalName}(…))\` runs a retrieval, which has no paged form — run its criterion instead: \`let ${retRun.name} = ${retRun.repoName}.run(${crit}(…))\` (the client picks the order through the paged route's \`sort\`/\`dir\` query params).`
-            : `\`${retRun.repoName}.run(${retRun.retrievalName}(…))\` runs a retrieval, which has no paged form — declare its \`where\` as a \`criterion\` and run that instead (the client picks the order through the paged route's \`sort\`/\`dir\` query params).`;
+        if (h.extern || !pagedReturn(h.returnType)) continue;
+        const run = pagedRunStmt(h);
+        const runsNamedRead =
+          !!run &&
+          (!!run.synthCriterion || (c.retrievals ?? []).some((x) => x.name === run.retrievalName));
+        if (!run || !runsNamedRead || !pagedRunBodyIsPure(h)) {
+          diags.push({
+            severity: "error",
+            code: "loom.paged-query-handler-shape",
+            message: diagMessage("loom.paged-query-handler-shape", {
+              name: h.name,
+              hint: "Run a criterion or a named retrieval, bind it to a `let` at the top of the body, and return that name — a paged handler's body is its `requires` gates and that run, nothing else.",
+            }),
+            source: `${c.name}/${h.name}`,
+          });
+          continue;
+        }
+        if (run.synthCriterion) continue;
+        const r = (c.retrievals ?? []).find((x) => x.name === run.retrievalName);
+        const agg = c.aggregates.find((a) => a.name === run.aggName);
+        if (!r || r.sort.length === 0 || !agg) continue;
+        const singleTable =
+          agg.persistedAs !== "eventLog" &&
+          (agg.savingShape ?? "relational") === "relational" &&
+          !agg.extendsAggregate;
+        if (singleTable) continue;
         diags.push({
           severity: "error",
           code: "loom.paged-query-handler-shape",
-          message: diagMessage("loom.paged-query-handler-shape", { name: h.name, hint }),
+          message: diagMessage("loom.paged-query-handler-shape#sorted-retrieval-shape", {
+            name: h.name,
+            retrieval: r.name,
+            aggName: agg.name,
+          }),
           source: `${c.name}/${h.name}`,
         });
       }

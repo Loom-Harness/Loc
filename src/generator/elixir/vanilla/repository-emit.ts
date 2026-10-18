@@ -28,7 +28,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -728,6 +728,11 @@ function renderFindFn(
       .filter((wf) => wf !== "id")
       .map((wf) => `        "${wf}" -> :${snake(wf)}`)
       .join("\n");
+    // An unwhitelisted `sort` (the route's `""` default) takes the read's
+    // declared order (`defaultSortOrder`).
+    const declaredOrder = defaultSortOrder(f.defaultSort)
+      ?.map((t) => `${t.direction}: :${snake(t.field)}`)
+      .join(", ");
     return `${spec}
   def ${fnName}(${headFor(query)}) do
     query = ${query}
@@ -736,14 +741,21 @@ function renderFindFn(
 
     sort_col =
       case sort do
-${sortArms}${sortArms ? "\n" : ""}        _ -> :id
+${sortArms}${sortArms ? "\n" : ""}        _ -> ${declaredOrder ? "nil" : ":id"}
       end
 
     dir_atom = if dir == "desc", do: :desc, else: :asc
-
+${
+  declaredOrder
+    ? `
+    order =
+      if sort_col, do: [{dir_atom, sort_col}], else: [${declaredOrder}]
+`
+    : ""
+}
     items =
       query
-      |> order_by([record], [{^dir_atom, field(record, ^sort_col)}])
+      |> ${declaredOrder ? "order_by(^order)" : "order_by([record], [{^dir_atom, field(record, ^sort_col)}])"}
       |> limit(^page_size)
       |> offset(^offset)
       |> Repo.all()${preload}
