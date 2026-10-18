@@ -6,6 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import { walkerPrimitiveArgValues } from "../../../util/walker-primitive-arg-values.js";
 import {
   WALKER_PRIMITIVE_NAMED_ARGS,
@@ -544,6 +545,7 @@ export function checkPrimitiveNamedArgs(
             name: e.name,
             arg: argName,
             known: acceptedArgsSentence(e.name),
+            suggestion: nearestName(argName, accepted),
           }),
           source: where,
           origin: host.origin,

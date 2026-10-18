@@ -33,6 +33,7 @@ ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
+ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
 ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
@@ -186,7 +187,7 @@ See the pipeline phases in [`technical.md`](technical.md).
 
 ### `verify` and `snapshot`
 
-`ddd verify` joins a JSON of test results onto the requirements graph
+`ddd verify` joins one or more test-results reports onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
 `.loom/verification.json` + `.loom/verification.md` under `--out`, and
 sets a non-zero exit code if any requirement is `FAILING`, if a declared
@@ -194,10 +195,12 @@ test produced **no result at all** (unless `--allow-missing` — "we have
 no result" is not "it passed"), if `--require-all` is set and any
 requirement remains unverified, or if `--min <pct>` is set and the
 verified percentage is below it.  `--json` also prints the verification
-JSON to stdout.  The results document is either Loom's own
-`{ version, results: [...] }` (`--results`) or a vitest / jest
-`--reporter=json` report (`--from-vitest`, which applies the
-`(suite, name)` join convention for you).  See [`verify.md`](verify.md)
+JSON to stdout.  A report is Loom's own `{ version, results: [...] }`
+(`--results`), a vitest / jest `--reporter=json` report (`--from-vitest`)
+or a Playwright `--reporter=json` report (`--from-playwright`) — the two
+adapters apply the `(suite, name)` join convention for you.  Every flag is
+repeatable and they mix: a generated tree's unit and e2e tiers each write
+their own report, and all of them are merged into one verdict.  See [`verify.md`](verify.md)
 for the full contract and [`traceability.md`](traceability.md) for the
 artefact format.
 
