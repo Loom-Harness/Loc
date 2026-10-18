@@ -27,7 +27,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { jid } from "../java-ident.js";
+import { javaLocals, jid, localOf } from "../java-ident.js";
 import {
   collectJavaExprImports,
   collectJavaTypeImports,
@@ -66,6 +66,44 @@ import {
 // the wire-validator call, the load-mutate-save flow for operations,
 // response mapping, and domain-event drainage after save.
 // ---------------------------------------------------------------------------
+
+/** Names a generated service METHOD spells itself — the `request` parameter,
+ *  the injected fields it dereferences, and its own fixed locals.  A request
+ *  field / operation param / finder param whose host identifier lands in the
+ *  method's set binds to a `_`-suffixed local instead (`javaLocals`), so it can
+ *  neither redeclare a local (`var aggregate`, `var result`, `var found`) nor
+ *  shadow a field the method dereferences afterwards (`repository.save(…)`).
+ *  Kept per method shape so a name only moves where it actually collides. */
+const CREATE_METHOD_NAMES: ReadonlySet<string> = new Set([
+  "request",
+  "repository",
+  "aggregate",
+  "currentUser",
+  "currentUserAccessor",
+  "auditRecords",
+  "__after",
+]);
+const OPERATION_METHOD_NAMES: ReadonlySet<string> = new Set([
+  "id",
+  "request",
+  "ifMatch",
+  "repository",
+  "aggregate",
+  "result",
+  "currentUser",
+  "currentUserAccessor",
+  "auditRecords",
+  "__before",
+  "__after",
+]);
+const FIND_METHOD_NAMES: ReadonlySet<string> = new Set(["repository", "found", "result"]);
+const PAGED_FIND_METHOD_NAMES: ReadonlySet<string> = new Set([
+  ...FIND_METHOD_NAMES,
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+]);
 
 export interface ServiceCtx {
   basePkg: string;
@@ -121,7 +159,12 @@ export function renderJavaService(
   const createParams: readonly { name: string; type: TypeIR; optional?: boolean }[] =
     ctx.esCreateParams ?? createInputs;
   for (const f of createParams) collectWireToDomainImports(f.type, imports, ctx.basePkg);
+  const createLocals = javaLocals(
+    createParams.map((f) => f.name),
+    CREATE_METHOD_NAMES,
+  );
   const createLets = createParams.map((f) => {
+    const local = localOf(createLocals, f.name);
     const raw = `request.${jid(f.name)}()`;
     // A create-input field with a declared default (`field: T = <expr>`) is
     // boxed/nullable in the request record (see dto.ts): an omitted key arrives
@@ -133,7 +176,7 @@ export function renderJavaService(
     // are — it is not a construction rule the domain could apply.
     if (dflt && isServerSourcedDefault(dflt)) {
       collectJavaExprImports(dflt, imports);
-      return `        var ${jid(f.name)} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
+      return `        var ${local} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
     }
     // Every OTHER default belongs to the factory (`javaFactoryDefault` in
     // emit/entity.ts), which reads `null` as "the caller omitted this".  The
@@ -141,11 +184,11 @@ export function renderJavaService(
     // places is what produces cross-backend default drift.  So an omittable
     // input passes straight through, null and all.
     if (!ctx.esCreateParams && !isRequiredCreateInput(f as FieldIR)) {
-      return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
+      return `        var ${local} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
     }
-    return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
+    return `        var ${local} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
   });
-  const createArgs = createParams.map((f) => jid(f.name)).join(", ");
+  const createArgs = createParams.map((f) => localOf(createLocals, f.name)).join(", ");
   // A `currentUser.*` create-field default coalesces to the ambient principal
   // (`... : currentUser.<claim>()`), so the create method needs `currentUser`
   // bound off the accessor — the same binding the operations use.  (A bare
@@ -217,14 +260,21 @@ export function renderJavaService(
   const lifecycleGateLines = (
     gates: readonly RequiresStmtIR[],
     thisName?: string,
+    locals?: ReadonlyMap<string, string>,
   ): readonly string[] =>
     gates.map((g) => {
       collectJavaExprImports(g.expr, imports);
       // No `thisName` for a create: the guard reads the principal only, so
-      // there is nothing to name the (nonexistent) receiver after.
+      // there is nothing to name the (nonexistent) receiver after.  A param
+      // ref reads the (possibly collision-renamed) local.
+      const paramExpr = locals ? (n: string) => locals.get(n) : undefined;
       return `        if (!(${renderJavaExpr(
         g.expr,
-        thisName ? { thisName, accessorProps: true } : undefined,
+        thisName
+          ? { thisName, accessorProps: true, paramExpr }
+          : paramExpr
+            ? { thisName: "this", paramExpr }
+            : undefined,
       )})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const createLines = emitsRestCreate(agg)
@@ -235,7 +285,7 @@ export function renderJavaService(
           : null,
         // BEFORE the factory: a denied create constructs nothing, saves
         // nothing, and stages no audit row.
-        ...lifecycleGateLines(createGates),
+        ...lifecycleGateLines(createGates, undefined, createLocals),
         ...createLets,
         `        var aggregate = ${agg.name}.create(${createArgs});`,
         // A DOCUMENT root is a plain POJO with no JPA persistence context, so
@@ -322,8 +372,14 @@ export function renderJavaService(
   const findLines = declaredFinds(repo)
     .map((f) => unionFindAsOptionalTwin(f, agg.name))
     .flatMap((f) => {
-      const params = f.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-      const args = f.params.map((p) => jid(p.name)).join(", ");
+      const findLocals = javaLocals(
+        f.params.map((p) => p.name),
+        isPagedFind(f) ? PAGED_FIND_METHOD_NAMES : FIND_METHOD_NAMES,
+      );
+      const params = f.params
+        .map((p) => `${renderJavaType(p.type)} ${localOf(findLocals, p.name)}`)
+        .join(", ");
+      const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
       // Finder params are DOMAIN-typed (`renderJavaType`) and passed straight
       // through to the repository — collect the domain-type import (BigDecimal
       // for decimal, UUID for a bare guid, …) to match the rendered signature,
@@ -389,7 +445,10 @@ export function renderJavaService(
    *  BEFORE the `when` state gate: 403 precedes 409, so an unauthorized caller
    *  never learns the row's state.  Operation params need no remapping here —
    *  the service already binds each one as a `var <name> = …` local above. */
-  const requiresGateLines = (op: (typeof agg.operations)[number]): string[] =>
+  const requiresGateLines = (
+    op: (typeof agg.operations)[number],
+    locals: ReadonlyMap<string, string>,
+  ): string[] =>
     operationGates(op).map((g) => {
       // The gate's own expression imports (`java.util.Objects` for a string
       // comparison, enum/id types, …) are collected HERE, since the gate lives
@@ -400,11 +459,15 @@ export function renderJavaService(
       return `        if (!(${renderJavaExpr(g.expr, {
         thisName: "aggregate",
         accessorProps: true,
+        paramExpr: (n) => locals.get(n),
       })})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
-  const whenGateLine = (op: (typeof agg.operations)[number]): string | null =>
+  const whenGateLine = (
+    op: (typeof agg.operations)[number],
+    locals: ReadonlyMap<string, string>,
+  ): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&
@@ -457,9 +520,13 @@ export function renderJavaService(
       const reqType = `${upperFirst(op.name)}${agg.name}Request`;
       const paramSig =
         (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam;
+      const opLocals = javaLocals(
+        op.params.map((p) => p.name),
+        OPERATION_METHOD_NAMES,
+      );
       const lets = op.params.map(
         (p) =>
-          `        var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
+          `        var ${localOf(opLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
       );
       for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
@@ -467,7 +534,7 @@ export function renderJavaService(
       // Only what REMAINS of the body still takes the trailing argument.
       const passUser = !!ctx.authed && operationBodyUsesCurrentUser(op);
       const args = [
-        ...op.params.map((p) => jid(p.name)),
+        ...op.params.map((p) => localOf(opLocals, p.name)),
         ...(passUser ? ["currentUser"] : []),
       ].join(", ");
       if (op.extern) {
@@ -483,8 +550,8 @@ export function renderJavaService(
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
           `        var aggregate = repository.getById(id);`,
           ifMatchGuard,
-          ...requiresGateLines(op),
-          whenGateLine(op),
+          ...requiresGateLines(op, opLocals),
+          whenGateLine(op, opLocals),
           `        aggregate.${jid(op.name)}(${args});`,
           `        repository.save(aggregate);`,
           `        publishEvents(aggregate);`,
@@ -522,8 +589,8 @@ export function renderJavaService(
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
         `        var aggregate = repository.getById(id);`,
         ifMatchGuard,
-        ...requiresGateLines(op),
-        whenGateLine(op),
+        ...requiresGateLines(op, opLocals),
+        whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
         returnsValue
           ? `        var result = aggregate.${jid(op.name)}(${args});`

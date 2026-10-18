@@ -50,6 +50,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EnrichedAggregateIR,
+  ExprIR,
   FieldIR,
   FindIR,
   OperationIR,
@@ -62,7 +63,13 @@ import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/reso
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirString,
+  escapeElixirIdent,
+  plural,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -204,9 +211,13 @@ export function renderDocSchema(
   ctxModule: string,
   agg: AggregateIR,
   schemaPrefix?: string,
+  /** The aggregate's pure domain core (`domain-core-emit.ts`), spliced into the
+   *  root module; empty when no unit test reaches the aggregate. */
+  pureCore: readonly string[] = [],
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const tableName = snake(plural(agg.name));
+  const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
   // Route A: the blob is a TYPED `embeds_one :data, <Agg>.Data` embedded schema
   // (not a bare `field :data, :map`), so `row.data` rehydrates into a struct with
@@ -236,9 +247,28 @@ ${prefixLine}
     field :version, :integer, default: 1
     timestamps(type: :utc_datetime)
   end
-end
+${pureCoreBlock}end
 `;
-  return `${root}\n${renderDocDataSchema(appModule, ctxModule, agg)}`;
+  // A pure core names `%<Agg>.Data{}` in its function heads, and a struct
+  // literal expands at COMPILE time — so the embed module must be compiled
+  // first, which within one file means written first.
+  return pureCore.length > 0
+    ? `${renderDocDataSchema(appModule, ctxModule, agg)}\n${root}`
+    : `${root}\n${renderDocDataSchema(appModule, ctxModule, agg)}`;
+}
+
+/** A document field's Ecto `default:` — the relational literal rendering, plus
+ *  an ENUM value.  The embed stores an enum as its declared-case string (enum
+ *  casts as `:string`, see {@link castType}), so `status: Status = Draft`
+ *  defaults to `"Draft"`.  `renderEctoDefault` renders literals only, and the
+ *  relational path never needs it to do more: its changeset supplies the
+ *  default through `__default/3` instead.  The document path has no such step,
+ *  so without this arm the default never reached the record and a create that
+ *  omitted the field was refused by `validate_required`, where the other four
+ *  backends store the default. */
+function docEctoDefault(e: ExprIR): string | null {
+  if (e.kind === "ref" && e.refKind === "enum-value") return elixirString(e.name);
+  return renderEctoDefault(e);
 }
 
 /** The `<Agg>.Data` embedded schema — THE domain shape the whole document folds
@@ -260,7 +290,7 @@ function renderDocDataSchema(appModule: string, ctxModule: string, agg: Aggregat
   // `errors` array is EMPTY, because the nested embed holds the error (B5).
   // Every other backend applies the default and accepts the same request.
   const fieldLines = fields.map((f) => {
-    const def = f.default ? renderEctoDefault(f.default) : null;
+    const def = f.default ? docEctoDefault(f.default) : null;
     return `    field :${snake(f.name)}, ${castType(f.type)}${def ? `, default: ${def}` : ""}`;
   });
   const containLines = agg.contains.map(
@@ -752,7 +782,7 @@ function renderDocFindFn(
     bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
   });
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
   const paged = pagedReturn(f.returnType) != null;
   const single = isDocSingleReturn(f.returnType);
   const rc: RenderCtx = {
@@ -763,7 +793,9 @@ function renderDocFindFn(
   const authored = f.filter
     ? renderExpr(f.filter, rc)
     : argNames.length > 0
-      ? argNames.map((n) => `record.${n} == ${n}`).join(" and ")
+      ? f.params
+          .map((p) => `record.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
+          .join(" and ")
       : "true";
   const predicate = cap ? `(${authored}) and (${cap})` : authored;
   // A predicate that doesn't read the embed (an unfiltered find → `true`) must
@@ -926,7 +958,7 @@ function docOpStructBody(
   // `--warnings-as-errors`); `params` itself is always read by the `is_map` guard.
   const usedParams = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
   const params = usedParams.map(
-    (p) => `    ${snake(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   const guardClauses = collectOpGuardClauses(agg.name, op, rc);
   const lastIdx = op.statements.length - 1;

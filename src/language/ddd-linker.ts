@@ -40,7 +40,7 @@ import {
   isPayloadDecl,
   isValueObject,
 } from "./generated/ast.js";
-import { nearestType, primitiveTypeNames } from "./type-catalogue.js";
+import { nearestType, primitiveTypeNames, typeAliasFor } from "./type-catalogue.js";
 
 /** The reference type every TYPE position resolves through.  `NamedDecl` is
  *  used in exactly two grammar rules, `NamedType` (`target=[NamedDecl:ID]`) and
@@ -105,9 +105,13 @@ function unknownTypeMessage(name: string, container: AstNode): string {
     }
   }
   const primitives = primitiveTypeNames();
-  const hint = nearestType(name, [...primitives, ...declared]);
+  // A near miss first (`strng`); failing that, a spelling borrowed from another
+  // language (`boolean`, `integer`, `uuid`) that no edit distance would bridge.
+  const near = nearestType(name, [...primitives, ...declared]);
+  const hints = near ? [near] : typeAliasFor(name);
+  const hint = hints.map((h) => `'${h}'`).join(" or ");
   return (
-    `Unknown type '${name}'.${hint ? ` Did you mean '${hint}'?` : ""}  Field types are: ` +
+    `Unknown type '${name}'.${hint ? ` Did you mean ${hint}?` : ""}  Field types are: ` +
     `${primitives.join(", ")} — or an enum / valueobject / event / payload declared in ` +
     `scope; a reference to another aggregate is spelled '<Aggregate> id'.`
   );
