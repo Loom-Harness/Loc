@@ -38,11 +38,11 @@
 // ---------------------------------------------------------------------------
 
 import type { EmitCtx, Lines, PersistenceAdapter } from "../../_adapters/index.js";
+import { dotnetRootNamespace } from "../bcl-collision.js";
 import { DAPPER_PROJECT_DEPS } from "../emit/dapper.js";
 
 function _nsOf(ctx: EmitCtx): string {
-  const name = ctx.deployable.name;
-  return name[0]!.toUpperCase() + name.slice(1);
+  return dotnetRootNamespace(ctx.deployable.name, ctx.contexts);
 }
 
 function _findRepoFor(ctx: EmitCtx, aggName: string) {
