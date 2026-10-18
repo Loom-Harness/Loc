@@ -3792,6 +3792,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unrouted": (p: {
+    aggregate: unknown;
+    operation: unknown;
+    framework: unknown;
+    deployable: unknown;
+  }) =>
+    `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
+    `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
+    `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
+    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
+    `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
+    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;

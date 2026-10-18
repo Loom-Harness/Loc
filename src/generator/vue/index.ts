@@ -16,6 +16,7 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -218,7 +219,10 @@ export function generateVueForContexts(
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
-      buildApiModule(agg, repo, ctx, { queryPackage: "@tanstack/vue-query" }),
+      buildApiModule(agg, repo, ctx, {
+        queryPackage: "@tanstack/vue-query",
+        pagedFindRoutes: pagedFindRoutes(sys, target ?? deployable),
+      }),
     );
   }
 

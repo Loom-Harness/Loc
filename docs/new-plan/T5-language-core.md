@@ -145,7 +145,7 @@ Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement`
 
 Sources: [M-T5.28](archive/T5-done.md#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
 
-## M-T5.31 — A `retrieval` reaches the wire through `scaffoldPaged`, and the client side still trails — `partial` · **M** · P1
+## M-T5.31 — A `retrieval` reaches the wire through `scaffoldPaged`; the filter bar still trails — `partial` · **M** · P1
 
 **Owner design (confirmed by the user, 2026-10-18).** A `retrieval` is a domain declaration and stays one: it does **not** grow its own route, and it has no `requires` slot. Exposure is an opt-in scaffold macro that emits real, unfoldable source (`docs/old/proposals/read-path-architecture.md` rev. 3, "The ergonomic default"):
 
@@ -163,13 +163,13 @@ api SalesApi with scaffoldPagedApi(of: TopInRegion) from Sales { }
 - The paged-run route renders the handler's `requires` gates (a 403 before the read) on all five backends. Before this, every backend dropped them.
 - `loom.repository-find-deprecated` is back at full strength in every context, with #2874's interim narrowing deleted. It now names the exposure (`scaffoldPaged(of: …)` + `scaffoldPagedApi(of: …)`).
 - The `ddd new --template crud` starter exposes `TasksInProject` with `with scaffoldPaged(of: TasksInProject)` plus an `api TasksApi with scaffoldPagedApi(of: TasksInProject)` that the backend `serves:`.
+- **Client hooks bind to the served route.** A synthesized paged find (`findAllBy<Criterion>` / `page<Retrieval>`) has no derived `/<plural>/<find>` route. Its react/vue/svelte/angular hook now calls the explicit `GET` route that the target backend's served api binds to the handler (`pagedFindRoutes`, `src/ir/util/paged-find-routes.ts`). Its `sort` defaults to the declared order. A synthesized find that no served api routes gets no hook at all. A SPA page that reads such an unrouted find is refused (`loom.ui-read-unresolved#unrouted`), and so is any read of a synthesized find from Feliz or Flutter, which build read URLs from the derived path. `test/generator/_frontend/read-hooks-routed.test.ts` checks every hook GET of the starter (all four SPA frameworks) and of the scaffold-paged fixture against the backend's served surface.
 
 **Remaining:**
 
-1. **Client hooks for a paged-run find.** The frontends (`src/generator/_frontend/api-module.ts`, `svelte/api-builder.ts`, `angular/api-module.ts`) emit a hook for every repository find, including the synthesized paged-run find. That hook targets `/<plural>/<find>` (with `sort` defaulting to `"id"`), a path no backend routes. Bind it to the route `scaffoldPagedApi` emits instead. This applies to the criterion form too, so the problem predates this mission's retrieval work. LiveView is unaffected because it calls the context function directly. **M**
-2. **Slice 5 — the scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts`) iterates `m.finds` only. It should also offer the parameterised retrieval a `scaffoldPaged` exposes. This waits on item 1, because a bar needs a client hook that reaches the route. Pin it with a `scaffold-body-builders` case. **S**
-3. **`scaffoldPaged(of: <Aggregate>)`.** This arm is not built. A bare aggregate has no named read to `run`, and its unfiltered list is already the derived `GET /<plural>`. It only makes sense together with a declared default order, so it waits on a use case. **S**
-4. **`loads:` on a paged retrieval.** It is still refused at the declaration (`loom.retrieval-loads-unsupported`), so it cannot ride along yet. When the refusal lifts, the paged find must honour the load plan. **M**
+1. **Slice 5 — the scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts`) iterates `m.finds` only. Now that a routed paged find has a working hook, it should also offer the parameterised retrieval a `scaffoldPaged` + `scaffoldPagedApi` pair exposes. The ui macro works at the AST level, so it must discover that pair from the context's and api's `with` clauses. Pin it with a `scaffold-body-builders` case. **S**
+2. **`scaffoldPaged(of: <Aggregate>)`.** This arm is not built. A bare aggregate has no named read to `run`, and its unfiltered list is already the derived `GET /<plural>`. It only makes sense together with a declared default order, so it waits on a use case. **S**
+3. **`loads:` on a paged retrieval.** It is still refused at the declaration (`loom.retrieval-loads-unsupported`), so it cannot ride along yet. When the refusal lifts, the paged find must honour the load plan. **M**
 
 **Verification of the shipped half:**
 
@@ -178,6 +178,7 @@ api SalesApi with scaffoldPagedApi(of: TopInRegion) from Sales { }
 - `test/macro/unfold-action.test.ts`: unfold.
 - `test/cli/new.test.ts` and `test/cli/new-auth-guidance.test.ts`: the starter route is present on every backend and is gated under deny-by-default.
 - The generated node project was booted against Postgres, and the route answered paged, declared-order and 403 reads.
+- In the booted `ddd new` starter, the React app's own `usePageTasksInProjectTask` request got a 200, and its zod schema parsed the response.
 
 ## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
 
