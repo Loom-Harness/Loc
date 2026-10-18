@@ -13,15 +13,15 @@
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { dedupeByName } from "../../../util/dedupe.js";
 import type { EmitCtx, Lines, PersistenceAdapter } from "../../_adapters/index.js";
+import { dotnetRootNamespace } from "../bcl-collision.js";
 import { renderConfiguration, renderDbContext } from "../emit/efcore.js";
 
 /** Per-deployable namespace — every dotnet emit fn keys off it for
  *  `using` directives + class declarations.  Mirrors the `ns` parameter
- *  the orchestrator threads through today — `deployable.name` with
- *  the first letter capitalised (see `src/platform/dotnet.ts:emitProject`). */
+ *  the orchestrator threads through — both come from `dotnetRootNamespace`
+ *  (see `src/platform/dotnet.ts:emitProject`). */
 function nsOf(ctx: EmitCtx): string {
-  const name = ctx.deployable.name;
-  return name[0]!.toUpperCase() + name.slice(1);
+  return dotnetRootNamespace(ctx.deployable.name, ctx.contexts);
 }
 
 /** Find the matching repository declaration in any of the deployable's
