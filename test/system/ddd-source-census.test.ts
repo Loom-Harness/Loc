@@ -120,7 +120,7 @@ const DELIBERATELY_INVALID = [
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
-  // The error-QUALITY corpus from the external evaluation in `eval/`: ten models,
+  // The error-QUALITY corpus from the external evaluation (`test/fixtures/eval-models/eval/`): ten models,
   // each carrying one realistic authoring mistake, written to measure whether the
   // diagnostic points at the right line and is actionable.  Being refused IS the
   // assertion, so they belong here rather than being "fixed".

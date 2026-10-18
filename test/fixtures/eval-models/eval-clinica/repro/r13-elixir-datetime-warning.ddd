@@ -1,0 +1,14 @@
+// Probe: an operation taking a `datetime` parameter makes the Elixir backend
+// fail `mix compile --warnings-as-errors` (a gate the README lists).
+system R13 {
+  subdomain S { context C {
+    aggregate Appt {
+      startAt: datetime
+      operation reschedule(newStart: datetime) { startAt := newStart }
+    }
+    repository Appts for Appt { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [C], dataSources: [st], port: 4000 }
+}

@@ -1,0 +1,15 @@
+// `find ... where <field> == currentUser.<claim>` emits an Ecto query with an
+// UNPINNED variable → the generated Elixir does not compile.
+// (Note the claim here is NON-optional, to separate this from F-014.)
+system X {
+  user { id: string  ownerTag: string }
+  subdomain S { context C {
+    aggregate Thing with crudish { ownerTag: string  derived display: string = ownerTag }
+    repository Things for Thing {
+      find mine(): Thing[] requires true where this.ownerTag == currentUser.ownerTag
+    }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: elixir, contexts: [C], dataSources: [r], auth: required, port: 4000 }
+}

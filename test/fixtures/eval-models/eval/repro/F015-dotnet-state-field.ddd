@@ -1,0 +1,15 @@
+// F-015: an aggregate field named `state` collides with the nested
+// `State` rehydration class the .NET emitter generates.
+// docs/language.md shows `state: string` as a legal soft-keyword field name.
+system Repro {
+  subdomain S { context C {
+    aggregate Thing with crudish {
+      state: string
+      derived display: string = state
+    }
+    repository Things for Thing { }
+  } }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable apiNet { platform: dotnet, contexts: [C], dataSources: [cState], port: 8080 }
+}

@@ -1,0 +1,21 @@
+// A `test e2e ... against api` crashes codegen when a SECOND backend deployable
+// exists that does not host the tested context.
+system X {
+  subdomain S {
+    context A { aggregate Foo with crudish { name: string  derived display: string = name }
+                repository Foos for Foo { } }
+    context B { aggregate Bar with crudish { tag: string  derived display: string = tag }
+                repository Bars for Bar { } }
+  }
+  storage p { type: postgres }
+  resource ra { for: A, kind: state, use: p }
+  resource rb { for: B, kind: state, use: p }
+  deployable api   { platform: node, contexts: [A], dataSources: [ra], port: 3000 }
+  deployable other { platform: node, contexts: [B], dataSources: [rb], port: 3002 }
+
+  test e2e "create a foo" against api {
+    let f = api.foos.create({ name: "x" })
+    let read = api.foos.getById(f)
+    expect(read.name).toBe("x")
+  }
+}

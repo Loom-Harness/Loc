@@ -1,0 +1,17 @@
+system P {
+  subdomain S { context C {
+    aggregate Tech { n: string  derived display: string = n }
+    aggregate WorkOrder {
+      technicianId: Tech id?
+      derived display: string = "w"
+    }
+    repository Techs for Tech {}
+    repository WorkOrders for WorkOrder {}
+    // natural: "rows that have been assigned"
+    criterion Assigned() of WorkOrder = this.technicianId != null
+    retrieval AssignedOrders() of WorkOrder { where: Assigned() }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

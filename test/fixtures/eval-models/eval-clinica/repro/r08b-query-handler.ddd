@@ -1,0 +1,32 @@
+// Probe: the documented way to expose a filtered list read over HTTP.
+// A `retrieval` produces NO route (see r08); the sanctioned replacement is a
+// paged queryHandler over a CRITERION + a hand-written api route.
+// Passing the RETRIEVAL to Repo.run instead crashes the emitter with a stack
+// trace after validation reported 0 errors — see FINDINGS F-009.
+system R08b {
+  subdomain S {
+    context C {
+      aggregate Appt { startAt: datetime  practitioner: string }
+      repository Appts for Appt { }
+      criterion ForPrac(p: string) of Appt = practitioner == p
+      retrieval PracDay(p: string) of Appt { where: ForPrac(p)  sort: [startAt asc] }
+
+      queryHandler ListForPrac(p: string): Appt paged {
+        let r = Appts.run(ForPrac(p))
+        return r
+      }
+
+      // Uncomment to reproduce the emitter crash:
+      // queryHandler ListViaRetrieval(p: string): Appt paged {
+      //   let r = Appts.run(PracDay(p))
+      //   return r
+      // }
+    }
+  }
+  api Sched from S {
+    route GET "/practitioner-day" -> C.ListForPrac
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: Sched, port: 3000 }
+}

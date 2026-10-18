@@ -1,0 +1,33 @@
+// F-013: a `for` loop in a workflow reactor crashes the Elixir emitter.
+//   node bin/cli.js parse eval/repro/F013-elixir-foreach-crash.ddd   -> OK
+//   node bin/cli.js generate system ... -> Error: dispatch-emit: unsupported
+//                                          reactor statement kind 'for-each'
+system Repro {
+  subdomain S { context C {
+    aggregate Member { name: string  derived display: string = name }
+    aggregate Post { author: Member id  title: string  derived display: string = title
+      operation publish() { emit PostPublished { post: id, author: author } } }
+    aggregate Note { member: Member id  post: Post id  derived display: string = "n" }
+    aggregate Follow { follower: Member id  followee: Member id  derived display: string = "f" }
+    event PostPublished { post: Post id, author: Member id }
+    channel Feed { carries: PostPublished }
+    criterion FollowersOf(who: Member id) of Follow = followee == who
+    workflow FanOut {
+      postId: Post id
+      on(e: PostPublished) by e.post {
+        for f in Follows.run(FollowersOf(e.author)) {
+          let n = Note.create({ member: f.follower, post: e.post })
+        }
+      }
+    }
+    repository Members for Member { }
+    repository Posts for Post { }
+    repository Notes for Note { }
+    repository Follows for Follow { }
+  } }
+  storage primary { type: postgres }
+  storage bus { type: redis }
+  resource cState { for: C, kind: state, use: primary }
+  channelSource feedBus { for: Feed, use: bus }
+  deployable apiElixir { platform: elixir, contexts: [C], dataSources: [cState], channels: [feedBus], port: 4000 }
+}

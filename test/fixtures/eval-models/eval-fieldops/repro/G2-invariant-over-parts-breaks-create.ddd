@@ -1,0 +1,26 @@
+// Spec requirement: "an invariant that all lines share the order's currency".
+// Adding it makes any Order.create({...}) call site emit non-compiling code.
+system P {
+  subdomain S { context C {
+    aggregate Order {
+      currency: string
+      contains lines: Line[]
+      derived display: string = currency
+      invariant lines.all(l => l.currency == currency)   // <-- remove this and it compiles
+      entity Line { currency: string  amt: money }
+      test "an order can be built" {
+        let o = Order.create({ currency: "EUR" })
+        expect(o.display).toBe("EUR")
+      }
+    }
+    repository Orders for Order {}
+    workflow openOrder {
+      create(currency: string) {
+        let o = Order.create({ currency: currency })
+      }
+    }
+  } }
+  storage db { type: postgres }
+  resource st { for: C, kind: state, use: db }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

@@ -1,0 +1,24 @@
+// A repository used only INSIDE an `if let` within a `for` body is not injected
+// into the generated Java workflow class → the generated Java does not compile.
+system X {
+  subdomain S { context C {
+    aggregate Part with crudish { sku: string  stock: int  derived display: string = sku
+      operation consume(q: int) { precondition stock >= q  stock := stock - q } }
+    aggregate Usage with crudish { sku: string  qty: int  derived display: string = sku }
+    repository Parts for Part { }
+    repository Usages for Usage { }
+    criterion AllUsages() of Usage = this.qty > 0
+    criterion PartBySku(s: string) of Part = this.sku == s
+    workflow drain transactional {
+      create(note: string) {
+        let us = Usages.run(AllUsages(), page: { offset: 0, limit: 100 })
+        for u in us {
+          if let p = Parts.find(PartBySku(u.sku)) { p.consume(u.qty) }
+        }
+      }
+    }
+  } }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: java, contexts: [C], dataSources: [r], port: 8081 }
+}

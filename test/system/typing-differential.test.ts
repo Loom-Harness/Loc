@@ -28,7 +28,7 @@
 //   - `unreached`      the pass's walk never typed the node: always a pass bug.
 //
 // The fleet is every tracked `.ddd` (corpus, e2e fixtures, examples,
-// web/src/examples, journey, docs models) plus every whole `.ddd`
+// web/src/examples, journey, the eval-models fixtures, docs models) plus every whole `.ddd`
 // document written inline in a test file. Multi-file projects are parsed one
 // file at a time (as #3125's census does), so cross-file names are unresolved
 // for all three checkers alike.

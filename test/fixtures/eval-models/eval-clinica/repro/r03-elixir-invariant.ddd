@@ -1,0 +1,12 @@
+system R03 {
+  subdomain S { context Sched {
+    aggregate Appointment {
+      durationMinutes: int
+      invariant durationMinutes > 0      // simple, pure
+    }
+    repository Appointments for Appointment { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: Sched, kind: state, use: primary }
+  deployable api { platform: elixir, contexts: [Sched], dataSources: [st], port: 4000 }
+}

@@ -1,0 +1,15 @@
+// The ui scaffolds a subdomain the target backend does not host.
+// docs/page-metamodel.md §3 "Validator obligations" says this must be an error.
+// It is not: pages are emitted that import an api client that was never generated.
+system X {
+  subdomain A { context CA { aggregate Foo with crudish { name: string  derived display: string = name }
+                             repository Foos for Foo { } } }
+  subdomain B { context CB { aggregate Bar with crudish { tag: string  derived display: string = tag }
+                             repository Bars for Bar { } } }
+  ui Web with scaffold(subdomains: [A, B]) { framework: react }
+  storage p { type: postgres }
+  resource ra { for: CA, kind: state, use: p }
+  resource rb { for: CB, kind: state, use: p }
+  deployable api { platform: node, contexts: [CA], dataSources: [ra], port: 3000 }   // hosts A only
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}

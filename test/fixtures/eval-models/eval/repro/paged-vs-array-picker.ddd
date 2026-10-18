@@ -1,0 +1,17 @@
+// Declaring `find all(): T[]` (which deny-by-default FORCES you to do, to gate the
+// list route) makes every scaffolded reference-picker read `.items` off a bare array.
+system X {
+  subdomain S { context C {
+    aggregate Customer with crudish { name: string  derived display: string = name }
+    aggregate Site with crudish { customerId: Customer id  label: string  derived display: string = label }
+    repository Customers for Customer {
+      find all(): Customer[] requires true      // <-- the explicit, gateable form
+    }
+    repository Sites for Site { }
+  } }
+  ui Web with scaffold(subdomains: [S]) { framework: react }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+}

@@ -1,0 +1,15 @@
+// Minimal: a channel + a deployable named `api` on platform dotnet.
+system P {
+  subdomain S { context C {
+    aggregate Order with crudish { ref: string  derived display: string = ref
+      operation place() { emit Placed { order: id } } }
+    repository Orders for Order {}
+    event Placed { order: Order id }
+    channel Lifecycle { carries: Placed }
+  } }
+  storage db { type: postgres }
+  storage bus { type: redis }
+  resource st { for: C, kind: state, use: db }
+  channelSource lc { for: Lifecycle, use: bus }
+  deployable api { platform: dotnet, contexts: [C], dataSources: [st], channels: [lc], port: 8080 }
+}

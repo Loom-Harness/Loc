@@ -1,0 +1,24 @@
+// F-016 minimal repro: a reference collection (`X id[]`) emits uncompilable Angular.
+//   node bin/cli.js generate system eval/repro/F016-angular-ref-collection.ddd -o /tmp/f16
+//   cd /tmp/f16 && docker compose build web
+//   -> TS2322/TS2345: `{ title: string; tags: null; }` not assignable to CreatePostRequest
+//   Removing the `tags` line (leaving only the optional `grp: Grp id?`) BUILDS.
+system Ng {
+  subdomain S { context C {
+    aggregate Tag { name: string  derived display: string = name }
+    aggregate Grp { name: string  derived display: string = name }
+    aggregate Post with crudish {
+      title: string
+      tags: Tag id[]
+      derived display: string = title
+    }
+    repository Tags for Tag { }
+    repository Grps for Grp { }
+    repository Posts for Post { }
+  } }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
+  ui W with scaffold(subdomains: [S]) { framework: angular }
+  deployable web { platform: angular, targets: api, ui: W, port: 3004 }
+}

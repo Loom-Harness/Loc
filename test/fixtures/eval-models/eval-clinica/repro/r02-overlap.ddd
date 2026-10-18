@@ -1,0 +1,22 @@
+// Probe: can a set-level NO-OVERLAP constraint be expressed?
+// "No two appointments may overlap for the same practitioner or the same room."
+context Sched {
+  aggregate Practitioner { fullName: string  derived display: string = fullName }
+  repository Practitioners for Practitioner { }
+
+  aggregate Appointment {
+    practitioner: Practitioner id
+    startAt: datetime
+    durationMinutes: int
+    derived endsAt: datetime = startAt + minutes(durationMinutes)
+
+    // attempt 1: `unique` — exact-match natural key only?
+    unique (practitioner, startAt)
+
+    // attempt 2: a set-level invariant referring to the repository
+    invariant Appointments.run(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
+  }
+  criterion OverlapsExisting(p: Practitioner id, s: datetime, e: datetime) of Appointment =
+    practitioner == p && startAt < e && endsAt > s
+  repository Appointments for Appointment { }
+}

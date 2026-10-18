@@ -1,0 +1,15 @@
+// Probe: `mask unless` emits Objects.equals(...) into <Agg>Response.java
+// without importing java.util.Objects.
+system R15 {
+  user { id: string  role: string }
+  subdomain S { context C {
+    aggregate Employee {
+      name: string
+      salary: money mask unless currentUser.role == "hr"
+    }
+    repository Employees for Employee { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: java, contexts: [C], dataSources: [st], port: 8081, auth: required }
+}

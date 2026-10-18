@@ -1,0 +1,21 @@
+system R02 {
+  subdomain S { context Sched {
+  aggregate Practitioner { fullName: string  derived display: string = fullName }
+  repository Practitioners for Practitioner { }
+
+  aggregate Appointment {
+    practitioner: Practitioner id
+    startAt: datetime
+    durationMinutes: int
+    derived endsAt: datetime = startAt + minutes(durationMinutes)
+    unique (practitioner, startAt)
+    invariant Appointments.run(OverlapsExisting(practitioner, startAt, endsAt)).count == 0
+  }
+  criterion OverlapsExisting(p: Practitioner id, s: datetime, e: datetime) of Appointment =
+    practitioner == p && startAt < e && endsAt > s
+  repository Appointments for Appointment { }
+  } }
+  storage primary { type: postgres }
+  resource st { for: Sched, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sched], dataSources: [st], port: 3000 }
+}

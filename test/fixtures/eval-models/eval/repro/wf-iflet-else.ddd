@@ -1,0 +1,15 @@
+// A `let` that appears AFTER a `for` statement in a workflow body is not visible.
+system X { subdomain S { context C {
+  aggregate Thing { n: int  operation bump() { n := n + 1 } }
+  criterion All() of Thing = this.n >= 0
+  repository Things for Thing { }
+  workflow after transactional {          // let BEFORE the for  → OK
+    create(id0: Thing id) {
+      let xs = Things.run(All(), page: { offset: 0, limit: 10 })
+      for i in xs { if let q = Things.find(All()) { q.bump() } else { precondition false message "x" } }
+      let t = Things.getById(id0)
+      t.bump()
+    }
+  }
+} } storage p { type: postgres } resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }

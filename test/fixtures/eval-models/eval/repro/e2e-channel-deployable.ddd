@@ -1,0 +1,31 @@
+// `test e2e ... against api` crashes codegen once a SECOND backend deployable is
+// wired to the same channel (an event-consumer deployable).
+system X {
+  subdomain S {
+    context A {
+      aggregate Foo with crudish { name: string  derived display: string = name }
+      repository Foos for Foo { }
+      event FooMade { foo: Foo id, at: datetime }
+      channel Life { carries: FooMade  delivery: broadcast  retention: ephemeral }
+    }
+    context B {
+      aggregate Bar with crudish { tag: string  derived display: string = tag }
+      repository Bars for Bar { }
+      workflow onFoo { fooId: Foo id
+        create(e: FooMade) by e.foo { let b = Bar.create({ tag: "made" }) } }
+    }
+  }
+  storage p { type: postgres }
+  storage bus { type: redis }
+  resource ra { for: A, kind: state, use: p }
+  resource rb { for: B, kind: state, use: p }
+  channelSource lifeBus { for: Life, use: bus }
+  deployable api   { platform: node, contexts: [A], dataSources: [ra], channels: [lifeBus], port: 3000 }
+  deployable other { platform: node, contexts: [B], dataSources: [rb], channels: [lifeBus], port: 3002 }
+
+  test e2e "create a foo" against api {
+    let f = api.foos.create({ name: "x" })
+    let read = api.foos.getById(f)
+    expect(read.name).toBe("x")
+  }
+}
