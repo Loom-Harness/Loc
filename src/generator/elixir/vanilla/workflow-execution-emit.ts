@@ -362,11 +362,24 @@ function lowerStatement(
       // A `currentUser`-gated op takes a trailing `current_user` arg —
       // `opCallSource` threads the in-scope binding when `ctx` resolves it.
       const call = opCallSource(st, renderCtx, contextModule, ctx);
+      // M-T6.98 — the call PERSISTS (each context op is its own save on
+      // elixir, where the other four save a handle once at the end), so the
+      // handle is rebound to what it returns: the saved record, carrying the
+      // version (or folded stream version) the write moved it to.  Discarding
+      // it left the handle at its LOADED version, so a second op on the same
+      // handle was a stale save — a self-inflicted concurrency conflict — and,
+      // on an event-sourced aggregate, a decision taken on a stale fold.
+      // Only a void op returns the record; a returning op's `{:ok, value}` is
+      // its result, so that handle is left as it is.  Unread later → `_`.
+      const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
+      const rebind =
+        op !== undefined && !op.returnType && bindUsedLater(st.target, rest, reads.trailing);
+      const handle = escapeElixirIdent(snake(st.target));
       return [
         {
           kind: "with-clause",
-          text: `{:ok, _} <- ${call}`,
-          bindName: undefined,
+          text: `{:ok, ${rebind ? handle : "_"}} <- ${call}`,
+          bindName: rebind ? handle : undefined,
         },
       ];
     }
