@@ -749,3 +749,11 @@ Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `
 
 Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
 
+## M-T6.96 — .NET EF: a part rebuilt from an old one loses the nested parts it keeps — `open` · **M** · P2
+
+Found by M-T6.94 (#3284). `lines -= old; lines += Line { sku: old.sku, qty: old.qty, notes: old.notes.where(n => n.text != text) }` re-hosts the OLD line's `Note` instances under the new line. EF tracks those instances as owned by the old line, so deleting it deletes them, and the re-read answers 0 notes where 1 is expected (measured on a booted EF leg; Dapper, node, python, java and elixir keep the note). The domain constructor renders `Notes = (old.Notes).Where(…).ToList()` — the same CLR objects (`src/generator/dotnet/render-expr.ts` `renderNew`).
+
+A copy is not enough on its own: the owned key is the part's `Id` alone (`o1.HasKey(x => x.Id)`), so a copy with the old id collides with the tracked, deleted instance. The fix is a re-host at the construction site — new instances with fresh ids, recursively for deeper nesting — and NOT in `_Create`, which the Dapper repository also uses to hydrate rows.
+
+**Exit.** `contained-part-rebuild` in `test/fixtures/corpus/manifest.ts` widens from `PART_REBUILD` to `ALL`, and the .NET EF + Dapper behavioural legs pass it.
+

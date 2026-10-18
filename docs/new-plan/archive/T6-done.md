@@ -1419,3 +1419,19 @@ and the genuine optional twin still takes the presence-ternary path before `matc
 > All five legs: **0 wire divergences**. The step-aside is scoped, not broad — 55
 > of 63 goldens still carry the probe answering `400` (reaching its actual
 > subject), and the whole node tier re-runs at 63 cases / 0 divergences.
+
+## M-T6.94 — elixir: removing a contained part (`lines -= …`) does not persist — `done` (#3284, 2026-10-18) · **S** · P2
+
+Filed by M-T6.90 (#3249): on the elixir behavioural leg `workflow-two-handles-containment`'s `drop(sku) { lines -= lines.where(l => l.sku == sku).first() }` answered 2xx and left the child row (`expected 2 to be 1`), over the plain single-handle operation route too. node, python, .NET (EF + Dapper) and java deleted it.
+
+**Root cause.** The operation body rebinds `record = %{record | lines: …}`, and the persist tail built its changeset over that ALREADY-mutated struct. `put_assoc` diffs the new child list against the changeset data — which no longer held the removed child — so Ecto found nothing to delete. An add survived only because a PK-less child reads as an insert either way. The same trap had been fixed for embedded containments (B5, `record_before`); the relational arm never got it.
+
+**Closed by #3284.** `opRewritesRelation` (`src/generator/elixir/vanilla/operation-returns-emit.ts`) — any assign / add / remove of a containment (relational or embedded) or a value-object collection, own statements or a called private op — moves BOTH persist tails (named and returning operations) onto `record_before`, the struct as loaded. Workflow and handler saves route through the same context functions. Two more elixir defects on the same path, found by the new case:
+- a **value-object collection** op (`charges += c` / `charges -= c`) `force_change`d an association: Ecto raises "changing assocs with force_change/3 is not supported", a 500 on add and remove alike. It now `put_assoc`s rebuilt rows (`__put_value_rows/1`, positional `ordinal`, no ids — a value object has no identity).
+- a **nested part** re-hosted under a rebuilt parent (`lines -= old; lines += Line { …, notes: old.notes.where(…) }`) reached `put_assoc` as LOADED structs, which Ecto read as existing rows of the new parent: a stale-entry 409. `__put_assoc_parts/1` now normalises nested parts to maps too.
+
+`X id[]` join rows were already right (the body diffs an id list against the loaded assoc) and are pinned. Document aggregates validate-gate collection-mutating operations; event-sourced aggregates fold events, so neither has the concept.
+
+The case also found two non-elixir defects, fixed in the same PR: .NET EF's `X id[]` join-table configuration named neither the Postgres schema nor the snake columns (`relation "cart_tags" does not exist`, then `column c.CartId does not exist` — every save of such an aggregate 500'd; no behavioural fixture had carried a relational `X id[]` before), and java's create stored a caller's immutable `List.of()`, so the first `+=` in a domain `test` threw `UnsupportedOperationException`.
+
+**Coverage.** Corpus cases `contained-part-removal` (all five backends, Dapper included: entity part carrying a nested part, value-object collection, `X id[]`, returning op, workflow save — two in, one removed, exactly one read back) and `contained-part-rebuild` (nested-part removal by rebuild; every backend but .NET, see M-T6.96), each with an API `test e2e` block and a domain `test` block, node wire goldens. Mutation-proved on the elixir leg (`mix compile --warnings-as-errors` + the API run): no `record_before` swap → `expected 2 to be 1`; no nested normalisation → 409 on `drop_note`; no value-row arm → 500 on `add_charge`.

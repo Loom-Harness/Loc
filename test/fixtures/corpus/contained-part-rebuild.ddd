@@ -11,7 +11,7 @@
 //     cast under.  `__put_assoc_parts/1` now normalises nested parts to maps too.
 //   - .NET (EF) loses the kept notes: an owned entity cannot move between
 //     owners, so deleting the old line deletes the instances the new line holds
-//     (M-T6.95 — .NET is not declared in this row's manifest backends until then).
+//     (M-T6.96 — .NET is not declared in this row's manifest backends until then).
 system ContainedPartRebuild {
   subdomain Shop {
     context Carts {

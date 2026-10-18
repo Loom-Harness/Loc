@@ -106,7 +106,7 @@ const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
  *    other four read.  That fork wants settling before a key is minted here. */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
 
-// M-T6.95: .NET EF cannot re-host a part's nested OWNED instances under a new
+// M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
 // .NET until that lands — then this becomes ALL.
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
@@ -172,7 +172,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a NESTED contained child removed by rebuilding its parent part (`lines -= old; lines += Line { …, notes: old.notes.where(…) }`) — the kept nested children re-hosted under a new parent",
     doc: "language",
     backends: PART_REBUILD,
-    note: "M-T6.94 sibling.  elixir answered a stale-entry 409 (the kept notes reached `put_assoc` as loaded structs).  .NET EF (and so its Dapper leg, which rides the same `dotnet` key) is not declared: EF loses the kept notes — an owned entity cannot move between owners, and the copy cannot keep its id because the owned key is the id alone — measured on a booted EF leg (the re-read answers 0 where 1 is expected; Dapper passes).  M-T6.95 fixes it and widens this row to ALL.",
+    note: "M-T6.94 sibling.  elixir answered a stale-entry 409 (the kept notes reached `put_assoc` as loaded structs).  .NET EF (and so its Dapper leg, which rides the same `dotnet` key) is not declared: EF loses the kept notes — an owned entity cannot move between owners, and the copy cannot keep its id because the owned key is the id alone — measured on a booted EF leg (the re-read answers 0 where 1 is expected; Dapper passes).  M-T6.96 fixes it and widens this row to ALL.",
   },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {
