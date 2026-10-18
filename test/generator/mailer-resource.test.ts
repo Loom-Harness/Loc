@@ -104,6 +104,11 @@ describe("mailer resource — cross-backend emission", () => {
     );
     expect(csproj).toMatch(
       /<NuGetAuditSuppress Include="https:\/\/github\.com\/advisories\/GHSA-g7hc-96xr-gvvx" \/>/,
+    ); // MimeKit's transitive System.Security.Cryptography.Pkcs 8.0.0 carries
+    // NU1902/NU1903 advisories that no suppression covers; the pin lifts the
+    // restore graph to the patched line.
+    expect(csproj).toMatch(
+      /<PackageReference Include="System\.Security\.Cryptography\.Pkcs" Version="10\.0\.13" \/>/,
     );
   });
 
