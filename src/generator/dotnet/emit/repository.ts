@@ -205,6 +205,18 @@ export function renderRepositoryImpl(
   // src/generator/typescript/repository-builder.ts).
   const loadByIdLines = buildLoadByIdLines(associations);
   const loadManyByIdsLines = buildLoadManyByIdsLines(agg.name, setName, associations);
+  // A find returning aggregates hydrates their reference collections (`X id[]`
+  // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
+  // collection stayed null on every find — the paged `all` included — and the
+  // query handler's `d.Tags.Select(…)` threw (500).  Found by M-T6.94's corpus
+  // case.  Emitted only when a find needs it, so the helper is never unused.
+  const findsHydrate =
+    associations.length > 0 &&
+    finds.some(
+      (f) =>
+        !!pagedReturn(f.returnType) ||
+        hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
+    );
   const saveDiffSyncLines = buildSaveDiffSyncLines(associations);
   // Optimistic concurrency (`versioned`): on an UPDATE (the entity is tracked,
   // not freshly added), guard the write on the loaded version — overridden by
@@ -304,6 +316,9 @@ export function renderRepositoryImpl(
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
         `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
         `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(cancellationToken);`,
+        ...(associations.length > 0
+          ? [`        await HydrateReferenceCollectionsAsync(${L("items")}, cancellationToken);`]
+          : []),
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },
           { name: "find", valueExpr: `"${f.name}"` },
@@ -314,10 +329,13 @@ export function renderRepositoryImpl(
       ];
     }
     const rowsExpr = findRowsExpr(f.returnType, L("result"));
+    const hydrate =
+      associations.length > 0 ? hydrateFindResultLine(f.returnType, agg.name, L("result")) : [];
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
+      ...hydrate,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
@@ -496,6 +514,9 @@ export function renderRepositoryImpl(
       ...loadManyByIdsLines,
       "    }",
       "",
+      ...(findsHydrate
+        ? [...buildHydrateReferenceCollectionsLines(agg.name, associations), ""]
+        : []),
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       "        var entry = _db.Entry(aggregate);",
@@ -619,6 +640,61 @@ function buildLoadByIdLines(associations: AssociationIR[]): string[] {
     out.push(`                .ToListAsync(cancellationToken);`);
   }
   out.push("        }");
+  return out;
+}
+
+/** The hydrate call a non-paged find makes over its result, when that result
+ *  is the aggregate itself (a list, or a single possibly-absent row).  Empty for
+ *  any other projection (a count, a scalar). */
+function hydrateFindResultLine(returnType: TypeIR, aggName: string, result: string): string[] {
+  const t = returnType.kind === "optional" ? returnType.inner : returnType;
+  const isAgg = (x: TypeIR): boolean => x.kind === "entity" && x.name === aggName;
+  if (t.kind === "array" && isAgg(t.element)) {
+    return [`        await HydrateReferenceCollectionsAsync(${result}, cancellationToken);`];
+  }
+  if (isAgg(t)) {
+    return [
+      `        if (${result} is not null) await HydrateReferenceCollectionsAsync([${result}], cancellationToken);`,
+    ];
+  }
+  return [];
+}
+
+/** `HydrateReferenceCollectionsAsync` — loads every reference collection's join
+ *  rows for a set of already-loaded roots, grouped by owner (one query per
+ *  association), the body `FindManyByIdsAsync` runs after its root query. */
+function buildHydrateReferenceCollectionsLines(
+  aggName: string,
+  associations: AssociationIR[],
+): string[] {
+  const out: string[] = [
+    `    private async Task HydrateReferenceCollectionsAsync(List<${aggName}> roots, CancellationToken cancellationToken)`,
+    "    {",
+    "        if (roots.Count == 0) return;",
+    "        var ids = roots.Select(r => r.Id).ToList();",
+  ];
+  for (const a of associations) {
+    const cap = upperFirst(a.fieldName);
+    const dbSet = joinDbSetName(a);
+    const owner = joinFkPropName(a.ownerFk);
+    const target = joinFkPropName(a.targetFk);
+    const targetType = `${a.targetAgg}Id`;
+    out.push(`        var __${a.fieldName}Rows = await _db.${dbSet}`);
+    out.push(`            .Where(j => ids.Contains(j.${owner}))`);
+    out.push(`            .OrderBy(j => j.${owner}).ThenBy(j => j.${target})`);
+    out.push(`            .Select(j => new { Owner = j.${owner}, Target = j.${target} })`);
+    out.push(`            .ToListAsync(cancellationToken);`);
+    out.push(`        var __${a.fieldName}ByOwner = __${a.fieldName}Rows`);
+    out.push(`            .GroupBy(r => r.Owner)`);
+    out.push(`            .ToDictionary(g => g.Key, g => g.Select(r => r.Target).ToList());`);
+    out.push("        foreach (var __root in roots)");
+    out.push("        {");
+    out.push(
+      `            __root.${cap} = __${a.fieldName}ByOwner.TryGetValue(__root.Id, out var __${a.fieldName}List) ? __${a.fieldName}List : new List<${targetType}>();`,
+    );
+    out.push("        }");
+  }
+  out.push("    }");
   return out;
 }
 
