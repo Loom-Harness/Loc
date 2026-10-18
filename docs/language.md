@@ -480,6 +480,28 @@ diagnostic points you at `Order.create({ … })` rather than the older generic
 of the [access-modifier matrix](#field-access-modifiers): a `managed` field
 like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
 
+##### Comparing value objects
+
+Two value objects are equal when their fields are.  `a == b` and
+`a.equals(b)` are the same comparison — `equals` is an intrinsic every value
+object answers ([`stdlib.md`](stdlib.md#value-object-equality)), lowered to
+`==` and rendered as each backend's value equality:
+
+```ddd
+function isAt(pier: string, position: int): bool = berth.equals(Berth { pier: pier, position: position })
+```
+
+```ts
+public isAt(pier: string, position: number): boolean { return (this._berth.equals(new Berth(pier, position))); }
+```
+```python
+def is_at(self, pier: str, position: int) -> bool:
+    return (self._berth == Berth(pier, position))
+```
+
+Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
+`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
 An aggregate marked `persistedAs: eventLog` in its header is **event-sourced**:
@@ -1339,7 +1361,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1402,6 +1424,60 @@ third lowering.  Most targets spell both the same way (`in` in Python,
 crashes the generated suite rather than returning a wrong answer.  The dispatch
 therefore reads the subject's resolved type off the IR.
 
+
+##### What a bare `toThrow()` accepts
+
+A bare `toThrow()` in a unit `test` asserts that the **domain** refused the call: a
+`precondition`, an aggregate / part / value-object `invariant`, or an operation's
+`when` state gate.  It does **not** accept an arbitrary error.  A
+`ReferenceError`, `TypeError` or `NameError` out of the code under test is a defect,
+not a rejection, so the test fails on it.  Before this rule, node lowered the bare
+form to vitest `.toThrow()` and python to `pytest.raises(Exception)`.  A negative
+test then passed when codegen had emitted an undefined name: the test said
+"rejected" and the code had simply crashed.
+
+```ddd
+test "a title must be longer than two characters" {
+    expect(Claim.create({ title: "x", status: Draft })).toThrow()
+}
+```
+
+```ts
+// generated (node): a file-local helper; any other error is rethrown, so it fails the test
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+function expectDomainRejection(call: () => unknown): void {
+  try {
+    call();
+  } catch (err) {
+    if (err instanceof DisallowedError || err instanceof DomainError || err instanceof ForbiddenError) return;
+    throw err;
+  }
+  expect.fail("expected the call to be rejected by the domain, but it returned");
+}
+// …
+expectDomainRejection(() => { Claim.create({ title: "x", status: ClaimStatus.Draft }); });
+```
+
+```python
+# generated (python)
+with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
+    Claim.create(title="x", status=ClaimStatus.Draft)
+```
+
+On both, `DomainError` covers preconditions and invariants; a value object's
+`ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
+and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
+assert `DomainException` (a value-object construction asserts
+`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
+`{:error, _}` result.  All of these are domain classes, so a crash fails the test
+there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
+`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
+`when`-refused operation therefore fails on those two backends today.  Pin such a
+test on node / python / elixir, or assert the state instead.
+
+The context-level integration `test` (the `for <Context>` rung) is not covered by
+this.  It still accepts any rejection, because a repository read can also refuse
+with not-found or a concurrency conflict.
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
@@ -1501,6 +1577,9 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<workflow>.run({ … })` | `POST /workflows/<wf_snake>` with the body — the workflow's command `create`, answering `204`. |
+| `api.<workflow>.instances()` | `GET /workflows/<wf_snake>/instances` — every persisted instance row. |
+| `api.<workflow>.instance(keyExpr)` | `GET /workflows/<wf_snake>/instances/{key}` — one instance row by its correlation key. |
 | `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
@@ -1524,6 +1603,44 @@ The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
+
+The workflow verbs reach the orchestration tier through the workflow's own
+name in the slug position (an aggregate slug wins a collision):
+
+```ddd
+test e2e "shipping folds into the saga row" against api {
+    let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+    api.fulfillment.run({ orderId: ord.id })
+    let running = api.fulfillment.instances()
+    expect(running.length).toBe(1)
+    api.orders.ship(ord)
+    let row = api.fulfillment.instance(ord)
+    expect(row.status).toBe("Shipped")
+}
+```
+
+```ts
+// e2e/Shop.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+await __post(`${base}/api/orders/${ord.id}/ship`, {});
+const row = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(row.status).toBe("Shipped");
+```
+
+`run`'s single argument is the workflow `create`'s params by name. A key
+the workflow does not declare is `loom.e2e-unknown-body-key`, and an
+omitted one `loom.e2e-missing-required-field`.  `instance` and `instances`
+return the instance wire shape: the correlation field, then the state
+fields.  Reading any other field off an `instance` result is
+`loom.e2e-unknown-response-field`.  Both routes are conditional.  An
+event-triggered workflow mounts no `POST`, so `.run()` on it is
+`loom.e2e-unrouted-verb`.  A workflow with no correlation field persists
+no row, so `.instances()` / `.instance(key)` on it is refused the same
+way.  The full rules are in
+[`language-reference/18-testing.md`](language-reference/18-testing.md).
 
 **Every verb must resolve to a route this same compilation emits.**  The
 table above is what a verb *lowers to*, not a promise that the route is

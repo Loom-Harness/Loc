@@ -374,6 +374,16 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
   {
+    id: "auth-id-claim-foreign",
+    title: "id-typed user claim naming an aggregate the deployable does NOT host",
+    doc: "auth",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the claim's aggregate.
+    deployables: ["agents", "payments"],
+    note: "D6 of eval-claims/FIX-PLAN.md — the system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+  },
+  {
     id: "auth-id-claim-stub",
     title:
       "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
