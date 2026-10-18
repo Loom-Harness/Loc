@@ -189,7 +189,9 @@ describe("system / module / deployable", () => {
       expect(idx).toMatch(/baseLogger\.info\(\{ event: "migrations_starting" \}\)/);
       expect(idx).toMatch(/await migrate\(db, \{ migrationsFolder: "\.\/db\/migrations" \}\)/);
       expect(idx).toMatch(/baseLogger\.info\(\{ event: "migrations_complete" \}\)/);
-      expect(idx).toMatch(/baseLogger\.error\(\{ event: "migration_failed", error: message \}\)/);
+      expect(idx).toMatch(
+        /baseLogger\.error\(\{ event: "migration_failed", error: bootMigrationError\(err\) \}\)/,
+      );
     });
 
     it(".NET Program.cs brackets the EF boot migrate with catalog events (per-id applied)", async () => {
@@ -210,9 +212,10 @@ describe("system / module / deployable", () => {
       expect(program).toMatch(
         /migrationLog\.LogInformation\("\{Event\} applied=\{Applied\}", "migrations_complete", pendingMigrations\.Count\)/,
       );
-      // Failure carries the exception so the stack trace rides the record.
-      expect(program).toMatch(
-        /migrationLog\.LogError\(migrationError, "\{Event\} error=\{Error\}", "migration_failed", migrationError\.Message\)/,
+      // Failure carries the exception so the stack trace rides the record,
+      // and the error field spells out the Postgres SQLSTATE / constraint.
+      expect(program).toContain(
+        'migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", (migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message)',
       );
     });
 

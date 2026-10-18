@@ -55,13 +55,23 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
     // Unknown field is the AST-level `loom.backfill-unknown-field`.
     if (!field) continue;
     if (!isScalarColumnType(field.type)) {
+      // An inline value collection is one Postgres array column, and the
+      // migration builder already fills it with the empty collection when it
+      // is added NOT NULL to a populated table — so the step is unnecessary,
+      // and the message says that rather than "cannot be backfilled".
+      const inlineCollection = isInlineCollectionType(field.type);
       diags.push({
         severity: "error",
         code: "loom.backfill-target-invalid",
-        message: diagMessage("loom.backfill-target-invalid#backfill-the-field-is-not", {
-          aggregate: intent.aggregate,
-          field: intent.field,
-        }),
+        message: inlineCollection
+          ? diagMessage("loom.backfill-target-invalid#backfill-collection-needs-none", {
+              aggregate: intent.aggregate,
+              field: intent.field,
+            })
+          : diagMessage("loom.backfill-target-invalid#backfill-the-field-is-not", {
+              aggregate: intent.aggregate,
+              field: intent.field,
+            }),
         source,
       });
       continue;
@@ -114,6 +124,14 @@ function isScalarColumnType(t: TypeIR): boolean {
     default:
       return false;
   }
+}
+
+/** A collection of primitives or enum values — stored inline as one Postgres
+ *  array column on every backend (value-object, entity and `X id` collections
+ *  live in child or join tables instead). */
+function isInlineCollectionType(t: TypeIR): boolean {
+  if (t.kind === "optional") return isInlineCollectionType(t.inner);
+  return t.kind === "array" && (t.element.kind === "primitive" || t.element.kind === "enum");
 }
 
 /** Best-effort inferred "SQL family" of a backfill expression — one of the

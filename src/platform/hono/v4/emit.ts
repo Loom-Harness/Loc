@@ -1879,7 +1879,9 @@ export default defineConfig({
  *  while the database is unreachable (`BOOT_DB_RETRY`, eval item #24).  Only a
  *  connection-shaped failure is retried — drizzle 0.45 wraps driver errors in
  *  `DrizzleQueryError`, so the code is read off `err` or its `cause` chain; a
- *  migration whose SQL fails logs `migration_failed` and aborts boot at once. */
+ *  migration whose SQL fails logs `migration_failed` — carrying every link of
+ *  that chain with the driver's Postgres `code`/`detail`/`constraint` — and
+ *  aborts boot at once. */
 function renderHonoBootMigrate(): string {
   const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
   return lines(
@@ -1915,6 +1917,23 @@ function renderHonoBootMigrate(): string {
     "  }",
     "  return undefined;",
     "}",
+    "// Every link of the error chain, with the Postgres fields the driver",
+    "// carries (`code`, `detail`, `constraint`).  drizzle's own message is just",
+    "// `Failed query: <sql>`; the reason — e.g. `Key (number)=(T-1) is",
+    "// duplicated` on a unique index over existing rows — lives on the wrapped",
+    "// driver error, so the migration_failed line must walk to it.",
+    "function bootMigrationError(err: unknown): string {",
+    "  const parts: string[] = [];",
+    "  for (let e: unknown = err; e instanceof Error; e = e.cause) {",
+    "    const pg = e as { code?: unknown; detail?: unknown; constraint?: unknown };",
+    "    let part = e.message;",
+    '    if (typeof pg.code === "string") part += ` [${pg.code}]`;',
+    '    if (typeof pg.detail === "string") part += ` detail: ${pg.detail}`;',
+    '    if (typeof pg.constraint === "string") part += ` constraint: ${pg.constraint}`;',
+    "    parts.push(part);",
+    "  }",
+    '  return parts.length > 0 ? parts.join(" | caused by: ") : String(err);',
+    "}",
     renderHonoBaseLogCall("migrationsStarting"),
     `for (let attempt = 1, maxAttempts = ${maxAttempts}; ; attempt++) {`,
     "  try {",
@@ -1922,7 +1941,6 @@ function renderHonoBootMigrate(): string {
     `    ${renderHonoBaseLogCall("migrationsComplete")}`,
     "    break;",
     "  } catch (err) {",
-    "    const message = err instanceof Error ? err.message : String(err);",
     "    const reason = bootDbUnreachableReason(err);",
     "    if (attempt < maxAttempts && reason !== undefined) {",
     `      const delay_ms = Math.min(${baseDelayMs} * 2 ** (attempt - 1), ${maxDelayMs});`,
@@ -1930,7 +1948,7 @@ function renderHonoBootMigrate(): string {
     "      await new Promise((resolve) => setTimeout(resolve, delay_ms));",
     "      continue;",
     "    }",
-    `    ${renderHonoBaseLogCall("migrationFailed", "error: message")}`,
+    `    ${renderHonoBaseLogCall("migrationFailed", "error: bootMigrationError(err)")}`,
     "    throw err;",
     "  }",
     "}",
