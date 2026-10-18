@@ -1,0 +1,132 @@
+// Entity history (docs/audit.md) crossed with the guards a history read has to
+// re-establish — the sibling of `audit-history.ddd`, which is auth-less and so
+// cannot pose any of them.
+//
+// The snapshots behind `GET /<aggregates>/{id}/history` are written inside the
+// command's transaction, where there is no caller to mask against, so they hold
+// RAW values for every field.  The history read is therefore a read surface
+// over already-collected unmasked data, and every guard the entity read has
+// must be re-applied to it explicitly.  This fixture drives each one on the
+// wire:
+//
+//   - `salary` is `mask unless` a permission neither harness principal holds
+//     (`payroll.unmask`; cases.mjs DEV_CLAIMS carries `ops.manage`).  Its change
+//     entry is DROPPED from the trail — not redacted to null: "salary changed on
+//     the 3rd" is itself the disclosure the mask exists to prevent.  So the
+//     create entry lists `name` and `grade` and no `salary`, and `raise` — an
+//     operation that moves ONLY the masked field — is an entry with an empty
+//     `changes` list.
+//   - `auditable` stamps `createdAt`/`createdBy` on create and
+//     `updatedAt`/`updatedBy` on every command, and `versioned` bumps `version`
+//     on every command.  None of them is in any entry's `changes`: left in, they
+//     would be most of the timeline.  `rename` moves `name` and nothing else.
+//   - the list read is gated (`requires currentUser.role == "agent"`) and the
+//     history read INHERITS that gate; `raise` carries its own `requires`.  The
+//     authorized side is the `test e2e` below; the refused side (403 for the
+//     unauthorized principal on the list, the history and `raise`) is
+//     `AUTHZ_LADDERS["audit-history-guarded"]` in test/behavioral/cases.mjs.
+//   - `Desk` is NOT audited, so it serves no history route: the same ladder
+//     probes `GET /api/desks/{id}/history` and both principals get the
+//     framework's 404 — the route is absent, not merely empty.
+//
+// The exact bodies (including the recorded `actor`) are pinned by the wire
+// golden `test/behavioral/wire-golden/audit-history-guarded.json`.
+system AuditHistoryGuarded {
+  user { id: string  role: string  permissions: string[] }
+  subdomain Payroll {
+    permissions { unmask }
+    context Staff {
+      aggregate Employee audited with versioned, auditable {
+        name: string
+        salary: decimal mask unless currentUser.permissions.contains(permissions.unmask)
+        grade: int = 1
+        create(name: string, salary: decimal) {
+          name := name
+          salary := salary
+        }
+        operation rename(name: string) { name := name }
+        // Moves ONLY the masked field — so its trail entry exists (the command
+        // happened, and the gate let it through) but says nothing.
+        operation raise(amount: decimal) requires currentUser.role == "agent" {
+          precondition amount > 0
+          salary := salary + amount
+        }
+      }
+      repository Employees for Employee {
+        find all(): Employee[] requires currentUser.role == "agent"
+      }
+      // The UNAUDITED sibling — same context, same deployable, no history.
+      aggregate Desk {
+        label: string
+        create(label: string) { label := label }
+      }
+      repository Desks for Desk { }
+    }
+  }
+  api PayrollApi from Payroll
+  storage primary { type: postgres }
+  resource staffState { for: Staff, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Staff]
+    dataSources: [staffState]
+    serves: PayrollApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "history drops the masked field and the stamps, behind the read gate" against d {
+    let e = api.employees.create({ name: "Ada", salary: 1000 })
+    api.employees.rename(e, { name: "Ada L" })
+    api.employees.raise(e, { amount: 50 })
+
+    // The entity read redacts `salary` for this principal and shows the stamps
+    // and the counter — the contrast every assertion below is drawn against.
+    let read = api.employees.getById(e)
+    expect(read.name).toBe("Ada L")
+    expect(read.salary).toBe(null)
+    expect(read.grade).toBe(1)
+    expect(read.version).toBe(3)
+
+    let trail = api.employees.history(e)
+    expect(trail.count).toBe(3)
+
+    // create: every UNMASKED diffable field, null → value.  No `salary` entry,
+    // and none of `createdAt`/`createdBy`/`updatedAt`/`updatedBy`/`version`/`id`.
+    let created = trail.first()
+    expect(created.action).toBe("create")
+    expect(created.changes.count).toBe(2)
+    expect(created.changes.where(c => c.field == "salary").count).toBe(0)
+    expect(created.changes.where(c => c.field == "createdAt").count).toBe(0)
+    expect(created.changes.where(c => c.field == "updatedBy").count).toBe(0)
+    expect(created.changes.where(c => c.field == "version").count).toBe(0)
+    expect(created.changes.where(c => c.field == "name").first().after).toBe("Ada")
+    expect(created.changes.where(c => c.field == "grade").first().after).toBe(1)
+
+    // rename: `updatedAt`, `updatedBy` and `version` all moved too, and none of
+    // them is a change.
+    let renamed = trail.skip(1).first()
+    expect(renamed.action).toBe("rename")
+    expect(renamed.changes.count).toBe(1)
+    expect(renamed.changes.first().field).toBe("name")
+    expect(renamed.changes.first().before).toBe("Ada")
+    expect(renamed.changes.first().after).toBe("Ada L")
+
+    // raise: the gated operation ran (this principal satisfies it) and moved
+    // only `salary`, which is masked — so the entry is present and empty.
+    let raised = trail.skip(2).first()
+    expect(raised.action).toBe("raise")
+    expect(raised.changes.count).toBe(0)
+
+    // The gated list read, for the principal the gate names.  A DECLARED
+    // `find all(): Employee[]` replaces the paged auto-`findAll`, so this is a
+    // bare array, not a page.
+    let listed = api.employees.all()
+    expect(listed.count).toBe(1)
+
+    // The unaudited sibling round-trips like any aggregate; its (absent)
+    // history route is probed by the authz ladder.
+    let d = api.desks.create({ label: "D-1" })
+    expect(api.desks.getById(d).label).toBe("D-1")
+  }
+}

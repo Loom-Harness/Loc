@@ -543,6 +543,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
+    id: "audit-history-guarded",
+    title:
+      "entity history behind its guards — `mask unless` field DROPPED from the trail, `auditable`/`versioned` stamps kept out of the diff, an inherited read gate + a `requires`-gated op (403 via the authz ladder), and an unaudited sibling with no history route",
+    doc: "audit",
+    backends: ALL,
+    note: "split from `audit-history` (auth-less, so it can pose none of these) rather than widening it, so that golden stays the reviewed answer key it is; the refused side of every gate is AUTHZ_LADDERS[\"audit-history-guarded\"]",
+  },
+  {
     id: "field-mask",
     title:
       "field read-redaction — `mask unless` crossed with `audited` (two masked fields + a masked contained part, projected twice in one scope)",

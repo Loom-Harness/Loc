@@ -1,0 +1,367 @@
+{
+  "case": "audit-history-guarded",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/employees/{id}/rename",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ada L",
+        "salary": null,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin",
+        "version": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "grade"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "rename",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada L",
+              "before": "Ada",
+              "field": "name"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "raise",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/employees",
+      "status": 200,
+      "body": [
+        {
+          "createdAt": "<timestamp>",
+          "createdBy": "admin",
+          "grade": 1,
+          "id": "<volatile:key>",
+          "name": "Ada L",
+          "salary": null,
+          "updatedAt": "<timestamp>",
+          "updatedBy": "admin",
+          "version": 3
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/desks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/desks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "D-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/employees",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/employees",
+        "instance": "/api/employees",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/employees",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "permissions": [],
+        "role": "admin"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/employees",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: find all",
+        "instance": "/api/employees",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/employees",
+      "status": 200,
+      "body": [
+        {
+          "createdAt": "<timestamp>",
+          "createdBy": "admin",
+          "grade": 1,
+          "id": "<volatile:key>",
+          "name": "Ada L",
+          "salary": null,
+          "updatedAt": "<timestamp>",
+          "updatedBy": "admin",
+          "version": 3
+        },
+        {
+          "createdAt": "<timestamp>",
+          "createdBy": "admin",
+          "grade": 1,
+          "id": "<volatile:key>",
+          "name": "Ladder",
+          "salary": null,
+          "updatedAt": "<timestamp>",
+          "updatedBy": "admin",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden",
+        "instance": "/api/employees/{id}/history",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ladder",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "grade"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: currentUser.role == \"agent\"",
+        "instance": "/api/employees/{id}/raise",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/desks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/desks/{id}/history",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /api/desks/{id}/history",
+        "instance": "/api/desks/{id}/history",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/desks/{id}/history",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /api/desks/{id}/history",
+        "instance": "/api/desks/{id}/history",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

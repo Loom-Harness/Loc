@@ -412,6 +412,48 @@ export const AUTHZ_LADDERS = {
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },
 
+  /** Entity history behind its guards (audit-history-guarded.ddd) — the
+   *  REFUSED side of the three gates the fixture's `test e2e` drives with the
+   *  authorized principal, plus the unaudited sibling's absent route.
+   *
+   *  The history read has no `requires` of its own: it INHERITS the list read's
+   *  (`find all … requires currentUser.role == "agent"`), so a backend that
+   *  served history through a path that skipped the inherited gate answers 200
+   *  here where the list answers 403.  The history arm sits BEFORE `raise` so
+   *  the trail it reads is the seed's create alone.
+   *
+   *  `Desk` is not audited.  Its `/{id}/history` must be the framework's
+   *  route-miss 404 for BOTH principals — a backend that emitted the route for
+   *  every aggregate (an empty `[]`, or a 403 from an inherited gate) differs
+   *  here and nowhere else. */
+  "audit-history-guarded": {
+    seed: { path: "/api/employees", body: { name: "Ladder", salary: 10 } },
+    gated: [
+      { label: "inherited gate — the gated list read", method: "GET", path: "/api/employees" },
+      {
+        label: "inherited gate — the history read",
+        method: "GET",
+        path: "/api/employees/{id}/history",
+      },
+      {
+        label: "gated operation",
+        method: "POST",
+        path: "/api/employees/{id}/raise",
+        body: { amount: 5 },
+        arms: { anonymous: null, unauthorized: 403, authorized: 204 },
+      },
+      {
+        label: "unaudited sibling — no history route",
+        seed: { path: "/api/desks", body: { label: "ladder desk" } },
+        method: "GET",
+        path: "/api/desks/{id}/history",
+        arms: { anonymous: null, unauthorized: 404, authorized: 404 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 403, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
   /** The CONTROL rung — the arm that keeps every 403 above honest (M-T9.28
    *  slice 2).
    *
