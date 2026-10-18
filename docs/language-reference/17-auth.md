@@ -422,7 +422,7 @@ policy CanClose(prio: int): bool = currentUser.permissions.contains(permissions.
 operation close() requires IsAgent() || CanClose(priority) { … }
 ```
 
-A policy function is **context-local**: calling one from another bounded context is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"). Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
+A policy function is **context-local**: calling one from another bounded context — bare (`IsAdmin()`) or qualified with its context (`Orders.IsAdmin()`) — is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"). Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
 
 The call is **inlined at the gate** — no function is emitted, and the `ForbiddenError` message keeps the author's source text:
 
