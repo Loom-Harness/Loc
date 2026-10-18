@@ -1074,6 +1074,12 @@ const AUDIT_LIST_HIDDEN: ReadonlySet<string> = new Set(["updatedAt", "createdBy"
 export interface ListLabel {
   name: string;
   derived: boolean;
+  /** The one stored field a derived label reads (`display = name` → `name`),
+   *  which orders rows the same way the label does — so the label column sorts
+   *  by it.  Absent when the label reads zero or several fields. */
+  sortField?: string;
+  /** Whether the server's `?sort=` whitelist accepts `sortField`. */
+  sortFieldServerSortable?: boolean;
 }
 
 /** What a scaffolded list renders: the label column (when the aggregate has a
@@ -1124,7 +1130,13 @@ function listLabelFor(agg: Aggregate): ListLabel | undefined {
   const display = derivedPropsOf(agg).find(
     (d) => d.name === "display" && isPlainRequiredString(d.type),
   );
-  return display ? { name: "display", derived: true } : undefined;
+  if (!display) return undefined;
+  const label: ListLabel = { name: "display", derived: true };
+  const reads = [...new Set(labelReads(agg, label))];
+  const only = reads.length === 1 ? propertiesOf(agg.members).find((p) => p.name === reads[0]) : undefined;
+  return only
+    ? { ...label, sortField: String(only.name), sortFieldServerSortable: serverSortable(only) }
+    : label;
 }
 
 /** The property names a derived label's expression reads by bare name
@@ -1573,9 +1585,18 @@ export function scaffoldList(
   const label = opts.label;
   // The row's link column: the natural label as an `Anchor` to the Detail
   // route when the aggregate has one, else the raw id.  A DERIVED label is not
-  // a stored column: the server cannot `?sort=` by it and a LiveView row (an
-  // Ecto struct) has no key to sort it by, so it is never `sortable:`.
-  const linkColumn = (): { name?: string; value: Expression } =>
+  // a stored column — the server cannot `?sort=` by it and a LiveView row (an
+  // Ecto struct) has no key for it — so it sorts by `labelSortField` instead.
+  // The row property the label column sorts by: a stored label sorts by
+  // itself; a derived label by the single field it reads, and on a
+  // server-paged list only when the server's `?sort=` whitelist accepts it.
+  const labelSortField = (serverPaged: boolean): string | undefined => {
+    if (!label) return undefined;
+    if (!label.derived) return label.name;
+    if (!label.sortField) return undefined;
+    return !serverPaged || label.sortFieldServerSortable ? label.sortField : undefined;
+  };
+  const linkColumn = (serverPaged: boolean): { name?: string; value: Expression } =>
     label
       ? {
           value: callExpr("Column", [
@@ -1596,12 +1617,12 @@ export function scaffoldList(
                 ]),
               ),
             },
-            ...(label.derived
-              ? []
-              : [
+            ...(labelSortField(serverPaged)
+              ? [
                   { name: "sortable", value: boolLit(true) },
-                  { name: "field", value: stringLit(label.name) },
-                ]),
+                  { name: "field", value: stringLit(labelSortField(serverPaged) as string) },
+                ]
+              : []),
           ]),
         }
       : {
@@ -1621,7 +1642,7 @@ export function scaffoldList(
           ]),
         };
   const makeCols = (serverPaged: boolean): Array<{ name?: string; value: Expression }> => [
-    linkColumn(),
+    linkColumn(serverPaged),
     ...columns.map((c) => ({
       value: callExpr("Column", [
         { value: stringLit(humanize(c.name)) },

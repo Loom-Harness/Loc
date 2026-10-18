@@ -248,6 +248,7 @@ The helpdesk's `Ticket.flagBreached()` and `Ticket.escalate()` are called by the
 **Sketch.** A third access level, callable from same-context workflow, reactor, timer and handler bodies. It gets no route, no `can_<op>` companion, no OpenAPI entry and no scaffold button:
 
 ```ddd
+// proposed surface — does not parse yet …
 system operation flagBreached() when !breached { breached := true }
 ```
 

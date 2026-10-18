@@ -40,7 +40,7 @@ export default function ProductList() {
             <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>{t("page.List.columnHeader.mx6d3g", "Product")}</Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "sku") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("sku"); setSortDir("asc"); } }}>{t("page.List.columnHeader.mx6d3g", "Product")}{sortKey === "sku" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>

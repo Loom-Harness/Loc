@@ -1,5 +1,6 @@
 // Repro: a resource call (mailer) inside an EVENT-triggered workflow starter.
-// `ddd parse` is clean; `generate system` throws on java and elixir.
+// `ddd parse` is clean; `generate system` throws on java and elixir
+// (swap `platform: java` for `elixir` to see the second crash).
 system R {
   subdomain S {
     context C {
@@ -22,5 +23,5 @@ system R {
   storage mailServer { type: smtp, config: { from: "no-reply@r.test" } }
   resource st { for: C, kind: state, use: pg }
   resource mail { for: C, kind: mailer, use: mailServer }
-  deployable api { platform: PLATFORM, contexts: [C], dataSources: [st, mail], port: 3000 }
+  deployable api { platform: java, contexts: [C], dataSources: [st, mail], port: 3000 }
 }
