@@ -276,6 +276,25 @@
         "title": "Unsupported Media Type",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/listings/{id}/add_tag",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/label"
+          }
+        ],
+        "instance": "/api/listings/{id}/add_tag",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

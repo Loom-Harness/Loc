@@ -194,25 +194,29 @@
     {
       "seq": 15,
       "method": "POST",
-      "path": "/api/employees",
-      "status": 201,
+      "path": "/api/employees/{id}/promote",
+      "status": 422,
       "body": {
-        "id": "<volatile:key>"
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/newGrade"
+          }
+        ],
+        "instance": "/api/employees/{id}/promote",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
       }
     },
     {
       "seq": 16,
-      "method": "GET",
-      "path": "/api/employees/{id}",
-      "status": 200,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 201,
       "body": {
-        "grade": 1,
-        "id": "<volatile:key>",
-        "name": "Ladder",
-        "nationalId": null,
-        "reviews": [],
-        "salary": null,
-        "version": 1
+        "id": "<volatile:key>"
       }
     },
     {
@@ -232,6 +236,21 @@
     },
     {
       "seq": 18,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ladder",
+        "nationalId": null,
+        "reviews": [],
+        "salary": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 19,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,
@@ -254,7 +273,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 20,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,

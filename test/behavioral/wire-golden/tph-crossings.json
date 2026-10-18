@@ -291,6 +291,25 @@
         "title": "Unsupported Media Type",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/parcels/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/courier"
+          }
+        ],
+        "instance": "/api/parcels/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

@@ -247,6 +247,25 @@
         "title": "Unsupported Media Type",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/claims/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/reference"
+          }
+        ],
+        "instance": "/api/claims/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

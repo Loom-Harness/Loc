@@ -267,6 +267,25 @@
     {
       "seq": 22,
       "method": "POST",
+      "path": "/api/shipments/{id}/restock",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/by"
+          }
+        ],
+        "instance": "/api/shipments/{id}/restock",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
       "path": "/api/crates",
       "status": 201,
       "body": {
@@ -274,7 +293,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "POST",
       "path": "/api/shipments",
       "status": 403,
@@ -287,7 +306,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 25,
       "method": "POST",
       "path": "/api/shipments",
       "status": 201,
@@ -296,7 +315,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 26,
       "method": "DELETE",
       "path": "/api/crates/{id}",
       "status": 403,
@@ -309,31 +328,11 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 27,
       "method": "DELETE",
       "path": "/api/crates/{id}",
       "status": 204,
       "body": ""
-    },
-    {
-      "seq": 27,
-      "method": "POST",
-      "path": "/api/shipments",
-      "status": 422,
-      "body": {
-        "detail": "One or more fields are invalid.",
-        "errors": [
-          {
-            "code": "msg.2ivz0p",
-            "message": "A shipment reference needs at least 3 characters",
-            "pointer": "/reference"
-          }
-        ],
-        "instance": "/api/shipments",
-        "status": 422,
-        "title": "Validation failed",
-        "type": "about:blank"
-      }
     },
     {
       "seq": 28,
@@ -359,13 +358,33 @@
       "seq": 29,
       "method": "POST",
       "path": "/api/shipments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.2ivz0p",
+            "message": "A shipment reference needs at least 3 characters",
+            "pointer": "/reference"
+          }
+        ],
+        "instance": "/api/shipments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/shipments",
       "status": 201,
       "body": {
         "id": "<volatile:key>"
       }
     },
     {
-      "seq": 30,
+      "seq": 31,
       "method": "DELETE",
       "path": "/api/shipments/{id}",
       "status": 403,
@@ -378,7 +397,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 32,
       "method": "DELETE",
       "path": "/api/shipments/{id}",
       "status": 204,

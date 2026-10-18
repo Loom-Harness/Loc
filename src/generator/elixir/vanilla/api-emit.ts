@@ -902,7 +902,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
   alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map(memberOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}
 ${indexAction}
 
   def show(conn, %{"id" => id}) do

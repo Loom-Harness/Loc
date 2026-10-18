@@ -358,6 +358,25 @@
         "title": "Unsupported Media Type",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/slots/{id}/reschedule",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/at"
+          }
+        ],
+        "instance": "/api/slots/{id}/reschedule",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }
