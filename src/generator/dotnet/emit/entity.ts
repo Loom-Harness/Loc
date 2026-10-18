@@ -710,6 +710,18 @@ export function renderEntity(
     applierLines.push("        }");
     applierLines.push("    }");
     applierLines.push("");
+    // The stream version this instance was folded to (M-T6.98) — the EXPECTED
+    // version of its next append.  The event store continues from it and then
+    // advances it, so a second handle loaded at the same version re-inserts a
+    // version the first already wrote and loses the (stream_type, stream_id,
+    // version) key — the RS-39 409 — instead of keeping a decision taken on a
+    // stale fold.  Never on the wire.
+    applierLines.push(
+      "    /// <summary>Internal: the stream version this instance was folded to; the expected version of its next append.</summary>",
+    );
+    applierLines.push("    [System.Text.Json.Serialization.JsonIgnore]");
+    applierLines.push("    public int _StreamVersion { get; set; }");
+    applierLines.push("");
     applierLines.push(
       `    public static ${entity.name} _FromEvents(${entity.name}Id id, IReadOnlyList<IDomainEvent> events)`,
     );
@@ -717,6 +729,8 @@ export function renderEntity(
     applierLines.push(`        var e = new ${entity.name}();`);
     applierLines.push("        e.Id = id;");
     applierLines.push("        foreach (var ev in events) e._Apply(ev);");
+    // A stream is gap-free from 1, so the folded count IS its head version.
+    applierLines.push("        e._StreamVersion = events.Count;");
     applierLines.push(
       emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
     );
