@@ -5,7 +5,7 @@ description: >-
   (the .ddd toolchain in this repo) — from a proposal through grammar, IR,
   validation, all five backends and five frontends, and tests. Use this
   whenever the task is to implement, design, or scope a Loom language feature:
-  picking up a doc from docs/old/proposals/, closing a codegen gap, adding new
+  picking up a feature issue or design record, closing a codegen gap, adding new
   surface syntax, an expression/statement/type, a capability, a UI primitive,
   or a validator gate. Reach for it even when the user just says "add X to the
   DSL", "implement this proposal", "wire feature Y through all backends", or
@@ -59,9 +59,9 @@ exist). A stale base lies twice: you rebuild merged work *and* reason from code
 that no longer exists. This is not optional ceremony — it's the single biggest
 source of wasted effort in this repo.
 
-Then read the proposal (usually under `docs/old/proposals/` — its format is problem →
-surface → grammar additions → lowering semantics → open questions) and the
-`global-implementation-plan.md` if the feature is part of a roadmap.
+Then read the issue and any design record it links (a permalink into the legacy
+design record, or a `docs/` reference — the format is problem → surface →
+grammar additions → lowering semantics → open questions).
 
 ## The workflow
 

@@ -805,7 +805,7 @@ the conforming backends, and the fix that established it.
 - **Provenance.** Found 2026-08-01 by the M-T9.11 gate on the elixir leg
   (`value-collections` `$.lineItems[*].amount`); extended to .NET by #2563/#2575;
   amended 2026-08-24 for java by the numeric-types audit
-  ([F9](audits/numeric-types-audit-2026-08-23.md), register #2644) → M-T6.46.
+  ([F9](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md), register #2644) → M-T6.46.
   Extended 2026-10-11 to the elixir **query-time projection** select (a joined
   `decimal` shipped `"2.5"`; wave C3 3d's D19), which now rides the same shared
   `__decimal_num/1` — `corpus/datetime-wire`'s `venueFee`.
@@ -1262,7 +1262,7 @@ nothing and the test passes vacuously.
 
 > **Claimable follow-up tickets** (parallel-agent-ready — RS-9 gating, more
 > backends, the diffable spec artifact, corpus breadth) are enumerated in
-> [`plans/runtime-semantics-tier-followups.md`](old/plans/runtime-semantics-tier-followups.md).
+> [`plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md).
 
 - **v1 (this doc):** the registry + well-formedness gate + the T0-tier rules
   gated statically across all five backends — **RS-2** (`enum-casing-parity`),
@@ -1756,7 +1756,7 @@ nothing and the test passes vacuously.
   lands.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** Raised by the numeric-types audit
-  ([F11](audits/numeric-types-audit-2026-08-23.md)); ruled as
+  ([F11](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)); ruled as
   D-DECIMAL-EXACT-MOMENT; built as M-T5.22 (wave C5 moment 5a). Tier:
   **behavioral** — the witness's unit `test` block runs on all five unit tiers
   and its `test e2e` block records `test/behavioral/wire-golden/decimal-exact.json`,

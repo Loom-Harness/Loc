@@ -7,7 +7,7 @@
 > `ad92e91b2` / `b22b1d80d` wave 5 — wave 5 records F-041 and F-038 as measured and deliberately
 > *not* landed). The per-finding status lives in each finding's dated blocks and in
 > [`FIX-PLAN.md`](FIX-PLAN.md) §0; the live residue is dispositioned in
-> [`docs/new-plan/coverage.md`](../../docs/new-plan/coverage.md).
+> [`docs/new-plan/coverage.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/coverage.md).
 
 **45 findings as filed — 16 S1 · 16 S2 · 12 S3 · 1 S4.**
 **Class split: 25 SILENT · 10 HONEST · 3 CRASH-where-a-diagnostic-belongs · 3 CONTRADICTED-doc · 2 DOCUMENTED · 2 other.**
