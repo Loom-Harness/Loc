@@ -150,8 +150,12 @@ export function validateElixirInvariantCoverage(sys: SystemIR, diags: LoomDiagno
       const ctx = ctxByName.get(ctxName);
       if (!ctx) continue;
       for (const agg of ctx.aggregates) {
-        const opaque = unreadableCollections(agg);
-        for (const inv of unrenderableInvariants(agg)) {
+        // An event-sourced aggregate is checked against its in-memory fold, which
+        // holds a reference collection as the plain id list — so nothing is
+        // opaque there, and only the shapes no carrier can evaluate remain.
+        const carrier = agg.persistedAs === "eventLog" ? { invariants: agg.invariants } : agg;
+        const opaque = unreadableCollections(carrier);
+        for (const inv of unrenderableInvariants(carrier)) {
           const key = `${ctxName}/${agg.name}/${inv.source}`;
           if (seen.has(key)) continue;
           seen.add(key);
