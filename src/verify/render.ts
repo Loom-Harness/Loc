@@ -94,6 +94,14 @@ export function renderVerificationMd(loom: LoomModel, v: VerificationIR): string
             ),
           ]
         : "_No unknown results._",
+      // Not a problem, so a count rather than a list: these are declared
+      // tests whose block has no `verifies`, i.e. evidence for nothing.
+      diag.unlinkedTests.length
+        ? [
+            "",
+            `${diag.unlinkedTests.length} result(s) came from declared tests with no \`verifies\` (run, not scored).`,
+          ]
+        : [],
     ) + "\n"
   );
 }
