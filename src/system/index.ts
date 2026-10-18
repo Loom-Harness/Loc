@@ -1,4 +1,5 @@
 import { claimPathFor } from "../generator/_auth/claim-types.js";
+import { DEV_STUB_ID_GUID } from "../generator/_auth/dev-stub-id.js";
 import {
   brokerUrl,
   devPassword,
@@ -25,6 +26,7 @@ import type {
   EnrichedLoomModel,
   EnrichedSubdomainIR,
   EnrichedSystemIR,
+  FieldIR,
   Platform,
   SystemIR,
   TypeIR,
@@ -1034,23 +1036,31 @@ function renderKeycloakRealm(sys: SystemIR): string {
   // carry it, or every password-grant/redirect token 401s out of the
   // box (Keycloak's default `aud` is `account`).  An audience protocol
   // mapper on the client injects the declared value into access tokens.
+  //
+  // An `env(…)` audience has no value at generate time, so the realm cannot
+  // mint it verbatim.  It mints the CLIENT'S OWN id instead
+  // (`included.client.audience`) — without a mapper Keycloak's access-token
+  // `aud` is `account`, which no audience value an operator could set would
+  // match, so `OIDC_AUDIENCE=<clientId>` on the bundled stack 401'd every
+  // token.  With it, the documented setting just works.
   const audience = sys.auth?.oidc.audience;
-  const audienceMappers =
-    audience?.kind === "literal"
-      ? [
-          {
-            name: "loom-declared-audience",
-            protocol: "openid-connect",
-            protocolMapper: "oidc-audience-mapper",
-            consentRequired: false,
-            config: {
-              "included.custom.audience": audience.value,
-              "access.token.claim": "true",
-              "id.token.claim": "false",
-            },
+  const audienceMappers = audience
+    ? [
+        {
+          name: "loom-declared-audience",
+          protocol: "openid-connect",
+          protocolMapper: "oidc-audience-mapper",
+          consentRequired: false,
+          config: {
+            ...(audience.kind === "literal"
+              ? { "included.custom.audience": audience.value }
+              : { "included.client.audience": clientId }),
+            "access.token.claim": "true",
+            "id.token.claim": "false",
           },
-        ]
-      : [];
+        },
+      ]
+    : [];
   // ONE PROTOCOL MAPPER PER DECLARED CLAIM, with a seeded value on the demo
   // user — so the dev IdP can actually exercise the authorization model the
   // same `.ddd` declares.
@@ -1172,8 +1182,39 @@ function renderKeycloakRealm(sys: SystemIR): string {
         ? ["admin"]
         : f.name === demoTenantClaim(sys)
           ? [DEMO_TENANT_ID]
-          : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+          : [demoClaimValue(f)];
   }
+
+  // A SECOND seeded user, `demo-admin`, holding EVERY declared permission.
+  //
+  // `demo` stays exactly as unprivileged as the comment above argues — its
+  // permission denial is a contract the cross-backend runtime-authorization
+  // gate pins.  But under `enforcement: denyByDefault` (the language default)
+  // every client-reachable member carries a `requires` gate, which in practice
+  // is a permission check, so a realm whose only user holds no permission is a
+  // stack where nothing can be done at all (claims eval D8).  `demo-admin` is
+  // the allow-path principal: it carries the `<subdomain>.<name>` runtime
+  // string of every `permissions { }` entry, through whichever channel the
+  // backends read `permissions` from — the flat user-attribute claim, or the
+  // realm roles when `permissions` maps onto `realm_access.roles`.
+  const permissionStrings = [
+    ...new Set(sys.subdomains.flatMap((s) => s.permissions.map((p) => p.runtimeString))),
+  ].sort();
+  const permissionsField = (sys.user?.fields ?? []).find(
+    (f) => f.name === "permissions" && f.type.kind === "array",
+  );
+  const permissionsPath = permissionsField
+    ? claimPathFor(permissionsField.name, sys.auth ?? { claims: [] })
+    : undefined;
+  const grantsViaAttribute =
+    !!permissionsField && claimFields.includes(permissionsField) && permissionStrings.length > 0;
+  const grantsViaRealmRoles =
+    permissionsPath === "realm_access.roles" && permissionStrings.length > 0;
+  const adminAttributes: Record<string, string[]> = {
+    ...demoAttributes,
+    ...(grantsViaAttribute ? { permissions: permissionStrings } : {}),
+  };
+  const seedsAdmin = grantsViaAttribute || grantsViaRealmRoles;
 
   const clientMappers = [...audienceMappers, ...claimMappers];
   const doc = {
@@ -1193,7 +1234,30 @@ function renderKeycloakRealm(sys: SystemIR): string {
     // by the same tool and must not disagree; `keycloak-realm-grants-handshake-scopes`
     // pins that they don't.
     roles: {
-      realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }, { name: "offline_access" }],
+      realm: [
+        { name: "user" },
+        { name: "agent" },
+        { name: "admin" },
+        { name: "offline_access" },
+        ...(grantsViaRealmRoles ? permissionStrings.map((name) => ({ name })) : []),
+      ],
+    },
+    // Keycloak 24+ runs every realm under the declarative user profile, whose
+    // default `unmanagedAttributePolicy` is unset — so an attribute the profile
+    // does not declare is DROPPED: an operator granting `permissions` (or any
+    // claim attribute) to a user through the admin console / API saw it
+    // silently discarded, and the token never carried it.  ENABLED keeps such
+    // attributes and lets the per-claim mappers above project them.  The four
+    // built-in attributes are restated because this config REPLACES the
+    // default profile rather than merging into it.
+    components: {
+      "org.keycloak.userprofile.UserProfileProvider": [
+        {
+          providerId: "declarative-user-profile",
+          subComponents: {},
+          config: { "kc.user.profile.config": [JSON.stringify(KEYCLOAK_USER_PROFILE)] },
+        },
+      ],
     },
     clients: [
       {
@@ -1223,6 +1287,26 @@ function renderKeycloakRealm(sys: SystemIR): string {
         // no claims beyond `id`/`email`, so those realms stay byte-identical.
         ...(Object.keys(demoAttributes).length > 0 ? { attributes: demoAttributes } : {}),
       },
+      ...(seedsAdmin
+        ? [
+            {
+              username: "demo-admin",
+              enabled: true,
+              email: "demo-admin@example.com",
+              firstName: "Demo",
+              lastName: "Admin",
+              emailVerified: true,
+              credentials: [{ type: "password", value: "demo-admin", temporary: false }],
+              realmRoles: [
+                "user",
+                "agent",
+                "offline_access",
+                ...(grantsViaRealmRoles ? permissionStrings : []),
+              ],
+              ...(Object.keys(adminAttributes).length > 0 ? { attributes: adminAttributes } : {}),
+            },
+          ]
+        : []),
     ],
   };
   return `${JSON.stringify(doc, null, 2)}\n`;
@@ -1621,6 +1705,78 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
 /** Keycloak's `jsonType.label` for a declared claim's Loom type.  Keycloak
  *  types the claim value from this; getting it wrong makes a numeric claim
  *  arrive as a string (and an int comparison in a gate silently false). */
+/** The seeded demo value of a non-authority claim, shaped like its declared
+ *  type.  An `X id` / `guid` claim is a UUID — the dev stub's all-zero id
+ *  (`DEV_STUB_ID_GUID`), since a `demo-agent-id` string fails every backend's
+ *  id parse (and the .NET/java UUID-backed id types outright); a numeric claim
+ *  is `0` and a `bool` claim `false`, because Keycloak types the claim from the
+ *  mapper's `jsonType.label` and a non-numeric seed is dropped from the token.
+ *  Everything else keeps the obviously-synthetic `demo-<kebab-name>`. */
+function demoClaimValue(f: FieldIR): string {
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return DEV_STUB_ID_GUID;
+  if (t.kind === "primitive") {
+    if (t.name === "guid") return DEV_STUB_ID_GUID;
+    if (t.name === "int" || t.name === "long") return "0";
+    if (t.name === "bool") return "false";
+  }
+  return `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+}
+
+/** The realm's declarative user profile (Keycloak 24+): Keycloak's own default
+ *  profile — the four built-in attributes, restated because a realm-import
+ *  `kc.user.profile.config` REPLACES the default — plus
+ *  `unmanagedAttributePolicy: ENABLED`, so claim attributes the profile does
+ *  not declare survive an admin-console / admin-API edit instead of being
+ *  dropped. */
+const KEYCLOAK_USER_PROFILE = {
+  attributes: [
+    {
+      name: "username",
+      displayName: "${username}",
+      validations: {
+        length: { min: 3, max: 255 },
+        "username-prohibited-characters": {},
+        "up-username-not-idn-homograph": {},
+      },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "email",
+      displayName: "${email}",
+      validations: { email: {}, length: { max: 255 } },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "firstName",
+      displayName: "${firstName}",
+      validations: { length: { max: 255 }, "person-name-prohibited-characters": {} },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "lastName",
+      displayName: "${lastName}",
+      validations: { length: { max: 255 }, "person-name-prohibited-characters": {} },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+  ],
+  groups: [
+    {
+      name: "user-metadata",
+      displayHeader: "User metadata",
+      displayDescription: "Attributes, which refer to user metadata",
+    },
+  ],
+  unmanagedAttributePolicy: "ENABLED",
+} as const;
+
 function keycloakJsonType(t: TypeIR): string {
   const inner = t.kind === "array" ? t.element : t;
   if (inner.kind === "primitive") {
