@@ -6700,3 +6700,195 @@ So after any push from a shallow clone, create the ref yourself —
 `git fetch origin <branch>:refs/remotes/origin/<branch>` — and verify with
 `git ls-remote origin <branch>` against `git rev-parse HEAD` rather than trusting
 either the hook or `@{upstream}`.
+
+## 120. A fix across a mode/shape/adapter axis must re-verify the axis's other cells (2026-10-18)
+
+A fix mutation-proved against its own witness keeps regressing or missing a
+neighbouring cell of the axis it touches. One code-review window found three of
+its serious findings were regressions from the previous window's own fixes: a
+SpEL prefilter broke deep/global JPQL reads, outbox capture stopped .NET SSE
+delivery, and a filter push-down made document × aggregation reachable. The
+pairwise corpus found the same shape twice — a mask fix landed for non-relational
+repositories on TypeScript only, and a document-only fix left its event-sourced
+twin broken — and Schemathesis closures landed Hono-only three times.
+
+**Rule.** A PR touching a site that branches on mode, shape, adapter or backend
+says in its body which other cells of that axis it re-verified. "Fixed" without
+that list means "fixed on the cells it names".
+
+## 121. Never set a finding's status from PR state — regenerate the repro (2026-10-18)
+
+Re-measuring one evaluation's regression-gate audit found three status rows
+wrong: a finding recorded as an open claim was merged; one recorded as merged
+was not fixed (a policy used from a sibling context still typed as `unknown`);
+and one recorded "still live" because its PR closed unmerged had been fixed
+under a different evaluation's number. Generating the model took a minute and
+settled each. Other re-verifications repeat it: a "claimed by #N" PR merged
+without the fix, and a "half fixed" finding was a refusal for a different shape.
+
+**Rule.** A finding's status comes from regenerating its repro on fresh `main`
+and reading the emitted output — never from a PR's open/closed/merged state or
+its title.
+
+## 122. OIDC on a backend: HTTPS enforcement follows the issuer scheme, and the issuer is read at runtime (2026-10-18)
+
+Two gotchas cost real bugs in the OIDC fan-out:
+
+1. The bundled dev Keycloak issuer is plain `http`. A JWKS/discovery client that
+   defaults to requiring HTTPS rejects every token with 401. .NET now sets
+   `RequireHttps = Issuer.StartsWith("https://", …)`
+   (`src/generator/dotnet/auth-emit.ts`): an https issuer stays strict, an http
+   (dev/loopback) one opts out.
+2. On Phoenix the issuer is read at RUNTIME — `def issuer` reads the env in a
+   function (`src/generator/elixir/auth-emit.ts`) — never in a module attribute
+   or `compile_env`, which would freeze the empty build-time environment into
+   the release.
+
+Any backend's verifier must satisfy both; its native OIDC e2e against the bundled
+Keycloak is the gate that catches them.
+
+## 123. `npm audit fix` crashes on this tree, and the vitest override is why it is not worse (2026-10-18)
+
+`npm audit fix` (and any command that re-resolves vitest) dies in arborist with
+`Cannot read properties of null (reading 'edgesOut')`. The chain is `vite@8` →
+`@vitejs/devtools-vitest` → peer `vitest@*`, which resolves to vitest 5, whose
+`@vitest/browser-playwright@5` peer breaks peer-set loading. The workaround is a
+lockfile-only `npm update <pkgs>` plus the scoped override in `package.json`
+(`"@vitejs/devtools-vitest": { "vitest": "^4.1.11" }`). Two routes fail, so
+don't retry them: a top-level `vitest` override is refused with EOVERRIDE (it
+conflicts with the direct dependency), and `$vitest` reference syntax does not
+resolve in a nested position. Whoever moves to vitest 5 deletes the override in
+the same PR.
+
+Related trap: the `hono` in the root `node_modules` is the MCP SDK's transitive
+copy, not the generated backend's pin (an emitted string in
+`src/platform/hono/v5/pins.ts`). A hono advisory in `npm audit` does not touch
+generated projects.
+
+## 124. Biome's unsafe fix renames an unused binding to `_name` instead of deleting it (2026-10-18)
+
+`biome check --write --unsafe` with `correctness/noUnusedVariables` renames an
+unused binding to `_name`; it does not delete it, and it skips an unused
+destructured binding entirely. That silences the warning and keeps the dead
+code: a sweep would have parked a 60-line dead hand-rolled IR walk and an
+orphaned carve-out constant as `_walkExpr` / `_MAP_…`.
+
+**Rule.** After an unsafe Biome sweep, grep for new `_`-prefixed names and decide
+each by hand: dead, so delete; or a dropped reference, so wire it back. Never
+commit the rename. The lint script runs `biome ci . --error-on-warnings` rather
+than promoting individual rules, because a promote list misses any rule a later
+Biome minor adds at `warn`.
+
+## 125. To ask whether a gate runs in CI, follow the npm script, not the `LOOM_*` variable (2026-10-18)
+
+A `LOOM_*` env gate is usually set INSIDE the package.json script
+(`test:pairwise` sets `LOOM_PAIRWISE=1`), so a correctly wired workflow calls
+`npm run test:pairwise` and never mentions the variable. Grepping workflows for
+the variable made the healthy `schema-load.yml` look dark. The chain is workflow
+→ npm script → env var → skip condition, and
+`test/system/skip-gate-reachability.test.ts` enforces that every skip-condition
+`LOOM_*` read is set by some script or workflow — use it instead of a hand grep.
+
+Mechanical rewrites of test files went wrong twice in the same fleet: a regex put
+an options object inside `join(dir, "out", app, {...})` at eight sites (only
+`npm run test:typecheck` caught it — `tsc -b` skips `test/`), and an "insert
+after the last import" heuristic injected an import into a template literal that
+embeds a generated script.
+
+## 126. To prove a primitive renders something, bracket it with markers and diff against a control (2026-10-18)
+
+A test that renders `Stack { P1 {}, P2 {}, … }` and asserts "carries a code"
+cannot see a primitive that renders NOTHING: a silent `return ""` only shortens
+the joined body, and the assertion stays green on the other primitives'
+give-ups. Before bracketing, the `return ""` mutation was invisible.
+
+**Technique.** Wrap each primitive between two literal `Text` markers and compare
+the region between them with a CONTROL pair that has nothing between it. The
+control measures what two adjacent markers cost on that target, so the
+comparison needs no per-target knowledge and survives pack wrapper changes. Find
+the region with `lastIndexOf`, not `indexOf`: Feliz emits its i18n catalog at the
+top of `App.fs`, one row per string ordered by hash, so the first occurrence of
+each marker is a catalog row.
+
+## 127. A gate built from one or two targets' output over-claims (2026-10-18)
+
+Two UI gates were built from measurements on react and flutter and both
+over-claimed: a statement-kind refusal was made universal although Phoenix
+LiveView renders all three refused kinds, and a page-route-collision refusal
+rejected the repo's own flagship example. Only a sweep of every affected suite
+caught them, because they refused shapes that work.
+
+**Rule.** A sentinel gives ONE target's answer; measure every target before
+turning an observation into a refusal. Likewise a gate's coverage is a claim
+about POSITIONS: a "this branch is dead on valid `.ddd`" comment was wrong in one
+corner because nobody had enumerated the positions (projection reads, handler
+slots, lambda purity). Enumerate the positions and drive each with a probe.
+
+## 128. When a premise rests on a comment, generate the shape and read the output (2026-10-18)
+
+One validator-drops packet found every row was prose describing behaviour that
+no longer held: a Java capability filter "handled by omitting the conjunct,
+exactly like node" did not; a private-op call with "no callable target" had one
+six lines away; a messaged rule "routed there when recognised" was unreachable
+for a guarded rule; and a language-reference chapter called a shipped behaviour
+an "honest gap". Reading the prose said all four were fine. The anchor ratchet
+(`diagnostic-docs-anchors.test.ts` — a minted code needs its doc anchor) is what
+forced the doc revisit.
+
+## 129. A .NET compile proof uses `/warnaserror` and the generated csproj unchanged (2026-10-18)
+
+An agent compile-checked generated .NET without `/warnaserror` and without the
+emitted csproj's `AnalysisLevel`, so it could not see the CA-rule class: a member
+named `Pointer` tripped CA1720, and the corpus tier caught it later. Compile-check
+with the exact CI flags, in the SDK container (`mcr.microsoft.com/dotnet/sdk:10.0`,
+`dotnet build /warnaserror` against the generated csproj).
+
+Two coordination notes from the same wave: two coordinated golden re-captures
+whose re-baselines are provably disjoint can share one PR (say so in the body —
+the one-PR-per-recapture rule exists for the golden diff, not for its own sake);
+and pre-staging the next change on the queue group's merge commit (the exact
+future `main`) turns each following merge into a fast-forward push minutes after
+the previous one.
+
+## 130. A silent drop hides every bug downstream of it — and TypeScript is the weakest oracle (2026-10-18)
+
+Closing a silently dropped canonical create/destroy body surfaced three emitter
+bugs that had been invisible because the construct never reached an emitter: an
+int literal in a decimal value-object slot (Java: `int cannot be converted to
+BigDecimal`), Python passing a float where `Decimal` was required (with a test
+pinning the wrong output), and a value-object-typed field default. A silent drop
+does not only lose the author's intent; it hides every bug on the path that
+intent would have taken — a stronger reason to close drops than "the source says
+something untrue".
+
+Corollary: `build-generated-ts` was green while Python and .NET could not compile
+the same fixture. TypeScript's structural typing makes it the weakest oracle for
+wire/domain confusion; check Java and Python (the strict ones) first when proving
+a cross-backend shape compiles.
+
+## 131. An adapter refusal's shape says nothing about the port's cost (2026-10-18)
+
+The MikroORM refusals sat behind identical `&& !usingMikro` gates and cost wildly
+different amounts to port. Broker channels and realtime SSE were single-boolean
+deletions — their emitters read no `db` at all — yet had been hard errors for two
+weeks. The outbox capture/drain and the timer watermark plus advisory lock were
+real ports; one gate was mixed (three of four shapes needed a QueryBuilder, the
+fourth was already adapter-neutral). A review caught a first version that deleted
+the gate for all four shapes while porting three: the raw-table shape fell
+through to the Drizzle arm and emitted `db.select().from(schema…)` into an
+EntityManager file (TS2304, generate-then-broken).
+
+**Rule.** Size an adapter gap by reading what the gated emitter consumes, and
+delete a refusal per shape only after that shape is ported.
+
+## 132. `upload-artifact` ships nothing from a dot-directory (2026-10-18)
+
+`actions/upload-artifact` (v4+) excludes hidden files by default, so an upload
+whose path is a dot-directory (`.loom/`, `test/behavioral/.work*/`) succeeds and
+ships nothing — the evidence you meant to read is missing. Set
+`include-hidden-files: true` (as `schemathesis.yml`, `behavioral-ui-vue-e2e.yml`,
+`behavioral-heex-ui-e2e.yml` and `frontend-fullstack-e2e.yml` do).
+
+The Angular cell of the same leg depends on CI's floating `node-version: '22'`
+resolving above the Angular CLI's 22.22.3 floor (see `docs/tools.md`); a local
+repro on the sandbox's 22.22.2 fails for a reason CI never sees.

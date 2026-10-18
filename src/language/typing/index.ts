@@ -1,8 +1,8 @@
 // The single typing pass (M-T5.47) — public surface.
 //
 // `typingSession(models)` elaborates a whole compilation unit once and
-// answers `typeAt(node)` for every expression in it. Design:
-// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T5.47-single-typing-pass-design.md.
+// answers `typeAt(node)` for every expression in it. Overview:
+// docs/technical.md § "The single typing pass".
 
 import type { AstNode } from "langium";
 import type { Aggregate, BinaryChain, Model, TypeRef } from "../generated/ast.js";

@@ -161,6 +161,15 @@ Each config **assumes a prior build/boot step** — it is deliberately not a
   flag, targeting the runtime the shipped docker image uses (`node:24`,
   where type-stripping is unflagged). A *local* host Node older than 23.6
   needs the flag added by hand; older than 22.6 can't strip types at all.
+  Use plain `node`, not `tsx`: `npx tsx --enable-source-maps` runs the
+  project (esbuild probes extensionless imports) but its stack traces land on
+  the generated `.ts`, never the `.ddd` — Node follows the source map of the
+  module it actually loaded (tsx's in-memory transform), not the `.ts.map`
+  sidecar on disk. Plain Node chains to `.ddd` because debug mode emits
+  explicit `.ts` import specifiers (`src/generator/typescript/debug-imports.ts`)
+  and the emitted TypeScript stays erasable. So a debugging fix verified under
+  tsx proves nothing about `.ddd` resolution, and a new TS emitter construct
+  must stay erasable.
 - **.NET** — assumes a prior `dotnet build` (the config points at
   `bin/Debug/<TFM>/<Assembly>.dll`).
 - **Java** — assumes the project is importable by the editor's Java
