@@ -112,7 +112,11 @@ import {
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
   isTphBase,
@@ -804,6 +808,7 @@ export function generateTypeScriptForContexts(
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
+    ...userClaimIdTypeSources(system?.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
   out.set("domain/value-objects.ts", renderEnumsAndValueObjects(merged));
