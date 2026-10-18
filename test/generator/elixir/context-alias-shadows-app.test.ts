@@ -58,7 +58,7 @@ describe("elixir: a context named like the app does not shadow the app module", 
     expect(ledger, "event-sourced controller").toBeDefined();
     expect(clm).toContain("guard_error in Claims.GuardError");
     expect(clm).toContain("Claims.Claims.relink_clm(");
-    expect(clm).toContain("Claims.Claims.by_ref_clm(");
+    expect(clm).toContain("Claims.Claims.with_ref_clm(");
     expect(ledger).toContain("Claims.Claims.get_ledger(");
   });
 });
