@@ -758,7 +758,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
-| `loom.policy-out-of-scope` | a `PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
+| `loom.policy-out-of-scope` | a `PolicyName(args)` or `Ctx.PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
@@ -1254,11 +1254,22 @@ on at deploy time without editing the `.ddd`).
 So an operator can enforce audience isolation on a stack that never declared one
 by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 
-> **Turning it back OFF differs by backend.** `OIDC_AUDIENCE=""` is an explicit
-> opt-out on **node** and **elixir** (both treat an empty audience as "skip the
-> check"). On **dotnet**, **java** and **python** an empty string is a *declared*
-> audience of `""`, which no real token carries — so every token is rejected.
-> Unset the variable there rather than emptying it.
+> **Turning it back OFF is the same on every backend.** An EMPTY audience —
+> `OIDC_AUDIENCE` unset, or set to `""` — skips the check on all five. (Until
+> the claims-eval fix D7, dotnet, java and python treated `""` as a *declared*
+> audience no token carries and rejected every token; python and dotnet did so
+> even with the variable merely unset under `audience: env("OIDC_AUDIENCE")`.)
+>
+> **A rejected token is logged.** Every verifier still answers a failed
+> verification with 401 (never 500), and now also logs the catalog event
+> `auth_token_rejected` at `debug` with a `reason` field (`unexpected "aud"
+> claim value`, `Audience doesn't match`, a discovery failure, …). Set
+> `LOG_LEVEL=debug` to see why a token was refused.
+>
+> **The bundled dev realm mints the audience.** A literal `audience: "x"` gets an
+> audience mapper for `x`; an `env(…)` audience gets one for the realm's own
+> client id (`<realm>-app`), so `OIDC_AUDIENCE=<realm>-app` turns the check on
+> against the bundled Keycloak with no realm edit.
 
 ```ddd
 auth {

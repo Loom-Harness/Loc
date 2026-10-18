@@ -70,7 +70,10 @@ describe("elixir domain `test` → ExUnit emission", () => {
     const agg = findFile(files, /van_api\/lib\/van_api\/selling\/order\.ex$/);
     // create/1 = base_changeset |> apply_action (pure, no Repo).
     expect(agg).toContain("def create(attrs) when is_map(attrs) do");
-    expect(agg).toContain("VanApi.Selling.OrderChangeset.base_changeset(%__MODULE__{}, attrs)");
+    // The id is minted as the persisted path mints it, so `o.id` is never nil.
+    expect(agg).toContain(
+      "VanApi.Selling.OrderChangeset.base_changeset(%__MODULE__{id: UUIDv7.generate()}, attrs)",
+    );
     expect(agg).toContain("|> Ecto.Changeset.apply_action(:insert)");
     // <op>/2 = precondition (raise) + in-memory mutation.
     expect(agg).toContain("def confirm(%__MODULE__{} = record, _params) do");

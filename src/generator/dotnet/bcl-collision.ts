@@ -34,7 +34,7 @@
 // no working C# today, so there is no generated API surface to keep compatible.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../util/naming.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
@@ -329,4 +329,88 @@ export function csParamIdent(name: string, scope: CsMemberScope | undefined): st
   if (!scope?.members.has(name)) return escapeCsharpIdent(name);
   const lowered = lowerFirst(name);
   return escapeCsharpIdent(lowered !== name ? lowered : `${name}_`);
+}
+
+// ---------------------------------------------------------------------------
+// Root-namespace / domain-type collisions.
+//
+// The project's root namespace is the deployable's Pascal name (system mode)
+// or the context's name (legacy `generate dotnet`).  When a hosted context
+// declares a TYPE of that very name — `deployable pay` hosting `aggregate
+// Pay`, or `context Pay { aggregate Pay }` — every file under `namespace
+// Pay.…` resolves a bare `Pay` to the root NAMESPACE before it ever reaches
+// the `using Pay.Domain.Pays;` that imports the type (C# looks up the global
+// namespace's own members ahead of the compilation unit's using-imports, and a
+// `using Pay = …;` alias at that level is ambiguous rather than winning):
+//
+//     error CS0118: 'Pay' is a namespace but is used like a type
+//
+// A colliding model produces no buildable project, so there is nothing to keep
+// compatible: the root namespace takes an `App` suffix (repeated until it is
+// free) and the rest of the project — csproj, DLL, Dockerfile, test project —
+// follows it, since every one of them is spelled from the same value.  A model
+// without the collision keeps its namespace, byte-identical.
+// ---------------------------------------------------------------------------
+
+/** Every type name a hosted context declares into the project's `using` set —
+ *  the names a root namespace must not equal. */
+function declaredTypeNames(
+  contexts: ReadonlyArray<
+    Pick<
+      BoundedContextIR,
+      | "aggregates"
+      | "valueObjects"
+      | "enums"
+      | "events"
+      | "payloads"
+      | "domainServices"
+      | "projections"
+      | "siblingValueObjects"
+      | "siblingEnums"
+    >
+  >,
+): Set<string> {
+  const names = new Set<string>();
+  for (const ctx of contexts) {
+    for (const agg of ctx.aggregates) {
+      names.add(agg.name);
+      for (const part of agg.parts) names.add(part.name);
+    }
+    for (const decl of [
+      ...ctx.valueObjects,
+      ...ctx.enums,
+      ...ctx.events,
+      ...ctx.payloads,
+      ...ctx.domainServices,
+      ...ctx.projections,
+      ...(ctx.siblingValueObjects ?? []),
+      ...(ctx.siblingEnums ?? []),
+    ]) {
+      names.add(decl.name);
+    }
+  }
+  return names;
+}
+
+/** The project's root namespace: `base` unless a hosted type has that exact
+ *  name, in which case `base` + `App` (+ `App` …) — see the block above. */
+export function clashFreeRootNamespace(
+  base: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): string {
+  const taken = declaredTypeNames(contexts);
+  let ns = base;
+  while (taken.has(ns)) ns = `${ns}App`;
+  return ns;
+}
+
+/** A deployable's root namespace: its name with the first letter capitalised,
+ *  made clash-free against its hosted contexts.  The ONE spelling the
+ *  platform surface (`emitProject`, `debugLaunch`) and the adapter emitters
+ *  all key off, so the csproj, the DLL and every `namespace …;` agree. */
+export function dotnetRootNamespace(
+  deployableName: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): string {
+  return clashFreeRootNamespace(upperFirst(deployableName), contexts);
 }
