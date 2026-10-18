@@ -1,0 +1,165 @@
+// shape: two `getById` loads of ONE row inside a workflow, on the two
+// non-relational saving shapes — a `shape: document` aggregate and a
+// `persistedAs: eventLog` stream (M-T6.95, M-T6.98).
+//
+// Each handle carries the version it was loaded at, and its save is checked
+// against it: the document upsert is guarded on the expected version, and an
+// event append writes the versions AFTER the one the handle folded, so a stale
+// handle's append collides with the `(stream_type, stream_id, version)` key.
+// Either way the second save of two handles that both changed the row is stale,
+// answers the RS-39 409, and the `transactional` workflow persists neither.
+//
+// The pre-fix shapes this pins: java's document upsert had no version guard at
+// all, EF's document save compared against the re-read row instead of the
+// handle, and every event store appended at `max(version) + 1` read at append
+// time — so a decision taken on a stale fold (here, a `precondition` against a
+// balance the other handle had already spent) was kept.
+//
+// The same handle saved twice is NOT a conflict: after a save the handle moves
+// to the version it wrote.
+system WorkflowTwoHandlesDocumentEventlog {
+  subdomain Bank {
+    context Ledger {
+      aggregate Note shape: document with crudish {
+        text: string
+        hits: int
+
+        operation hit() { hits := hits + 1 }
+      }
+      repository Notes for Note { }
+
+      event Opened { account: Account id, owner: string }
+      event Withdrawn { account: Account id, amount: int }
+
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+
+        create open(owner: string) {
+          emit Opened { account: id, owner: owner }
+        }
+        operation withdraw(amount: int) {
+          precondition balance >= amount
+          emit Withdrawn { account: id, amount: amount }
+        }
+        apply(e: Opened) { owner := e.owner  balance := 100 }
+        apply(e: Withdrawn) { balance := balance - e.amount }
+      }
+      repository Accounts for Account { }
+
+      // Only the SECOND handle is touched: it saves at the version it read.
+      workflow hitViaSecond {
+        create(n: Note id) {
+          let first = Notes.getById(n)
+          let second = Notes.getById(n)
+          second.hit()
+        }
+      }
+
+      // One handle, two changes: its second save follows its first.
+      workflow hitSameTwice {
+        create(n: Note id) {
+          let only = Notes.getById(n)
+          only.hit()
+          only.hit()
+        }
+      }
+
+      // Both handles change the row: the second save is stale (409) and the
+      // transactional workflow persists neither hit.
+      workflow hitTwice transactional {
+        create(n: Note id) {
+          let first = Notes.getById(n)
+          let second = Notes.getById(n)
+          first.hit()
+          second.hit()
+        }
+      }
+
+      workflow withdrawViaSecond {
+        create(a: Account id, amount: int) {
+          let first = Accounts.getById(a)
+          let second = Accounts.getById(a)
+          second.withdraw(amount)
+        }
+      }
+
+      workflow withdrawSameTwice {
+        create(a: Account id) {
+          let only = Accounts.getById(a)
+          only.withdraw(10)
+          only.withdraw(10)
+        }
+      }
+
+      // Both handles withdraw against the balance each folded: the second
+      // append is stale (409) and neither withdrawal survives — without the
+      // check both land and the account overdraws past its precondition.
+      workflow withdrawTwice transactional {
+        create(a: Account id, amount: int) {
+          let first = Accounts.getById(a)
+          let second = Accounts.getById(a)
+          first.withdraw(amount)
+          second.withdraw(amount)
+        }
+      }
+    }
+  }
+
+  api LedgerApi from Bank
+  storage pg { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: pg }
+  resource ledgerLog { for: Ledger, kind: eventLog, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState, ledgerLog]
+    serves: LedgerApi
+    port: 4000
+  }
+
+  test e2e "two handles on one document row or one event stream: the stale save answers 409" against d {
+    let n = api.notes.create({ text: "n", hits: 0 })
+
+    api.hitViaSecond.run({ n: n.id })
+    let afterSecond = api.notes.getById(n)
+    expect(afterSecond.hits).toBe(1)
+
+    api.hitSameTwice.run({ n: n.id })
+    let afterSame = api.notes.getById(n)
+    expect(afterSame.hits).toBe(3)
+
+    expect(api.hitTwice.run({ n: n.id })).toThrow(409)
+    let afterTwice = api.notes.getById(n)
+    expect(afterTwice.hits).toBe(3)
+
+    let a = api.accounts.create({ owner: "o" })
+
+    api.withdrawViaSecond.run({ a: a.id, amount: 10 })
+    let w1 = api.accounts.getById(a)
+    expect(w1.balance).toBe(90)
+
+    api.withdrawSameTwice.run({ a: a.id })
+    let w2 = api.accounts.getById(a)
+    expect(w2.balance).toBe(70)
+
+    expect(api.withdrawTwice.run({ a: a.id, amount: 60 })).toThrow(409)
+    let w3 = api.accounts.getById(a)
+    expect(w3.balance).toBe(70)
+
+    // The rest of the derived surface, so every route has a caller.
+    api.accounts.withdraw(a, { amount: 5 })
+    let accts = api.accounts.all()
+    expect(accts.length).toBe(1)
+    expect(accts.first().balance).toBe(65)
+    api.notes.hit(n)
+    api.notes.update(n, { text: "renamed", hits: 9 })
+    let notes = api.notes.all()
+    expect(notes.length).toBe(1)
+    expect(notes.first().text).toBe("renamed")
+    api.notes.destroy(n)
+    let gone = api.notes.all()
+    expect(gone.length).toBe(0)
+  }
+}

@@ -566,6 +566,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
   },
   {
+    id: "workflow-two-handles-document-eventlog",
+    title:
+      "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-39 409",
+    doc: "workflow",
+    backends: ALL,
+    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.",
+  },
+  {
     id: "audit-history",
     title: "entity history — the derived `GET /<agg>/{id}/history` read over audit_records",
     doc: "audit",

@@ -1,0 +1,248 @@
+{
+  "case": "workflow-two-handles-document-eventlog",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/workflows/hit_via_second",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "hits": 1,
+        "id": "<volatile:key>",
+        "text": "n",
+        "version": 2
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/workflows/hit_same_twice",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "hits": 3,
+        "id": "<volatile:key>",
+        "text": "n",
+        "version": 3
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/workflows/hit_twice",
+      "status": 409,
+      "body": {
+        "detail": "Note {id} was modified by another request",
+        "instance": "/api/workflows/hit_twice",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "hits": 3,
+        "id": "<volatile:key>",
+        "text": "n",
+        "version": 3
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/workflows/withdraw_via_second",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 90,
+        "id": "<volatile:key>",
+        "owner": "o"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/workflows/withdraw_same_twice",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 70,
+        "id": "<volatile:key>",
+        "owner": "o"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/workflows/withdraw_twice",
+      "status": 409,
+      "body": {
+        "detail": "Account {id} was modified by another request",
+        "instance": "/api/workflows/withdraw_twice",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 70,
+        "id": "<volatile:key>",
+        "owner": "o"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/accounts/{id}/withdraw",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": [
+        {
+          "balance": 65,
+          "id": "<volatile:key>",
+          "owner": "o"
+        }
+      ]
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/notes/{id}/hit",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": [
+        {
+          "hits": 9,
+          "id": "<volatile:key>",
+          "text": "renamed",
+          "version": 5
+        }
+      ]
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 21,
+      "method": "PATCH",
+      "path": "/api/notes",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/notes",
+        "instance": "/api/notes",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/notes",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
