@@ -120,7 +120,10 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 33 fixtures at ~25 s each (uv sync + ruff + mypy --strict) is ~14.5 min of
+    # test step alone; 15 cancelled green runs right after the last fixture
+    # passed.  25 matches dotnet-build and leaves room for the fixture set to grow.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
