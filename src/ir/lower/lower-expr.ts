@@ -1225,7 +1225,7 @@ function collectionElementType(t: TypeIR): TypeIR | undefined {
  *
  *  `originFor` walks `$container` / `getDocument` from the AST node (a
  *  shallow 5-10 hop root-walk per node) — accepted per-node cost, no
- *  cache; see docs/old/plans/source-map-debug-kickoff.md. */
+ *  cache; see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
 export function lowerExpr(expr: Expression | undefined, env: Env): ExprIR {
   const lowered = lowerExprInner(expr, env);
   const out = { ...lowered, origin: lowered.origin ?? originFor(expr) };

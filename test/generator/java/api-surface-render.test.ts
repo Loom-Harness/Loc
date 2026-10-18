@@ -191,7 +191,7 @@ system P {
     // that "the ladder's 404 belongs to ABSENCE-capable returns" inverts the
     // rule: a NON-optional return is the one with nowhere to PUT an absence, so
     // it can only throw.  Corrected with F13 —
-    // docs/audits/schemathesis-findings-2026-08.md — which also brought .NET
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md — which also brought .NET
     // (EF `FirstAsync` → 500) and elixir (`json(conn, nil)` → `200 null`) onto
     // the same answer.  Cross-backend coverage:
     // test/conformance/not-found-declaration-parity.test.ts.

@@ -12,8 +12,7 @@
 //
 // Pure structural derivation over the shared IR (no target-backend IR, no
 // upward import): lives at the generator layer, imported *down* by each
-// `src/generator/<platform>/emit/seed.ts` — see docs/new-plan/missions/
-// M-T9.2-persistence-seam-design.md §.
+// `src/generator/<platform>/emit/seed.ts` — see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T9.2-persistence-seam-design.md §.
 // ---------------------------------------------------------------------------
 
 import {

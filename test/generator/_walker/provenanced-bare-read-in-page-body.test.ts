@@ -15,7 +15,7 @@
 // Feliz/Flutter, with no diagnostic anywhere to catch it.
 //
 // Verified LANDED on this base (re-derived per the wave-1 hand-off's exact
-// patch shape, `docs/new-plan/waves/handoffs/wave-1-python-macros.md`): the
+// patch shape, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-1-python-macros.md`): the
 // `isProvenancedCarrierRead` mirror of HEEx's `provenancedFieldNames(ctx)`
 // already sits in `emitExpr`'s `case "member":` / `emitMemberAccess`. This
 // test is the missing PIN — nothing in the suite exercised a hand-written

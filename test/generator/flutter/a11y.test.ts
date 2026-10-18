@@ -8,7 +8,7 @@
 // primitive emits the right Dart `Semantics(...)` so a `pack.ts` refactor can't
 // silently drop it (the contract↔emit drift the M-T1.12 audit flagged).
 //
-// See docs/audits/flutter-a11y-audit-2026-07.md.  No Dart is compiled here;
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/flutter-a11y-audit-2026-07.md.  No Dart is compiled here;
 // `generated-flutter-build.yml` owns "is the Dart real".
 
 import { describe, expect, it } from "vitest";

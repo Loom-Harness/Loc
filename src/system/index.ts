@@ -146,7 +146,7 @@ export interface GenerateSystemOptions {
    *  `.loom/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
    *  default so byte-identical output is preserved for every existing
-   *  fixture/gate.  See docs/old/plans/source-map-debug-kickoff.md. */
+   *  fixture/gate.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
   /** `.ddd` source text for every path an `OriginRef` can resolve to
    *  (`SourceRef.path` — a Langium `URI.path`), keyed the same way.  Feeds
@@ -160,7 +160,7 @@ export interface GenerateSystemOptions {
    *  browser-safe (no `fs`), so the CLI/playground supply the text; a
    *  mapped file with no entry here is skipped (no sidecar), never guessed.
    *  No effect unless `sourcemap` is also true.  See
-   *  docs/old/proposals/source-map-and-debugging.md §8. */
+   *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md §8. */
   sourceTexts?: ReadonlyMap<string, string>;
   /** Inline each `.ddd`'s FULL text into every Source Map v3 sidecar as
    *  `sourcesContent`.  OFF by default: one sidecar per generated file, each
@@ -447,7 +447,7 @@ function emitSystem(
   // sibling of docker-compose.yml, `--sourcemap`-gated.  Each surface owns
   // its own naming (assembly / main-class FQN); the system layer only
   // collects the results in deployable order.  See
-  // docs/old/plans/dap-node-debug.md and src/system/launch-config.ts.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md and src/system/launch-config.ts.
   if (options.sourcemap) {
     const debugConfigs = sys.deployables
       .map((d) =>
@@ -478,7 +478,7 @@ function emitSystem(
   // Source-language (English) i18n message catalog — every user-visible string
   // extracted from the system's UIs, keyed by content-hash (D-I18N-KEY).  The
   // diff surface `ddd i18n sync` merges each locale against.  See
-  // `i18n-catalog.ts` and docs/old/proposals/i18n.md.
+  // `i18n-catalog.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md.
   out.set(".loom/messages.en.json", renderMessageCatalog(sys));
   // Mermaid views of the IR — a domain class diagram and a per-workflow
   // call flowchart.  The playground previews them inline; GitHub renders

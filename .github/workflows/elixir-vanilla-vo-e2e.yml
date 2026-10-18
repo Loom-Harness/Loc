@@ -16,7 +16,7 @@ name: Elixir / Vanilla VO wire round-trip (runtime e2e)
 # "amount"))` → `record.amount`) turns this job red.
 #
 # WHEN IT RUNS — per-PR, path-scoped (packet 1.4 of wave G1,
-# `docs/new-plan/verification-waves-2026-09.md`).  A pull request that
+# `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md`).  A pull request that
 # touches the vanilla elixir emitter tree, the elixir expression
 # renderer, the shared IR, this leg's own test or this file gets a check
 # run BEFORE merge; `pr-gate` then makes that run binding, because a

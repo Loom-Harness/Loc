@@ -42,7 +42,7 @@ import type { NumericKind } from "./codec.js";
  *     `money`/`decimal` literal arms), which already is the ONE seam for that
  *     boundary — no backend hand-writes a seed-numeric literal outside it, so
  *     no backend needs a `seed-read` entry in its `NumericTarget` today (see
- *     `docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`).
+ *     `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`).
  */
 export type NumericBoundary =
   | "repo-read"

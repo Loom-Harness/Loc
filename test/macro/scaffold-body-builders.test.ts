@@ -41,7 +41,7 @@ const flat = (s: string): string =>
     .replace(/\s*\n\s*\)/g, ")");
 
 // ---------------------------------------------------------------------------
-// Phase 1 of docs/old/proposals/unfoldable-page-scaffolding.md — the macro-layer
+// Phase 1 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md — the macro-layer
 // (AST→AST) scaffolders produce printable, re-parseable `.ddd` source from AST
 // data alone — this is the whole scaffold body path: `scaffoldList` scaffolds
 // a list, `scaffoldNewForm` scaffolds a new-form, and each returns real AST.

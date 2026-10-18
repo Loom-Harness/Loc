@@ -1,4 +1,4 @@
-// A3 math batch of the scalar-intrinsic catalogue (docs/old/plans/stdlib.md):
+// A3 math batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // numeric abs/min/max ({int,long,decimal,money}) + round/floor/ceil
 // ({decimal,money}) on the .NET backend — in-memory rendering in domain
 // bodies AND the EF LINQ `Where` path.  The catalogue rows live in

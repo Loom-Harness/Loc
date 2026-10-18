@@ -13,7 +13,7 @@
 // where all seven legs answer the same body.
 //
 // Four claims the copies carry are NOT asserted here, because promoting them
-// found defects (handed off, docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+// found defects (handed off, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
 //   - on the crudish CREATE and UPDATE, elixir refuses a malformed money with
 //     Ecto's "is invalid" where every other leg sends `Invalid decimal: "…"`
 //     (its operation-param guard does send node's message);

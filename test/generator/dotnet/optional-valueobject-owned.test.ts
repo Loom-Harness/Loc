@@ -1,7 +1,7 @@
 // An OPTIONAL value-object field must take the SAME owned-type path as a
 // required one — `OwnsOne`, with its flattened columns named to the migration.
 //
-// From `docs/audits/2026-09-10-eshop-dev-experience.md` P3.  The arm that picks
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md` P3.  The arm that picks
 // the owned path tested `f.type.kind === "valueobject"`, and an optional field's
 // `TypeIR` is an `optional` WRAPPING the valueobject — so `office: Addr?` missed
 // it and fell through to the plain-scalar arm at the bottom of the function:

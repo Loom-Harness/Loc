@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
 // src/dap-server/session.ts — the Loom DAP (Debug Adapter Protocol) session:
 // the REMAP LAYER over the two pure cores in `src/dap/`
-// (docs/old/proposals/source-map-and-debugging.md §6E, docs/old/plans/
-// dap-node-debug.md — the phase-8 protocol shell).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md §6E, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
+// — the phase-8 protocol shell).
 //
 // SCOPE (read before extending): this class wires `resolveSetBreakpoints`
 // (forward: `.ddd` breakpoint -> generated location to arm) and

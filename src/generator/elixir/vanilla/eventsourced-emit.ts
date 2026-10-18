@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Vanilla event-sourced emit — `persistedAs: eventLog` aggregates on the
 // plain Phoenix + Ecto foundation (D-VANILLA-ES-HOME).  See
-// docs/old/plans/elixir-eventsourcing-vanilla-plan.md.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/elixir-eventsourcing-vanilla-plan.md.
 //
 // This mirrors the cross-backend ES contract the Python/node/dotnet/java
 // backends emit:

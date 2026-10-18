@@ -23,7 +23,7 @@
 // Deliberately NOT the prelude `auditable`: its `updatedBy` is an onUpdate
 // stamp, and python leaves it "" on a fresh row where the other four write the
 // creator — a divergence handed off with its repro rather than hidden here
-// (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3d-promote.md).
 system StampsPrincipal {
   user { id: string  role: string }
   capability owned {

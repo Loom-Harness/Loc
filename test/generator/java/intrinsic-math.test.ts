@@ -1,4 +1,4 @@
-// A3 math batch of the scalar-intrinsic catalogue (docs/old/plans/stdlib.md)
+// A3 math batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md)
 // on the Java/Spring backend — abs/min/max on int/long/decimal/money and
 // round/floor/ceil on decimal/money.  In-memory rendering in derived
 // bodies (Math.* for the primitive receivers, the BigDecimal method API

@@ -1388,7 +1388,7 @@ function emitAggregate(
    *  call.  Byte-identical because the adapter wraps the same
    *  `emitCqrs` underneath. */
   emitCtx?: EmitCtx,
-  /** Source-map recorder (docs/old/plans/source-map-debug-kickoff.md) — present
+  /** Source-map recorder (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md) — present
    *  only in system-mode emit, same discipline as `emitCtx`.  No-op when
    *  absent (legacy single-context path), so output stays byte-identical. */
   sourcemap?: SourceMapRecorder,

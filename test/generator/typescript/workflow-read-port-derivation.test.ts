@@ -1,6 +1,6 @@
 // Regression coverage for READ-PORT DERIVATION out of a workflow body, on the
 // TS / Hono backend — wave CR1 packet CR1-d
-// (`docs/new-plan/waves/handoffs/wave-cr1-d.md` §4).
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-cr1-d.md` §4).
 //
 // THE DEFECT.  A `reading`-tier `domainService` operation takes one read-port
 // parameter per repository it reads, and the orchestrating workflow has to

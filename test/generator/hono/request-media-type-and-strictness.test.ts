@@ -13,7 +13,7 @@
 // A JSON body carries real types; only a QUERY (or path) value genuinely
 // arrives as a string, so that is the only place the coercion belongs.
 //
-// Register: docs/audits/schemathesis-findings-2026-08.md (F1, F7).
+// Register: https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md (F1, F7).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

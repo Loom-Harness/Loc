@@ -1,5 +1,5 @@
-// Update-gate bypass lint (audit D3, `docs/audits/2026-09-10-claimshub-dev-
-// experience.md`; helpdesk eval H-01).  A field that a GATED operation —
+// Update-gate bypass lint (audit D3,
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md; helpdesk eval H-01).  A field that a GATED operation —
 // `requires`, a `when` state gate, or a `precondition` reading the field —
 // assigns AND `crudish`'s generic `update` mass-assigns earns a counted
 // warning `loom.update-gate-suggestion` naming `immutable` (and `managed` for

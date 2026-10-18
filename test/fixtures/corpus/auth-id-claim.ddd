@@ -3,7 +3,7 @@
 // than a scalar.
 //
 // One `.ddd` line broke four of five backends, four different ways (D6/P2 of
-// `docs/audits/2026-09-10-eshop-dev-experience.md`), because a claim of this
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md`), because a claim of this
 // shape crosses two seams no other corpus fixture crossed:
 //
 //   1. the optional marker is applied TWICE — `FieldIR.type` already carries

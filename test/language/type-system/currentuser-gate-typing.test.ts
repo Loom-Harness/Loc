@@ -77,7 +77,7 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
   it("rejects an unknown claim (`loom.unknown-user-claim`), not the gate's type", async () => {
     // REVERSED, deliberately.  This case used to assert the fail-open posture
     // ("no new error") that mirrored the IR layer's string fallback — which
-    // audit D2 (`docs/audits/2026-09-10-claimshub-dev-experience.md`) showed
+    // audit D2 (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md`) showed
     // was the bug: the undeclared claim rode through to the generated
     // backend and broke its own compile.  `loom.unknown-user-claim` now
     // reports it.  What still holds is the part this file is about: the GATE

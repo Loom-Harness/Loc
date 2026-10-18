@@ -1203,7 +1203,7 @@ export const felizTarget: WalkerTarget = {
   /** Case-insensitive substring filter.  The JSX targets search `Object.values
    *  (row)`; Fable has no reliable runtime value enumeration for an F# record,
    *  so this searches the fields the table DISPLAYS — narrower than every row
-   *  value, and named as such in `docs/new-plan/T1-ui-frontend.md` rather than
+   *  value, and named as such in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md` rather than
    *  left to be discovered. */
   renderFilteredRows({ rowsExpr, filter, columns }) {
     const q = `model.${upperFirst(filter.name)}`;

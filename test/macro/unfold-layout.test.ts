@@ -5,7 +5,7 @@
 // like hand-written `.ddd`: no trailing whitespace, blank-line-separated
 // declarations, and no line past the 100-column budget once the insertion
 // indent is accounted for (2026-07 unfold review, defects 5-7 —
-// `docs/audits/unfold-printer-layout-review-2026-07.md`).
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/unfold-printer-layout-review-2026-07.md`).
 
 import { NodeFileSystem } from "langium/node";
 import { validationHelper } from "langium/test";

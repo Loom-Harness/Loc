@@ -1,4 +1,4 @@
-// A2 string batch of the scalar-intrinsic catalogue (docs/old/plans/stdlib.md)
+// A2 string batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md)
 // end-to-end on the .NET backend: toUpper/toLower/substring/startsWith/
 // endsWith/contains/replace/split from `.ddd` source through generateDotnet.
 // Semantics contract (src/util/intrinsics.ts): substring is 0-based CLAMPING

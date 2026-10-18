@@ -26,7 +26,7 @@
 //     also used would be exported by that aggregate's module and the import
 //     would resolve by luck, hiding the bug.
 //   * the create is EVENT-TRIGGERED (`create(e: ClaimFiled) by e.claim`), so
-//     this rides the saga path `docs/new-plan/T4-eventing-temporal.md` records
+//     this rides the saga path `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md` records
 //     as runtime-proven at five-backend parity — the path whose proof could not
 //     have included a node `tsc --noEmit` of an enum-stated saga.
 system ClaimReview {

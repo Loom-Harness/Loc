@@ -5,8 +5,8 @@ import { parseValid } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // M26 — `.vscode/launch.json` fan-out across every debuggable backend
-// (node/coreclr/java) via `PlatformSurface.debugLaunch()`. `docs/old/plans/
-// dap-node-debug.md` is the design record; `src/system/launch-config.ts` is
+// (node/coreclr/java) via `PlatformSurface.debugLaunch()`.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md is the design record; `src/system/launch-config.ts` is
 // the renderer under test indirectly (through `generateSystems`).
 // ---------------------------------------------------------------------------
 

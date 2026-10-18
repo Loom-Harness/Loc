@@ -2,7 +2,7 @@
 // `Provenanced<T>` — the single source of truth for the value+lineage wire
 // carrier's SHAPE, shared by every backend DTO emitter and every frontend
 // api-type/decoder emitter (M-T6.12,
-// `docs/old/proposals/provenanced-wire-pair.md`).
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/provenanced-wire-pair.md`).
 //
 // A `provenanced` field (docs/provenance.md) records the lineage of every value
 // it holds.  Until this module existed, the value and the lineage were two

@@ -502,7 +502,7 @@ describe("typescript generator", () => {
       expect(log).toMatch(/process\.env\.LOG_LEVEL \?\? "info"/);
       // pino's default { pid, hostname } base fields are dropped.
       expect(log).toMatch(/base: undefined/);
-      // Envelope aligned with docs/old/proposals/observability.md:
+      // Envelope aligned with https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md:
       //   level emitted as label ("info") not pino's numeric severity,
       //   timestamp as `ts` ISO string not pino's default `time` epoch ms.
       expect(log).toMatch(/level: \(label\) => \(\{ level: label \}\)/);

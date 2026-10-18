@@ -1,5 +1,5 @@
 // The parser's ambiguity channel stays SILENT — on the `toThrow(<kind>)` slot
-// and across the whole `.ddd` corpus (`docs/audits/2026-10-04-testability-reaudit.md` § N7).
+// and across the whole `.ddd` corpus (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-10-04-testability-reaudit.md` § N7).
 //
 // WHY THIS EXISTS.  Langium's ALL(*) lookahead (`chevrotain-allstar`) does
 // not reject an ambiguous decision: it picks the lowest alternative and

@@ -1,5 +1,5 @@
 // Multi-backend e2e expansion — Phase A Item 2 from
-// `docs/old/plans/phase-a-platform-expansion-prereqs.md`.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phase-a-platform-expansion-prereqs.md`.
 //
 // Each `test e2e "..." against <deployable>` block must emit one
 // `it("<name> against <slug>")` per BACKEND deployable whose

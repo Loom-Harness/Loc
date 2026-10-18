@@ -27,7 +27,7 @@ import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js
 //
 // WHY THIS SHAPE, AND NOT A GREP.  Both static censuses were measured against
 // the dynamic one on 2026-08-13 and both are wrong, in both directions
-// (`docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
 //
 //   code named nowhere under test/                         131 "uncovered"
 //   …and no ≥14-char fragment of its message either        111 "uncovered"
@@ -3405,7 +3405,7 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "put in a child slot has an explicit arm above it, so the default is the exhaustiveness " +
     "backstop, not an authorable condition.  Re-test when the walker grows a new " +
     "child-position arm; see M-T9.55's hand-off H3 " +
-    "(docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
+    "(https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
   // (The backend-capability gates whose SUPPORTED set listed all five backend
   // families — query-time / paged / aggregation / group-by / workflow-source /
   // projection-source projections, unions, generic carriers, `when`, union

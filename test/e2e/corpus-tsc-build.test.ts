@@ -8,7 +8,7 @@ import { CORPUS } from "../fixtures/corpus/manifest.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
-// Phase 1 compile tier (docs/old/plans/global-test-coverage-plan.md) for the
+// Phase 1 compile tier (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md) for the
 // reference backend (Hono/TS).  The fast `corpus-coverage` gate proves every
 // corpus feature *generates* on `node`; this gate proves the emitted project
 // actually *type-checks* under strict `tsc` — upgrading the corpus from a

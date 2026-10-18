@@ -36,7 +36,7 @@ name: Schemathesis contract fuzzing
 # `npm run test:schemathesis-{python,java,dotnet,elixir}` — each needs
 # `uv tool install schemathesis` + `cd test/behavioral && npm ci`, and the four
 # booted legs need a reachable Postgres.  Findings register:
-# docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
+# https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
 # root-cause rules in test/behavioral/schemathesis-waivers.json, scoped per
 # backend — an unattributed finding fails the leg, and a rule that stops
 # reproducing on a leg it claims fails it too.
@@ -112,7 +112,7 @@ jobs:
           # non-uuid `{id}` reaching Ecto, an undeclared success Content-Type, a
           # wrong-verb 405, an `:erlang.-("", 1)` 500 on a paged read, and F9's
           # class).  Attributing those is a packet of its own; the inventory is
-          # in docs/audits/schemathesis-findings-2026-08.md → "The elixir leg".
+          # in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md → "The elixir leg".
           - backend: elixir
             script: test:schemathesis-elixir
             discovery: true

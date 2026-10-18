@@ -95,7 +95,7 @@ function projectMembers(files: readonly string[]): Set<string> {
  *  were retired), which its header also records.
  *
  *  Kept rather than deleted: it is the page-metamodel discussion's record, and
- *  `docs/new-plan/missions/M-T1.3-charts-and-dashboards-scope.md` cites it as
+ *  `#3319` cites it as
  *  prior art.  Pinned rather than silently skipped, because "a tracked .ddd that
  *  does not parse" is worth one line of explanation — and because the README
  *  advertises it beside files that DO parse, which is a docs-truth gap this pin

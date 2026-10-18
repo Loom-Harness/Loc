@@ -1,4 +1,4 @@
-// Realization-axes alignment (docs/old/plans/realization-axes-alignment.md) — the
+// Realization-axes alignment (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/realization-axes-alignment.md) — the
 // elixir backend exposes the plain Ecto/Phoenix data layer (`ecto`) on the
 // persistence axis and the `layered` pipeline style (plain Phoenix's
 // controller → context → repository shape, DSL `serviceLayer`) on the

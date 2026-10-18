@@ -38,7 +38,7 @@
 //     instead of serving the timeline of a row the caller can no longer see.
 //
 // Two claims the same copies carry could NOT be promoted, and both attempts
-// found a defect (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
+// found a defect (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3d-promote.md):
 //   - a lifecycle stamp kept out of the diff — an audited aggregate carrying a
 //     `stamp onCreate/onUpdate` capability 500s on java's create;
 //   - the masked-field DROP — driven through `field-mask`'s audited aggregate,

@@ -15,7 +15,7 @@
 // `findAllBy<Criterion>` — both minted in enrich, never in source) are
 // naturally exempt: they don't exist at this layer.
 //
-// SCOPE (interim, audits/2026-09-10-eshop-dev-experience.md §D7 / G2).  The
+// SCOPE (interim, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md §D7 / G2).  The
 // warning fires only inside a bounded context that already declares a
 // `criterion` or a `retrieval` — i.e. where the replacement it names is
 // demonstrably in reach and the migration is a local, mechanical one.  A model

@@ -92,7 +92,7 @@ describe("vanilla capability filter — AND-ed into every read", () => {
     expect(repo).toContain("case Repo.get(Api.Shop.Order, id) do");
   });
 
-  // Regression (docs/audits/repo-code-review-2026-07.md E3): a money/decimal
+  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md E3): a money/decimal
   // capability filter must render with the NATIVE Ecto-query form
   // (`record.total > 10.00`), not the in-memory `Decimal.compare(...) == :gt`
   // struct API — the latter is not a valid Ecto query expression and fails

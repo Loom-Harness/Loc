@@ -1,5 +1,5 @@
 // M-T6.50 — Python saga / workflow emission holes: three collector gaps that
-// shipped `F821` into the generated app (docs/new-plan/T6-backend-parity.md
+// shipped `F821` into the generated app (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md
 // § M-T6.50).  One class of bug, three sites:
 //
 //   (a) `dispatch-builder.ts` (the saga-handler file, `app/dispatch.py`)

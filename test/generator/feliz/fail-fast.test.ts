@@ -1,5 +1,5 @@
 // Feliz frontend — fail-fast on unrenderable action/update constructs
-// (M-T6.15, docs/new-plan/T6-backend-parity.md).
+// (M-T6.15, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md).
 //
 // The MVU `update` arm (update-emit.ts) and the F# expression renderer
 // (fs-expr.ts) used to SILENTLY drop what they couldn't render: an action

@@ -724,7 +724,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
-  // FIXTURE-SHAPE AUDIT (docs/audits/2026-09-29-fixture-shape-coverage.md) — three
+  // FIXTURE-SHAPE AUDIT (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md) — three
   // value-object SHAPES no model in the repo had, and a fourth class of reason for
   // being e2e-less: not "needs a sidecar", "needs a second deployable" or "needs a
   // fixture change", but **at least one backend cannot boot this shape at all**, so

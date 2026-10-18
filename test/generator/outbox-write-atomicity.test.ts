@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // The transactional outbox has to be TRANSACTIONAL — the write-side atomicity
-// gate (docs/channels.md:134; docs/old/proposals/dispatch-delivery-semantics.md
+// gate (docs/channels.md:134; https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/dispatch-delivery-semantics.md
 // §1: "Add an outbox table written in the SAME transaction as the aggregate
 // save, so commit atomically records 'this event is owed'").
 //

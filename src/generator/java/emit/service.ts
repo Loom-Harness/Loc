@@ -206,7 +206,7 @@ export function renderJavaService(
   // at flush — there is no service call site (the §5 dedup move).  The
   // JpaAuditingConfig's AuditorAware<UUID> supplies the principal for
   // @CreatedBy / @LastModifiedBy, so the service does not thread currentUser
-  // for stamping.  See §5c of docs/old/plans/capability-stamp-dedup-simulation.md.
+  // for stamping.  See §5c of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/capability-stamp-dedup-simulation.md.
   // Audited lifecycle (audit-and-logging.md): the route-driving create / the
   // canonical destroy stage an audit_records row in the SAME @Transactional
   // method as the save / delete.  The route-driving create is the ES `create`

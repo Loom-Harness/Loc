@@ -6,7 +6,7 @@
 // boots the generated backend and runs `mix test`, but a skipped test is green,
 // so the domain suite can silently shrink — a `.ddd` shape (or an emitter
 // regression) that starts skipping passes every per-PR gate while covering
-// nothing. `docs/audits/test-parity-generated-backends.md` flags exactly this.
+// nothing. `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md` flags exactly this.
 //
 // This fast (no-docker) gate ratchets the skip count to ZERO over a broad idiom
 // corpus AND the real on-disk examples that carry a `platform: elixir`

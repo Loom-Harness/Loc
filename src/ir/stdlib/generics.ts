@@ -189,7 +189,7 @@ export const PAGED_DEFAULT_PAGE_SIZE = 20;
  *  contract says `minimum: 1` and nothing else, so an in-contract
  *  `page × pageSize` overflows the SQL `OFFSET` (bigint) and the read 500s
  *  — a server error the caller reached by obeying the published schema
- *  (schemathesis F4, `docs/audits/schemathesis-findings-2026-08.md`).
+ *  (schemathesis F4, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md`).
  *
  *  The pair is chosen so the derived offset stays inside a 32-bit int on
  *  every backend that computes it in `int` arithmetic (.NET / Java):

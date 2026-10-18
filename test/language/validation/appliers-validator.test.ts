@@ -6,8 +6,7 @@ import { parseString } from "../../_helpers/parse.js";
 // validator (`validateEventSourcedDiscipline`) runs at `generate` time and
 // in the playground; this Langium-side check surfaces the same contract
 // live in the editor, attached to the precise offending node.  See
-// `src/language/validators/structural.ts` and `docs/old/proposals/
-// workflow-and-applier.md`.
+// `src/language/validators/structural.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md.
 // ---------------------------------------------------------------------------
 
 /** A single-context fixture with an event and one aggregate.  `header`

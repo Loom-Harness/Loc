@@ -364,7 +364,7 @@ export class ConcurrencyError extends Error {
 
 /** Shared HTTP error shape — RFC 7807 ProblemDetails with the §3.2 `errors[]`
  *  extension for per-field validation failures.  See
- *  docs/old/proposals/validation-error-extension.md.
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
  *
  *  Emitted once per project at `http/problem-details.ts`; the three router
  *  files (`http/<agg>.ts`, `http/workflows.ts`) import the
@@ -1581,7 +1581,7 @@ export function generateTypeScriptForContexts(
   // project so the moved modules still resolve.  No-op (byte-identical) for the
   // byLayer default, where `moved` is empty.
   rewriteRelativeImports(out, moved);
-  // (Node debug wiring, docs/old/plans/dap-node-debug.md):
+  // (Node debug wiring, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md):
   // ONLY under `--sourcemap` — suffix every relative import with its real
   // `.ts`/`.tsx` extension so plain `node --enable-source-maps index.ts`
   // (no tsx/tsup loader) can resolve the whole module graph, chaining
@@ -1635,7 +1635,7 @@ function projectPackageJson(
      *  `addTsExtensionsForNodeDebug` import rewrite (this file's caller) —
      *  both are gated on the SAME `--sourcemap` flag, so they always ship
      *  together.  Targets the docker image's node:24 (unflagged type
-     *  stripping); see docs/old/plans/dap-node-debug.md for why
+     *  stripping); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md for why
      *  `--experimental-strip-types` is deliberately NOT included. */
     debugScript?: boolean;
   },
@@ -1805,7 +1805,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
  *  own `typecheck` script) rejects them with TS5097 ("An import path can
  *  only end with a '.ts' extension when 'allowImportingTsExtensions' is
  *  enabled") unless that option is set — confirmed empirically, see
- *  docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
  *  half of that flag's precondition. Flag-off keeps this field absent, so
  *  the emitted tsconfig.json is byte-identical to before. */
 function projectTsconfigJson(debugImports: boolean): string {

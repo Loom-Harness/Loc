@@ -11,7 +11,7 @@ import { type HexMirror, startHexMirror } from "./support/hex-mirror.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 
 // ---------------------------------------------------------------------------
-// Phase 1 compile tier (docs/old/plans/global-test-coverage-plan.md) for the
+// Phase 1 compile tier (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md) for the
 // Elixir (plain Ecto/Phoenix) backend — the sibling of `corpus-{tsc,dotnet,
 // java,python}-build.test.ts` (M-T9.10).  The fast `corpus-coverage` gate
 // proves every corpus feature *generates* on `vanilla` (elixir); this gate
@@ -125,7 +125,7 @@ const HEX_CACHE = path.join(os.tmpdir(), "loom-corpus-elixir-hex");
 // the value-object collapse removes (`column "berth_ship" does not exist`) —
 // was green here and broken on the first `docker compose up`, where the
 // release's `Release.migrate()` runs the same files
-// (docs/audits/2026-10-04-tested-vs-shipped.md, family B).  So one Postgres
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-10-04-tested-vs-shipped.md, family B).  So one Postgres
 // sidecar serves the whole file, and each project gets its own database.
 const PG_IMAGE = "postgres:18-alpine";
 // The host port defaults to one Docker picks: a fixed port (it was 55432)

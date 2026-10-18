@@ -26,7 +26,7 @@
 // the answer, so the check needs nothing the IR would add.
 //
 // TWO PERMANENT REFUSALS AND ONE HONEST GAP (ruling D-FOR-IN-DOMAIN,
-// `docs/new-plan/completion-waves-2026-09.md` §5 #3):
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/completion-waves-2026-09.md` §5 #3):
 //
 //   - `variant-match` outside a ui action  — permanent.  The effect form of
 //     `match` IS the frontend action vocabulary (`async-actions-and-effects.md`

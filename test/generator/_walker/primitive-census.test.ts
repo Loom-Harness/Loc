@@ -251,7 +251,7 @@ const gapRows = (primitive: string, cells: readonly string[], reason: string): [
 
 /** `<cell>|<primitive>` → why the cell renders but degrades.  Shrink-only.
  *  Measured on the census's first run (2026-09-28); each row is a defect
- *  handed off in `docs/new-plan/waves/handoffs/wave-c3-3f-coverage.md`. */
+ *  handed off in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3f-coverage.md`. */
 const GAPS: Readonly<Record<string, string>> = Object.fromEntries([
   ...gapRows(
     "Action",

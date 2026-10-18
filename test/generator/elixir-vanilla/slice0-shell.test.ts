@@ -5,7 +5,7 @@ import type { DeployableIR, SystemIR } from "../../../src/ir/types/loom-ir.js";
 import { deployableIR, systemIR } from "../../_helpers/ir-builders.js";
 
 // ---------------------------------------------------------------------------
-// Slice 0 of docs/old/plans/vanilla-foundation-tdd-plan.md — orchestrator
+// Slice 0 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md — orchestrator
 // branch + minimal shell.
 //
 // Verifies that `foundation: vanilla` on `platform: elixir` dispatches
