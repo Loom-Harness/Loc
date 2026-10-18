@@ -137,6 +137,15 @@ export const angularTarget: WalkerTarget = {
     return `${root}.set(${value})`;
   },
 
+  /** `currentUser.<claim>` reads the component's `currentUser` getter over
+   *  the injected `SessionService` (`this.session.user() ?? {}`).  Qualified
+   *  with `this.` so the same form works in a template binding and in class
+   *  code, like the store reads.  The walker sets `usesCurrentUser` on
+   *  entering this seam, which is what makes the shell inject the session. */
+  renderCurrentUserAccess(field: string): string {
+    return `this.currentUser.${field}`;
+  },
+
   // --- Interactive-table seam (M-T1.1) ------------------------------------
 
   /** A `(click)` header driving client-side sort.  Angular signals read as
