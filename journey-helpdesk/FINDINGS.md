@@ -188,3 +188,37 @@ Filters applied to every finding:
 | **H6** design-pack visuals | U1 badge truncation · U8 sign-out overlay — every pack that shows it | `designs/` |
 | **H7** docs and diagnostics | D1 · D2 · D3 (storage `config:` hint) · D4 (diagnostics without `file:line`) · D5 (repeated default-deny warnings summarised) · S4/M6/A7 docs | `docs/`, CLI reporter, `messages.ts` (wording only) |
 | **H8** plan missions | S3, S5, S6, A5, A6, E2, E3, M4 and the A7 lint go into `docs/new-plan` tracks, de-duplicated against existing missions (M-T3.16, M-T3.19, M-T5.31) | `docs/new-plan/` only |
+
+---
+
+## Fleet outcome (integrated on this branch)
+
+| Finding | Outcome | Slice |
+|---|---|---|
+| G2 | **Fixed.** `loom.persisted-table-collision` derives every persisted table name (aggregate, part, join table, VO child table, workflow state, folded projection, event log) from the emitters' own naming. An agreement test pins it to the migration DDL. Two more silent shapes were found and refused: same-named parts across aggregates, and `aggregate Tick` beside `projection Tick`. | H1 |
+| A9 | **Fixed.** Advisory `loom.single-row-find-not-unique`. | H1 |
+| E6 | **One accurate diagnostic.** `loom.projection-aggregate-arity`. `count(col)` was not added, because SQL counts non-nulls, not rows where a condition holds. | H1 |
+| E1 | **Fixed.** `duration` in a type position says it exists only in expressions and suggests an int amount. An enum value used as a `match` arm points to the predicate form. | H1 |
+| E4 | **Fixed.** A bodyless `create(...)` is accepted and prints as `{ }`. | H1 |
+| S2 | **Fixed on all five backends.** A capability `filter` may combine column-free `currentUser` terms with column terms. It is fail-closed without a principal and applies to every read, including by-id. Runtime-proven on node: a customer gets 404 on another customer's ticket by id. | H2 |
+| M3 | **Fixed.** A NOT NULL primitive/enum collection add is `DEFAULT '{}'` then `DROP DEFAULT` on every backend, so no flag and no TODO. Runtime-proven on populated rows. | H3 |
+| M5 | **Fixed.** `createdAt + hours(24)` in a backfill renders `make_interval`. Runtime-proven. | H3 |
+| M1 (log half) | **Fixed** on node/python/.NET/elixir. Java's Flyway callback receives no failure detail; this is documented. | H3 |
+| M7 | **Fixed.** Advisory `loom.migration-block-applied`. | H3 |
+| A1 | In flight in #3258 (not duplicated). | H4 |
+| A4 | **The cause was the advice, not the emitter.** A declared `find all(): T[]` is deliberately unpaged and documented. The default-deny messages, docs and `ddd new` README now suggest `T paged`. | H4 |
+| A8 | **Fixed on all five.** The 409 detail ends `(when <predicate>)`. The wire golden is updated. | H4 |
+| A10 | **Fixed** on node/python/elixir with the shared `"Expected UUID."`. On .NET/Java a malformed body id is still 400 (deserializer), which needs a status-ladder decision. | H4 |
+| U1 | **Fixed.** `display` labels and links the row; there is no raw-id column, managed audit columns are dropped, and the list is capped at 6 columns. The label sorts by the single field it reads. | H5 + integration |
+| U2 | **Fixed.** Detail shows scalar derived fields, which also fixed a HEEx `KeyError` on derived reads. | H5 |
+| U3 | **Fixed** for finds whose gate a browser can evaluate. `requires x != null` still gets no page, because the client gate renderers refuse `null`. | H5 |
+| U4 | **Partly fixed.** Home shows only ungated lists. Gating per principal was blocked by H9's bug, which is now fixed. | H5 |
+| U7 | **Fixed on all 7 frontends.** Op triggers whose `requires` reads only `currentUser` are hidden. | H5 |
+| U5 | Not done. It needs WorkflowForm prefill wiring on 6 frontends plus HEEx. | — |
+| U1 visual, U8 | **Fixed.** Mantine badges never ellipsize. Sign out moved into the app-shell header of all 15 JSX packs. | H6 |
+| D1–D5, S4/M6/A7 docs | **Fixed.** Includes the storage `config:` hint, source locations on retrieval and default-deny diagnostics, and `--all-warnings` with grouped default-deny lines. | H7 |
+| S3, S5, S6, A5, A6, E2, E3, E7, M4, A7-lint | **Missions:** M-T3.24 (which also records that `mask unless` on a part field validates but is redacted nowhere), M-T3.25, M-T3.26, M-T2.20, M-T2.21, M-T4.14, M-T5.49, M-T5.50. Evidence was appended to M-T4.6, M-T5.31 and M-T5.32. | H8 |
+| **New:** `currentUser.x` in a page body rendered `undefined.x` on react/vue/svelte/angular | **Fixed.** The `renderCurrentUserAccess` seam is implemented on the four JSX targets. Found by H5. | H9 |
+| **New:** node folds every aggregate's `stamp onCreate` into one function, and a stamp calling an aggregate `function` renders `this.slaHours()`, so every Ticket create 500s | In progress. Found by the v4 runtime replay. | H10 |
+
+Since the eval, these landed or went into review on other branches: #3257 (retrieval routes, A3), #3258 (A1), #3255 / #3261 (create params as the POST contract, and the create body runs), #3254 (structural `toThrow`, E5), #3280 (bundled dev IdP, S4).
