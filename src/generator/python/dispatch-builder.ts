@@ -15,7 +15,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { lines } from "../../util/code-builder.js";
-import { escapePythonIdent, snake } from "../../util/naming.js";
+import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
@@ -28,7 +28,7 @@ import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -61,6 +61,8 @@ const SELECT = pyRef("sqlalchemy", "select");
 const UPDATE = pyRef("sqlalchemy", "update");
 const ASYNCIO = ref(pyModule("asyncio"));
 const CONTEXT_VAR = pyRef("contextvars", "ContextVar");
+const AWAITABLE = pyRef("collections.abc", "Awaitable");
+const CALLABLE = pyRef("collections.abc", "Callable");
 const ENGINE = pyRef("app.db.engine", "engine");
 const OUTBOX_ROW = pyRef("app.db.schema", "LoomOutboxRow");
 const PUBLISH = pyRef("app.channels", "publish_event");
@@ -289,9 +291,13 @@ export function buildPyDispatchFile(
   // tier) → ChannelTeeDispatcher (broker tier).  The tee is outermost so a
   // broker-routed ephemeral event publishes without touching the outbox —
   // the two routing sets are disjoint by the compat matrix.
+  // The REQUEST path's in-process dispatcher isolates reactor failures (H-28,
+  // workflow.md § "Reactor failures"); the outbox relay and the broker
+  // consumer build their own `InProcessDispatcher(session)`, which raises —
+  // their retry / redelivery rides the exception.
   const innerCore = hasRealtime
-    ? `${REALTIME}(InProcessDispatcher(session))`
-    : "InProcessDispatcher(session)";
+    ? `${REALTIME}(InProcessDispatcher(session, isolate=True))`
+    : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
   const returnType = hasChannels
     ? '"ChannelTeeDispatcher"'
@@ -304,15 +310,34 @@ export function buildPyDispatchFile(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
     "    a handler's own emits re-enter, so choreography chains run.",
+    "",
+    "    With ``isolate`` (the request path) each reaction runs in a SAVEPOINT:",
+    "    a failure rolls back that reaction alone and is logged",
+    "    ``reactor_failed`` instead of failing the command whose event it",
+    "    reacts to.  Without it (relay, broker consumer) a failure raises.",
     '    """',
     "",
-    "    def __init__(self, session: AsyncSession) -> None:",
+    "    def __init__(self, session: AsyncSession, isolate: bool = False) -> None:",
     "        self._session = session",
+    "        self._isolate = isolate",
+    "",
+    `    async def _react(self, handler: str, event: DomainEvent, run: ${CALLABLE}[[], ${AWAITABLE}[None]]) -> None:`,
+    "        if not self._isolate:",
+    "            await run()",
+    "            return",
+    "        try:",
+    "            async with self._session.begin_nested():",
+    "                await run()",
+    "        except Exception as exc:",
+    `            ${PY.log}("error", "reactor_failed", handler=handler, event_type=type(event).__name__, event_id=str(${PY.uuid}.uuid4()), error=str(exc))`,
     "",
     "    async def dispatch(self, event: DomainEvent) -> None:",
     ...[...handlerByEvent.entries()].flatMap(([event, fns], i) => [
       `        ${i === 0 ? "if" : "elif"} isinstance(event, ${event}):`,
-      ...fns.map((fn) => `            await ${fn}(self._session, self, event)`),
+      ...fns.map(
+        (fn) =>
+          `            await self._react("${fn}", event, lambda: ${fn}(self._session, self, event))`,
+      ),
     ]),
     "",
     "",
@@ -569,7 +594,7 @@ export function allocateKwargs(wf: WorkflowIR): string {
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
-    parts.push(`${snake(f.name)}=${zeroFor(f)}`);
+    parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
 }
@@ -685,7 +710,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -746,7 +771,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -849,11 +874,11 @@ function outboxBlock(
     : "InProcessDispatcher(session)";
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
@@ -996,11 +1021,11 @@ function outboxBlock(
 function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean): string {
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
-    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   const fromArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} event_type == "${ev.name}":`,
-    `        return ${ev.name}(${ev.fields.map((f) => `${snake(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
+    `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromPayload(f.name, f.type)}`).join(", ")})`,
   ]);
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,

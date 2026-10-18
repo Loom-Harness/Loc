@@ -238,12 +238,21 @@ function shellQuote(v: string): string {
 /** What a deployable's emitted project supports, derived from the files it
  *  actually emitted.  Both members are optional: an unrecognised layout
  *  contributes no recipe rather than a guessed one, and the compose recipe
- *  plus `<slug>/Dockerfile` still cover it. */
+ *  plus `<slug>/Dockerfile` still cover it.
+ *
+ *  Each layout is keyed off the build manifest its backend really writes, and
+ *  its commands name only what that project has.  A recipe naming a file the
+ *  generator does not emit (`requirements.txt` beside a uv `pyproject.toml`,
+ *  `./mvnw` beside a Gradle build) fails on the reader's first try; one aimed
+ *  at the wrong project (`dotnet test` at the API root) runs zero tests and
+ *  exits 0, which is worse.  `test/system/readme-recipes.test.ts` checks
+ *  every recipe, on every backend, against the files the run emitted. */
 interface ProjectLayout {
   /** Shell steps that start the deployable on the host, after `cd <slug>`. */
   run?: (env: Record<string, string>, d: DeployableIR) => string[];
-  /** The one command that runs the project's emitted unit tests. */
-  test?: string;
+  /** Shell steps, after `cd <slug>`, that install what the project's emitted
+   *  unit tests need and then run them. */
+  test?: string[];
   /** True for an emitted path (relative to the deployable dir) that is one of
    *  those unit tests — so a project with no emitted tests says nothing. */
   isTestFile: (rel: string) => boolean;
@@ -251,7 +260,8 @@ interface ProjectLayout {
 
 function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
   const slug = ctx.slugOf(d.name);
-  const pkg = ctx.emitted.get(`${slug}/package.json`);
+  const own = (rel: string) => ctx.emitted.get(`${slug}/${rel}`);
+  const pkg = own("package.json");
   if (pkg !== undefined) {
     const scripts = packageScripts(pkg);
     return {
@@ -271,49 +281,83 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
               `${envPrefix({ ...env, PORT: String(dep.port) })}npm run dev`,
             ]
           : undefined,
-      test: scripts.test ? "npm test" : undefined,
+      test: scripts.test ? ["npm install", "npm test"] : undefined,
       isTestFile: (rel) => rel.endsWith(".test.ts") || rel.endsWith(".test.tsx"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p.endsWith(".csproj"))) {
+  // .NET: the API project is the one csproj at the deployable root.  The
+  // xUnit project is a SEPARATE csproj below it, which the API project
+  // excludes (`<Compile Remove="Tests/**" />`), so `dotnet test` must name
+  // it: at the root it finds no tests and still exits 0.
+  const csprojs = emittedUnder(ctx, slug, (rel) => rel.endsWith(".csproj"));
+  if (csprojs.some((rel) => !rel.includes("/"))) {
+    const testDirs = csprojs
+      .filter((rel) => rel.includes("/"))
+      .filter((rel) => /<IsTestProject>\s*true\s*<\/IsTestProject>/i.test(own(rel) ?? ""))
+      .map((rel) => rel.slice(0, rel.lastIndexOf("/")));
     return {
       run: (env, dep) => [
         `${envPrefix({ ...env, ASPNETCORE_URLS: `http://localhost:${dep.port}` })}dotnet run`,
       ],
-      test: "dotnet test",
-      isTestFile: (rel) => rel.endsWith("Tests.cs") || rel.startsWith("Tests/"),
+      test: testDirs.length > 0 ? testDirs.map((dir) => `dotnet test ${dir}`) : undefined,
+      isTestFile: (rel) => testDirs.some((dir) => rel.startsWith(`${dir}/`) && rel.endsWith(".cs")),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "pom.xml")) {
+  // Java: a Gradle (Kotlin DSL) Spring Boot build.  No wrapper is emitted, so
+  // the recipes call `gradle` — the command its own Dockerfile builds with.
+  const gradle = own("build.gradle.kts");
+  if (gradle !== undefined) {
     return {
-      run: (env, dep) => [
-        `${envPrefix({ ...env, SERVER_PORT: String(dep.port) })}./mvnw spring-boot:run`,
-      ],
-      test: "./mvnw test",
-      isTestFile: (rel) => rel.endsWith("Test.java") || rel.endsWith("Tests.java"),
+      run: /org\.springframework\.boot/.test(gradle)
+        ? (env, dep) => [`${envPrefix({ ...env, SERVER_PORT: String(dep.port) })}gradle bootRun`]
+        : undefined,
+      test: ["gradle test"],
+      isTestFile: (rel) => rel.startsWith("src/test/") && rel.endsWith(".java"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "mix.exs")) {
+  if (own("mix.exs") !== undefined) {
     return {
       run: (env, dep) => [
         "mix deps.get",
         `${envPrefix({ ...env, PORT: String(dep.port) })}mix phx.server`,
       ],
-      test: "mix test",
+      test: ["mix deps.get", "mix test"],
       isTestFile: (rel) => rel.endsWith("_test.exs"),
     };
   }
-  if (hasEmitted(ctx, slug, (p) => p === "requirements.txt" || p === "pyproject.toml")) {
+  // Python: a uv project — `pyproject.toml` and no requirements file; its
+  // Dockerfile runs `uv sync`.  A plain `uv sync` also installs the `dev`
+  // dependency group, which is where pytest is declared, so one sync serves
+  // both recipes, and `uv run` executes inside the environment it made.
+  const pyproject = own("pyproject.toml");
+  if (pyproject !== undefined) {
     return {
-      run: (env, dep) => [
-        "pip install -r requirements.txt",
-        `${envPrefix(env)}uvicorn app.main:app --port ${dep.port}`,
-      ],
-      test: "pytest",
+      run: /\buvicorn\b/.test(pyproject)
+        ? (env, dep) => [
+            "uv sync",
+            `${envPrefix(env)}uv run uvicorn app.main:app --port ${dep.port}`,
+          ]
+        : undefined,
+      test: /\bpytest\b/.test(pyproject) ? ["uv sync", "uv run pytest"] : undefined,
       isTestFile: (rel) => /(^|\/)test_[^/]+\.py$/.test(rel),
     };
   }
   return { isTestFile: () => false };
+}
+
+/** The emitted paths under `<slug>/` that `match`, relative to it. */
+function emittedUnder(
+  ctx: SystemReadmeContext,
+  slug: string,
+  match: (rel: string) => boolean,
+): string[] {
+  const prefix = `${slug}/`;
+  const found: string[] = [];
+  for (const path of ctx.emitted.keys()) {
+    const rel = path.slice(prefix.length);
+    if (path.startsWith(prefix) && match(rel)) found.push(rel);
+  }
+  return found.sort();
 }
 
 function hasEmitted(
@@ -321,11 +365,7 @@ function hasEmitted(
   slug: string,
   match: (rel: string) => boolean,
 ): boolean {
-  const prefix = `${slug}/`;
-  for (const path of ctx.emitted.keys()) {
-    if (path.startsWith(prefix) && match(path.slice(prefix.length))) return true;
-  }
-  return false;
+  return emittedUnder(ctx, slug, match).length > 0;
 }
 
 function capitalize(s: string): string {
@@ -357,7 +397,7 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   const unit = sys.deployables
     .map((d) => ({ slug: ctx.slugOf(d.name), layout: layoutFor(d, ctx) }))
     .filter(
-      (u): u is { slug: string; layout: ProjectLayout & { test: string } } =>
+      (u): u is { slug: string; layout: ProjectLayout & { test: string[] } } =>
         u.layout.test !== undefined && hasEmitted(ctx, u.slug, u.layout.isTestFile),
     );
   // A standalone project is one with its OWN package.json — that is precisely
@@ -408,8 +448,7 @@ function tests(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   for (const u of unit) {
     lines.push("```bash");
     lines.push(`cd ${u.slug}`);
-    if (u.layout.test === "npm test") lines.push("npm install");
-    lines.push(u.layout.test);
+    lines.push(...u.layout.test);
     lines.push("```");
     lines.push("");
   }
@@ -435,8 +474,11 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   );
   lines.push("");
   lines.push("```bash");
-  // Every assignment gets its own continued line, including the last one, so
-  // the block is correct at one deployable as well as at four.
+  // Like every other block here it starts at the tree root, so it can be
+  // pasted on its own.  Every assignment gets its own continued line,
+  // including the last one, so the block is correct at one deployable as well
+  // as at four.
+  lines.push("cd e2e");
   for (const d of sys.deployables) {
     lines.push(`E2E_${ctx.slugOf(d.name).toUpperCase()}_BASE=http://localhost:${d.port} \\`);
   }
@@ -458,7 +500,8 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
  * suite does not have would be worse than the silence it replaced.
  *
  * The inverse holds now and matters just as much: this must not promise MORE
- * isolation than the suite takes.  The reset is PER FILE by default, so blocks
+ * isolation than the suite takes — and the reset is OPT-IN (finding H-30: it
+ * truncates every table, so neither compose nor a dev profile enables it).  The reset is PER FILE by default, so blocks
  * within one run still share a database — deliberately, because a `test e2e`
  * block may build on rows an earlier one created.
  */
@@ -466,19 +509,29 @@ function freshDatabase(): string[] {
   return [
     "#### State between tests",
     "",
-    "The suite resets the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first. You do not need to recreate the database between runs.",
+    "The suite can reset the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first — but only when **you opt in**, because the reset **truncates every table** of the target.",
+    "",
+    "Opt in only against a throwaway stack. Start each backend with `LOOM_TEST_RESET=1` **and** a secret `LOOM_TEST_RESET_TOKEN`, and run the suite with the same `LOOM_TEST_RESET_TOKEN`:",
+    "",
+    "```bash",
+    "export LOOM_TEST_RESET_TOKEN=$(openssl rand -hex 16)",
+    "LOOM_TEST_RESET=1 <start the backend>        # backend side",
+    "cd e2e && npm test                            # suite side (same token)",
+    "```",
+    "",
+    "The generated `docker-compose.yml` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching `x-loom-test-reset` header is refused (403).",
     "",
     "Blocks within one run still share that database, so a later block sees rows an earlier one created. That is often deliberate. When it is not, `E2E_RESET=per-test` resets before every block instead, and each block then sees only the rows it creates. `E2E_RESET=off` disables the reset entirely.",
     "",
-    "The reset only fires when the target is a **loopback** address, and each backend only allows it in a dev profile — so pointing the suite at a deployed environment (`E2E_API_BASE=https://…`) skips it and truncates nothing.",
+    "The reset is only sent when the target is a **loopback** address, so pointing the suite at a deployed environment (`E2E_API_BASE=https://…`) skips it and truncates nothing.",
     "",
-    "If a backend does not allow it, the suite says so once and carries on with shared state:",
+    "Without the token the suite says so once and carries on with shared state:",
     "",
     "```",
-    "[e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.",
+    "[e2e] No state reset: LOOM_TEST_RESET_TOKEN is not set — these tests SHARE a database.",
     "```",
     "",
-    "Enable it by starting that backend with `LOOM_TEST_RESET=1` — the generated `docker-compose.yml` already sets it on every backend service. Otherwise use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",
+    "Then use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",
     "",
     "Under compose, one command does both:",
     "",

@@ -863,6 +863,9 @@ function renderFormOpWiring(
     fieldHtmls,
     triggerLabel: state.triggerLabel,
     triggerPrimary: state.triggerPrimary,
+    // `when`-gated op: a component-owned trigger (shadcn/mui/chakra) takes
+    // `disabled` + `disabledReason` props from the call site.
+    gated: state.gate !== undefined,
     destructured: (() => {
       // Scan the rendered field markup to keep only the destructured
       // pieces the form actually references — when every field is wired
@@ -883,7 +886,12 @@ function renderFormOpWiring(
       return `{ ${parts.join(", ")} }`;
     })(),
   };
-  const decls = pack.render("form-op-decls", tplCtx);
+  const rendered = pack.render("form-op-decls", tplCtx);
+  // The `can_<op>` probe of a `when`-gated op rides beside the mutation hook,
+  // against the same id — pack-independent, so the shell owns it.
+  const decls = state.gate
+    ? `${rendered.endsWith("\n") ? rendered : rendered + "\n"}  const ${state.gate.local} = ${state.gate.hook}(${idExpr});`
+    : rendered;
   const moduleScope = pack.render("form-op-module", tplCtx);
   return {
     decls: decls.endsWith("\n") ? decls : decls + "\n",

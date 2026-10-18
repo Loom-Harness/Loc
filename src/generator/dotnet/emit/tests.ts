@@ -12,7 +12,11 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
-import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import {
+  coerceMatcherExpected,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
 
@@ -211,7 +215,7 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
   const provided = objArg.fields.map((f) => {
     const t = typeByName.get(f.name);
     const rendered = renderCsExpr(f.value);
-    return `${f.name}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
+    return `${escapeCsharpIdent(f.name)}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
   });
   // Emit EXACTLY what the test author wrote.  Appending every omitted create
   // input from `createOmissionValue` makes the assertion vacuous:
@@ -246,7 +250,10 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   // non-hazard emission stays byte-identical.
   const rendered = renderCsExpr(inner);
   const actual = inner.kind === "binary" || inner.kind === "unary" ? `(${rendered})` : rendered;
-  const arg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
+  const rawArg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as a `DateTime` — a string argument does not even compile there.
+  const arg = coerceMatcherExpected(expr, rawArg, CS_TEST_LITERAL) ?? rawArg;
   // FluentAssertions/AwesomeAssertions verb (post `.Should().`) — `Not`
   // prefix when negated.
   const VERBS: Record<string, string> = {

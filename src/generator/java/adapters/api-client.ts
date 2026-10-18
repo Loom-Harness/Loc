@@ -293,6 +293,7 @@ export function emitJavaApiClients(
     " *  read.  Carries the status so a caller can branch on it rather than",
     " *  string-matching a message. */",
     "class RemoteCallException extends RuntimeException {",
+    "    private static final long serialVersionUID = 1L;",
     "    private final String resource;",
     "    private final String operationId;",
     "    private final int status;",

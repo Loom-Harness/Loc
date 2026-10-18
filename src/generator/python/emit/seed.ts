@@ -5,7 +5,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake } from "../../../util/naming.js";
+import { pythonIdent, snake } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import {
   type Entry,
@@ -170,7 +170,7 @@ function qualifiedInsert(row: SeedRowIR, schema: string | undefined): string {
 function renderInput(row: SeedRowIR, agg: SeederAggregate): string {
   const typeByName = new Map(agg.createParams.map((p) => [p.name, p.type]));
   return row.fields
-    .map((f) => `${snake(f.name)}=${renderField(f.value, typeByName.get(f.name))}`)
+    .map((f) => `${pythonIdent(f.name)}=${renderField(f.value, typeByName.get(f.name))}`)
     .join(", ");
 }
 

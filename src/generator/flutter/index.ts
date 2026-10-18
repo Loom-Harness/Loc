@@ -59,6 +59,7 @@ import {
   emittableComponentParams,
   renderComponentsFile,
 } from "./component-emit.js";
+import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
 import {
@@ -68,6 +69,7 @@ import {
   collectPageWorkflowForms,
   formsUseFilePicker,
   renderFormsFile,
+  renderGatesFile,
 } from "./forms-emit.js";
 import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
@@ -85,6 +87,11 @@ import {
   REALTIME_SOURCE_WEB_DART,
   renderFlutterRealtime,
 } from "./realtime.js";
+import {
+  FLUTTER_REF_LABEL_MARKER,
+  FLUTTER_REF_LABEL_PATH,
+  renderFlutterRefLabel,
+} from "./ref-label-runtime.js";
 import { hasRiverpodState, renderRiverpod, stateCtx } from "./riverpod-emit.js";
 import { renderFlutterStores } from "./store-builder.js";
 import { storeProviderName } from "./store-names.js";
@@ -245,6 +252,11 @@ export function generateFlutterForContexts(
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
   }
+  const gates = renderGatesFile(
+    contexts.flatMap((c) => c.aggregates),
+    credentialed,
+  );
+  if (gates) out.set("lib/gates.dart", gates);
 
   // The aggregates reachable through this deployable — used for the fallback
   // home page when the ui declares no pages of its own.
@@ -375,9 +387,22 @@ export function generateFlutterForContexts(
   // `Action(<instance>.<op>)` buttons (which POST inline via `apiUri(`).  Emit it
   // when any of the three is present, so no page's import dangles.
   const usesActionHttp = rendered.some((r) => r.source.includes("apiUri("));
+  // The `IdLink` reference-label widget (`flutter/ref-label-runtime.ts`) — a
+  // page or a pooled component calling it; it reads through `apiUri` too.
+  const usesRefLabel =
+    rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
+    (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(credentialed));
   // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
   // sign-out redirects are both built with `apiUri`.
-  if (reads.length > 0 || forms.length > 0 || usesActionHttp || authUi || hasRealtime) {
+  if (
+    reads.length > 0 ||
+    forms.length > 0 ||
+    usesActionHttp ||
+    usesRefLabel ||
+    authUi ||
+    hasRealtime
+  ) {
     out.set("lib/config.dart", renderAppConfig());
   }
   // The controlled-Modal bridge — emitted only when a page opens one, matched to
@@ -828,7 +853,7 @@ function renderPage(
       }
     }
   }
-  const derivedLines = derivedBinds.map((d) => `    final ${d.name} = ${d.dart};`);
+  const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
 
   // A page becomes a Riverpod `ConsumerWidget` (bound to `ref`) when it either
   // projects reactive state / actions (Track D) OR issues a QueryView read
@@ -900,7 +925,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
   const out = ["    final routeArgs = ModalRoute.of(context)?.settings.arguments;"];
   for (const n of names) {
     out.push(
-      `    final ${n} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
+      `    final ${dartMember(n)} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
         `: (routeArgs as String? ?? '');`,
     );
   }
@@ -960,8 +985,10 @@ function storeBindings(
       const local = storeMemberLocal(storeName, member, reserved);
       out.push(
         fields.has(member)
-          ? `    final ${local} = ref.watch(${provider}.select((s) => s.${member}));`
-          : `    final ${local} = ref.read(${provider}.notifier).${member};`,
+          ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
+          : // A store action's method is spelled `dartMember` (`store-builder.ts`),
+            // and the body's call site spells the local the same way.
+            `    final ${dartMember(local)} = ref.read(${provider}.notifier).${dartMember(member)};`,
       );
     }
   }
@@ -1007,12 +1034,19 @@ function renderStatelessPage(
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
+  // (this page has no `ref` of its own).
+  if (bodyWidget.includes("Consumer(builder:")) {
+    imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
+  }
   if (opts.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   // The controlled-Modal bridge, imported only where a page actually opens one
   // (an unused Dart import is an analyzer warning, and `flutter analyze` is a
   // per-PR gate).  Same content-sniff as `apiUri(` below.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
   if (opts.usesComponent) imports.push("import '../components.dart';");
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
@@ -1162,10 +1196,13 @@ function renderConsumerPage(
       for (const a of [...b.usedActions].sort()) {
         // An async-effect action's method takes the route id; bind it as an
         // id-capturing closure so the button's `<a>()` call stays unchanged.
+        // Spelled `dartMember` (a Dart-reserved action name: `class` → `class_`),
+        // matching the Notifier method and every body call site.
+        const m = dartMember(a);
         bindings.push(
           asyncEffectActions.has(a)
-            ? `    final ${a} = () => notifier.${a}(id);`
-            : `    final ${a} = notifier.${a};`,
+            ? `    final ${m} = () => notifier.${m}(id);`
+            : `    final ${m} = notifier.${m};`,
         );
       }
       for (const { setter } of boundSetters) {
@@ -1189,6 +1226,7 @@ function renderConsumerPage(
   if (b.pageGate) imports.push("import '../auth.dart';");
   if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
   if (b.usesComponent) imports.push("import '../components.dart';");
   if (b.usedStores.size > 0) imports.push("import '../stores.dart';");
   // The controlled-Modal bridge (the state-bearing page path — its stateless
@@ -1196,6 +1234,7 @@ function renderConsumerPage(
   // page WITH state, so this is the branch that actually fires.
   if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   // Content scan over BOTH the Notifier projection AND the rendered body: a
   // `match await` method (projSource) decodes JSON + reifies wire models, and a
   // `FileUpload` (bodyWidget) does the same inline plus references `FileRef` in
@@ -1936,4 +1975,10 @@ function indentContinuation(widget: string, spaces: number): string {
   const [first, ...rest] = widget.split("\n");
   if (rest.length === 0) return first;
   return [first, ...rest.map((line) => (line ? pad + line : line))].join("\n");
+}
+
+/** Whether a page body watches a `can_<op>` probe (`gates.dart`) — the same
+ *  content-sniff the page shells use for every on-demand import. */
+function usesGateProbe(bodyWidget: string): boolean {
+  return /\bcan[A-Z]\w*Provider\(/.test(bodyWidget);
 }

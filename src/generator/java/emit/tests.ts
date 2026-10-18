@@ -16,7 +16,11 @@ import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
-import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
+import {
+  coerceMatcherExpected,
+  coerceTestLiteral,
+  type TestLiteralTarget,
+} from "../../_test/arg-coercion.js";
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
@@ -289,7 +293,10 @@ export function renderExplicitMatcher(expr: ExprIR): string | null {
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
   const actual = renderJavaExpr(inner);
   const arg = expr.args[0];
-  const expected = arg !== undefined ? renderJavaExpr(arg) : "";
+  const rawExpected = arg !== undefined ? renderJavaExpr(arg) : "";
+  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
+  // compares as an `Instant`, which never `equals` a `String`.
+  const expected = coerceMatcherExpected(expr, rawExpected, javaTestLiteral()) ?? rawExpected;
   const moneyLike =
     (inner.kind === "member" &&
       inner.memberType.kind === "primitive" &&

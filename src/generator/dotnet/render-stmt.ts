@@ -4,6 +4,7 @@ import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
+import { csProjectType } from "./bcl-collision.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { addCsExprUsing, renderCsExpr } from "./render-expr.js";
 
@@ -120,7 +121,7 @@ function csStmtTarget(ctx: CsRenderContext, traceCtx: TraceCtx): StmtTarget {
       const base = `${INDENT}${renderPath(s.target)} = ${renderCsExpr(s.value, ctx)};`;
       // NOTE the wrap ORDER: .NET (like java / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
-      const traced = withValueComputed(base, s.target, traceCtx);
+      const traced = withValueComputed(base, s.target, traceCtx, ctx);
       const full = withProvCapture(traced, s.prov, s.target, s.value, ix.prov, ctx);
       return isSelfAssign(s.target, s.value) ? withCa2245Suppressed(full) : full;
     },
@@ -216,7 +217,7 @@ function precondition(
   const ok = `__pre_${index}_ok`;
   return [
     `${INDENT}var ${ok} = (${renderCsExpr(expr, ctx)});`,
-    `${INDENT}${ns_DomainLog}.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "precondition_evaluated", "${traceCtx.aggregate}", "${traceCtx.op}", ${JSON.stringify(source)}, ${ok});`,
+    `${INDENT}${csDomainLog(ctx)}.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "precondition_evaluated", "${traceCtx.aggregate}", "${traceCtx.op}", ${JSON.stringify(source)}, ${ok});`,
     `${INDENT}if (!${ok}) ${thrown};`,
   ].join("\n");
 }
@@ -225,13 +226,18 @@ function precondition(
  *  assign so the post-write value is observable.  Skipped for paths
  *  into containments (length > 1) — those are write-through paths to
  *  a sub-object, not a top-level field of the aggregate. */
-function withValueComputed(base: string, target: PathIR, traceCtx: TraceCtx): string {
+function withValueComputed(
+  base: string,
+  target: PathIR,
+  traceCtx: TraceCtx,
+  ctx: CsRenderContext,
+): string {
   if (!traceCtx.emitTrace) return base;
   if (target.segments.length !== 1) return base;
   const field = target.segments[0]!;
   return [
     base,
-    `${INDENT}${ns_DomainLog}.LogTrace("{Event} aggregate={Aggregate} field={Field} value={Value}", "value_computed", "${traceCtx.aggregate}", "${field}", ${renderPath(target)});`,
+    `${INDENT}${csDomainLog(ctx)}.LogTrace("{Event} aggregate={Aggregate} field={Field} value={Value}", "value_computed", "${traceCtx.aggregate}", "${field}", ${renderPath(target)});`,
   ].join("\n");
 }
 
@@ -286,8 +292,11 @@ function withProvCapture(
 // (`<ns>.Domain.<Plural>`) → `<ns>.Domain.Common`.  C# resolves the
 // unqualified `DomainLog.LogTrace(…)` via the entity file's `using
 // <ns>.Domain.Common;` (which the entity emitter adds when emitTrace
-// is on).
-const ns_DomainLog = "DomainLog";
+// is on).  A member named `DomainLog` on the entity shadows the class there,
+// so the receiver is then `global::`-qualified (bcl-collision.ts).
+export function csDomainLog(ctx: CsRenderContext): string {
+  return csProjectType("DomainLog", "Domain.Common", ctx.memberScope);
+}
 
 function renderPath(p: PathIR): string {
   return p.segments.map((s) => upperFirst(s)).join(".");

@@ -15,6 +15,9 @@
 //     wrong number of arguments.
 //   - loom.policy-fn-cycle       — `policy A(): bool = B()` / `policy B(): bool
 //     = A()` (transitive self-reference).
+//   - loom.policy-out-of-scope   — a `PolicyName(args)` or `Ctx.PolicyName(args)`
+//     call from a context other than the one declaring it (policies are
+//     context-local; ruling D9).
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -23,14 +26,18 @@ import {
   isBoundedContext,
   isCallSuffix,
   isEnumDecl,
+  isMemberSuffix,
   isNameRef,
   isPolicyDecl,
   isPostfixChain,
   isPrimitiveType,
+  type MemberSuffix,
   type Model,
   type NameRef,
   type PolicyDecl,
 } from "../generated/ast.js";
+import { envForNode, outOfScopePolicyCall } from "../type-system.js";
+import { qualifiedOutOfScopePolicyCall } from "../typing/qualified-policy.js";
 
 /** A function-form policy declaration is the one with a `returnType`; a
  *  block-form `policy {}` (read ladder) has none. */
@@ -123,6 +130,10 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
       const first = node.suffixes[0];
       if (isNameRef(head) && first && isCallSuffix(first) && node.suffixes.length === 1) {
         checkPolicyFnReference(head, first.args.length, accept);
+        checkPolicyFnScope(head, accept);
+      }
+      if (isNameRef(head) && isMemberSuffix(first) && first.call && node.suffixes.length === 1) {
+        checkQualifiedPolicyFnScope(head, first, accept);
       }
       continue;
     }
@@ -138,6 +149,51 @@ function checkPolicyFnUseSites(model: Model, accept: ValidationAcceptor): void {
       checkPolicyFnReference(node, undefined, accept);
     }
   }
+}
+
+/** A policy-function CALL whose policy lives in another bounded context.
+ *  Policies are context-local (ruling D9), so the call resolves to nothing;
+ *  without this check the only error would be the gate's misdirecting
+ *  `'requires' must be of type 'bool', got 'unknown'`.  The type system types
+ *  such a call `bool` (`outOfScopePolicyCall`), so this is the ONE diagnostic
+ *  it raises.  Call form only: a bare name has too many other readings to
+ *  claim. */
+function checkPolicyFnScope(ref: NameRef, accept: ValidationAcceptor): void {
+  if (!AstUtils.getContainerOfType(ref, isBoundedContext)) return;
+  const hit = outOfScopePolicyCall(ref.name, envForNode(ref));
+  if (!hit) return;
+  accept(
+    "error",
+    diagMessage("loom.policy-out-of-scope", {
+      name: ref.name,
+      declaredIn: hit.declaredIn.name,
+      usedIn: hit.usedIn.name,
+    }),
+    { node: ref, property: "name", code: "loom.policy-out-of-scope" },
+  );
+}
+
+/** The qualified twin of `checkPolicyFnScope`: `Ctx.PolicyName(args)` naming a
+ *  policy through another context — the spelling an author tries first when
+ *  sharing one.  Skipped when `Ctx` is a value in scope (then it is a member
+ *  call on that value), mirroring the typing pass. */
+function checkQualifiedPolicyFnScope(
+  head: NameRef,
+  call: MemberSuffix,
+  accept: ValidationAcceptor,
+): void {
+  if (envForNode(head).resolve(head.name)) return;
+  const hit = qualifiedOutOfScopePolicyCall(head.name, String(call.member), head);
+  if (!hit) return;
+  accept(
+    "error",
+    diagMessage("loom.policy-out-of-scope", {
+      name: hit.decl.name,
+      declaredIn: hit.declaredIn.name,
+      usedIn: hit.usedIn.name,
+    }),
+    { node: call, property: "member", code: "loom.policy-out-of-scope" },
+  );
 }
 
 /** Whether a bare `name` at `node` is shadowed by an enclosing aggregate's

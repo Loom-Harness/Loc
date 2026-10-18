@@ -19,6 +19,7 @@ export const PY = {
   re: mod("re"),
   math: mod("math"),
   json: mod("json"),
+  uuid: mod("uuid"),
   // stdlib — members
   Decimal: pyRef("decimal", "Decimal"),
   datetime: pyRef("datetime", "datetime"),

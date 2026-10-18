@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -35,17 +35,14 @@ beforeAll(() => {
 });
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
+/** Run the CLI and capture BOTH streams whatever the exit code — a green run
+ *  can still carry a stderr warning the test needs to read. */
 function run(args: string[]): { stdout: string; stderr: string; status: number } {
-  try {
-    const stdout = execSync(`node ${cli} ${args.join(" ")}`, {
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-    });
-    return { stdout, stderr: "", status: 0 };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; status?: number };
-    return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", status: e.status ?? 1 };
-  }
+  const r = spawnSync("node", [cli, ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf8",
+  });
+  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", status: r.status ?? 1 };
 }
 
 function writeResults(name: string, status: "pass" | "fail"): string {
@@ -77,6 +74,48 @@ describe("ddd verify", () => {
     const r = run(["verify", ddd, "--results", results, "--out", path.join(tmp, "fail")]);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/gate failed/);
+  });
+
+  // Eval item #36: a runner spelling (`failed`) was neither a pass nor a fail to
+  // the join, so a FAILED test left its requirement merely unverified and the
+  // gate exited 0.  An unknown status is malformed input — exit 2, naming the
+  // entry and the value, and pointing at the spelling that was meant.
+  it("exits 2 on an unknown result status, naming the entry and suggesting the fix", () => {
+    for (const [bad, meant] of [
+      ["failed", "fail"],
+      ["passed", "pass"],
+    ] as const) {
+      const p = path.join(tmp, `results-typo-${bad}.json`);
+      fs.writeFileSync(
+        p,
+        JSON.stringify({
+          version: 1,
+          results: [
+            { name: "other", suite: "A", status: "pass" },
+            { name: "go works", suite: "A", status: bad },
+          ],
+        }),
+        "utf8",
+      );
+      const r = run(["verify", ddd, "--results", p, "--out", path.join(tmp, `typo-${bad}`)]);
+      expect(r.status, r.stdout + r.stderr).toBe(2);
+      expect(r.stderr).toContain(`results[1] ("go works") has status "${bad}"`);
+      expect(r.stderr).toContain(`did you mean "${meant}"?`);
+    }
+  });
+
+  it("exits 2 on a result entry with a missing status or name", () => {
+    const p = path.join(tmp, "results-nostatus.json");
+    fs.writeFileSync(p, JSON.stringify({ results: [{ name: "go works", suite: "A" }] }), "utf8");
+    const r = run(["verify", ddd, "--results", p, "--out", path.join(tmp, "nostatus")]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('results[0] ("go works") has status undefined');
+
+    const q = path.join(tmp, "results-noname.json");
+    fs.writeFileSync(q, JSON.stringify({ results: [{ status: "pass" }] }), "utf8");
+    const r2 = run(["verify", ddd, "--results", q, "--out", path.join(tmp, "noname")]);
+    expect(r2.status).toBe(2);
+    expect(r2.stderr).toContain('results[0] has no string "name"');
   });
 
   it("exits 2 on a missing results file", () => {
@@ -337,11 +376,13 @@ describe("ddd verify — the vitest adapter the docs used to hand the user", () 
     expect(r.stderr).toMatch(/testResults/);
   });
 
-  it("requires exactly one results input", () => {
+  it("requires at least one results input, and reads a mix of kinds", () => {
     const none = run(["verify", ddd, "--out", path.join(tmp, "vtn")]);
     expect(none.status).toBe(2);
     expect(none.stderr).toMatch(/needs test results/);
 
+    // A mix is read, not refused: the empty `--results` document contributes
+    // nothing, the vitest report carries the passing run.
     const both = run([
       "verify",
       ddd,
@@ -352,7 +393,137 @@ describe("ddd verify — the vitest adapter the docs used to hand the user", () 
       "--out",
       path.join(tmp, "vtb"),
     ]);
-    expect(both.status).toBe(2);
-    expect(both.stderr).toMatch(/not both/);
+    expect(both.status, both.stderr).toBe(0);
+    expect(both.stdout).toMatch(/Verified 2\/2 requirements/);
+    expect(both.stdout).toMatch(/\[2 reports merged\]/);
+    // …and the report that contributed nothing is named, not dropped silently.
+    expect(both.stderr).toMatch(/warning: --results \S*both-a\.json contains no test results/);
+  });
+
+  it("a Playwright report passed to --results names the flag that reads it", () => {
+    const results = writeDoc("pw-misrouted.json", { config: {}, suites: [] });
+    const r = run(["verify", ddd, "--results", results, "--out", path.join(tmp, "pwm")]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/--from-playwright/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N6 — a generated tree's unit and e2e tiers run in SEPARATE runner projects,
+// each writing its own report.  `ddd verify` read one `--from-vitest`; a
+// second was silently dropped (last wins) and the dropped report's
+// requirements went UNVERIFIED with a misdiagnosis: "the SUITE does not
+// match", quoting two identical suites, because the e2e block with no
+// `verifies` was counted as a "result matching no declared test".
+// ---------------------------------------------------------------------------
+
+describe("ddd verify — several runner reports (N6)", () => {
+  const MODEL = `
+    requirement R-001 { type: UserStory  title: "complete" }
+    requirement R-002 { type: UserStory  title: "lifecycle" }
+    system FieldOps {
+      subdomain Core { context Ops {
+        aggregate WorkOrder {
+          operation complete() {}
+          test "complete works" verifies TC-001 {}
+        }
+      } }
+      storage pg { type: postgres }
+      resource opsState { for: Ops, kind: state, use: pg }
+      deployable api { platform: node  contexts: [Ops]  dataSources: [opsState] }
+      test e2e "lifecycle round-trips" against api verifies TC-002 {}
+      test e2e "no technician" against api {}
+    }
+    testCase TC-001 verifies R-001 { covers [ Core.Ops.WorkOrder.complete ] }
+    testCase TC-002 verifies R-002 { covers [ Core.Ops.WorkOrder.complete ] }
+  `;
+  let src: string;
+  let unit: string;
+  let e2e: string;
+  beforeAll(() => {
+    src = path.join(tmp, "fieldops.ddd");
+    fs.writeFileSync(src, MODEL, "utf8");
+    unit = writeDoc("n6-unit.json", {
+      testResults: [
+        {
+          name: "/gen/api/src/domain/work-order.test.ts",
+          assertionResults: [
+            { ancestorTitles: ["WorkOrder"], title: "complete works", status: "passed" },
+          ],
+        },
+      ],
+    });
+    e2e = writeDoc("n6-e2e.json", {
+      testResults: [
+        {
+          name: "/gen/e2e/FieldOps.e2e.test.ts",
+          assertionResults: [
+            {
+              ancestorTitles: ["FieldOps e2e"],
+              title: "lifecycle round-trips against api",
+              status: "passed",
+            },
+            {
+              ancestorTitles: ["FieldOps e2e"],
+              title: "no technician against api",
+              status: "passed",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("--from-vitest is repeatable: both reports are read and merged", () => {
+    for (const order of [
+      [unit, e2e],
+      [e2e, unit],
+    ]) {
+      const r = run([
+        "verify",
+        src,
+        "--from-vitest",
+        order[0]!,
+        "--from-vitest",
+        order[1]!,
+        "--out",
+        path.join(tmp, "n6-both"),
+      ]);
+      expect(r.status, r.stdout + r.stderr).toBe(0);
+      expect(r.stdout).toMatch(/Verified 2\/2 requirements/);
+      expect(r.stdout).toMatch(/\[2 reports merged\]/);
+    }
+  });
+
+  it("a declared test with no `verifies` is counted as such, not as matching no declared test", () => {
+    const r = run([
+      "verify",
+      src,
+      "--from-vitest",
+      unit,
+      "--from-vitest",
+      e2e,
+      "--out",
+      path.join(tmp, "n6-unlinked"),
+    ]);
+    expect(r.stdout).toMatch(/1 result\(s\) from declared tests with no `verifies`/);
+    expect(r.stdout).not.toMatch(/matching no declared test/);
+    const json = JSON.parse(
+      fs.readFileSync(path.join(tmp, "n6-unlinked", ".loom", "verification.json"), "utf8"),
+    );
+    expect(json.diagnostics.unknownTests).toEqual([]);
+    expect(json.diagnostics.unlinkedTests).toHaveLength(1);
+  });
+
+  it("a missing unit report is named as the cause — not a SUITE mismatch", () => {
+    const r = run(["verify", src, "--from-vitest", e2e, "--out", path.join(tmp, "n6-e2e-only")]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(
+      '1 declared test(s) had no matching result (TC-001 → "complete works")',
+    );
+    expect(r.stderr).toMatch(/no result for ANY unit test was supplied/);
+    expect(r.stderr).toMatch(/repeatable: pass every one/);
+    expect(r.stderr).not.toMatch(/SUITE does not match/);
+    expect(r.stderr).not.toMatch(/matched no declared test/);
   });
 });

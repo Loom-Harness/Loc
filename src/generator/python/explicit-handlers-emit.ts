@@ -55,12 +55,19 @@ import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake } from "../../util/naming.js";
+import {
+  plural,
+  pythonIdent,
+  pythonWireIdent,
+  pythonWireNeedsAlias,
+  snake,
+} from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
+import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -74,8 +81,8 @@ import {
   repoClassRef,
 } from "./routes-builder.js";
 import {
+  collectLiveLetNames,
   collectServiceReadPorts,
-  collectUsedLetNames,
   pyReadPortResolver,
   pyWorkflowStmtTarget,
 } from "./workflows-builder.js";
@@ -99,6 +106,18 @@ const dispatcherFor = (hasDispatch: boolean): string =>
  *  fields, byte-identical to the flat-param form); every other param (a
  *  path-bound id / scalar / value object) passes through.  An extern handler
  *  keeps its raw params — its scaffold-once impl owns the signature. */
+
+/** An explicit-handler route parameter.  Its wire name is the snake_cased
+ *  `.ddd` name (the path token / query key the route already publishes); a
+ *  keyword collision (`def`) binds under the escaped identifier with the wire
+ *  name restored by `Path(alias=…)` / `Query(alias=…)` (eval item 6, ruling
+ *  D2).  Every other parameter is byte-identical. */
+function pyAliasedParam(name: string, type: string, source: "Path" | "Query"): string {
+  const wire = snake(name);
+  if (!pythonWireNeedsAlias(wire)) return `${wire}: ${type}`;
+  return `${pythonWireIdent(wire)}: ${H.Annotated}[${type}, ${H[source]}(alias=${JSON.stringify(wire)})]`;
+}
+
 function flatHandlerParams(h: Handler, ctx: EnrichedBoundedContextIR): ParamIR[] {
   if (h.extern) return h.params.map((p) => ({ name: p.name, type: p.type }));
   const out: ParamIR[] = [];
@@ -135,10 +154,10 @@ const externImplFn = (name: string): string => `${snake(name)}_impl`;
  *  value verbatim (the impl owns the return contract). */
 function renderPyExternDispatch(h: Handler): string {
   const fnName = snake(h.name);
-  const paramSig = h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const params = [`session: ${H.AsyncSession}`, ...paramSig].join(", ");
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
-  const callArgs = h.params.map((p) => snake(p.name)).join(", ");
+  const callArgs = h.params.map((p) => pythonIdent(p.name)).join(", ");
   const call = `${externImplRef(h.name)}(${callArgs})`;
   const bodyLine = h.returnType ? `    return await ${call}` : `    await ${call}`;
   return lines(
@@ -158,7 +177,7 @@ function renderPyExternDispatch(h: Handler): string {
  *  preserves it on regen). */
 function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const implFn = externImplFn(h.name);
-  const paramSig = h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`);
+  const paramSig = h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const ret = h.returnType ? renderPyType(h.returnType) : "None";
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)
     ? "queryHandler"
@@ -287,7 +306,7 @@ function renderPagedRunHandlerModule(
   const runWire = runAgg && aggHasFieldMask(runAgg) ? "to_wire_masked" : "to_wire";
   const sigParams = [
     `session: ${H.AsyncSession}`,
-    ...h.params.map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+    ...h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
     "page: int",
     "page_size: int",
     "sort: str",
@@ -363,7 +382,7 @@ function renderHandlerModule(
   };
   const params = [
     `session: ${H.AsyncSession}`,
-    ...flatHandlerParams(h, ctx).map((p) => `${snake(p.name)}: ${renderPyType(p.type)}`),
+    ...flatHandlerParams(h, ctx).map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
     ...(usesUser ? [`current_user: ${H.User}`] : []),
   ].join(", ");
 
@@ -426,7 +445,7 @@ function renderHandlerModule(
 
   // A dead `let` would trip ruff F841 — keep the used set current by folding the
   // returnValue's let refs into it (the shared collector only scans statements).
-  const usedLets = collectUsedLetNames(h.statements);
+  const usedLets = collectLiveLetNames(h.statements, h.savesAtExit);
   walkExpr(h.returnValue, (n) => {
     if (n.kind === "ref" && n.refKind === "let") usedLets.add(n.name);
   });
@@ -529,8 +548,8 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // Non-default params first (Python signature order): path + criterion query
   // params + session, then the defaulted pagination controls.
   const sig = [
-    ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
-    ...queryParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
+    ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
+    ...queryParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Query")),
     "session: SessionDep",
     ...PY_PAGED_CONTROLS,
     `sort: str = "id"`,
@@ -540,7 +559,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   // pagination controls (pageSize → the handler's snake `page_size`).
   const callArgs = [
     "session",
-    ...h.params.map((p) => pyWireToDomain(snake(p.name), p.type, ctx)),
+    ...h.params.map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx)),
     "page",
     "pageSize",
     "sort",
@@ -608,12 +627,14 @@ export function emitPyExplicitRouteRouter(
       modelBlocks.push(
         lines(
           `class ${bodyModelName}(${H.BaseModel}):`,
-          ...bodyParams.map((p) => `    ${snake(p.name)}: ${requestPyType(p.type, ctx)}`),
+          ...bodyParams.map((p) =>
+            withFieldConstraint(snake(p.name), requestPyType(p.type, ctx), undefined),
+          ),
         ),
       );
     }
     const sig = [
-      ...pathParams.map((p) => `${snake(p.name)}: ${paramPyType(p.type, ctx)}`),
+      ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
@@ -624,8 +645,8 @@ export function emitPyExplicitRouteRouter(
       "session",
       ...effParams.map((p) =>
         pathNames.has(p.name)
-          ? pyWireToDomain(snake(p.name), p.type, ctx)
-          : pyWireToDomain(`body.${snake(p.name)}`, p.type, ctx),
+          ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
+          : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");

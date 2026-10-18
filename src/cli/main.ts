@@ -11,8 +11,13 @@ import { isAdvisoryCode } from "../diagnostics/advisory.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
-import type { EnrichedLoomModel, ExecTestRef, TestOutcome } from "../ir/types/loom-ir.js";
-import { type LoomDiagnostic, validateLoomModel } from "../ir/validate/validate.js";
+import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
+import {
+  irDiagnosticSourceRef,
+  type LoomDiagnostic,
+  offsetToPosition,
+  validateLoomModel,
+} from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -56,13 +61,20 @@ import {
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
+import {
+  describeMissingCause,
+  type LabelledReport,
+  missingEvidence,
+  reportWarnings,
+} from "../verify/diagnose.js";
+import { fromPlaywrightReport, PlaywrightReportError } from "../verify/from-playwright.js";
 import { fromVitestReport, VitestReportError } from "../verify/from-vitest.js";
 import {
   renderVerdictGraph,
   renderVerificationJson,
   renderVerificationMd,
 } from "../verify/render.js";
-import { computeVerification } from "../verify/verification.js";
+import { attributeResults, computeVerification } from "../verify/verification.js";
 import {
   loadTranslations,
   runI18nCheck,
@@ -73,6 +85,7 @@ import {
   runI18nSync,
 } from "./i18n/index.js";
 import {
+  cliInvocation,
   DESIGN_PACKS,
   type DesignPack,
   designPacksForFormat,
@@ -184,9 +197,25 @@ async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   // lone `system { }` block plus top-level `subdomain` / `context`
   // declarations from any file fold into a single system (see
   // docs/old/proposals/implicit-system-composition.md).
-  const merged = lowerProject(all.map((doc) => doc.parseResult.value as Model));
-  const loom = enrichLoomModel(merged);
-  return { loom, diagnostics, errorCount, warningCount, sourceTexts };
+  //
+  // LAZY, and only ever forced after the caller has checked `errorCount`.  A
+  // document with a parse error carries a RECOVERED AST — a required cross-ref
+  // like `apply Opened {`'s `event` is simply absent — and lowering it threw a
+  // `TypeError` out of `lowerApply` before the command could print the parse
+  // error it had already collected.  Every caller aborts on `errorCount > 0`
+  // first, so an erroneous model is never lowered at all.
+  const models = all.map((doc) => doc.parseResult.value as Model);
+  let loom: EnrichedLoomModel | undefined;
+  return {
+    get loom() {
+      loom ??= enrichLoomModel(lowerProject(models));
+      return loom;
+    },
+    diagnostics,
+    errorCount,
+    warningCount,
+    sourceTexts,
+  };
 }
 
 /** The phase-⑦ WARNING footer, shared by every command that runs
@@ -265,6 +294,38 @@ function printAstDiagnostics(result: {
   return { errors: result.errorCount, warnings: result.warningCount };
 }
 
+/** The `path:line:col ` prefix for a phase-⑦ diagnostic that carries an
+ *  `origin` (eval item 28) — the same shape the AST-phase lines lead with, so
+ *  an editor / terminal link jumps to the construct the diagnostic is about.
+ *  Empty when the check attached no origin (a system-level construct) or the
+ *  source text is unavailable.  Texts come from the loaded documents; a path
+ *  outside that map is read from disk once and cached. */
+function irDiagnosticLocator(
+  sourceTexts: ReadonlyMap<string, string> | undefined,
+): (d: LoomDiagnostic) => string {
+  const cache = new Map<string, string | undefined>(sourceTexts ?? []);
+  const textOf = (p: string): string | undefined => {
+    if (!cache.has(p)) {
+      let text: string | undefined;
+      try {
+        text = fs.readFileSync(p, "utf8");
+      } catch {
+        text = undefined;
+      }
+      cache.set(p, text);
+    }
+    return cache.get(p);
+  };
+  return (d) => {
+    const ref = irDiagnosticSourceRef(d);
+    if (!ref) return "";
+    const text = textOf(ref.path);
+    if (text === undefined) return `${ref.path} `;
+    const pos = offsetToPosition(text, ref.span.start);
+    return `${ref.path}:${pos.line + 1}:${pos.character + 1} `;
+  };
+}
+
 /** The phase-⑦ (IR) diagnostic report, printed IDENTICALLY by `parse` and by
  *  `generate system`.
  *
@@ -284,13 +345,17 @@ function printAstDiagnostics(result: {
  *
  *  Returns the split so the caller can tally it and decide about exit codes
  *  (errors gate; warnings and suggestions never do). */
-function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
+function printIrDiagnostics(
+  diagnostics: readonly LoomDiagnostic[],
+  sourceTexts?: ReadonlyMap<string, string>,
+): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
   hints: LoomDiagnostic[];
 } {
+  const at = irDiagnosticLocator(sourceTexts);
   const errors = diagnostics.filter((d) => d.severity === "error");
-  for (const d of errors) console.error(`${d.code} ${d.source}: ${d.message}`);
+  for (const d of errors) console.error(`${at(d)}${d.code} ${d.source}: ${d.message}`);
 
   // Phase ⑦ computes 18 warning codes (datasource-knob-unwired, findall-no-page,
   // cross-tenant-without-tenancy, …).  A warning never affects the exit code;
@@ -300,7 +365,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   // here: with a literal, the second advisory code to arrive silently came out
   // labelled `warning` and inflated the count.)
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
-  for (const d of warnings) console.error(`${d.code} ${d.source} warning: ${d.message}`);
+  for (const d of warnings) console.error(`${at(d)}${d.code} ${d.source} warning: ${d.message}`);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // and the update-gate lint (audit D3) keep their own footer and never fail
@@ -308,7 +373,7 @@ function printIrDiagnostics(diagnostics: readonly LoomDiagnostic[]): {
   const hints = diagnostics.filter((d) => isAdvisoryCode(d.code));
   if (hints.length > 0) {
     console.error(`\nSuggestions (${hints.length}):`);
-    for (const d of hints) console.error(`  ${d.source}: ${d.message}`);
+    for (const d of hints) console.error(`  ${at(d)}${d.source}: ${d.message}`);
   }
   return { errors, warnings, hints };
 }
@@ -359,7 +424,10 @@ async function runParse(file: string) {
   // filtered down to the single allow-listed `loom.index-suggestion`.  The
   // shared printer is now the only thing that decides what a phase-⑦
   // diagnostic looks like on either command's stderr.
-  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(irDiagnostics);
+  const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(
+    irDiagnostics,
+    result.sourceTexts,
+  );
   // Both phases have run — ONE footer, counting both.  It has to come after
   // the IR phase, or it is a verdict on half the file (M-T9.60).
   printSummary(ast, { errors: irErrors.length, warnings: irWarnings.length });
@@ -650,7 +718,7 @@ async function runGenerate(
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
   const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags);
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -1012,6 +1080,22 @@ async function runGenerate(
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
   if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
   console.log(parts.join(", "));
+  // NAME the hand-edited files, not just count them (eval item #40a): the
+  // count alone told the reader edits were lost but not WHICH, so the one
+  // remedy the summary offers — pin it in `.loomignore` — had no path to pin.
+  // Capped, so a bulk edit does not bury the summary; same list under
+  // `--dry-run`, where it is the preview of exactly what a real run clobbers.
+  if (locallyModifiedPaths.length > 0) {
+    const shown = locallyModifiedPaths.slice(0, LOCALLY_MODIFIED_LIST_CAP);
+    console.log(
+      options.dryRun
+        ? `Would overwrite local modifications in (add a path to ${path.join(outDir, ".loomignore")} to keep your version):`
+        : `Overwrote local modifications in (add a path to ${path.join(outDir, ".loomignore")} so the next run leaves it alone):`,
+    );
+    for (const p of shown) console.log(`  ${p}`);
+    const rest = locallyModifiedPaths.length - shown.length;
+    if (rest > 0) console.log(`  … and ${rest} more`);
+  }
   return {
     hadError: false,
     written,
@@ -1022,6 +1106,48 @@ async function runGenerate(
     locallyModified: locallyModifiedPaths.length,
   };
 }
+
+/** The closed `status` vocabulary of a `--results` document (docs/verify.md). */
+const RESULT_STATUSES: ReadonlySet<string> = new Set(["pass", "fail", "skip"]);
+/** The runner spellings people reach for, mapped to the one they meant. */
+const RESULT_STATUS_HINTS: Readonly<Record<string, string>> = {
+  passed: "pass",
+  failed: "fail",
+  skipped: "skip",
+  pending: "skip",
+  todo: "skip",
+};
+
+/** Shape-check every `--results` entry before it reaches the join.  Without it
+ *  a runner spelling (`"failed"`) is neither a pass nor a fail to the rollup, so
+ *  a FAILED test left its requirement merely unverified and the gate could exit
+ *  0 (eval item #36).  Throws — the caller turns that into exit 2. */
+function checkResultEntries(results: readonly unknown[]): TestOutcome[] {
+  results.forEach((entry, i) => {
+    const e = entry as { name?: unknown; status?: unknown } | null;
+    if (e == null || typeof e !== "object") {
+      throw new Error(`results[${i}] is not an object`);
+    }
+    if (typeof e.name !== "string") {
+      throw new Error(`results[${i}] has no string "name"`);
+    }
+    if (typeof e.status !== "string" || !RESULT_STATUSES.has(e.status)) {
+      const got = JSON.stringify(e.status);
+      const hint =
+        typeof e.status === "string" ? RESULT_STATUS_HINTS[e.status.toLowerCase()] : undefined;
+      throw new Error(
+        `results[${i}] ("${e.name}") has status ${got}; expected "pass", "fail" or "skip"` +
+          (hint ? ` — did you mean "${hint}"?` : "") +
+          ` (a vitest/jest JSON report can be passed as-is with --from-vitest)`,
+      );
+    }
+  });
+  return results as TestOutcome[];
+}
+
+/** How many locally-modified paths the regenerate summary names before it
+ *  collapses the rest into "… and N more". */
+const LOCALLY_MODIFIED_LIST_CAP = 10;
 
 /** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
  *  unreadable, truncated, or a newer schema version — degrades to `null`,
@@ -1191,7 +1317,8 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   }
 
   // --- render + soundness check (guards against template drift) ---
-  const source = renderStarter({ name, template, platform, design });
+  const invocation = cliInvocation(process.argv);
+  const source = renderStarter({ name, template, platform, design, invocation });
   const report = await validate(source, { path: "main.ddd" });
   if (!report.ok) {
     console.error("ddd new: the generated starter failed validation (please report this):");
@@ -1204,7 +1331,7 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
   // --- write the starter files ---
   const files = new Map<string, string>([
     ["main.ddd", source],
-    ["README.md", renderReadme({ name, platform, design })],
+    ["README.md", renderReadme({ name, platform, design, invocation })],
     [".loomignore", renderLoomignore()],
     // The MIT grant over the generated output (docs/license-faq.md).  Written
     // HERE, once, at scaffold time — `ddd generate` no longer drops it into
@@ -1227,10 +1354,12 @@ async function runNew(name: string, options: NewOptions): Promise<void> {
       "  platform: node (default) — also: dotnet, elixir, java, python (re-run with --platform <p>)",
     );
   }
-  // `npx ddd`, not a bare `ddd`: a clone's `npm install` links no global
-  // binary, so the bare form is the one command in this output that does not
-  // work when copied (finding F-001).
-  console.log(`  next: cd ${where} && npx ddd generate system main.ddd -o . && docker compose up`);
+  // The invocation that actually ran, not a bare `ddd` (a clone's `npm
+  // install` links no global binary — F-001) and not `npx ddd` (outside the
+  // clone that resolves an unrelated npm package — ruling D11, item 37).
+  console.log(
+    `  next: cd ${where} && ${invocation} generate system main.ddd -o . && docker compose up`,
+  );
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`
@@ -1269,13 +1398,20 @@ function fileContentMatches(absPath: string, content: string): boolean {
 }
 
 interface VerifyOptions {
-  results?: string;
-  fromVitest?: string;
+  /** Every option below is repeatable (commander collects into an array). */
+  results: string[];
+  fromVitest: string[];
+  fromPlaywright: string[];
   out?: string;
   requireAll?: boolean;
   min?: string;
   allowMissing?: boolean;
   json?: boolean;
+}
+
+/** Commander collector for a repeatable option. */
+function collectRepeated(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 /** Structural probe for "this JSON is a vitest/jest report, not a Loom
@@ -1284,85 +1420,65 @@ interface Vitestish {
   testResults?: unknown;
 }
 
-/** Name the field that ACTUALLY differs when a result matched no declared
- *  test, for the gate-failure message.
- *
- *  The previous wording asserted a `suite` mismatch unconditionally and then
- *  printed the reported suite — so the case it was most likely to be read on
- *  was the case it got wrong: an api-e2e result, whose suite is correct and
- *  whose NAME carries the ` against <slug>` suffix `e2e-render.ts` appends.
- *  It said "likely a `suite` mismatch … got \"<System> e2e\"" while quoting
- *  the suite the join wanted.  So classify: compare the reported pair
- *  against the declared pairs and report the side that does not line up. */
-function describeJoinMismatch(
-  execTests: readonly ExecTestRef[],
-  unknown: readonly TestOutcome[],
-  serviceSlugs: readonly string[],
-): string {
-  const first = unknown[0];
-  if (!first) return "";
-  const got = `{name: ${JSON.stringify(first.name)}, suite: ${JSON.stringify(first.suite ?? null)}}`;
-  const quoted = (xs: string[]): string =>
-    xs
-      .slice(0, 3)
-      .map((x) => JSON.stringify(x))
-      .join(", ") + (xs.length > 3 ? ", …" : "");
-
-  // Undo the ` against <slug>` replay suffix the way the join does, so the
-  // rest of the classification compares the same name the join compared.
-  let effective = first.name;
-  const at = first.name.lastIndexOf(" against ");
-  if (at > 0) {
-    const stem = first.name.slice(0, at);
-    const slug = first.name.slice(at + " against ".length);
-    if (execTests.some((t) => t.name === stem)) {
-      // The stem IS declared.  Either the slug names a real deployable (so
-      // the suffix resolves and any remaining mismatch is the suite), or it
-      // does not — which is its own, very specific, breakage.
-      if (serviceSlugs.includes(slug)) {
-        effective = stem;
-      } else {
-        return (
-          ` — reported ${got}: ${JSON.stringify(stem)} IS declared, but ${JSON.stringify(slug)}` +
-          ` is not a deployable of this model, so the \` against <deployable>\` replay suffix` +
-          ` could not be resolved`
-        );
-      }
-    }
-  }
-
-  const byName = execTests.filter((t) => t.name === effective);
-  const bySuite = execTests.filter((t) => t.suite === first.suite);
-  if (byName.length > 0) {
-    const behind =
-      effective === first.name ? "" : ` (whose declared name is ${JSON.stringify(effective)})`;
-    return (
-      ` — the SUITE does not match: reported ${got}${behind}, but that test is declared with` +
-      ` suite ${quoted([...new Set(byName.map((t) => t.suite))])}`
-    );
-  }
-  if (bySuite.length > 0) {
-    return (
-      ` — the NAME does not match: reported ${got}; suite` +
-      ` ${JSON.stringify(first.suite ?? null)} is correct, but no declared test in it is called` +
-      ` that (declared there: ${quoted([...new Set(bySuite.map((t) => t.name))])})`
-    );
-  }
-  return (
-    ` — neither field matches a declared test: reported ${got}` +
-    ` (the join wants the AGGREGATE name as the suite for a unit test,` +
-    ` "<System> e2e" for an e2e test)`
-  );
+/** Structural probe for "this JSON is a Playwright report". */
+interface Playwrightish {
+  suites?: unknown;
+  config?: unknown;
 }
 
-/** `ddd verify` — join a test-results file onto the requirements graph,
+/** One runner report to read: which reader, and the file. */
+interface ReportInput {
+  flag: "--results" | "--from-vitest" | "--from-playwright";
+  path: string;
+}
+
+/** Read and adapt one report into normalized outcomes.  Throws — the caller
+ *  turns that into exit 2, naming the file. */
+function readReport(input: ReportInput): TestOutcome[] {
+  const raw: unknown = JSON.parse(fs.readFileSync(input.path, "utf8"));
+  if (input.flag === "--from-vitest") return fromVitestReport(raw);
+  if (input.flag === "--from-playwright") return fromPlaywrightReport(raw);
+  const parsed = raw as { results?: TestOutcome[] };
+  if (!Array.isArray(parsed?.results)) {
+    // The most common wrong input is a runner report fed to `--results`;
+    // name the flag that reads it rather than leaving the reader to write an
+    // adapter.
+    const isObj = raw != null && typeof raw === "object";
+    const looksVitest = isObj && Array.isArray((raw as Vitestish).testResults);
+    const looksPlaywright =
+      isObj &&
+      Array.isArray((raw as Playwrightish).suites) &&
+      (raw as Playwrightish).config !== undefined;
+    throw new Error(
+      'expected a top-level "results" array' +
+        (looksVitest
+          ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
+          : looksPlaywright
+            ? ' — this looks like a Playwright "--reporter=json" report; pass it with --from-playwright instead'
+            : ""),
+    );
+  }
+  return checkResultEntries(parsed.results);
+}
+
+/** `ddd verify` — join test-results reports onto the requirements graph,
  *  emit the verification artifacts, and gate the exit code.
+ *
+ *  Takes ANY NUMBER of reports, of any mix of kinds: a generated tree runs
+ *  its unit and e2e tiers in separate runner projects, each writing its own
+ *  report, so a whole-system verdict needs all of them.  They are merged by
+ *  concatenation — two runs of one test resolve to the worst of them, the
+ *  same rule that settles an api-e2e block replayed against two backends.
  *
  *  Multi-file aware for the same reason `runSnapshot` is: a requirements
  *  graph split across `import "./shared.ddd"` has to be READ the way
  *  `generate system` reads it, or the verb rejects a model that generates
  *  fine. */
-async function runVerify(file: string, options: VerifyOptions): Promise<void> {
+async function runVerify(
+  file: string,
+  inputs: readonly ReportInput[],
+  options: VerifyOptions,
+): Promise<void> {
   // Validate `--min` up front: `Number("90%")` / `Number("abc")` is NaN and
   // `actual < NaN` is always false, so a typo'd threshold would silently pass
   // the gate.  Reject non-numeric or out-of-[0,100] values before any work.
@@ -1389,60 +1505,50 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     for (const d of loomErrors) console.error(`${d.source} error: ${d.message}`);
     process.exit(2);
   }
-  // `verify` used to filter the diagnostics down to errors before binding them,
-  // so its warnings were not merely unprinted — they were discarded at the call
-  // site.  A verification run is a Definition-of-Done verdict; a phase-⑦
-  // warning is exactly the kind of thing that should reach whoever reads it.
-  // Exit code unchanged (the verdict below still gates it).
+  // A verification run is a Definition-of-Done verdict; a phase-⑦ warning is
+  // exactly the kind of thing that should reach whoever reads it.  Exit code
+  // unchanged (the verdict below still gates it).
   printLoomWarnings(loomDiags);
   if (loom.requirements.length === 0) {
     console.error(`No \`requirement\` declarations in ${file} — nothing to verify.`);
     process.exit(2);
   }
 
-  // Read + validate the results file.  Two accepted inputs: Loom's own
-  // `{ version, results: [...] }` document (`--results`), and a vitest/jest
-  // `--reporter=json` report (`--from-vitest`), which is what the generated
-  // backend's own test suite produces — see `src/verify/from-vitest.ts` for
-  // why shipping that adapter matters.
-  const resultsPath = options.fromVitest ?? options.results!;
-  if (!fs.existsSync(resultsPath)) {
-    console.error(`Results file not found: ${resultsPath}`);
-    process.exit(2);
-  }
-  let outcomes: TestOutcome[];
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
-    if (options.fromVitest) {
-      outcomes = fromVitestReport(raw);
-    } else {
-      const parsed = raw as { results?: TestOutcome[] };
-      if (!Array.isArray(parsed?.results)) {
-        // The single most common wrong input is a vitest report fed to
-        // `--results`; name the flag that reads it rather than leaving the
-        // reader to write an adapter.
-        const looksVitest =
-          raw != null && typeof raw === "object" && Array.isArray((raw as Vitestish).testResults);
-        throw new Error(
-          'expected a top-level "results" array' +
-            (looksVitest
-              ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
-              : ""),
-        );
-      }
-      outcomes = parsed.results;
+  // Read + validate every report.  Three readers: Loom's own
+  // `{ version, results: [...] }` document (`--results`), a vitest/jest
+  // `--reporter=json` report (`--from-vitest`) — what the generated node
+  // backend's unit and api-e2e suites produce — and a Playwright
+  // `--reporter=json` report (`--from-playwright`), what the generated ui-e2e
+  // suite produces.  See `src/verify/from-*.ts`.
+  const reports: LabelledReport[] = [];
+  for (const input of inputs) {
+    if (!fs.existsSync(input.path)) {
+      console.error(`Results file not found: ${input.path} (${input.flag})`);
+      process.exit(2);
     }
-  } catch (err) {
-    const what = err instanceof VitestReportError ? "vitest report" : "results file";
-    console.error(`Could not parse ${what}: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(2);
+    try {
+      reports.push({ label: `${input.flag} ${input.path}`, outcomes: readReport(input) });
+    } catch (err) {
+      const what =
+        err instanceof VitestReportError
+          ? "vitest report"
+          : err instanceof PlaywrightReportError
+            ? "Playwright report"
+            : "results file";
+      console.error(
+        `Could not parse ${what} ${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(2);
+    }
   }
+  const outcomes = reports.flatMap((r) => r.outcomes);
 
   // Every deployable slug in the model — the closed set of ` against <slug>`
   // suffixes an api-e2e title can carry (`src/system/e2e-render.ts` replays
   // one `test e2e` block per compatible backend).  Passing it lets the join
   // undo the suffix exactly instead of pattern-matching it.
   const serviceSlugs = loom.systems.flatMap((s) => s.deployables.map((d) => serviceSlug(d.name)));
+  const execTests = loom.traceability!.execTests;
 
   const verification = computeVerification(
     loom.traceability!,
@@ -1450,6 +1556,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     outcomes,
     { serviceSlugs },
   );
+  const attribution = attributeResults(loom.traceability!, outcomes, { serviceSlugs });
 
   // Emit artifacts.
   const outDir = path.join(path.resolve(options.out ?? path.dirname(file)), ".loom");
@@ -1463,32 +1570,37 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   // ── Evidence accounting ────────────────────────────────────────────
   //
   // A declared executable test with no matching result lands in the join as
-  // `status: "missing"`.  Nothing used to SAY so: an empty results file, or a
-  // results file whose `suite` convention had drifted, produced
-  // "Verified 0/N requirements (0 failing, N unverified, 0 untested)." and
-  // exit 0 — a gate that cannot fail on the most likely CI breakage.  The two
-  // counts below are the signal, and `unknownTests` (results matching no
-  // declared test) is specifically the fingerprint of a convention mismatch:
-  // the same run reports the test both missing AND unknown.
-  const missing: { testCaseId: string; name: string }[] = [];
-  for (const [tcId, tc] of Object.entries(verification.testCases)) {
-    for (const b of tc.backing) {
-      if (b.status === "missing") missing.push({ testCaseId: tcId, name: b.name });
-    }
-  }
+  // `status: "missing"` and fails the gate below.  The summary line counts
+  // three kinds of evidence problem separately, because each has a different
+  // fix: a declared test with no result, a result no declared test claims
+  // (a drifted title — `diagnostics.unknownTests`), and — not a problem, but
+  // not evidence either — a result of a declared test whose block carries no
+  // `verifies` (`diagnostics.unlinkedTests`).
+  const missing = missingEvidence(execTests, attribution);
   const unknown = verification.diagnostics.unknownTests;
+  const unlinked = verification.diagnostics.unlinkedTests;
+
+  // A report that contributed nothing to the join is almost certainly the
+  // wrong file; with several merged it would otherwise vanish silently.
+  for (const w of reportWarnings(reports, attribution)) console.error(`warning: ${w}.`);
 
   // Under `--json` the human summary goes to stderr: stdout then carries the
   // verification document and nothing else, so `ddd verify --json | jq` works
   // the way `parse --json` / `generate system --json` do.  Without `--json`
   // the summary IS the output and stays on stdout.
   const evidence: string[] = [];
-  if (missing.length > 0) evidence.push(`${missing.length} declared test(s) with no result`);
+  if (missing.refs.length > 0)
+    evidence.push(`${missing.refs.length} declared test(s) with no result`);
   if (unknown.length > 0) evidence.push(`${unknown.length} result(s) matching no declared test`);
+  if (unlinked.length > 0) {
+    evidence.push(`${unlinked.length} result(s) from declared tests with no \`verifies\``);
+  }
+  const fromReports = reports.length > 1 ? ` [${reports.length} reports merged]` : "";
   const summaryLine =
     `Verified ${s.verified}/${s.total} requirements ` +
     `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested)` +
-    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".");
+    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".") +
+    fromReports;
   if (options.json) {
     console.error(summaryLine);
     console.log(renderVerificationJson(verification));
@@ -1499,30 +1611,26 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   // Gate.
   //
   // MISSING EVIDENCE FAILS BY DEFAULT.  "No result for a declared test" is not
-  // "the test passed", and the two used to share an exit code — so a CI job
-  // whose runner wrote the wrong file, wrote nothing, or reported a `suite`
-  // string the join does not recognise went green having verified nothing.
-  // `--allow-missing` is the opt-out for the deliberately-partial run (one
-  // suite of many, a staged rollout); it is named in the failure so the
-  // migration is one flag, and `--require-all` / `--min` are untouched — this
-  // gate is strictly narrower than `--require-all` (which also fails on skips
-  // and on requirements no test covers), so a pipeline already passing
-  // `--require-all` sees no behaviour change.
+  // "the test passed": a CI job whose runner wrote the wrong file, wrote
+  // nothing, reported a `suite` string the join does not recognise, or whose
+  // second report was never passed, must not go green having verified
+  // nothing.  `--allow-missing` is the opt-out for the deliberately-partial
+  // run (one suite of many, a staged rollout); it is named in the failure so
+  // the migration is one flag.  This gate is strictly narrower than
+  // `--require-all` (which also fails on skips and on requirements no test
+  // covers).
   let failed = s.failing > 0;
   let reason = failed ? `${s.failing} requirement(s) failing` : "";
-  if (missing.length > 0 && !options.allowMissing) {
+  if (missing.refs.length > 0 && !options.allowMissing) {
     failed = true;
-    const sample = missing
+    const sample = missing.refs
       .slice(0, 3)
       .map((m) => `${m.testCaseId} → "${m.name}"`)
       .join(", ");
     reason =
-      `${missing.length} declared test(s) had no matching result (${sample}` +
-      `${missing.length > 3 ? ", …" : ""})` +
-      (unknown.length > 0
-        ? ` while ${unknown.length} result(s) matched no declared test` +
-          describeJoinMismatch(loom.traceability!.execTests, unknown, serviceSlugs)
-        : "") +
+      `${missing.refs.length} declared test(s) had no matching result (${sample}` +
+      `${missing.refs.length > 3 ? ", …" : ""})` +
+      describeMissingCause(missing, attribution, execTests, serviceSlugs) +
       `; pass --allow-missing to accept a partial run`;
   }
   if (options.requireAll && s.verified < s.total) {
@@ -1871,12 +1979,25 @@ generate
 program
   .command("verify <file>")
   .description(
-    "Join a test-results JSON onto the requirements graph, write .loom/verification.* and gate the exit code.",
+    "Join test-results reports onto the requirements graph, write .loom/verification.* and gate the exit code.",
   )
-  .option("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option(
+    "--results <file>",
+    "JSON file: { version, results: [{ name, status, suite? }] } (repeatable)",
+    collectRepeated,
+    [],
+  )
   .option(
     "--from-vitest <file>",
-    "read a vitest/jest `--reporter=json` report instead of --results",
+    "read a vitest/jest `--reporter=json` report (repeatable)",
+    collectRepeated,
+    [],
+  )
+  .option(
+    "--from-playwright <file>",
+    "read a Playwright `--reporter=json` report (repeatable)",
+    collectRepeated,
+    [],
   )
   .option("--out <dir>", "output directory for .loom/ artifacts (default: the .ddd file's dir)")
   .option("--require-all", "fail unless every requirement is VERIFIED")
@@ -1887,22 +2008,24 @@ program
   )
   .option("--json", "also print verification.json to stdout")
   .action(async (file: string, options: VerifyOptions) => {
-    // `--results` was a `requiredOption`; it is now one of TWO inputs, so the
-    // arity check moves here.  Exactly one — silently preferring one over the
-    // other would make a typo'd flag look like it was read.
-    if (!options.results && !options.fromVitest) {
+    // Every report flag is repeatable and they mix freely: a generated tree's
+    // unit and e2e tiers each write their own report, and the verdict needs
+    // all of them.  Each one given is read — none is preferred over another.
+    const inputs: ReportInput[] = [
+      ...options.results.map((p) => ({ flag: "--results" as const, path: p })),
+      ...options.fromVitest.map((p) => ({ flag: "--from-vitest" as const, path: p })),
+      ...options.fromPlaywright.map((p) => ({ flag: "--from-playwright" as const, path: p })),
+    ];
+    if (inputs.length === 0) {
       console.error(
         "ddd verify needs test results: pass --results <file> (Loom's " +
-          "{ version, results: [...] } document) or --from-vitest <file> " +
-          "(a vitest/jest --reporter=json report).",
+          "{ version, results: [...] } document), --from-vitest <file> " +
+          "(a vitest/jest --reporter=json report) or --from-playwright <file> " +
+          "(a Playwright --reporter=json report) — each repeatable, one per runner report.",
       );
       process.exit(2);
     }
-    if (options.results && options.fromVitest) {
-      console.error("Pass either --results or --from-vitest, not both.");
-      process.exit(2);
-    }
-    await runVerify(file, options);
+    await runVerify(file, inputs, options);
   });
 
 program

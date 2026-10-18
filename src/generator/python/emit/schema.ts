@@ -29,6 +29,7 @@ import {
   isRefCollectionField,
   joinRowClassName,
   type PyColumn,
+  pyColumnAttr,
   rowClassName,
   valueCollectionChildColumns,
   valueCollectionRowClassName,
@@ -339,12 +340,18 @@ function provenanceColumns(fields: AggregateIR["fields"]): PyColumn[] {
 function renderColumn(c: PyColumn): string {
   const pyType = markTypeNames(c.pyType);
   const annotation = c.optional ? `${pyType} | None` : pyType;
+  // A column whose snake name is a python keyword (`def`) is mapped under the
+  // escaped attribute (`def_`) with the SQL name spelled explicitly, so the
+  // table keeps the column every other backend and the migration use
+  // (eval item 6, ruling D2).
+  const attr = pyColumnAttr(c);
+  const sqlName = c.sqlName ?? (attr !== c.attr ? c.attr : undefined);
   const args = [
-    c.sqlName ? `"${c.sqlName}"` : null,
+    sqlName ? `"${sqlName}"` : null,
     markTypeNames(c.saType),
     c.primaryKey ? "primary_key=True" : null,
   ].filter((a): a is string => a != null);
-  return `    ${c.attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
+  return `    ${attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
 }
 
 /** Document-shaped aggregate (`shape: document`): the whole tree is one

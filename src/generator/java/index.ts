@@ -39,7 +39,11 @@ import {
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
 import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -1315,6 +1319,7 @@ function emitProjectFromContexts(
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
+      ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
       let idValueType = "uuid";
@@ -1540,8 +1545,9 @@ function emitProjectFromContexts(
   );
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   // Beside the probes because it is the same class of surface: infra, not part
-  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1, which the
-  // generated compose file sets, so it does nothing in a deployment.
+  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1 AND
+  // LOOM_TEST_RESET_TOKEN are set (the generated compose file sets neither),
+  // and 403 to a request without that token.
   //
   // Seed runners are injected so the reset can re-apply declared seed data
   // after truncating — a reset restores the just-migrated-AND-seeded state,

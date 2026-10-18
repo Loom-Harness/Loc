@@ -36,6 +36,7 @@ export {
 export {
   validateColumnlessProjectionSources,
   validateDocumentAggregationFilters,
+  validatePagedQueryHandlerShape,
 } from "./projection-backend-checks.js";
 export { validateReactIdReferences } from "./react-id-reference-checks.js";
 export {

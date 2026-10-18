@@ -282,6 +282,8 @@ export function renderVuePage(input: VuePageShellInput): string {
     stateNames,
     repointDerived,
     result.usedStores,
+    input.stores ?? [],
+    new Set([...stateNames, ...page.params.map((p) => p.name), ...page.derived.map((d) => d.name)]),
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
@@ -486,6 +488,13 @@ export function renderVuePage(input: VuePageShellInput): string {
       opFormLines.push(`const ${opCamel} = reactive(${hookName}(${state.idExpr}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (state.gate) {
+        opFormLines.push(
+          `const ${state.gate.local} = reactive(${state.gate.hook}(${state.idExpr}));`,
+        );
+        names.add(state.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {
@@ -562,14 +571,16 @@ export function renderVuePage(input: VuePageShellInput): string {
     }
   }
   // `Action(<inst>.<op>)` mutation hoists — same reactive() wrapper.  The
-  // hook targets a specific instance, so it takes the instance id
-  // (`use<Op><Agg>(<idExpr>)` — matches React/Svelte); `scriptArgs` applies
-  // the page's state `.value` rewrite to the idExpr, as for find hooks above.
+  // hook targets a specific instance, so it takes the instance id as a GETTER
+  // (`use<Op><Agg>(() => <idExpr>)`): `setup` runs once, and the instance is
+  // usually an async QueryView record whose id only exists after it loads.
+  // `scriptArgs` applies the page's state `.value` rewrite to the idExpr, as
+  // for find hooks above.
   for (const m of result.actionMutations) {
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
     hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => scriptArgs([id]))}));`,
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${scriptArgs([id])}`)}));`,
     );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
@@ -714,6 +725,13 @@ export function renderVuePage(input: VuePageShellInput): string {
   if (result.tsx.includes("<LoomChart")) {
     script.push(`import LoomChart from "${adjustDepth("../components/LoomChart.vue", input)}";`);
   }
+  // The `IdLink` reference-label child — same marker discipline, same reason
+  // (`vue/ref-label-runtime.ts`).
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(
+      `import LoomRefLabel from "${adjustDepth("../components/LoomRefLabel.vue", input)}";`,
+    );
+  }
   for (const line of storeWiring.imports) script.push(line);
   script.push("");
   if (needsRoute) {
@@ -846,6 +864,25 @@ function renderStoreWiring(
     }
   }
   return { imports, decls, usesComputed };
+}
+
+/** The `computed` locals `renderStoreWiring` binds for the store FIELD reads
+ *  recorded so far (actions bind plain callables and are excluded). */
+function storeFieldLocals(
+  usedStores: Map<string, Set<string>> | undefined,
+  stores: readonly StoreIR[],
+  reserved: ReadonlySet<string>,
+): string[] {
+  if (!usedStores) return [];
+  const storesByName = new Map(stores.map((s) => [s.name, s]));
+  const out: string[] = [];
+  for (const [storeName, members] of usedStores) {
+    const actionNames = new Set((storesByName.get(storeName)?.actions ?? []).map((a) => a.name));
+    for (const member of members) {
+      if (!actionNames.has(member)) out.push(storeMemberLocal(storeName, member, reserved));
+    }
+  }
+  return out;
 }
 
 /** Relative prefix from the page's emit dir up to `src/` —
@@ -1131,6 +1168,8 @@ export function renderVueComponentFile(
     stateNames,
     rewriteScript,
     result.usedStores,
+    stores,
+    new Set([...stateNames, ...paramNames, ...derivedNames]),
   );
   const derivedLines = derivedResult.lines;
   if (derivedLines.length > 0) vueImports.add("computed");
@@ -1185,11 +1224,12 @@ export function renderVueComponentFile(
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
     // The mutation hook targets a specific instance, so it takes the
-    // instance id (`use<Op><Agg>(<idExpr>)` — matches React/Svelte).  The
-    // raw `idExpr` (`order.id`) is rewritten to `props.order.id` by the
-    // `rewriteScript` map below, since the instance is a component prop.
+    // instance id as a getter (`use<Op><Agg>(() => <idExpr>)`), read when the
+    // mutation runs rather than once at `setup`.  The raw `idExpr`
+    // (`order.id`) is rewritten to `props.order.id` by the `rewriteScript`
+    // map below, since the instance is a component prop.
     hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => id)}));`,
+      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)}));`,
     );
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
@@ -1279,6 +1319,13 @@ export function renderVueComponentFile(
       formLines.push(`const ${opCamel} = reactive(${hookName}(${rewriteScript(st.idExpr)}));`);
       vueImports.add("reactive");
       names.add(hookName);
+      // `when`-gated op: its `can_<op>` probe, against the same id.
+      if (st.gate) {
+        formLines.push(
+          `const ${st.gate.local} = reactive(${st.gate.hook}(${rewriteScript(st.idExpr)}));`,
+        );
+        names.add(st.gate.hook);
+      }
     }
     const openFn = `open${opPascal}Modal`;
     if (seenVars.has(openFn)) {
@@ -1392,6 +1439,10 @@ export function renderVueComponentFile(
   if (usesLoomForm) {
     script.push(`import { useLoomForm } from "../lib/form";`);
   }
+  // A component is a sibling of the reference-label SFC in `src/components/`.
+  if (result.tsx.includes("<LoomRefLabel")) {
+    script.push(`import LoomRefLabel from "./LoomRefLabel.vue";`);
+  }
   if (usesFormToast) {
     script.push(`import { pushToast } from "../lib/toast";`);
   }
@@ -1491,9 +1542,14 @@ function buildDerivedLines(
   stateNames: ReadonlySet<string>,
   repointToScript: (s: string) => string,
   usedStores?: Map<string, Set<string>>,
+  /** The ui's stores + the page-level names `renderStoreWiring` reserves —
+   *  together they name the `computed` local each store FIELD read binds to. */
+  stores: readonly StoreIR[] = [],
+  reserved: ReadonlySet<string> = new Set(),
 ): { lines: string[]; usesState: boolean } {
   const lines: string[] = [];
   const seenDerived = new Set<string>();
+  const allDerived = new Set(derived.map((d) => d.name));
   let usesState = false;
   for (const d of derived) {
     const dctx: WalkContext = {
@@ -1504,7 +1560,11 @@ function buildDerivedLines(
       usedParams: new Set(),
       usesNavigate: false,
       stateNames,
-      derivedNames: seenDerived,
+      // EVERY derived name, not just the ones seen so far: `storeLocalFor`
+      // reads this set to decide a store member's local, and it must match
+      // the full reserved set `renderStoreWiring` binds with (a derived named
+      // like the member it reads → `cartCount`, not a self-reference).
+      derivedNames: allDerived,
       authUi: false,
       usesState: false,
       usesCurrentUser: false,
@@ -1537,6 +1597,16 @@ function buildDerivedLines(
     // in SCRIPT position the read must `.value`-deref — same as state.
     for (const prior of seenDerived) {
       exprStr = exprStr.replace(new RegExp(`\\b${prior}\\b(?!\\.value)`, "g"), `${prior}.value`);
+    }
+    // A store FIELD read lands as the bare member local too, and that local
+    // is a `ComputedRef` (`const count = computed(() => cart.state.count)`),
+    // so in script position it needs the same `.value` deref — else the
+    // derived holds the ref itself, not the number.
+    for (const local of storeFieldLocals(usedStores, stores, reserved)) {
+      exprStr = exprStr.replace(
+        new RegExp(`(?<![.\\w$])${local}\\b(?!\\.value)`, "g"),
+        `${local}.value`,
+      );
     }
     lines.push(`const ${d.name} = computed(() => ${exprStr});`);
     seenDerived.add(d.name);

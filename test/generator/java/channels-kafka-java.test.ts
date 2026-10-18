@@ -86,7 +86,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
       expect(find(files, dep, "ChannelBindings.java")).toContain(
         '"loom.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
-          '", false, "order")',
+          '", false, "order", false)',
       );
       // Idempotent topic ensure before the group join.
       expect(mod).toContain("admin.createTopics(List.of(new NewTopic(topic, 3, (short) 1)))");
@@ -151,8 +151,34 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     // The consumer subscribes on its group (strict path) and the consumed
     // log carries the partition key (the e2e ordering probe reads it).
     const consumer = find(files, "ship_api", "ChannelConsumerService.java");
-    expect(consumer).toContain("subscribe(binding.address(), binding.group(),");
+    expect(consumer).toContain(
+      "subscribe(binding.address(), binding.group(), binding.fromBeginning(),",
+    );
     expect(consumer).toContain('"key", String.valueOf(envelope.loomKey())');
+    // `retention: log` keeps the latest offset for a NEW group (D3).
+    expect(find(files, "ship_api", "KafkaChannelTransport.java")).toContain(
+      'props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, fromBeginning ? "earliest" : "latest");',
+    );
+  });
+
+  it("starts a NEW group at earliest on a work-queue channel (D3, item 13)", async () => {
+    const files = await generateSystemFiles(
+      FIXTURE.replace("delivery: broadcast", "delivery: queue").replace(
+        "retention: log",
+        "retention: work",
+      ),
+    );
+    // The binding row flips its fromBeginning flag, and the kafka driver
+    // overrides the 4-arg subscribe the interface defaults for other drivers.
+    expect(find(files, "ship_api", "ChannelBindings.java")).toContain(
+      '"loom.Orders.Lifecycle.shipApi", true, "order", true)',
+    );
+    expect(find(files, "ship_api", "ChannelTransport.java")).toContain(
+      "default void subscribe(String address, String group, boolean fromBeginning,",
+    );
+    expect(find(files, "ship_api", "KafkaChannelTransport.java")).toContain(
+      "public synchronized void subscribe(String address, String group, boolean fromBeginning,",
+    );
   });
 
   it("keeps the rabbit (7c) shape stable — no kafka artifacts leak", async () => {

@@ -8,9 +8,10 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { snake } from "../../util/naming.js";
+import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
@@ -202,7 +203,7 @@ function _idNamesOf(events: EventIR[]): string[] {
 /** In-memory find over the folded aggregates — eventLog has no state
  *  columns to query. */
 function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR): string {
-  const params = find.params.map((p) => `${snake(p.name)}: ${pyParam(p.type)}`);
+  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${pyParam(p.type)}`);
   const sig = ["self", ...params].join(", ");
   const pred = find.filter ? renderPyExpr(find.filter, { thisName: "a" }) : "True";
   // `find … paged` over an event-log carrier — the four wire controls join the
@@ -254,7 +255,7 @@ function rowToEvent(agg: EnrichedAggregateIR, events: EventIR[], row: string): s
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
     `            return ${eventRef(ev.name)}(${ev.fields
-      .map((f) => `${snake(f.name)}=${fromData(f.name, f.type)}`)
+      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`)
       .join(", ")})`,
   ]);
   return lines(
@@ -299,7 +300,7 @@ export function fromData(name: string, t: TypeIR): string {
 function eventToData(events: EventIR[]): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} isinstance(ev, ${eventRef(ev.name)}):`,
-    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${snake(f.name)}`, f.type)}`).join(", ")}}`,
+    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
   ]);
   return lines(
     `    def _event_to_data(self, ev: ${R.DomainEvent}) -> dict[str, object]:`,
@@ -326,7 +327,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   const pairs: string[] = [`"id": root.id`];
   for (const wf of wireFieldsForAggregate(agg)) {
     if (wf.source === "id" || wf.source === "containment") continue;
-    const access = `root.${snake(wf.name)}`;
+    const access = `root.${pythonIdent(wf.name)}`;
     const inner = wf.type.kind === "optional" ? wf.type.inner : wf.type;
     if (inner.kind === "primitive" && inner.name === "datetime") {
       pairs.push(`"${wf.name}": ${R.iso}(${access})`);
@@ -338,10 +339,10 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       continue;
     }
     if (inner.kind === "valueobject") {
-      const vo = ctx.valueObjects.find((v) => v.name === inner.name);
+      const vo = findValueObjectInScope(ctx, inner.name);
       if (vo) {
         const fields = vo.fields
-          .map((vf) => `"${vf.name}": ${access}.${snake(vf.name)}`)
+          .map((vf) => `"${vf.name}": ${access}.${pythonIdent(vf.name)}`)
           .join(", ");
         pairs.push(`"${wf.name}": {${fields}}`);
         continue;

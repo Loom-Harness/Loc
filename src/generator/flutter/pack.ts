@@ -32,6 +32,7 @@
 import { lowerFirst } from "../../util/naming.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { giveUpText } from "../_walker/give-up.js";
+import { dartMember } from "./dart-member.js";
 
 type Ctx = Record<string, string | number | boolean | readonly string[] | undefined>;
 
@@ -307,7 +308,7 @@ function primitiveModalControlled(c: Ctx): string {
   const title = c.hasTitle ? `title: ${asText(String(c.title ?? ""))}, ` : "";
   const body = childrenList(c);
   return (
-    `LoomModalHost(open: state.${opened}, ${title}` +
+    `LoomModalHost(open: state.${dartMember(opened)}, ${title}` +
     `onClose: () => notifier.${setter}(false), ` +
     `child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: ${body}))`
   );
@@ -406,7 +407,10 @@ function primitiveAnchor(c: Ctx): string {
 function primitiveIdLink(c: Ctx): string {
   const idExpr = String(c.idExpr ?? "''");
   const prefix = String(c.pathPrefix ?? "/");
-  return `TextButton(onPressed: () => Navigator.of(context).pushNamed('${dartStr(prefix)}' + ${idExpr}.toString()), child: Text(${idExpr}.toString()))`;
+  // A referenced record with a `display` is labelled by the `LoomRefLabel`
+  // child the target wraps around the id text (its loading / error fallback).
+  const label = `${String(c.refOpen ?? "")}Text(${idExpr}.toString())${String(c.refClose ?? "")}`;
+  return `TextButton(onPressed: () => Navigator.of(context).pushNamed('${dartStr(prefix)}' + ${idExpr}.toString()), child: ${label})`;
 }
 
 /** True when rendered Dart references an `intl` formatter (`NumberFormat` /
@@ -517,7 +521,7 @@ function primitiveChart(c: Ctx): string {
   // column reaches the row as the wire STRING (M-T1.21), and a projection row's
   // `y:` has no usable static type here, so the coercion has to be total over
   // BOTH a number and that string.  The cast threw on every money series.
-  const point = `LoomChartPoint(r.${x}.toString(), LoomMoney.toNum(r.${y}).toDouble())`;
+  const point = `LoomChartPoint(r.${dartMember(x)}.toString(), LoomMoney.toNum(r.${dartMember(y)}).toDouble())`;
   return `LoomChart(isBar: ${isBar}, label: ${label}, points: ${rows}.map((r) => ${point}).toList())`;
 }
 
@@ -676,7 +680,7 @@ function primitiveButton(c: Ctx): string {
 
 /** `state.<bind>` — the reactive read of a bound state field. */
 function boundRead(c: Ctx): string {
-  return `state.${String(c.bind ?? "")}`;
+  return `state.${dartMember(String(c.bind ?? ""))}`;
 }
 
 /** An input LABEL as a Dart string expression: the walker's translation call

@@ -58,6 +58,7 @@ import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import { renderZustandStoreModule } from "./store-builder.js";
 import { defaultNavSections } from "./templating/preparers/app-shell.js";
 import { renderAppShell, renderMain, renderShellFile, renderTheme } from "./templating/render.js";
@@ -582,6 +583,12 @@ export function generateReactForContexts(
   // `lib-utils` plus the `components-ui-*` glob for its source-
   // imported component library.  Custom packs declare their own
   // file mappings here without touching this file.
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes(REF_LABEL_MARKER))) {
+    out.set(REACT_REF_LABEL_PATH, REACT_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 

@@ -84,6 +84,7 @@ import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
 import { buildVueRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { VUE_REF_LABEL, VUE_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { renderVueStoreModule } from "./store-builder.js";
 import {
   renderVueComponentFile,
@@ -748,6 +749,12 @@ export function generateVueForContexts(
   // pack.json.  vuetify ships neither; shadcnVue ships globals-css /
   // lib-utils / the components-ui barrel plus the `components-ui-*`
   // source-copy glob (`src/components/ui/{1}.vue`).
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<LoomRefLabel"))) {
+    out.set(VUE_REF_LABEL_PATH, VUE_REF_LABEL);
+  }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
 

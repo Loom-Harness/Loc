@@ -1,0 +1,12 @@
+system Evo {
+  subdomain S { context C {
+    aggregate Thing with crudish {
+      gamma: string?
+      derived display: string = "t"
+    }
+    repository Things for Thing { }
+  } }
+  storage primary { type: postgres }
+  resource cState { for: C, kind: state, use: primary }
+  deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3400 }
+}

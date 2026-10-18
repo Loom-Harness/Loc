@@ -39,6 +39,10 @@ export interface CriteriaCtx {
   agg: AggregateIR;
   /** VO name → fields, for sub-path typing. */
   voLookup: ReadonlyMap<string, readonly FieldIR[]>;
+  /** The Java parameter a criterion param is declared under, when the factory
+   *  moved it off a name its `(root, query, cb) ->` lambda binds
+   *  (`javaLocals`); `undefined` → the default `jid` spelling. */
+  paramExpr?: (name: string) => string | undefined;
 }
 
 export function renderCriteriaPredicate(e: ExprIR, ctx: CriteriaCtx): string {
@@ -81,7 +85,9 @@ function bool(e: ExprIR, ctx: CriteriaCtx): string {
       if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") {
         return `cb.isTrue(${path([e.name], ctx)})`;
       }
-      if (e.refKind === "param") return `cb.isTrue(cb.literal(${e.name}))`;
+      if (e.refKind === "param") {
+        return `cb.isTrue(cb.literal(${ctx.paramExpr?.(e.name) ?? jid(e.name)}))`;
+      }
       throw unsupported(`ref '${e.refKind}'`);
     case "member":
     case "this": {
@@ -371,11 +377,14 @@ function declaredType(segs: string[], ctx: CriteriaCtx): string {
  *  Java leaf table.  A principal (tenancy) `currentUser.<field>` access
  *  renders null-safe against the `currentUser` the factory is handed (no
  *  actor → null → the comparison matches no rows: fail-closed). */
-function value(e: ExprIR, _ctx: CriteriaCtx): string {
+function value(e: ExprIR, ctx: CriteriaCtx): string {
   if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
     return `(currentUser == null ? null : currentUser.${e.member}())`;
   }
-  return renderJavaExpr(e, { thisName: "root" });
+  return renderJavaExpr(
+    e,
+    ctx.paramExpr ? { thisName: "root", paramExpr: ctx.paramExpr } : { thisName: "root" },
+  );
 }
 
 /** The `deep` read-level sentinel as a JPA Criteria predicate.  `dataKey` /

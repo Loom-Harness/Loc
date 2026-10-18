@@ -20,7 +20,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import { collectReachableTypes, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  collectReachableTypes,
+  orderValueObjectsByDependency,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
@@ -211,7 +215,8 @@ function collectUsedValueObjects(
 ): ValueObjectIR[] {
   const pool = valueObjectPool(ctx);
   const { valueObjects } = collectReachableTypes(projectionSchemaSeeds(folded), pool);
-  return pool.filter((v) => valueObjects.has(v.name));
+  // Dependency order — see `collectUsedValueObjects` in routes-builder.ts.
+  return orderValueObjectsByDependency(pool.filter((v) => valueObjects.has(v.name)));
 }
 
 /** The response DTO (one row) + its list carrier, over the projection's wire
@@ -283,7 +288,7 @@ function emitFoldHandler(
   // Key: the `by <expr>` extractor, else the event field name-matching the key.
   const keyExpr = h.correlation
     ? renderTsExpr(h.correlation, { thisName: "state" })
-    : `${h.param}.${corr}`;
+    : `${escapeTsIdent(h.param)}.${corr}`;
   // Allocate for a not-yet-seen key: just the correlation column (every other
   // read-model column is nullable, so a partial row is valid — the fold
   // assignments below populate the carried fields before the upsert).  Under
@@ -298,7 +303,7 @@ function emitFoldHandler(
   const out = [
     `export async function fold${h.event}Into${T}(`,
     `  db: ${projDbType(usingMikro)},`,
-    `  ${h.param}: Events.${h.event},`,
+    `  ${escapeTsIdent(h.param)}: Events.${h.event},`,
     `): Promise<void> {`,
     `  const __key = ${keyExpr};`,
     `  const state = (await load${T}(db, __key)) ?? ${allocate};`,

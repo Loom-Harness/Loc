@@ -241,7 +241,7 @@ export function renderAuthFiles(
     .map((f) => {
       const kind = stubClaimKinds.get(f.name);
       if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isTextual() ? claims.get("${f.name}").asText() : ${stubValue(f.type)}`;
+        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
       }
       if (kind === "stringList") {
         return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
@@ -315,8 +315,8 @@ export function renderAuthFiles(
                   `        if (node == null || !node.isArray()) return fallback;`,
                   `        java.util.List<String> out = new java.util.ArrayList<>();`,
                   `        for (tools.jackson.databind.JsonNode e : node) {`,
-                  `            if (!e.isTextual()) return fallback;`,
-                  `            out.add(e.asText());`,
+                  `            if (!e.isString()) return fallback;`,
+                  `            out.add(e.asString());`,
                   `        }`,
                   `        return java.util.List.copyOf(out);`,
                   `    }`,
@@ -345,6 +345,7 @@ export function renderAuthFiles(
       ` *  UserFilter answers it 400 — refused rather than ignored, because ignoring`,
       ` *  it ran the request as the built-in identity (ruling D6). */`,
       `public class MalformedDevClaimsException extends RuntimeException {`,
+      `    private static final long serialVersionUID = 1L;`,
       `    public MalformedDevClaimsException() {`,
       `        super(${JSON.stringify(MALFORMED_DEV_CLAIMS_DETAIL)});`,
       `    }`,
@@ -418,8 +419,9 @@ export function renderAuthFiles(
       `        "/swagger",`,
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
       // surface, so an auth-bearing system's e2e suite need not mint a
-      // principal just to empty a table.  The handler itself answers 404
-      // unless the switch is on, so bypassing the filter exposes nothing.
+      // principal just to empty a table.  Not an auth bypass: the handler
+      // answers 404 unless LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN are
+      // set, and 403 to a request without that secret.
       `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable
       // without a verified principal; /auth/me stays protected (it is the
@@ -580,7 +582,7 @@ export function renderAuthFiles(
   // claim mapping onto the typed User.  @Primary so it wins over the dev
   // stub the moment an `auth { oidc }` block is present.
   if (oidc) {
-    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, pkg));
+    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, basePkg));
   }
 
   // Hierarchy (multi-tenancy): the registry-backed `orgPath` resolver.
@@ -803,17 +805,26 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
  *  map cleanly onto string / string[] user fields). */
 function javaClaimRead(f: FieldIR, auth: AuthIR): string {
   const path = JSON.stringify(claimPathFor(f.name, auth));
-  const t = f.type;
+  // An optional field's `type` carries the `optional` wrapper, so the string
+  // test below must see the inner type — read off the bare `f.type`, every
+  // optional `string?` claim fell through to `stubValue` (`null`) and was null
+  // for every token, the claim never read.
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return `claimStringList(payload, ${path})`;
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return f.optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
   }
-  return stubValue(t);
+  // An unmapped OPTIONAL claim is null — never the stub default: the zero id
+  // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
+  // for every token.
+  return optional ? "null" : stubValue(t);
 }
 
-function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
+function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
+  const pkg = `${basePkg}.auth`;
   // Env override first (12-factor): the generated compose repoints
   // OIDC_ISSUER at the bundled dev Keycloak, so a literal issuer must not
   // be baked un-overridably — with it baked, every token from the bundled
@@ -855,6 +866,8 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `import jakarta.servlet.http.Cookie;`,
     `import jakarta.servlet.http.HttpServletRequest;`,
     ``,
+    `import ${basePkg}.config.CatalogLog;`,
+    ``,
     `/** Generated OIDC verifier.  Validates the bearer token's`,
     ` *  signature against the issuer's JWKS (discovered + cached via Nimbus),`,
     ` *  checks iss / exp, then projects the configured claims onto User.`,
@@ -883,7 +896,10 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `            );`,
     `        } catch (Exception e) {`,
     `            // Any validation failure (bad signature / iss / exp / forged`,
-    `            // token / discovery error) rejects with 401, never 500.`,
+    `            // token / discovery error) rejects with 401, never 500 — and`,
+    `            // says why at debug, so a misconfigured issuer / audience is`,
+    `            // diagnosable from the log stream.`,
+    `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", String.valueOf(e.getMessage()));`,
     `            return null;`,
     `        }`,
     `    }`,
@@ -918,9 +934,12 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // AUDIENCE null -> audience validation is skipped (matches Hono/.NET).`,
+    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
+    `        // the documented opt-out every backend honours.  Nimbus given ""`,
+    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
-    `            new DefaultJWTClaimsVerifier<>(AUDIENCE, exactMatch, Set.of("exp")));`,
+    `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,
     `        return proc;`,
     `    }`,
     ``,
@@ -931,7 +950,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        HttpResponse<String> resp =`,
     `            HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofString());`,
     `        JsonNode doc = MAPPER.readTree(resp.body());`,
-    `        return doc.get("jwks_uri").asText();`,
+    `        return doc.get("jwks_uri").asString();`,
     `    }`,
     ``,
     `    /** The bearer token from the Authorization header, or the HttpOnly`,
@@ -1149,7 +1168,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `    @GetMapping("${AUTH_BASE_PATH}/login")`,
     `    public ResponseEntity<Void> login(HttpServletResponse response) throws Exception {`,
     `        JsonNode config = discovery();`,
-    `        String authorize = config.get("authorization_endpoint").asText();`,
+    `        String authorize = config.get("authorization_endpoint").asString();`,
     `        String state = UUID.randomUUID().toString().replace("-", "");`,
     `        // PKCE (RFC 7636): mint a verifier, send only its S256 challenge to the`,
     `        // IdP, stash the verifier in an HttpOnly cookie for /callback.`,
@@ -1184,7 +1203,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=authorization_code"`,
     `                + "&code=" + enc(code)`,
     `                + "&redirect_uri=" + enc(REDIRECT_URI)`,
@@ -1216,7 +1235,7 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `        }`,
     `        try {`,
     `            JsonNode config = discovery();`,
-    `            String tokenEndpoint = config.get("token_endpoint").asText();`,
+    `            String tokenEndpoint = config.get("token_endpoint").asString();`,
     `            String form = "grant_type=refresh_token"`,
     `                + "&refresh_token=" + enc(refresh)`,
     `                + "&client_id=" + enc(CLIENT_ID)`,
@@ -1263,10 +1282,10 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
     `     *  (when granted) for /refresh.  Both HttpOnly — the SPA never sees them. */`,
     `    private static void storeTokens(HttpServletResponse response, JsonNode tokens) {`,
     `        JsonNode access = tokens.get("access_token");`,
-    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asText()));`,
+    `        response.addCookie(sessionCookie("session", access == null ? "" : access.asString()));`,
     `        JsonNode refresh = tokens.get("refresh_token");`,
-    `        if (refresh != null && !refresh.asText().isEmpty()) {`,
-    `            response.addCookie(sessionCookie("refresh", refresh.asText()));`,
+    `        if (refresh != null && !refresh.asString().isEmpty()) {`,
+    `            response.addCookie(sessionCookie("refresh", refresh.asString()));`,
     `        }`,
     `    }`,
     ``,

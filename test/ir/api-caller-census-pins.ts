@@ -629,6 +629,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C5 5b (RS-38 / RS-34): the query-time projection read the witness's
   // absent-join half asserts through — the same not-yet-lifted class as above.
   "corpus/datetime-wire": ["api.slotBoard.list (no such aggregate)"],
+  // Eval items 10 + 14b: the direct-table arms over a TPH concrete and over a
+  // value-object leaf.  All three are projection READS — the `notLifted` class.
+  "corpus/projection-tph-source": [
+    "api.autoClaimVolume.list (no such aggregate)",
+    "api.autoClaimsByStatus.list (no such aggregate)",
+    "api.billTotals.list (no such aggregate)",
+  ],
   "corpus/projection-groupby": [
     // All five are projection READS — the not-yet-lifted route class this map
     // exists for, not a call that fails to find its operation.  `ordersByTotal`
@@ -659,6 +666,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // this fixture.  Their route-contract gate is `e2e-route-checks.ts`'s
   // `checkWorkflowVerb`, not this census.  Lifting workflow routes into the
   // derivation would make these attributable — and this entry stale.
+  // A workflow-instance read is the `notLifted` class (same as
+  // `workflow-create-state`): it pins the failed reaction's saga row absent.
+  "corpus/reactor-failure": ["api.askForRating.instance (no such aggregate)"],
   "corpus/workflow-create-state": [
     "api.escalation.instance (no such aggregate)",
     "api.escalation.instances (no such aggregate)",
@@ -825,6 +835,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly that fact), but nothing in this fixture reads `customerId`, so no
   // route answers differently for it.  Reasoned permanent entry.
   "auth-id-claim-stub",
+  // COMPILE-TIER WITNESS — the FOREIGN twin (claims eval D6): the same
+  // `agentId: Agent id?` claim on a deployable (`payments`) that does NOT host
+  // `Agent`, so its ids module never declared the brand its `User` names (node
+  // TS2694, python ImportError at boot, java/.NET missing symbol).  The defect is
+  // the existence of a declaration, which the compile tier reads directly; no
+  // route of the fixture reads the claim.  Reasoned permanent entry.
+  "auth-id-claim-foreign",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.

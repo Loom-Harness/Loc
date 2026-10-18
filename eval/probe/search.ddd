@@ -1,0 +1,7 @@
+context C {
+  aggregate Post { title: string  body: string  derived display: string = title }
+  repository Posts for Post {
+    find byPrefix(q: string): Post paged where this.title.startsWith(q)
+    find byContains(q: string): Post paged where this.title.contains(q)
+  }
+}

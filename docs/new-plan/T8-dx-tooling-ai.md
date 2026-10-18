@@ -169,6 +169,8 @@ From the [Commons dev-experience audit](../audits/2026-09-13-commons-dev-experie
 
 **The design question:** a regen-time diff of the would-be emission against the pinned file's recorded base (a `.loom/` fingerprint), reported as a warning. Needs a short design note before code.
 
+**Ruling 2026-09-29 (evaluation-closure review item #40, D12):** the stale-pin detector (#40b) stays mission-only — this mission. The cheap half (#40a: regenerate NAMES the locally-modified files, capped at 10, also under `--dry-run`) is in flight as #3095 and is not part of this mission. The re-verification's sketch for this half: record the generator hash of each pinned path's would-be content in `.loom/`, and warn `loom.pinned-file-stale: <path>` when it changes between runs; optionally a `--diff` flag printing the unified diff.
+
 ## M-T8.29 — `ddd breakpoints` resolves FILES, not lines, for every declarative member — `open` · **L** · P2
 
 **The gap.** `ddd breakpoints <f.ddd> --line N` is documented as resolving a `.ddd` line to the
