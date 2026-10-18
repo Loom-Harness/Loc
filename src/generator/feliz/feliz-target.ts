@@ -964,6 +964,9 @@ export const felizTarget: WalkerTarget = {
 
   // --- Markup seams — F# flavoured ---------------------------------------
   renderComment: (text: string) => `(* ${text} *)`,
+  // A comment-only body leaves `let view … =` with no expression — follow the
+  // comment with `Html.none` so the view still returns an element.
+  wrapCommentOnlyRoot: (comment: string) => `${comment}\nHtml.none`,
   // A VISIBLE degradation notice — an F# comment inside a `children` list is
   // not an expression at all, so on this target the "honest skip" was neither
   // honest (the reader saw an empty card) nor safe.  `Html.p` renders through

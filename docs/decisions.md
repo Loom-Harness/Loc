@@ -4727,8 +4727,9 @@ system types such a call `bool` (`outOfScopePolicyCall`,
 `src/language/type-system.ts`), so the named error is the only one raised.
 The detection has two limits:
 
-- It covers only the call form `P(args)`. A bare name has too many other
-  readings.
+- It covers the call forms `P(args)` and `Ctx.P(args)` (the qualified
+  spelling an author tries first when sharing a policy). A bare name has too
+  many other readings.
 - It sees only one document. In a multi-file model, a context declared in
   another file is not searched, and that case keeps the old wording.
 

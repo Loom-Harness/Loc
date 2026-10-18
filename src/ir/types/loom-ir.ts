@@ -2355,8 +2355,11 @@ export interface VerificationIR {
     total: number;
   };
   diagnostics: {
-    /** Result rows that matched no backing executable test. */
+    /** Result rows that matched no declared executable test at all. */
     unknownTests: TestOutcome[];
+    /** Result rows of a declared executable test that carries no
+     *  `verifies` — real tests, just not evidence for any test case. */
+    unlinkedTests: TestOutcome[];
     /** TestCase ids referenced by a test's `verifies` that don't exist. */
     unmappedTestCases: string[];
   };
