@@ -32,7 +32,11 @@ import {
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
   isTphBase,
@@ -77,6 +81,7 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
+import { clashFreeRootNamespace } from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -126,6 +131,7 @@ import { renderId } from "./emit/ids.js";
 import { CS_MESSAGES_PATH, renderCsMessages } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
 import { emitDotnetMigrations, emitDotnetProvenanceAuditMigration } from "./emit/migrations.js";
+import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
 import {
   renderOutboxDelivery,
   renderOutboxDispatcher,
@@ -301,7 +307,7 @@ export function generateDotnetForContexts(
     // Single project containing all the given contexts under one namespace.
     emitProjectFromContexts(
       contexts,
-      namespace,
+      clashFreeRootNamespace(namespace, contexts),
       out,
       system,
       emitTrace,
@@ -310,7 +316,7 @@ export function generateDotnetForContexts(
     );
   } else {
     for (const ctx of contexts) {
-      emitContext(ctx, ctx.name, out, emitTrace);
+      emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);
     }
   }
   return out;
@@ -596,6 +602,7 @@ function emitProjectFromContexts(
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
       ...workflowIdTypeSources(merged.workflows),
+      ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
       let idValueType = "uuid";
@@ -1045,6 +1052,10 @@ function emitProjectFromContexts(
     "Api/ListResponseWrapperFilter.cs",
     renderListWrapperFilter(ns, listWrapperPairs(contexts)),
   );
+  // The operation-return union OpenAPI split (M-FT.24) — only when some
+  // operation returns a union with an `error` arm.
+  const opUnionFilter = renderOpUnionResponsesFilter(ns, contexts);
+  if (opUnionFilter) out.set(OP_UNION_FILTER_PATH, opUnionFilter);
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));
   if (usesValidators) {
     out.set("Application/Common/ValidationBehavior.cs", renderValidationBehavior(ns));
@@ -1906,6 +1917,8 @@ function emitInfrastructure(
   out.set("Api/MalformedPathIdFilter.cs", renderMalformedPathIdFilter(ns));
   out.set("Api/ProblemDetailsResponsesFilter.cs", renderProblemDetailsFilter(ns));
   out.set("Api/ListResponseWrapperFilter.cs", renderListWrapperFilter(ns, listWrapperPairs([ctx])));
+  const opUnionFilter = renderOpUnionResponsesFilter(ns, [ctx]);
+  if (opUnionFilter) out.set(OP_UNION_FILTER_PATH, opUnionFilter);
   out.set("Api/RequiredFromCtorParamFilter.cs", renderRequiredFromCtorParamFilter(ns));
 }
 
@@ -2022,6 +2035,8 @@ function emitProject(
     "Program.cs",
     renderProgram(ctx, ns, {
       schemaIdOverrides,
+      // Read off the emitted files, like `schemaIdOverrides` above.
+      opUnionFilter: out.has(OP_UNION_FILTER_PATH),
       authRequired: !!options?.authRequired,
       userFields: options?.userFields ?? [],
       usesValidators,
