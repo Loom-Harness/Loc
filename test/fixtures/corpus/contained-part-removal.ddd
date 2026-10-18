@@ -1,0 +1,156 @@
+// shape: an operation REMOVES a contained child — and the removal has to reach
+// the database, not just the in-memory struct (M-T6.94).
+//
+// Elixir answered 2xx to `lines -= l` and left the child row in place.  The op
+// body rebinds `record = %{record | lines: …}`, and the persist tail built its
+// changeset over that ALREADY-mutated struct: `put_assoc` (and `force_change`
+// over a value-object collection) diffs the new list against the changeset
+// data, which no longer held the removed child — so Ecto found nothing missing
+// and issued no DELETE.  An ADD survived by accident (a new child has no PK and
+// reads as an insert either way), which is why only removal was broken.
+//
+// Every relation-backed shape that can lose an element is crossed here, each
+// read back through the API so the DATABASE is the witness:
+//   - an entity part (`lines`), removed by a plain operation;
+//   - a NESTED part (`Line.notes`), removed by rebuilding its line — the line
+//     row and its note rows are replaced, so the nested child table has to
+//     follow the parent's delete + insert;
+//   - a value-object collection (`charges: Charge[]`, a child table on the
+//     relational backends);
+//   - a reference collection (`tags: Tag id[]`, join rows) — already correct on
+//     elixir (its body diffs an id list against the loaded assoc), pinned so a
+//     fix to the other three cannot regress it;
+//   - a RETURNING operation (`int`), which persists through its own tail;
+//   - a workflow save, which routes through the same context function.
+system ContainedPartRemoval {
+  subdomain Shop {
+    context Carts {
+      valueobject Charge { label: string  amount: int }
+
+      aggregate Tag with crudish { name: string }
+      repository Tags for Tag { }
+
+      aggregate Cart with crudish {
+        name: string
+        charges: Charge[]
+        tags: Tag id[]
+        contains lines: Line[]
+        entity Line {
+          sku: string
+          qty: int
+          contains notes: Note[]
+        }
+        entity Note { text: string }
+
+        operation addLine(sku: string, qty: int) {
+          lines += Line { sku: sku, qty: qty, notes: [Note { text: "a" }, Note { text: "b" }] }
+        }
+        operation drop(sku: string) { lines -= lines.where(l => l.sku == sku).first() }
+        // A part has no operations of its own, so a nested child is removed the
+        // way a domain model would: replace its parent line with one that no
+        // longer carries it.
+        operation dropNote(sku: string, text: string) {
+          let old = lines.where(l => l.sku == sku).first()
+          lines -= old
+          lines += Line { sku: old.sku, qty: old.qty, notes: old.notes.where(n => n.text != text) }
+        }
+        operation dropCounted(sku: string): int {
+          lines -= lines.where(l => l.sku == sku).first()
+          return lines.count
+        }
+        operation addCharge(label: string) { charges += Charge { label: label, amount: 1 } }
+        operation dropCharge(label: string) { charges -= charges.where(c => c.label == label).first() }
+        operation addTag(t: Tag id) { tags += t }
+        operation dropTag(t: Tag id) { tags -= t }
+
+        // The in-memory half: the same removals on the domain object, no
+        // database — so a backend whose domain core drops the element is
+        // told apart from one whose persist tail does.
+        test "removing a contained line leaves exactly one" {
+          let c = Cart.create({ name: "u", charges: [], tags: [] })
+          c.addLine("A", 1)
+          c.addLine("B", 2)
+          c.drop("A")
+          expect(c.lines.count).toBe(1)
+          c.dropNote("B", "a")
+          expect(c.lines.count).toBe(1)
+          c.addCharge("x")
+          c.addCharge("y")
+          c.dropCharge("x")
+          expect(c.charges.count).toBe(1)
+        }
+      }
+      repository Carts for Cart { }
+
+      workflow dropVia {
+        create(c: Cart id, sku: string) {
+          let cart = Carts.getById(c)
+          cart.drop(sku)
+        }
+      }
+    }
+  }
+
+  api CartsApi from Shop
+  storage pg { type: postgres }
+  resource cartsState { for: Carts, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Carts]
+    dataSources: [cartsState]
+    serves: CartsApi
+    port: 4000
+  }
+
+  test e2e "a removed contained child is gone from the database" against d {
+    let c = api.carts.create({ name: "c", charges: [], tags: [] })
+
+    // Entity part: two lines in, one removed by a plain operation.
+    api.carts.addLine(c, { sku: "A", qty: 1 })
+    api.carts.addLine(c, { sku: "B", qty: 2 })
+    let two = api.carts.getById(c)
+    expect(two.lines.length).toBe(2)
+    api.carts.drop(c, { sku: "A" })
+    let one = api.carts.getById(c)
+    expect(one.lines.length).toBe(1)
+    expect(one.lines.first().sku).toBe("B")
+    expect(one.lines.first().notes.length).toBe(2)
+
+    // Nested part: line B is replaced by one carrying a single note.
+    api.carts.dropNote(c, { sku: "B", text: "a" })
+    let trimmed = api.carts.getById(c)
+    expect(trimmed.lines.length).toBe(1)
+    expect(trimmed.lines.first().notes.length).toBe(1)
+    expect(trimmed.lines.first().notes.first().text).toBe("b")
+
+    // Returning operation: its own persist tail.
+    api.carts.addLine(c, { sku: "C", qty: 3 })
+    api.carts.dropCounted(c, { sku: "C" })
+    let counted = api.carts.getById(c)
+    expect(counted.lines.length).toBe(1)
+
+    // Workflow save: routes through the same context function.
+    api.carts.addLine(c, { sku: "D", qty: 4 })
+    api.dropVia.run({ c: c.id, sku: "D" })
+    let viaWorkflow = api.carts.getById(c)
+    expect(viaWorkflow.lines.length).toBe(1)
+
+    // Value-object collection.
+    api.carts.addCharge(c, { label: "x" })
+    api.carts.addCharge(c, { label: "y" })
+    api.carts.dropCharge(c, { label: "x" })
+    let charged = api.carts.getById(c)
+    expect(charged.charges.length).toBe(1)
+    expect(charged.charges.first().label).toBe("y")
+
+    // Reference collection (join rows).
+    let t1 = api.tags.create({ name: "t1" })
+    let t2 = api.tags.create({ name: "t2" })
+    api.carts.addTag(c, { t: t1.id })
+    api.carts.addTag(c, { t: t2.id })
+    api.carts.dropTag(c, { t: t1.id })
+    let tagged = api.carts.getById(c)
+    expect(tagged.tags.length).toBe(1)
+  }
+}

@@ -153,6 +153,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by ledger row F2-CB-C1.  Pagination and the storage shapes each had a fixture; their CROSSING did not, and that is exactly where it broke.  The route, the repository port and the response model all derive their contract from `pagedReturn(returnType)` and declared the 5-argument `Paged<T>` shape, while the document / event-log repository builders — which rehydrate and filter in app — had no paged branch and kept emitting the 1-argument unpaged method: CS0535 + CS0029 on .NET, a 5-arg call into a 1-arg `async def` (then `result.items`) on python.  No diagnostic anywhere — all five backends reported OK.  node / java / elixir already paged both carriers, which is the other half of why it stayed invisible: a fixture on any ONE of them would have passed.  `shape: embedded` is deliberately absent — it reuses the relational row table, so its paged find was always correct and `embedded.ddd` owns that shape.",
   },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
+  {
+    id: "contained-part-removal",
+    title:
+      "an operation REMOVES a contained child (`lines -= l`) — entity part, nested part, value-object collection, `X id[]` join row, returning op, workflow save — and the row is gone on re-read",
+    doc: "language",
+    backends: ALL,
+    note: "M-T6.94 (filed by #3249).  elixir answered 2xx and left the child row: the op persist tail built its changeset over the already-mutated struct, so `put_assoc`/`force_change` diffed the new child list against itself and issued no DELETE (an ADD survived only because a PK-less child reads as an insert either way).  The other four backends were already correct and ride as regression pins.",
+  },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {
     id: "enum-collection",
