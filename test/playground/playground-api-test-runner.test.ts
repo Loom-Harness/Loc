@@ -104,6 +104,16 @@ describe("harness", () => {
     const results = await runTests(h.tests);
     expect(results.map((r) => r.status)).toEqual(["pass", "fail"]);
   });
+
+  it("expect.fail fails the test with its message (a bare toThrow() whose call returned)", async () => {
+    // The generated unit suites' `expectDomainRejection` helper calls vitest's
+    // static `expect.fail(...)`; the playground runs those suites on this shim.
+    const h = createHarness();
+    h.it("returned", () => h.expect.fail("expected the call to be rejected by the domain"));
+    const [r] = await runTests(h.tests);
+    expect(r?.status).toBe("fail");
+    expect(r?.error).toContain("expected the call to be rejected by the domain");
+  });
 });
 
 describe("makeDispatchFetch", () => {

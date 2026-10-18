@@ -278,7 +278,9 @@ describe("Phoenix OIDC verifier emission", () => {
       auth.indexOf("defp require_claims"),
     );
     expect(verify).toContain("rescue");
-    expect(verify).toContain("_ -> {:error, :invalid_token}");
+    // The rescue arm binds the exception (to log `auth_token_rejected` with its
+    // message, claims-eval D7) and still answers the invalid-token tuple.
+    expect(verify).toMatch(/rescue[\s\S]*\be ->[\s\S]*\{:error, :invalid_token\}\s*end/);
     // The rescue must sit AFTER the `with` body (function-level rescue), so it
     // guards the verify_and_validate call itself.
     expect(verify.indexOf("verify_and_validate")).toBeLessThan(verify.indexOf("rescue"));

@@ -20,6 +20,7 @@ import {
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
+import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
   mikroOrmOnlyContexts,
   validatePersistedCollectionPositions,
@@ -34,6 +35,7 @@ import {
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
+import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -202,6 +204,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // merits, in every `auth { enforcement: }` mode.
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
+    validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
@@ -258,12 +261,12 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // the normal IR-warning channel (api → LSP / playground / `parse --json`).
     // Warning-only, so it can't flip `ok` or block generation (both error-gated).
     validateIndexSuggestions(sys, diags);
-    // Advisory update-gate lint (audit D3) — WARNING-severity
-    // `loom.update-gate-suggestion` for a field that a `requires`-gated
-    // operation assigns AND `crudish`'s generic `update` mass-assigns, so the
-    // gate is bypassable through `update`.  Points at `immutable`, which
-    // removes the field from the update input while leaving the operation free
-    // to assign it.  Same advisory channel as the index lint above.
+    // Update-gate bypass lint (audit D3, helpdesk H-01) — a counted WARNING
+    // `loom.update-gate-suggestion` for a field that a gated operation
+    // (`requires`, `when`, or a `precondition` reading the field) assigns AND
+    // `crudish`'s generic `update` mass-assigns, so the gate is bypassable
+    // through `update`.  Points at `immutable` (and `managed` for the create
+    // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
@@ -291,6 +294,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validatePagedParamNames(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
