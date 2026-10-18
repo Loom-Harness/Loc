@@ -1,10 +1,10 @@
 # Agent runbook — how a session executes one issue
 
-*The standing protocol for any work item. The kickoff prompt is two lines (below). Work state lives in GitHub issues; this file is the protocol only, and changes only when the protocol does. Sessions that started on a `docs/new-plan/` mission before 2026-10-18 finish under [`new-plan/RUNBOOK.md`](new-plan/RUNBOOK.md).*
+*The standing protocol for any work item. The kickoff prompt is two lines (below). Work state lives in GitHub issues; this file is the protocol only, and changes only when the protocol does.*
 
 ## 0. Inputs
 You were given an issue (`#N`), or asked to find one. Everything else is discoverable:
-- The issue: goal, acceptance, `area:` labels, links. A legacy `M-Tx.y` mission is picked up by filing an issue that links its section in `docs/new-plan/T<x>-*.md` (title prefix `M-Tx.y:`); its design docs under `docs/old/` and `docs/new-plan/missions/` still apply.
+- The issue: goal, acceptance, `area:` labels, links. Every open legacy `M-Tx.y` mission is already an issue titled `M-Tx.y: …`; decisions the owner still has to make are collected in #3316. Design records the issue links into the legacy record (removed from the tree; [browse it in history](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs)) still apply.
 - Repo ground rules: `CLAUDE.md` and `experience_gathered.md`.
 - Pinned decisions: `docs/decisions.md` — a `D-*` tag wins; re-open it explicitly rather than diverging.
 

@@ -52,7 +52,7 @@ Every heavy gate — the runtime/boot e2e suites, the deploy build — was a
    `pull_request:` trigger with a narrow `paths:` block, the literal draft
    guard and PR-aware concurrency: the cross-backend `behavioral-e2e-*` legs
    and the `pages` build (earlier), then wave G1 of
-   [`docs/new-plan/verification-waves-2026-09.md`](new-plan/verification-waves-2026-09.md)
+   [`docs/new-plan/verification-waves-2026-09.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md)
    — the five `*-obs-e2e`, the four *native* `*-oidc-e2e`
    (`hono`/`python`/`java`/`dotnet`), the four `generated-{react,vue,svelte,angular}-e2e`
    SPA smokes (their first `pull_request:` trigger ever), and
@@ -295,7 +295,7 @@ The method: list this workflow's runs **unfiltered**
 not filter by branch — a `workflow_run`-triggered run is attributed to the
 repository's **default branch**, so a listing filtered to a PR branch returns
 only the one `pull_request`-event run and structurally cannot see an evaluation
-(F65 in `docs/audits/2026-09-09-verification-fleet-plan.md`).
+(F65 in [`docs/audits/2026-09-09-verification-fleet-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-09-verification-fleet-plan.md)).
 
 **Which earlier work that does and does not indict.** F65 is a true statement
 about branch-filtered listings in general; it is **not** true of #2835, whose
@@ -1151,7 +1151,7 @@ change: binding is emergent, since `pr-gate` fails on any non-passing check run
 on the head SHA and a path-skipped workflow produces none.
 
 **Done.** The behavioral cross-backend legs and `pages` went first; wave G1 of
-[`docs/new-plan/verification-waves-2026-09.md`](new-plan/verification-waves-2026-09.md)
+[`docs/new-plan/verification-waves-2026-09.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md)
 then promoted the five `*-obs-e2e`, the four native `*-oidc-e2e`, the four
 `generated-{react,vue,svelte,angular}-e2e` SPA smokes and `elixir-vanilla-vo-e2e`
 — each with a narrow `paths:` block, the literal draft guard, and PR-aware

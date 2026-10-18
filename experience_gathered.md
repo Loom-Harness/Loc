@@ -675,7 +675,7 @@ or not.
     reason; DEBT-13 is de-scoped. **Value-object collections keep their
     `ordinal`** — there it's part of the `(parent_id, ordinal)` PK and the
     only way to store an ordered, identity-less list. See
-    `docs/old/proposals/reference-collection-set-semantics.md`.
+    [`docs/old/proposals/reference-collection-set-semantics.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/reference-collection-set-semantics.md).
 - **Only `primaryKey` import is conditional.**  Adding `primaryKey` to the
   Drizzle import line unconditionally drifted every existing schema's
   byte-for-byte fixture.  Gate the import on "context has ≥1 join table"
@@ -1109,7 +1109,7 @@ The DDD Specification pattern is named **inconsistently — and sometimes
 backwards — across the frameworks Loom targets**, so reusing a
 framework's term for a generated type silently hands the reader the wrong
 mental model. Map (this surfaced designing reified criteria, see
-`docs/old/plans/retrieval-implementation.md` Phase 5 + `reified-criteria.md`):
+[`docs/old/plans/retrieval-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/retrieval-implementation.md) Phase 5 + `reified-criteria.md`):
 
 | Framework | `Specification<T>` means | `Criteria*` means |
 |---|---|---|
@@ -1812,7 +1812,7 @@ the ones that cost real tool-calls and are non-obvious.
 
 - **A design doc's stated *risk / prerequisite* can be silently obsoleted by an
   unrelated fix that merged *after* it was written — re-derive the premise, don't
-  trust the doc.** `docs/old/plans/vanilla-document-route-a.md` risk 2 said typed VO
+  trust the doc.** [`docs/old/plans/vanilla-document-route-a.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-document-route-a.md) risk 2 said typed VO
   *struct* modules were **mandatory** (the only sound fix for the #1660 VO-subfield
   crash). That was true when written — but #1664 had since fixed #1660 a different
   way (a key-agnostic `Map.get(vo, :k, Map.get(vo, "k"))` fallback that works on a
@@ -1940,7 +1940,7 @@ because of one discipline and two blind spots that bit / nearly bit.
 
 Landing the Feliz frontend's **wire layer** (Thoth decoders + a `Cmd`-based
 `Api` module + the MVU `Remote<'T>` projection for `<param>.<agg>.all` reads,
-slice 7 of `docs/old/plans/feliz-frontend-build.md`) turned up one load-bearing
+slice 7 of [`docs/old/plans/feliz-frontend-build.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/feliz-frontend-build.md)) turned up one load-bearing
 gotcha that dictated the whole design.
 
 - **The shared `walkBody` re-indents only a child's FIRST line.** Children are
@@ -2427,12 +2427,12 @@ map stopped at the generated `.ts` (`vfs:/…`).
   bytes the instant they're posted, so don't gate on PGlite/jsdelivr coming up.
 ## 35. The docs-corpus consolidation — status rot, hollow work, and the mechanics of moving 190 docs (2026-07-13)
 
-The proposals/plans corpus (118 + 71 docs, three competing status tables) was consolidated into `docs/new-plan/` (tracks + missions + coverage) and archived to `docs/old/`. Lessons:
+The proposals/plans corpus (118 + 71 docs, three competing status tables) was consolidated into [`docs/new-plan/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan) (tracks + missions + coverage) and archived to [`docs/old/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old). Lessons:
 
-- **Status banners rot in BOTH directions, fast.** A 17-point code-verification pass found **9 of 17** checked statuses stale — mostly *understated* (extern re-homing, stdlib A4, store lifetimes, node criterion filter leak, Angular `X id` selects, audit/provenance parity all shipped while their docs said in-progress/gated), a few overstated. The three trackers (proposals README, global plan, DEBT backlog) had drifted from each other within weeks because they refreshed on different cadences. Rule now encoded in `docs/new-plan/README.md`: no status flip without file:line evidence; the mission table is the ONLY status home.
+- **Status banners rot in BOTH directions, fast.** A 17-point code-verification pass found **9 of 17** checked statuses stale — mostly *understated* (extern re-homing, stdlib A4, store lifetimes, node criterion filter leak, Angular `X id` selects, audit/provenance parity all shipped while their docs said in-progress/gated), a few overstated. The three trackers (proposals README, global plan, DEBT backlog) had drifted from each other within weeks because they refreshed on different cadences. Rule now encoded in [`docs/new-plan/README.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/README.md): no status flip without file:line evidence; the mission table is the ONLY status home.
 - **"Merged" ≠ "real" — audit for pretended work.** An adversarial sweep (now recurring as mission M-T9.8) found: `renderSpaController` exported-but-never-imported (Phoenix-hosts-SPA is a phantom feature), the Feliz walker silently replacing unsupported statements with `// TODO` comments and unsupported expressions with `()` unit in *compiling* F# (no validator), and the showcase HARD-gate allowlist grown to exempt grammar-only kinds (`Projection`, `PolicyDecl`, `Route`…) that most backends don't consume. The three checks worth automating: dead-export gate (knip/ts-prune over `render*/emit*/build*`), no-TODO-in-generated-output gate, allowlist-growth ratchet.
 - **Moving docs that emitters cite: sed BOTH sides in one commit.** Generated output embeds doc-path comments, and `test/fixtures/` holds byte-for-byte snapshots of that output. A path rewrite must hit emitter template strings AND fixtures in the same pass — done uniformly, the byte-equivalence tests stay green and prove the sync. Relative links inside a moved tree need the two-step sed (blanket `](../` → `](../../`, then restore sibling dirs that moved together); watch for subdirectories the globs miss (`proposals/maybe-one-day/`).
-- **`docs/build.mjs` gotchas for nested dirs:** `MD_LINK` allowed only ONE path segment (`(?:seg/)?` → needs `*`), and subdir depth was hard-coded to 1 — both needed generalizing for `old/plans/` etc.
+- **`docs/build.mjs` gotchas for nested dirs:** `MD_LINK` allowed only ONE path segment (`(?:seg/)?` → needs `*`), and subdir depth was hard-coded to 1 — both needed generalizing for [`old/plans/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans) etc.
 - **Don't pipe `npm test` through `tail`.** The pipeline exit code is tail's, so a red suite reports exit 0, and the failure detail is truncated away. Redirect to a file instead. Corollary: don't rebase/mutate the working tree while vitest is mid-run — imports read at different times see different trees; our "2 failed" run during a rebase was unreproducible noise.
 - **Squash-merge + fast main:** the pre-push merge-tree hook caught upstream conflicts twice in one session (docs/extern.md rewritten upstream while we sed'd it). Resolving = take upstream's newer prose, re-apply the mechanical rewrite.
 
@@ -4681,7 +4681,7 @@ nil in a comparison outright, so the "fail-closed" path had always raised.
 
 ### And a corollary for reading trackers
 
-Three separate claims in `docs/new-plan/` and `docs/tenancy.md` were stale in
+Three separate claims in [`docs/new-plan/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan) and `docs/tenancy.md` were stale in
 one session: M-T3.7(b) ("extend to elixir" — already a 10-cell matrix),
 `tenancy.md` ("500s on every backend" — .NET never did), and M-T3.3 (`open` —
 fully shipped, missing only a fixture). All three were checkable in under two

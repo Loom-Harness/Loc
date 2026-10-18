@@ -5,10 +5,8 @@ each surface has its own pin sites and its own CI gates. A bump that looks like
 one line on Surface A may have a mirrored pin on Surface B (and vice versa). This
 file is the lookup so you don't leave a hole.
 
-All paths are real and verified on disk (snapshot 2026-06). The companion
-`docs/audits/stack-versions-audit.md` is a useful intent doc but was already
-stale vs the emitters this session — **trust the source file's pin over the
-audit's number.**
+All paths are real and verified on disk (snapshot 2026-06). **Trust the source
+file's pin over any doc's number.**
 
 ## Table of contents
 - [Surface A — toolchain](#surface-a--the-toolchain)
@@ -121,8 +119,8 @@ bumped — never root `package.json`.
 | **Python / FastAPI** | `pyproject.toml` | `src/generator/python/pins.ts` (rendered by `renderPyproject` in `python/index.ts`) | **requires-python >=3.13**, fastapi >=0.115,<1, uvicorn[standard], sqlalchemy[asyncio] >=2.0.36,<3, asyncpg, pydantic >=2.10; dev mypy/ruff/pytest/pytest-asyncio; pyjwt (OIDC) |
 | **Elixir / Phoenix** | `mix.exs` | `renderMixExs` in `src/generator/elixir/shell/project.ts` | phoenix ~> 1.8, phoenix_live_view ~> 1.0, ecto_sql ~> 3.10, postgrex ~> 0.20, bandit ~> 1.5, open_api_spex ~> 3.0; jose (OIDC) |
 
-> The old `docs/audits/stack-versions-audit.md` cites `phoenix-live-view/index.ts`
-> and "defer net8 / Spring Boot 3.5" — both stale. The current homes are
+> An old stack-versions audit cited `phoenix-live-view/index.ts` and "defer
+> net8 / Spring Boot 3.5" — both stale. The current homes are
 > `src/generator/elixir/` and the emitters above (net10.0, Spring Boot 4.1).
 
 ---

@@ -16,7 +16,7 @@ Every stage was verified by **actually compiling the emitted target** (`tsc` /
 `vue-tsc` / `vitest`), not just by "generation succeeded" — which is how the
 findings below were caught.
 
-**[`FINDINGS.md`](FINDINGS.md)** is the build journal: what was easy, what was
+**[`FINDINGS.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/journey/FINDINGS.md)** (removed from the tree; kept in history) is the build journal: what was easy, what was
 missing, and the three silent codegen bugs the "compile the output" discipline
 surfaced (two of which are fixed in this branch, with regression tests).
 

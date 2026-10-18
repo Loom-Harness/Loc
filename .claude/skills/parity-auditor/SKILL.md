@@ -9,8 +9,7 @@ description: >-
   feature: "audit parity across backends", "which backends support X / where
   does feature Y work", "feature Y works on node but not java/python/elixir",
   "drain the compile-tier skip-list", "refresh / redo the parity audit", "is
-  this gap real or stale", or picking up `docs/old/proposals/platform-parity-debt.md`
-  or any `docs/audits/*-parity-*.md`. Reach for it even when the user just says
+  this gap real or stale", or picking up a parity issue. Reach for it even when the user just says
   "what's the state of X across the stack" or "find the silent gaps". Its core
   discipline is separating a SILENT gap (a backend # TODOs / throws / crashes on
   valid `.ddd`) from an HONEST gap (a `loom.*` validator code), re-verified on
@@ -61,7 +60,7 @@ apart — read it before classifying anything.
 This is not boilerplate; it's the #1467 lesson. That skip-list drain found **half
 the list was already stale** on fresh `main` — the gaps had been closed by other
 PRs and the doc just hadn't caught up. The backend audit doc
-(`docs/audits/backend-feature-parity-2026-06.md`) lists Python as a 🔴 silent gap
+([`docs/audits/backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md)) lists Python as a 🔴 silent gap
 for capability filters (Finding F1) — but on a current checkout
 `system-checks.ts:1004` already reads `LIMITED_FAMILIES = new Set(["node",
 "elixir", "java", "python"])`, i.e. **python is now gated; F1 is fixed**. The doc
@@ -127,7 +126,7 @@ emits** — and for each target it *doesn't* gate, **confirm the emitter actuall
 errors** (not silently no-ops). That cross-check is the whole silent-vs-honest
 test. The grep recipes and classification rules are in
 `references/silent-vs-honest-gap.md`. The Method-notes block at the bottom of
-`docs/audits/backend-feature-parity-2026-06.md` shows exactly how a 🔴 was
+[`docs/audits/backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md) shows exactly how a 🔴 was
 verified: grep the suspect generator for the IR field the feature populates
 (`rg -rn contextFilters src/generator/python/` → zero hits) against the backends
 that do consume it.
@@ -137,7 +136,7 @@ Frontends are gated at different layers — the validator surface
 (`src/generator/_walker/target.ts`), the primitive registry
 (`src/generator/_walker/registry.ts`), and the pack required-set
 (`src/generator/_packs/required-primitives.ts`). The frontend audit
-(`docs/audits/frontend-parity-audit-2026-06.md` §Method) walks these four layers
+([`docs/audits/frontend-parity-audit-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/frontend-parity-audit-2026-06.md) §Method) walks these four layers
 in order; the classic frontend silent gap is a primitive the validator accepts
 that's absent from a pack's `RequiredSet` and has no `templates.has` guard, so it
 crashes codegen (the `Section`/`Sticky` finding).
@@ -178,34 +177,29 @@ every backend reuses it. For the heavier compile tiers, the same corpus feeds
 skip-list drain" means walking those gated suites' skip annotations and re-checking
 whether each skip is still warranted on fresh `main`.
 
-### Step 4 — Produce or refresh the audit doc
+### Step 4 — File the audit as issues
 
-Audits live under `docs/audits/` and follow a settled shape — match it rather than
-inventing one. Read `docs/audits/backend-feature-parity-2026-06.md` (backends) or
-`frontend-parity-audit-2026-06.md` (frontends) as the template. The non-negotiable
-elements:
+An audit's output is a **parent GitHub issue with one sub-issue per finding**
+(CLAUDE.md "Evals produce issues, not fixes") — not a doc in the tree. The parent
+issue body carries the shape older audits settled on (for the template, see
+[`backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md)
+in the legacy record). The non-negotiable elements:
 
-- A **snapshot date** and a one-line statement that the code wins when prose and
+- A **snapshot commit** and a one-line statement that the code wins when prose and
   code disagree.
 - A **summary matrix**: feature rows × target columns, each cell one of
   `✓ / ✗ gated / ⚠ partial / 🔴 silent / N/A`, and a final **Gate (source of
   truth)** column citing the named set + `file:line`.
-- **Findings** (`F1`, `F2`, …) — each 🔴 silent gap written up with the
-  reproduction (the grep that proved zero emit, or the CLI repro that crashed), the
-  impact in user terms, and the recommended fix (usually "add the target to the
-  gate set" as the safe interim, or the principled emit).
+- **Findings** — one sub-issue each (labels `area:<x>` + `gap`/`bug`). Each 🔴 silent
+  gap carries the reproduction (the grep that proved zero emit, or the CLI repro that
+  crashed), the impact in user terms, and the recommended fix (usually "add the target
+  to the gate set" as the safe interim, or the principled emit).
 - A **Method notes** block: which lines you read, the commit you read them at, and
   how each 🔴 was verified.
 
-When *refreshing* an existing audit, re-derive every row from current lines and
-**flip the cells that changed**, with a dated note saying what moved (the backend
-audit's `[2026-06-20 audit]` blocks are the model). Mark a superseded older audit
-as superseded; don't delete the history.
-
-The précis register `docs/old/proposals/platform-parity-debt.md` is the
-prioritisation roll-up that links each gap to its owning proposal — keep it in
-sync with the audit, but the audit (code-verified) is authoritative when they
-drift (its own header says so).
+Before filing, search open issues for each finding and comment on a duplicate
+instead. When *re-running* an audit, re-derive every row from current lines and
+close the sub-issues whose gap is gone, with the evidence.
 
 ### Step 5 — Drain: hand each real gap to language-feature-developer
 

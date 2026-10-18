@@ -523,5 +523,5 @@ elsewhere a bare event/payload name stays unresolved.  See the
 >
 > Still deferred: external brokers (redis / kafka / nats via
 > `channelSource`).  See
-> [`channels.md`](old/proposals/channels.md) and
-> [`workflow-and-applier.md`](old/proposals/workflow-and-applier.md).
+> [`channels.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/channels.md) and
+> [`workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md).

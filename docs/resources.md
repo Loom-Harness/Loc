@@ -3,8 +3,8 @@
 How a Loom system declares the infrastructure its domain needs — relational
 stores, event logs, caches, object stores, queues, and external APIs — and how
 workflows consume them. This is the **shipped** reference; the design rationale
-lives in [`proposals/resource-model-and-source-types.md`](old/proposals/resource-model-and-source-types.md)
-and [`proposals/workflow-resource-consumption.md`](old/proposals/workflow-resource-consumption.md).
+lives in [`proposals/resource-model-and-source-types.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/resource-model-and-source-types.md)
+and [`proposals/workflow-resource-consumption.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-resource-consumption.md).
 
 ## The model in one screen
 
@@ -240,7 +240,7 @@ named operations and a derived request/response — see
 [Calling another Loom service](#calling-another-loom-service--use-api) below.
 The untyped verbs remain the escape hatch for spec-less external APIs. (A
 typed surface over an *external* OpenAPI spec is still only proposed —
-[`proposals/contract-typed-resources.md`](old/proposals/contract-typed-resources.md).)
+[`proposals/contract-typed-resources.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/contract-typed-resources.md).)
 
 ### Interface selection
 
@@ -519,4 +519,4 @@ backend discovery; trusted like any installed package.
 - [`language.md`](language.md) — declaration grammar.
 - [`generators.md`](generators.md) — per-backend emission detail.
 - [`workflow.md`](workflow.md) — workflow bodies (where resource-ops live).
-- [`proposals/contract-typed-resources.md`](old/proposals/contract-typed-resources.md) — proposed typed call surface over a `kind: api` resource.
+- [`proposals/contract-typed-resources.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/contract-typed-resources.md) — proposed typed call surface over a `kind: api` resource.

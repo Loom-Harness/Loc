@@ -144,7 +144,7 @@ customization you did.
 
 The [`journey/`](../journey/) folder builds one app across five stages — simple
 todo → fully custom multi-context system — with a running journal
-([`journey/FINDINGS.md`](../journey/FINDINGS.md)) of what was easy, what was
+([`journey/FINDINGS.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/journey/FINDINGS.md)) of what was easy, what was
 missing, and what only surfaced when the emitted target was actually compiled.
 It's the long-form companion to this guide.
 

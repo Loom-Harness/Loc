@@ -226,7 +226,7 @@ The `file:1` rows are not a resolver failure: those constructs record no region
 of their own, so the enclosing file region is the only true thing the map knows.
 The valueobject row is a plainer omission — no region is recorded at any
 granularity. Both are tracked as mission **M-T8.29** in
-[`docs/new-plan/T8-dx-tooling-ai.md`](new-plan/T8-dx-tooling-ai.md).
+[`docs/new-plan/T8-dx-tooling-ai.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T8-dx-tooling-ai.md).
 
 A `:column` suffix appears only where a fine expression region exists — today
 that means TS/Hono statement bodies (see **M-T8.2** for the fan-out to the other
@@ -289,13 +289,13 @@ stepping (`launch`/`attach`/`continue`/`stepIn` against an actual running
 backend) requires the adapter to spawn and proxy the target's own debugger
 (`js-debug` / `coreclr` / JDWP) and remap only line/scope on top — the
 documented, editor-verified frontier (see
-[`docs/old/proposals/source-map-and-debugging.md`](old/proposals/source-map-and-debugging.md)
+[`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
 §6E). **For live stepping today, use the native editor path in §2** — it
 drives each target's real debugger directly and needs no delegation.
 
 ## See also
 
-- [`docs/old/proposals/source-map-and-debugging.md`](old/proposals/source-map-and-debugging.md)
+- [`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
   — the full design: the Origin spine, per-target metadata, and the phased
   roadmap.
 - [`docs/loom-artifacts.md`](loom-artifacts.md) — the `.loom/` output

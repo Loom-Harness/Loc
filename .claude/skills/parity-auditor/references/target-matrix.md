@@ -5,7 +5,7 @@ per-feature-axis index pointing at the authoritative validator gate set for each
 row. **Always re-read the cited files on fresh `main` — this doc is a map, not the
 source of truth. The gate sets move; the line numbers especially drift.**
 
-> **Rewritten 2026-09-10** (Wave C0.4 of `docs/new-plan/completion-waves-2026-09.md`).
+> **Rewritten 2026-09-10.**
 > The previous revision was frozen at **four frontends** and cited the **`ashPhoenix`**
 > HEEx pack, which no longer exists. Two whole targets — **Feliz** (F#/Fable/Elmish)
 > and **Flutter** (Dart/Riverpod) — were missing from the roster entirely, which is
@@ -36,7 +36,7 @@ the `PlatformSurface` contract each carries (`emitProject` / `composeService` /
 `needsDb` / `defaultPort` / `mountsUi`).
 
 **THE MATRIX IS FROZEN.** Owner decision 2026-07-17: there will be no more
-backends and no more frontends (`docs/audits/direction-review-2026-07.md`, and
+backends and no more frontends ([`docs/audits/direction-review-2026-07.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/direction-review-2026-07.md), and
 track T10 whose every heading is `frozen`). A parity audit is therefore over a
 **closed** 5 × 6 set — an unimplemented cell is a gap to drain, never a target to
 add.
@@ -60,7 +60,7 @@ aliases were retired — `elixir` and `python` are the only spellings.
 plain Ecto/Phoenix, and the knob was removed with it — `elixir { foundation: … }`
 **no longer parses at all**. So `elixir` is one column, not a foundation split;
 event-sourcing, `shape: document` and provenance all ship on it. Historical Ash
-mentions survive in `docs/old/plans`, `docs/audits` and `docs/old/proposals` as
+mentions survive in [`docs/old/plans`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans), [`docs/audits`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits) and [`docs/old/proposals`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals) as
 the migration record, not as current behaviour.
 
 ### Frontends (6, and the HEEx render path is the elixir backend's own)
@@ -197,7 +197,7 @@ consuming `contextFilters` → a silent correctness hole. That one is fixed on f
 ## 5. Per-axis gate index — frontends
 
 Frontend parity is enforced (or not) at four layers — audit them in this order
-(per `docs/audits/frontend-parity-audit-2026-06.md` §Method):
+(per [`docs/audits/frontend-parity-audit-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/frontend-parity-audit-2026-06.md) §Method):
 
 1. **Validator surface** — `src/language/walker-stdlib.ts`, re-exporting the name
    sets from `src/util/walker-primitive-names.ts` (the closed set of ~55 page
@@ -274,8 +274,8 @@ pack pipeline at all, so they appear in no row of this table.
 
 ## 7. Registers that hold the live gap counts
 
-Never hand-count a gap. §1 of `docs/new-plan/completion-waves-2026-09.md` lists
-every register with the file that computes it; the ones a parity audit reads:
+Never hand-count a gap. Every register is a file that computes its own count; the
+ones a parity audit reads:
 
 | What | Where |
 |---|---|
@@ -284,7 +284,6 @@ every register with the file that computes it; the ones a parity audit reads:
 | Flutter unrendered primitives | `FLUTTER_UNRENDERED_PRIMITIVES`, `src/util/flutter-deferred-primitives.ts` |
 | HEEx parity pins | `KNOWN_HEEX_GAPS`, `test/generator/elixir/heex-parity.test.ts` |
 | Deferred user-component shapes (feliz / angular / flutter) | the `loom.user-component-deferred-target` pins |
-| Cross-target ledger, per row and priority | `docs/audits/targets-completeness-2026-08-30.ledger.json`, counted by `node scripts/ledger-counts.mjs` |
 | Which feature × target cells are compile-only vs runtime-proven | the gate ledger, `LOOM_LEDGER_REPORT=1` over `test/_helpers/gate-ledger.ts` |
 | Cross-pack spacing / chrome deviations | `KNOWN_DEVIATIONS` + `KNOWN_STRUCTURAL_DEVIATIONS`, `test/generator/_packs/pack-spacing-contract.test.ts` |
 

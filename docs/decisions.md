@@ -1,7 +1,7 @@
 # Loom decisions log
 
 Pinned decisions referenced by the design corpus in
-[`docs/old/proposals/`](old/proposals/) and the implementation plans. Each
+[`docs/old/proposals/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals) and the implementation plans. Each
 entry has a stable **D-tag** that proposals cite when their grammar
 or semantics depends on the outcome. Tag scope:
 
@@ -14,7 +14,7 @@ decision wins; the proposal text needs a rewrite (tracked per entry
 under "Affects").
 
 Decision tags were introduced by the original
-[`proposals/global-implementation-plan.md`](old/proposals/global-implementation-plan.md)
+[`proposals/global-implementation-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/global-implementation-plan.md)
 ("Decisions to pin before any grammar edit"; that plan was rewritten
 2026-06-10 — this log is now the sole home of the tags) and are
 elaborated in the per-proposal docs.
@@ -229,7 +229,7 @@ no open-shape JSON field; and a document/event-store backend (Marten)
 has nowhere to attach. The shipped `persistenceStrategy:` clause also
 conflates the event-sourcing *body contract* with *persistence* and
 sits anomalously inside the aggregate body. Full analysis in
-[`proposals/document-and-json-hierarchies.md`](old/proposals/document-and-json-hierarchies.md).
+[`proposals/document-and-json-hierarchies.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/document-and-json-hierarchies.md).
 
 **Decision.** Two orthogonal **per-aggregate header modifiers**, plus a
 `json` field type. "Document" is a field type **and** a saving choice —
@@ -350,7 +350,7 @@ in #724 — `shape: relational` == old `normalised(true)`, `shape: document`
 backend code lives. `platform-directory-layout.md` recommends
 **Option A** — reverse the `src/platform/hono/v4/` hoist back down
 into `src/generator/<platform>/frameworks/…`, shrinking `src/platform/`
-to thin surface records. Separately, `docs/old/plans/packaging-split.md`
+to thin surface records. Separately, [`docs/old/plans/packaging-split.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/packaging-split.md)
 (P0–P4, partly shipped) drives toward the opposite: each backend
 becomes a **separately-installable per-version npm package**
 (`@loom/backend-hono-v4`, `@loom/backend-dotnet-v8`, `-v10`, …)
@@ -394,7 +394,7 @@ hoist is correct, not to be reversed.
   (per-layer output packages). Right direction, **deferred** on one-time
   cost + playground-workspace prerequisite, not rejected; expressible as
   a `LayoutAdapter` extension.
-- `docs/old/plans/packaging-split.md` / `backend-packages.md` — promoted
+- [`docs/old/plans/packaging-split.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/packaging-split.md) / `backend-packages.md` — promoted
   from "plan" to the pinned target for backend layout.
 
 ---
@@ -499,7 +499,7 @@ table-layout resolution.
 
 **Status:** PINNED (the six grammar-shaping tags). The remaining
 type-system decisions D5–D37 keep their **recommended** answers in
-[`proposals/implementation-plan.md`](old/proposals/implementation-plan.md)
+[`proposals/implementation-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implementation-plan.md)
 and may be taken per-phase without separate ratification (per that
 doc's workflow note); only D1–D4 + D14–D15 are pinned here because they
 fix the grammar surface before P3.
@@ -813,7 +813,7 @@ emitter; the `conformance-parity.yml` OpenAPI gate.
 ## D-URLSTYLE — lifecycle URL style on the api body + per-action routeSlug
 
 **Status:** PINNED. Full design in
-[`proposals/lifecycle-url-style.md`](old/proposals/lifecycle-url-style.md);
+[`proposals/lifecycle-url-style.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/lifecycle-url-style.md);
 amends `lifecycle-operations.md` Phase 2, whose grammar sketch assumed a
 fictional per-aggregate `api … for <Aggregate> { urlStyle }` form.
 
@@ -1706,7 +1706,7 @@ completion it always anticipated).
 
 **Status:** PINNED.
 
-**Problem.** [`ai-generation-platform.md`](old/proposals/ai-generation-platform.md)
+**Problem.** [`ai-generation-platform.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-generation-platform.md)
 §4.4/§7 leaves the platform-vs-IR emphasis open. Three coherent paths
 were on the table:
 
@@ -1745,7 +1745,7 @@ motions** — a land-and-expand:
 
 - The emphasis question is **GTM and narrative, not architecture.** Platform
   and IR run the *same* validate→repair→verify loop over the same model
-  patches ([`ai-authoring-loop.md`](old/proposals/ai-authoring-loop.md)); the
+  patches ([`ai-authoring-loop.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md)); the
   wedge demo advances all paths. So committing to B+C costs nothing
   technically and keeps A open.
 - Owning the customer (B+C) is the only path that monetises Loom's defensible
@@ -1782,7 +1782,7 @@ plus `outline` and the diagnostics/fixHint serializers) were being grown inside
 server (agents), the LSP (Monaco/VS Code), and the in-browser playground — and
 re-implementing them per surface is exactly the drift the structured contract
 exists to prevent. The patch/diagnostic format is also ours
-([`ai-diagnostics-contract.md`](old/proposals/ai-diagnostics-contract.md)), not an
+([`ai-diagnostics-contract.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md)), not an
 editor/agent standard, so it needs *one* authoritative implementation plus thin
 adapters at the boundaries.
 
@@ -2002,11 +2002,11 @@ prefix, which a SvelteKit bundle needs `paths.base` threading for; its
 surface excludes `svelte` until that lands.  The in-browser playground
 preview is likewise deferred (Svelte compiler in the VFS bundler).
 
-See `docs/old/plans/svelte-frontend-plan.md` for the slice history.
+See [`docs/old/plans/svelte-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/svelte-frontend-plan.md) for the slice history.
 ## D-VUE-FRONTEND — reuse the shared walker, Vite+vue-router SPA, vee-validate forms
 
 `platform: vue` (Phase B of the platform-expansion roadmap;
-`docs/old/plans/vue-frontend-plan.md`) ships as the third frontend with
+[`docs/old/plans/vue-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)) ships as the third frontend with
 three locked choices:
 
 1. **Reuse, not fork.**  Vue pages render through the SHARED markup
@@ -2333,7 +2333,7 @@ IS the applied-history record" property M-T2.1 pinned for renames.
   expressiveness (CTEs, functions).
 
 **Affects.** `../migrations.md` § Data migrations;
-`../new-plan/missions/M-T2.3-data-migration-surface-design.md` (canonical);
+[`../new-plan/missions/M-T2.3-data-migration-surface-design.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T2.3-data-migration-surface-design.md) (canonical);
 `src/system/migrations-builder.ts`.
 
 ## D-DATAGRID-TARGETS — a target hosts `DataGrid` only if it can host TanStack
@@ -2427,7 +2427,7 @@ it a candidate for `Table`, not an argument for a partial `DataGrid`.
 **Affects.** `DATA_GRID_FRAMEWORKS` (`ir/validate/checks/system-checks.ts`);
 `DATA_GRID_PRIMITIVES` (`generator/_packs/required-primitives.ts`);
 `util/flutter-deferred-primitives.ts`; `generator/feliz/data-grid-child.ts`;
-[`page-metamodel.md` §9.1](page-metamodel.md); `new-plan/T1-ui-frontend.md`
+[`page-metamodel.md` §9.1](page-metamodel.md); `[new-plan/T1-ui-frontend.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md)`
 M-T1.1.
 
 ## D-WHEN-GATE-DOMAIN — the `when` state gate is a domain-method property, not an HTTP-edge one
@@ -2444,7 +2444,7 @@ not run on the paths that reach the aggregate from *inside* the system: no
 no wire-shape differential can see it — the request that should have been refused
 is never made over HTTP at all.
 
-Two coherent answers were open (`new-plan/T6-backend-parity.md` M-T6.38):
+Two coherent answers were open ([`new-plan/T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.38):
 
 1. **Domain-layer gate** — the predicate is asserted by the aggregate's own
    method, so every caller is gated.
@@ -2490,7 +2490,7 @@ documented in [`language-reference/06-behavior-and-statements.md`](language-refe
 # Wave C0.6 — the fifteen rulings batch (drafted 2026-09-10)
 
 The fifteen entries below were batched by packet **C0.6** of Wave C0 in
-[`new-plan/completion-waves-2026-09.md`](new-plan/completion-waves-2026-09.md)
+[`new-plan/completion-waves-2026-09.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/completion-waves-2026-09.md)
 (the table that used to live in that plan's Wave C5 now points here). They are
 drafted so the owner can sign the batch off in one sitting: each carries the
 question in one sentence, the options that were on the table, a **default**, its
@@ -2588,9 +2588,9 @@ it is a NEW ctor with a designed `ts` source, not this one.
 **Unblocks.** M-T6.57 (P0) → wave **C1 packet 1c**; retires M-T6.14's DEBT-08
 `envelope` deferral.
 
-**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.57 +
+**Sources.** [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.57 +
 its 2026-09-09 fleet note (F57);
-[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+[`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
 F21; PR #2852; `src/ir/stdlib/generics.ts`, `src/ir/enrich/enrichments.ts`,
 `src/generator/{java,dotnet}/render-expr.ts`,
 `src/generator/dotnet/emit/common.ts`.
@@ -2649,9 +2649,9 @@ built on a workflow-`create` path that miscompiles on all five backends.
 
 **Unblocks.** M-T6.58 → wave **C1 packet 1a**.
 
-**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.58 + its
+**Sources.** [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.58 + its
 2026-09-09 fleet note;
-[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+[`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
 F13; `src/language/ddd.langium`, `src/ir/types/loom-ir.ts`,
 `src/ir/lower/lower-workflow.ts`, `src/diagnostics/messages.ts`.
 
@@ -2703,8 +2703,8 @@ gate in the same wave.
 
 **Unblocks.** M-T5.28 → wave **C1 packet 1b**.
 
-**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.28;
-[`2026-09-03-language-docs-audit-findings.md`](audits/2026-09-03-language-docs-audit-findings.md)
+**Sources.** [`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.28;
+[`2026-09-03-language-docs-audit-findings.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-03-language-docs-audit-findings.md)
 F1/F4; `src/ir/lower/lower-stmt.ts`, `src/ir/lower/lower-workflow.ts`,
 `src/generator/_stmt/target.ts`, `src/language/ddd.langium`.
 
@@ -2768,8 +2768,8 @@ residue row rather than waiting on a signature.
 
 **Unblocks.** M-T6.60 → wave **C2 packet 2f**; Schemathesis F11.
 
-**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.60;
-[`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+**Sources.** [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.60;
+[`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F12 annex; M-T6.48 and `test/conformance/numeric-ingress-parity.test.ts`; RS-12,
 RS-24.
 
@@ -2835,9 +2835,9 @@ Consequences).
 
 **Unblocks.** M-T5.22 → wave **C2 packet 2f**.
 
-**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.22 (the
+**Sources.** [`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.22 (the
 2026-09-07 ruling);
-[`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+[`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F11 + annex; [`conformance-semantics.md`](conformance-semantics.md) RS-24 and the
 claim-the-number protocol; `test/behavioral/wire-golden/*.json`.
 
@@ -2898,10 +2898,10 @@ the emitter proves consistency, not correctness (rule 12).
 
 **Unblocks.** M-T4.3 item 5 → wave **C2 packets 2b / 2c**.
 
-**Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md) M-T4.3
-item 5; [`generator-code-review-2026-08-24.md`](audits/generator-code-review-2026-08-24.md)
+**Sources.** [`T4-eventing-temporal.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md) M-T4.3
+item 5; [`generator-code-review-2026-08-24.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generator-code-review-2026-08-24.md)
 §Follow-up register rows 2–3 and §D5; ledger rows `G2667-C4` / `G2667-C5` /
-`G2667-D5`; [`dispatch-delivery-semantics.md`](old/proposals/dispatch-delivery-semantics.md).
+`G2667-D5`; [`dispatch-delivery-semantics.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/dispatch-delivery-semantics.md).
 
 ---
 
@@ -2948,8 +2948,8 @@ whole point of the acknowledgment.
 
 **Unblocks.** M-T3.6 item (6) → wave **C6**.
 
-**Sources.** [`T3-security-governance.md`](new-plan/T3-security-governance.md)
-M-T3.6 (6); [`tenancy-authorization-final-surface.md`](old/proposals/tenancy-authorization-final-surface.md);
+**Sources.** [`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md)
+M-T3.6 (6); [`tenancy-authorization-final-surface.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md);
 `src/diagnostics/messages.ts` `loom.policy-target-not-tenant-owned#read|#write`;
 D-TENANCY-SCOPE, D-TENANCY-DEFAULT.
 
@@ -2999,8 +2999,8 @@ the re-verification in (1) finds masking already resolved, the order collapses t
 **Unblocks.** M-T3.15 → wave **C6**; and the `sensitive-wire-unsupported` row in
 wave **C2 packet 2f**.
 
-**Sources.** [`T3-security-governance.md`](new-plan/T3-security-governance.md)
-M-T3.15; [`M-T3.15 plan`](new-plan/missions/M-T3.15-read-surface-and-system-reads-plan.md);
+**Sources.** [`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md)
+M-T3.15; [`M-T3.15 plan`](https://github.com/Loom-Harness/Loc/issues/3347);
 PRs #2523, #2766; `src/diagnostics/messages.ts`
 `loom.field-mask-projection-source`.
 
@@ -3073,8 +3073,8 @@ past the ceiling and store exactly — is pinned in
 `D-NUMERIC-INGRESS-STRICT`, since closing it is either a representation upgrade
 or a uniform ingress narrowing.
 
-**Sources.** [`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.23,
-M-T5.24; [`numeric-types-audit-2026-08-23.md`](audits/numeric-types-audit-2026-08-23.md)
+**Sources.** [`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.23,
+M-T5.24; [`numeric-types-audit-2026-08-23.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)
 F13, F14; RS-12; `src/ir/lower/lower-projection.ts`,
 `src/ir/util/projection-aggregate.ts`, `src/generator/typescript/emit/schema.ts`.
 
@@ -3135,9 +3135,9 @@ remedy, and `--allow-rebaseline` does not clear it.
 **Unblocks.** `dapper-no-schema-evolution` → wave **C2 packet 2b** (the mikroorm
 arm in **2c**); M-T6.35's `#migrations` sub-code.
 
-**Sources.** [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+**Sources.** [`targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json)
 row `dapper-no-schema-evolution` (fix field: both options, sized);
-[`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.35;
+[`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.35;
 `src/ir/validate/checks/migration-checks.ts`, `src/generator/dotnet/emit/dapper.ts`,
 `src/generator/dotnet/index.ts`, `src/platform/hono/v4/emit.ts`.
 
@@ -3206,8 +3206,8 @@ uncarried projection fold AND an uncarried workflow reactor;
 `test/generator/projection-implicit-sub.test.ts` names the emitted fold and
 reactor symbol per backend.
 
-**Sources.** [`behavioral-parity-bugs-2026-07.md`](audits/behavioral-parity-bugs-2026-07.md)
-B20; [`language-gaps-2026-08.md`](audits/language-gaps-2026-08.md) (the
+**Sources.** [`behavioral-parity-bugs-2026-07.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md)
+B20; [`language-gaps-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/language-gaps-2026-08.md) (the
 "needs a semantics decision" row); `src/ir/enrich/enrichments.ts:1284-1340`;
 `src/generator/typescript/emit/routes.ts`.
 
@@ -3294,7 +3294,7 @@ in the same change.
 `src/system/migrations-builder.ts` (the M-T4.4 FK filter);
 `src/generator/typescript/base-reader-builder.ts`; `src/ir/lower/lower.ts`
 (`idValueType = "guid"`); wave C2 packet 2n's hand-off note
-(`docs/new-plan/waves/handoffs/wave-c2-2n-backends.md`), which carries the
+([`docs/new-plan/waves/handoffs/wave-c2-2n-backends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c2-2n-backends.md)), which carries the
 generated output the table above summarises.
 
 ---
@@ -3350,7 +3350,7 @@ boundary shows it. The contract is pinned in `src/util/collection-ops.ts` the wa
 **Unblocks.** ledger row `F2-EXPR-7` → wave **C2 packet 2g** (frontend half:
 M-T1.20).
 
-**Sources.** [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+**Sources.** [`targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json)
 row `F2-EXPR-7` (its `fix` field poses exactly this fork);
 [`conformance-semantics.md`](conformance-semantics.md) RS-28, RS-34;
 `src/util/collection-ops.ts`, `src/util/intrinsics.ts`, the five
@@ -3444,7 +3444,7 @@ cannot be seen.
 `F2-W-06` → wave **C2 packet 2a**.
 
 **Sources.** [`conformance-semantics.md`](conformance-semantics.md) RS-4, RS-34
-(its Open section); [`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json)
+(its Open section); [`targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json)
 rows `G2667-D3-projection-join-unguarded-index` and `F2-W-06` (with the W1b
 elixir note that sizes it);
 `src/generator/typescript/repository-wire-builder.ts`,
@@ -3500,7 +3500,7 @@ deployables stay byte-identical.
 
 **Unblocks.** M-T4.12 item (1) → wave **C2 packet 2j**, where it **shipped** (`src/generator/flutter/api-client.ts` + the two conditional-import halves + `lib/loom_bearer.dart`; `loomEventSource` takes `{withCredentials, bearer}`; `realtimeStreamCredential` gained `"cookie-web-bearer-native"` and keys it on `deployable.platform`, so the gate stayed ONE predicate as this decision required). `flutter analyze` 0 errors / 0 warnings, `flutter test` green and `flutter build web --release` green on the generated credentialed app; `auth: none` is unchanged.
 
-**Sources.** [`T4-eventing-temporal.md`](new-plan/T4-eventing-temporal.md)
+**Sources.** [`T4-eventing-temporal.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md)
 M-T4.12 (Wave 1 packet 1g note, RULE 1 / RULE 2 and "Still open under this ID"
 item 1); [`auth.md`](auth.md) ("Session depth");
 `src/ir/util/realtime-rooms.ts`, `src/generator/_frontend/realtime.ts`,
@@ -3577,12 +3577,12 @@ declared source rather than extended.
 **Unblocks.** M-T9.52 → wave **C3 packet 3d**; M-T7.9, M-T6.13 and M-T3.11 →
 wave **C6**.
 
-**Sources.** [`T9-toolchain-health.md`](new-plan/T9-toolchain-health.md) M-T9.52;
-[`T7-deployment-ops.md`](new-plan/T7-deployment-ops.md) M-T7.9;
-[`api-openapi-tag-grouping.md`](old/proposals/api-openapi-tag-grouping.md)
+**Sources.** [`T9-toolchain-health.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md) M-T9.52;
+[`T7-deployment-ops.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T7-deployment-ops.md) M-T7.9;
+[`api-openapi-tag-grouping.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/api-openapi-tag-grouping.md)
 §Open decisions (f);
-[`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.11 and
-[`execution-context.md`](old/proposals/execution-context.md) §Open questions;
+[`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md) M-T3.11 and
+[`execution-context.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/execution-context.md) §Open questions;
 D-CTX-SHAPE.
 
 ---
@@ -3635,13 +3635,13 @@ the drizzle repository must target the owner table, not the concrete's own. The
 crossing enters the curated corpus with `tph-crossings.ddd`, whose header names
 the embedded half as the widening step once F11 closes.
 
-**Superseded in part at the wave fold (2026-09-13).** The follow-up this entry declined to take was taken in the same wave by packet 2c as [`D-EMBEDDED-TPH`](#d-embedded-tph--a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes): `shape: embedded` under a `sharedTable` base is now REFUSED at phase ④ (`loom.es-tph-forced-own-table`), so the crossing this entry ruled on is unreachable from `.ddd` and there is no degrade left to be coherent about. What survives of this entry is its floor: the python schema emitter and repository builder test the TPH arms before the shape arms, mirroring `migrations-builder.ts`, so a TPH concrete can never again be handed a table phase ⑨ does not create. The python gate that drove the crossing (`tph-embedded-storage.test.ts`) was deleted at the fold because its fixture no longer validates; the ordering is pinned by the phase-④ refusal plus the migrations builder's own arm order, and the coordinator recorded the trade in `docs/new-plan/waves/wave-c2.md`.
+**Superseded in part at the wave fold (2026-09-13).** The follow-up this entry declined to take was taken in the same wave by packet 2c as [`D-EMBEDDED-TPH`](#d-embedded-tph--a-shape-embedded-concrete-of-a-sharedtable-base-is-forced-to-owntable-like-the-other-two-non-relational-shapes): `shape: embedded` under a `sharedTable` base is now REFUSED at phase ④ (`loom.es-tph-forced-own-table`), so the crossing this entry ruled on is unreachable from `.ddd` and there is no degrade left to be coherent about. What survives of this entry is its floor: the python schema emitter and repository builder test the TPH arms before the shape arms, mirroring `migrations-builder.ts`, so a TPH concrete can never again be handed a table phase ⑨ does not create. The python gate that drove the crossing (`tph-embedded-storage.test.ts`) was deleted at the fold because its fixture no longer validates; the ordering is pinned by the phase-④ refusal plus the migrations builder's own arm order, and the coordinator recorded the trade in `[docs/new-plan/waves/wave-c2.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/wave-c2.md)`.
 
 **Sources.** `src/system/migrations-builder.ts` `tablesForOneAggregate`;
 `src/ir/util/inheritance.ts` `tableOwnerName`;
 `src/language/validators/inheritance.ts` rule 4;
 [`inheritance.md`](inheritance.md);
-`docs/audits/pairwise-corpus-findings-2026-08.md` §F11/§F13.
+[`docs/audits/pairwise-corpus-findings-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md) §F11/§F13.
 
 ---
 
@@ -3685,7 +3685,7 @@ recorded here as the shape of that change, not scheduled.
 
 **Sources.** `src/platform/adapter-metadata.ts` (`BACKEND_ADAPTER_METADATA`, and
 its own note on python's absence); [`platforms.md`](platforms.md);
-`docs/audits/targets-completeness-2026-08-30.ledger.json`.
+[`docs/audits/targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json).
 ## D-EMBEDDED-TPH — a `shape: embedded` concrete of a `sharedTable` base is forced to `ownTable`, like the other two non-relational shapes
 
 **Status:** applied — the proposed default took effect 2026-09-16 (merged to `main` 2026-09-14 in #2907; no override recorded by 2026-09-28; flipped by Wave C5 packet 5.0).
@@ -3747,8 +3747,8 @@ jsonb correctly, and emitted relationally ONLY under TPH.
 deleting one disjunct — nothing here bakes the refusal into an emitter.
 
 **Sources.** `test/pairwise/waivers-compile.ts` F11 (and F13);
-[`targets-completeness-2026-08-30.ledger.json`](audits/targets-completeness-2026-08-30.ledger.json);
-[`T2-data-evolution.md`](new-plan/T2-data-evolution.md) M-T2.10;
+[`targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json);
+[`T2-data-evolution.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T2-data-evolution.md) M-T2.10;
 [`inheritance.md`](inheritance.md); D-ES-TPH (the rule this extends).
 ## D-TPH-SUBTYPE-FILTER — a TPH subtype's capability filter is a declared v1 limit on the EF adapter, not a gap
 
@@ -3829,7 +3829,7 @@ re-class); the build → **M-T6.72**.
 (`validateTphFilterExpressibility`), `src/ir/util/inheritance.ts`
 (`nonRootFilterFields`), `src/generator/dotnet/emit/efcore.ts` (the
 `isTphConcreteCfg` filter host), `src/diagnostics/unsupported-register.ts`;
-[`T5-language-core.md`](new-plan/T5-language-core.md) M-T5.7 (the inheritance
+[`T5-language-core.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md) M-T5.7 (the inheritance
 tail this sits beside); the F2-CB-C2 silent-drop row it replaced.
 ## D-PHOENIX-FORMAT-GATE — the generated-Elixir `mix format` gate is declined permanently; Dialyzer is unscheduled
 
@@ -3898,9 +3898,9 @@ from a recipe rather than from scratch.
 
 **Unblocks.** M-T6.3 → wave **C2 packet 2a** (closed by this ruling, no code).
 
-**Sources.** [`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.3 and
-its two deferrals; [`vanilla-phoenix-gaps.md`](old/plans/vanilla-phoenix-gaps.md)
-§7; [`static-analysis-followups.md`](old/proposals/static-analysis-followups.md)
+**Sources.** [`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.3 and
+its two deferrals; [`vanilla-phoenix-gaps.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-phoenix-gaps.md)
+§7; [`static-analysis-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/static-analysis-followups.md)
 Slices 1–2; `src/generator/elixir/vanilla/shell-emit.ts`
 (`renderVanillaFormatterExs`).
 
@@ -3947,7 +3947,7 @@ remainder a `scope` row rather than a gap left half-drained.
 NOT (c): the shape is expressible the moment the surface exists, and the
 diagnostic keeps naming a real loss in the meantime.
 
-**Successor.** **M-T1.33** (`docs/new-plan/T1-ui-frontend.md`) — the extern
+**Successor.** **M-T1.33** ([`docs/new-plan/T1-ui-frontend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md)) — the extern
 selector clause, its validator rule, and the gate's deletion.
 
 **Consequences.** `loom.component-children-unsupported` is `kind: "scope"`,
@@ -3961,7 +3961,7 @@ site (#2734) survives on the outlet arm only.
 (`renderAngularUserComponent`, `angularTargetFor`),
 `src/generator/angular/walker/page-shell.ts` (the two registrations),
 `src/ir/util/component-children.ts`, `docs/extern.md`,
-`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`.
+[`docs/new-plan/waves/handoffs/wave-c2-2h-angular.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c2-2h-angular.md).
 
 ---
 
@@ -4062,7 +4062,7 @@ run.
 **Unblocks.** `flutter-async-effect-unsupported` and the deferred-component
 shapes → wave **C2 packet 2j** (dispositioned there); the build → **M-T1.34**.
 
-**Sources.** [`T1-ui-frontend.md`](new-plan/T1-ui-frontend.md) M-T1.20, M-T1.32;
+**Sources.** [`T1-ui-frontend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md) M-T1.20, M-T1.32;
 `src/generator/flutter/component-emit.ts` (`candidates`,
 `emittableComponentParams`, `derivedNeedsShell`, `needsPageShell`,
 `isReadConsumer`, `hasAsyncEffectAction`);
@@ -4198,8 +4198,8 @@ time.
 M-T3.8 stays open and commissioned.
 
 **Sources.** `src/ir/validate/checks/sensitivity-checks.ts`;
-[`T3-security-governance.md`](new-plan/T3-security-governance.md) M-T3.8;
-[`sensitivity-and-compliance.md`](old/proposals/sensitivity-and-compliance.md);
+[`T3-security-governance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T3-security-governance.md) M-T3.8;
+[`sensitivity-and-compliance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md);
 [`auth.md`](auth.md) (`mask unless`).
 
 ---
@@ -4281,7 +4281,7 @@ than done here.
 **Sources.** `src/ir/validate/checks/if-stmt-checks.ts` (`elixirIfRefusal`,
 `BRANCH_VOCABULARY`); `src/generator/elixir/vanilla/if-stmt-emit.ts`;
 `src/generator/elixir/vanilla/eventsourced-emit.ts`; `src/ir/util/prov-id.ts`;
-[`T6-backend-parity.md`](new-plan/T6-backend-parity.md) M-T6.59.
+[`T6-backend-parity.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md) M-T6.59.
 
 ---
 
@@ -4334,7 +4334,7 @@ ruling should be re-opened — the cost argument is the whole argument.
 **Unblocks.** `G2646-open-heex-layout-inert` → `done` (wave **C2 packet 2m**).
 
 **Sources.** `src/generator/elixir/heex-walker-core.ts` (the `i18nFormat` arm);
-[`targets-completeness-2026-08-30.md`](audits/targets-completeness-2026-08-30.md);
+[`targets-completeness-2026-08-30.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.md);
 `D-I18N-HEEX-ICU` above (the interpolation half, which DID get an engine).
 
 ---
@@ -4395,7 +4395,7 @@ because no row on its tree needed it.
 `src/diagnostics/messages.ts` + `code-docs.ts`;
 `test/language/validation/component-shadows-primitive.test.ts` (mutation-proved:
 removing the gate fails 4 of 7 with `expected [] to include
-'loom.component-shadows-stdlib'`); `docs/new-plan/T1-ui-frontend.md` M-T1.20.
+'loom.component-shadows-stdlib'`); [`docs/new-plan/T1-ui-frontend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md) M-T1.20.
 
 ---
 
@@ -4470,7 +4470,7 @@ is what `gap` means.
 Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
 the `wireShape` retirement or decline with the measurement. It declines.
 
-**Question.** `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 retire
+**Question.** [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 retire
 the derived wire shape: every consumer stops calling
 `forApiRead(wireFieldsFor*(node))` and reads the declared `<Agg>Response`
 contract record instead, after which `.loom/wire-spec.json` retires too.
@@ -4541,7 +4541,7 @@ of the rest.
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`
 (`apiReadFields`); the response-DTO emitters on all five backends; missions
 M-T5.10 and M-T5.40;
-`docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 and its coordination
+[`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 and its coordination
 note's item 3.
 
 ## D-KAFKA-START-OFFSET — a new kafka group starts at earliest on a work queue, latest on a log
@@ -4611,7 +4611,7 @@ their own text — mission M-T6.86, held by four waivers in
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
 
 **Status:** PINNED (owner rulings D4 and D6, 2026-09-29; eval-closure items #20
-and #23, `docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md`).
+and #23).
 
 **D4 — the 403 body.** Every `requires` gate throws `Forbidden: <gate source>`.
 That text always goes to the backend's `forbidden` log line. The RFC 7807
@@ -4690,15 +4690,14 @@ that name) are recorded in `docs/generators.md` § "Names that are Python
 keywords" as follow-ups — they fail loudly (a syntax/compile error), not
 silently.
 
-**Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
+**Sources.** the eval closure review (2026-09-28), item 6;
 [`generators.md`](generators.md) § "Names that are Python keywords" and
 § "Names that are Java reserved words".
 
 ## D-DEFAULT-DENY-LIST-WARN — under `denyByDefault` an ungated list read is a warning; a cross-context policy call is a named error
 
 **Status:** ruled by the owner (eval closure review 2026-09-28, rulings D5 and
-D9; items 22 and 39 of
-`docs/audits/2026-09-28-eval-closure-review/reverified-items.json`).
+D9; items 22 and 39).
 
 **D5: the list read.** Every aggregate serves `GET /api/<plural>`, which is
 backed by the repository find named `all`. Unless the author declares that

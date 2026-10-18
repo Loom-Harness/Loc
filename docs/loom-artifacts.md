@@ -61,7 +61,7 @@ traceability coverage, or migration baselines.
 
 | File | Producer | What it is |
 |---|---|---|
-| `messages.en.json` | `src/system/i18n-catalog.ts` (phase ⑨) | Source-language (English) message catalog — every user-visible string extracted from the system's UIs, as a flat, key-sorted `{ key: message }` object.  Keys are content-hashed (`page.<Page>.<role>.<hash>` / `component.<Comp>.<role>.<hash>` / `menu.<role>.<hash>`, D-I18N-KEY) so the catalog is reorder-invariant and a rephrase re-keys cleanly (delete-old + add-new).  The diff surface a future `ddd i18n sync` merges each locale against (M-T1.11, [`docs/old/proposals/i18n.md`](old/proposals/i18n.md)). **This slice extracts plain string literals only** — interpolated strings (`"Order ${o.id}"`) await the template→ICU lowering slice. Extraction: `src/generator/_walker/i18n-extract.ts`. |
+| `messages.en.json` | `src/system/i18n-catalog.ts` (phase ⑨) | Source-language (English) message catalog — every user-visible string extracted from the system's UIs, as a flat, key-sorted `{ key: message }` object.  Keys are content-hashed (`page.<Page>.<role>.<hash>` / `component.<Comp>.<role>.<hash>` / `menu.<role>.<hash>`, D-I18N-KEY) so the catalog is reorder-invariant and a rephrase re-keys cleanly (delete-old + add-new).  The diff surface a future `ddd i18n sync` merges each locale against (M-T1.11, [`docs/old/proposals/i18n.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md)). **This slice extracts plain string literals only** — interpolated strings (`"Order ${o.id}"`) await the template→ICU lowering slice. Extraction: `src/generator/_walker/i18n-extract.ts`. |
 
 ## Storage routing
 

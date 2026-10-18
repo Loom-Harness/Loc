@@ -10,7 +10,7 @@ A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrie
 
 Ten primitives: `int`, `long`, `decimal`, `money`, `string`, `bool`, `datetime`, `guid`, `json`, `File`. Each maps to a host-language type, a wire (DTO) type, and a SQL column per backend. (`duration` is a type in the expression language — the result of `days(3)` or `datetime - datetime` — but not a declarable field type; see [`duration`](#duration--expression-only).)
 
-> **Known omission — there is no `date` (or `time`) scalar.** A calendar field (a start date, a due date, a date of birth) has to be declared `datetime`, which carries a time and an offset it does not have: `2026-01-01T00:00:00Z` is *December 31* for every principal west of UTC. Use `datetime` and normalise at the boundary until [`M-T5.39`](../new-plan/T5-language-core.md#m-t539--there-is-no-date-or-time-scalar-so-every-calendar-field-is-a-datetime--open--l--p1--five-backend-wire-contract-change) lands.
+> **Known omission — there is no `date` (or `time`) scalar.** A calendar field (a start date, a due date, a date of birth) has to be declared `datetime`, which carries a time and an offset it does not have: `2026-01-01T00:00:00Z` is *December 31* for every principal west of UTC. Use `datetime` and normalise at the boundary until [`M-T5.39`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T5-language-core.md#m-t539--there-is-no-date-or-time-scalar-so-every-calendar-field-is-a-datetime--open--l--p1--five-backend-wire-contract-change) lands.
 
 ```ddd
 aggregate Order {
@@ -120,7 +120,7 @@ field :meta,        :map
 
 ### Numeric representation rules
 
-The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](../audits/numeric-types-audit-2026-08-23.md)):
+The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)):
 
 | Type | Column | JSON wire | Domain representation — node / dotnet / java / python / elixir |
 |---|---|---|---|
