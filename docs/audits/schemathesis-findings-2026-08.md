@@ -1860,7 +1860,7 @@ gated per-PR by `test/conformance/op-union-openapi-parity.test.ts`. Adding an
 error-arm union to a fuzz fixture is follow-up slice 6.
 
 
-### F34 — elixir: a value object is persisted as its raw wire map
+### F35 — elixir: a value object is persisted as its raw wire map
 **Waiver:** W37 + W38 (elixir only) · **Severity: medium** · **Status: OPEN — mission [M-T6.89](../new-plan/T6-backend-parity.md#m-t689--elixir-persists-a-value-objects-raw-wire-map-a-missing-vo-field-500s-an-aggregate-invariant-an-undeclared-key-is-stored-and-a-nul-in-one-500s-jsonb).**
 
 ```
@@ -1956,7 +1956,7 @@ packet of its own".
 | `405` on a valid `POST /api/customers`; `400 Missing Content-Type header` | — | `BodyParser` answered a parse failure with the PRE-parser `conn`, so Bandit "drained" a body it had already read on the keep-alive socket, consuming the head of the NEXT request (`OST /api/…` → 405; a broken request line → Bandit's own 400) | **fixed** — the answer closes the connection (`shell-emit.ts`, `vanilla-body-parser-keepalive.test.ts`) |
 | `500` on `/by_email` with no `email`; undeclared `400` on `/by_owner?owner=zz` | — | a find's declared params reached Ecto unchecked (`nil` comparison → ArgumentError; malformed uuid → CastError) | **fixed** — `__check_find_params/2` answers the declared 422 at the param's pointer, per published type (`find-controller.ts`, `vanilla-find-param-check.test.ts`); prod `--warnings-as-errors` compile + a boot over every param kind |
 | `200 API accepted schema-violating request` on the paged reads | — | F9 | **by design** — elixir added to W8 |
-| `500` on `POST /api/wallets` | — | F34 above | **waived** W37/W38, mission M-T6.89 |
+| `500` on `POST /api/wallets` | — | F35 above | **waived** W37/W38, mission M-T6.89 |
 
 E1 (TRACE → 501) and E5 (`:erlang.-("", 1)` on a paged read) from the
 2026-09-10 inventory no longer reproduce: E1 was LiveView routing again, and E5

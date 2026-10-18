@@ -1,6 +1,6 @@
 {
   "comment": "Ratcheting waivers for the schemathesis contract-fuzzing legs (M-T9.21). A rule names one ROOT CAUSE — a check plus a regex over the operation label — and points at the entry in docs/audits/schemathesis-findings-2026-08.md that explains it with a repro. The ratchet bites both ways: a finding no rule matches FAILS the run (a new bug, or a known one spreading to a surface no rule claimed), and a rule that matches nothing across the whole run ALSO fails it (fix the root cause, delete the rule and strike the register entry in the same PR). Rules are deliberately NOT machine-generated: an unexplained waiver is indistinguishable from a silent skip. `kind` is `bug` (a defect we are choosing not to fix in the discovery PR) or `by-design` (the check disagrees with a deliberate decision). STALE IS NOT FIXED: a rule that matches nothing is the ratchet asking a QUESTION — did the root cause go away, or did the fuzzer stop reaching it? Answer it against the emitter before deleting the rule. W10 spent three nights failing the run as \"stale\" while `errorStatuses(\"workflow\")` still had no 404 arm; the case had simply stopped being generated when the spec shape shifted (the seed is pinned, but the cases are derived FROM the spec, and a data-dependent finding needs a row an earlier case created). A finding whose reproduction depends on run data carries `intermittent` for exactly that reason — W10 was one and did not say so.",
-  "backendsComment": "`backends` names the LEGS a rule claims, and drives BOTH halves of the ratchet: a rule only absorbs a finding on a leg it claims (so a known root cause spreading to a sixth surface is still unwaived), and it is only judged stale on a leg it claims (so fixing it on python means dropping \"python\" from the list in the same PR, while the rule survives for the legs that still reproduce it). Each leg is its own process against its own database, so staleness cannot be pooled across them. Omitting `backends` means all five. The elixir leg was triaged on 2026-10-11 and binds like the other four (see the audit's \"elixir leg\" section): it shares W8 and carries W37/W38 for F34, its one open defect.",
+  "backendsComment": "`backends` names the LEGS a rule claims, and drives BOTH halves of the ratchet: a rule only absorbs a finding on a leg it claims (so a known root cause spreading to a sixth surface is still unwaived), and it is only judged stale on a leg it claims (so fixing it on python means dropping \"python\" from the list in the same PR, while the rule survives for the legs that still reproduce it). Each leg is its own process against its own database, so staleness cannot be pooled across them. Omitting `backends` means all five. The elixir leg was triaged on 2026-10-11 and binds like the other four (see the audit's \"elixir leg\" section): it shares W8 and carries W37/W38 for F35, its one open defect.",
   "waivers": [
     {
       "id": "W8",
@@ -52,7 +52,7 @@
     {
       "id": "W37",
       "findings": [
-        "F34"
+        "F35"
       ],
       "check": "not_a_server_error",
       "operations": "^POST /(products|wallets)(/\\{id\\}/(update|top_up|debit))?$|^POST /orders/\\{id\\}/add_line$|^POST /workflows/checkout$",
@@ -60,12 +60,12 @@
         "elixir"
       ],
       "kind": "bug",
-      "reason": "F34 — elixir persists a value object's RAW wire map: a single VO field is a `:map` jsonb column cast verbatim, and `validate_vo/3` checks the VO's constructor but keeps the request's map. A VO missing a declared field (`balance: {\"currency\": \"\"}`) reaches the aggregate invariant `balance.amount >= 0` as `nil` and `Decimal.compare(nil, …)` raises (500); an undeclared key is stored, and a NUL in one 500s jsonb (22P05). The fix belongs to the changeset/validator emitters (packet F1's tree, not F8's), so it is a mission — M-T6.89 — rather than a fix in the triage that found it. Scoped to the write operations whose body carries a value object, elixir only: node/python/.NET/java build the VO from its declared fields."
+      "reason": "F35 — elixir persists a value object's RAW wire map: a single VO field is a `:map` jsonb column cast verbatim, and `validate_vo/3` checks the VO's constructor but keeps the request's map. A VO missing a declared field (`balance: {\"currency\": \"\"}`) reaches the aggregate invariant `balance.amount >= 0` as `nil` and `Decimal.compare(nil, …)` raises (500); an undeclared key is stored, and a NUL in one 500s jsonb (22P05). The fix belongs to the changeset/validator emitters (packet F1's tree, not F8's), so it is a mission — M-T6.89 — rather than a fix in the triage that found it. Scoped to the write operations whose body carries a value object, elixir only: node/python/.NET/java build the VO from its declared fields."
     },
     {
       "id": "W38",
       "findings": [
-        "F34"
+        "F35"
       ],
       "check": "status_code_conformance",
       "operations": "^POST /(products|wallets)(/\\{id\\}/(update|top_up|debit))?$|^POST /orders/\\{id\\}/add_line$|^POST /workflows/checkout$",
@@ -73,7 +73,7 @@
         "elixir"
       ],
       "kind": "bug",
-      "reason": "F34's other face: the same 500 is also a status no operation declares. F34 — elixir persists a value object's RAW wire map: a single VO field is a `:map` jsonb column cast verbatim, and `validate_vo/3` checks the VO's constructor but keeps the request's map. A VO missing a declared field (`balance: {\"currency\": \"\"}`) reaches the aggregate invariant `balance.amount >= 0` as `nil` and `Decimal.compare(nil, …)` raises (500); an undeclared key is stored, and a NUL in one 500s jsonb (22P05). The fix belongs to the changeset/validator emitters (packet F1's tree, not F8's), so it is a mission — M-T6.89 — rather than a fix in the triage that found it. Scoped to the write operations whose body carries a value object, elixir only: node/python/.NET/java build the VO from its declared fields."
+      "reason": "F35's other face: the same 500 is also a status no operation declares. F35 — elixir persists a value object's RAW wire map: a single VO field is a `:map` jsonb column cast verbatim, and `validate_vo/3` checks the VO's constructor but keeps the request's map. A VO missing a declared field (`balance: {\"currency\": \"\"}`) reaches the aggregate invariant `balance.amount >= 0` as `nil` and `Decimal.compare(nil, …)` raises (500); an undeclared key is stored, and a NUL in one 500s jsonb (22P05). The fix belongs to the changeset/validator emitters (packet F1's tree, not F8's), so it is a mission — M-T6.89 — rather than a fix in the triage that found it. Scoped to the write operations whose body carries a value object, elixir only: node/python/.NET/java build the VO from its declared fields."
     }
   ]
 }

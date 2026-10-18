@@ -72,7 +72,7 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - the harness fuzzed the LiveView pages (relative `servers`) → `specServerBase`;
   - a body-parse failure corrupted the next keep-alive request → `connection: close`;
   - find params reached the query unchecked → `__check_find_params/2` answers 422 at the param.
-  - F34 (elixir persists a VO's raw wire map) is minted **M-T6.89** and waived W37/W38. Hand-off: `handoffs/wave-c3f-f8.md`.
+  - F35 (elixir persists a VO's raw wire map) is minted **M-T6.89** and waived W37/W38. Hand-off: `handoffs/wave-c3f-f8.md`.
 - **F4 folded** (2026-10-11; `claude/c3f-f4` @ `4e5d52650`). **Cross-backend wire value contracts.** Three new RS rules and one ruling:
   - **RS-39:** a decimal comma (.NET/Dapper, D22) and an int past int32 (D23) are refused at the field, with one message on every backend.
   - **RS-40 / `D-MESSAGELESS-DEFAULT`:** every message-less wire rule answers node's sentence. This covers .NET, java and elixir (M-T6.86) and python's model-level invariant (D13). M-T6.86 is closed, and so is M-T6.87's rule half.

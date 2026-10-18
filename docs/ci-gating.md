@@ -183,7 +183,7 @@ fails as stale.
   relative `servers: /api`, so the leg fuzzed the LiveView pages. The real
   defects — an unresolvable value-object `$ref`, a keep-alive body-parser
   desync, unchecked find params — are fixed in `src/generator/elixir/**`.
-  After: **5 findings, all waived (W8 ×3, W37, W38 for F34 → M-T6.89), 0
+  After: **5 findings, all waived (W8 ×3, W37, W38 for F35 → M-T6.89), 0
   errors, 29/29 operations tested**; the other four re-run clean with the pin.
   `discovery: true` and `continue-on-error` are gone. Nightly-only, so it is
   outside the `push: main` ratchet above.

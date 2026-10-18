@@ -24,7 +24,7 @@ The other four legs, re-run on this branch with the pin: node 7 (W8), python 7
 | 4 | `POST /customers`/`/orders` → 405; `400 Missing Content-Type header` | **fixed.** `BodyParser` answered a parse failure with the PRE-parser `conn`; Bandit then re-drained an already-read body on the keep-alive socket and consumed the head of the next request (`OST /api/…`). The answer now sets `connection: close`. Comment avoids the sentinel word | `src/generator/elixir/vanilla/shell-emit.ts`, `test/generator/elixir/vanilla-body-parser-keepalive.test.ts` |
 | 5 | find params reach the query unchecked | **fixed.** `__check_find_params/2` checks each declared param against its published type (string / uuid / int32 / long-safe / decimal·money / bool / datetime / enum; non-scalar `?x[]=` refused) and answers the declared 422 at `/<param>` before the gate and the query; one `__find_param_error/3` clause per kind used. The `validation_errors_response/2` gate in `index.ts` also turns on for checked finds. `vanilla-optional-find-404.test.ts`'s fixed-width slice is now the whole action, and its indentation-pinned assertion a regex | `src/generator/elixir/vanilla/find-controller.ts`, `index.ts`, `test/generator/elixir/vanilla-find-param-check.test.ts` |
 | 6 | unknown query params on paged GETs | **by design (F9)** — `elixir` added to W8's backends | `test/behavioral/schemathesis-waivers.json` |
-| 7 | F34: elixir persists a VO's raw wire map | **mission M-T6.89** (F1's changeset tree). Waived **W37** (`not_a_server_error`) + **W38** (`status_code_conformance`), elixir only, scoped to VO-bearing writes. **Ids deviate from the brief's W36/W37:** W36 is a retired rule (dotnet F18, #2764) and reusing it would collide in the register's history | `docs/audits/schemathesis-findings-2026-08.md` (F34), `docs/new-plan/T6-backend-parity.md` |
+| 7 | F35: elixir persists a VO's raw wire map | **mission M-T6.89** (F1's changeset tree). Waived **W37** (`not_a_server_error`) + **W38** (`status_code_conformance`), elixir only, scoped to VO-bearing writes. **Ids deviate from the brief's W36/W37:** W36 is a retired rule (dotnet F18, #2764) and reusing it would collide in the register's history | `docs/audits/schemathesis-findings-2026-08.md` (F35), `docs/new-plan/T6-backend-parity.md` |
 | — | binding | `discovery: true` + `continue-on-error` dropped; `docs/ci-gating.md` row rewritten; `loom-ci-gates` skill (no longer "discovery cell"; the schemathesis line no longer says Hono-only) and `loom-test-suites` skill updated; register's "elixir leg" section carries the triage table; follow-up slice 1 replaced (elixir on the shared fixtures) | |
 
 ## Mutation proofs (file-copy revert, failing assertion read)
@@ -39,14 +39,14 @@ The other four legs, re-run on this branch with the pin: node 7 (W8), python 7
 - Keep-alive, one socket, malformed-JSON POST with its body in its own segment then a valid GET: before `400` then `HTTP/1.0 400 Bad Request` for the GET; after `400` + `connection: close`, socket closed.
 - `GET /api/customers/by_email` (no param): before 500 (`ArgumentError: comparing record.email with nil`); after 422 `{pointer: "/email", message: "Required"}`. `?owner=zz`: before 400 (CastError); after 422 `/owner` "Expected UUID.".
 - An app with a find per param kind (string, `Owner id`, int, long, decimal, money, bool, datetime, guid, enum, `string?`): `MIX_ENV=prod mix compile --warnings-as-errors` → "Generated app app"; booted, each kind answers 422 at its pointer for a malformed value and 200 for a well-formed one.
-- F34: `balance: {"currency":"USD"}` → 500 `Decimal.decimal(nil)`; `"junk": 1` → 201 and stored; `"x\u0000": 1` → 500 22P05.
+- F35: `balance: {"currency":"USD"}` → 500 `Decimal.decimal(nil)`; `"junk": 1` → 201 and stored; `"x\u0000": 1` → 500 22P05.
 
 ## Fence crossings
 
 - `test/behavioral/README.md`, `docs/testing.md`, `.claude/skills/loom-test-suites/SKILL.md` — the install line (pin) and the "discovery cell" note.
 - `src/generator/elixir/vanilla/index.ts` — one gate line (`contextsHaveCheckedFindParams`) for the `validation_errors_response/2` responder; not a changeset/validator emitter.
 - `docs/new-plan/T6-backend-parity.md` + `README.md` counts — the M-T6.89 row. **M-T6.89** was the allocator's next free T6 id at mint time; sibling packets minting concurrently may collide — re-derive at fold.
-- Not touched: the changeset / validator / decimal emitters (F1's) — F34 is handed to M-T6.89.
+- Not touched: the changeset / validator / decimal emitters (F1's) — F35 is handed to M-T6.89.
 
 ## Not done / for CI
 
