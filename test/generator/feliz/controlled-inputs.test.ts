@@ -120,6 +120,8 @@ describe("feliz controlled input primitives", () => {
     const app = await appFs();
     expect(app).toContain('prop.className (if model.ShowDlg then "modal modal-open" else "modal")');
     expect(app).toContain('Html.div [ prop.className "modal-box"');
-    expect(app).toContain('prop.onClick (fun _ -> dispatch (SetShowDlg false)); prop.text (I18n.t "chrome.close" "Close")');
+    expect(app).toContain(
+      'prop.onClick (fun _ -> dispatch (SetShowDlg false)); prop.text (I18n.t "chrome.close" "Close")',
+    );
   });
 });
