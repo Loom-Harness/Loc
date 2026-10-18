@@ -3,8 +3,8 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Embedded-SPA host on the vanilla (plain Ecto/Phoenix) foundation —
-// mission M-T6.1 (docs/new-plan/T6-backend-parity.md), phase 6 of
-// docs/old/plans/phoenix-surface-generator-wiring.md.
+// mission M-T6.1 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md), phase 6 of
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phoenix-surface-generator-wiring.md.
 //
 // A `platform: elixir` deployable that `hosts:` a `framework: react|vue|svelte`
 // ui is a JSON-API backend that ALSO serves a client-side SPA.  Before this

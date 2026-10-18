@@ -56,10 +56,9 @@ export const UuidString = z
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
  *  `errors[]` extension (per-field `{ pointer, message }` array) that
  *  the runtime emits on 422 validation responses.  Consumed by the
- *  frontend ACL's `applyServerErrors` (see docs/old/proposals/frontend-acl.md).
+ *  frontend ACL's `applyServerErrors`.
  *  All fields nullable / optional — base 5 per the spec core; `errors` is
- *  only present on 422 validation responses.  See
- *  docs/old/proposals/validation-error-extension.md — all three backends
+ *  only present on 422 validation responses.  All three backends
  *  (Hono / .NET / Phoenix) declare the same shape in lockstep so the
  *  cross-backend parity gate stays green. */
 export const ProblemDetails = z.object({
@@ -87,8 +86,7 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field `errors[]` extension.  The shape
  *  is the contract consumed by the frontend ACL — see
- *  docs/old/proposals/frontend-acl.md and apply-server-errors.ts in the
- *  generated React project.
+ *  apply-server-errors.ts in the generated React project.
  *
  *  Validation failures get 422 (Unprocessable Entity, RFC 7807 standard
  *  for input-shape errors).  Domain-rule violations carried by

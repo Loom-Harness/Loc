@@ -3,7 +3,7 @@
 // `.ddd` source that produced it (or the macro call / derivation that did,
 // when there is no direct source span).
 //
-// See docs/old/proposals/source-map-and-debugging.md §4 for the north star and
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md §4 for the north star and
 // the pinned design decisions (byte offsets not line/col, a chain not a
 // single span, inline field not a side-table).
 // ---------------------------------------------------------------------------

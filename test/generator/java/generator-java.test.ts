@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java backend — walking-skeleton emission (slice S1 of
-// docs/old/plans/java-backend-implementation.md).  A system with a
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md).  A system with a
 // `platform: java` deployable produces a bootable Maven/Spring Boot
 // project shell: pom.xml (Boot parent), Application.java, health/ready
 // probes, application.yml reading the compose-provided datasource env,

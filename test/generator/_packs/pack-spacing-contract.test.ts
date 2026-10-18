@@ -203,7 +203,7 @@ const KNOWN_DEVIATIONS: readonly KnownDeviation[] = [
   // entries; what is below is what #2750 did NOT address, and it now belongs to
   // **M-T1.12**, the live mission that owns the remaining `designs/flowbite/**`
   // work (its own open list already names "the raw flowbite/native field aria").
-  // The rows are restated in M-T1.12's body in docs/new-plan/T1-ui-frontend.md,
+  // The rows are restated in M-T1.12's body in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md,
   // so the mission and the ratchet cannot drift apart.
   //
   // Owner line only — no behaviour, no threshold and no assertion changed here.

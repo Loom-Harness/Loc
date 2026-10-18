@@ -861,7 +861,7 @@ pack — see [`testing.md`](./testing.md).
 ## 9. Architectural rules
 
 These rules constrain pack authorship and the shared-template layer
-both.  See [`audits/pack-equivalence-audit.md`](./audits/pack-equivalence-audit.md) for the empirical evidence
+both.  See [`audits/pack-equivalence-audit.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pack-equivalence-audit.md) for the empirical evidence
 behind them.
 
 1. **Low-level design-system-dependent templates stay per-pack and
@@ -1234,11 +1234,14 @@ In a separate PR after the new version has soaked:
 | Adopting `react-router-dom` (v6 name) in new packs targeting an RR-7 stack | v7 renamed to `react-router` |
 | Letting `manifest.version` (or `manifest.stack`) drift from reality | loader throws on version/dir mismatch; a wrong `stack` resolves the wrong framework deps |
 | Externalising React for a React-19 stack | the duplicate-`ReactSharedInternals` bug — React-19 stacks inline React on purpose |
+| Promoting a new CSS-pipeline major (shadcn / Tailwind) with only the `BUILTIN_PACK_LATEST` flip | the playground preview picks the Tailwind runtime from the bundled CSS (`tailwindFlavor` in `web/src/preview/iframe-html.ts`: `@tailwind` → the v3 Play CDN, `@import "tailwindcss"` → `@tailwindcss/browser`), so a new CSS major needs that in-browser path, proven by a deployed preview-runtime spec, before promotion; JS-runtime-styled packs (Mantine / Chakra / MUI) don't |
+| Moving the DEFAULT pack's stack without grepping the tests | walker suites that generate through the default pack hardcode framework literals (e.g. `from "react-router-dom"`); update them in the same PR |
+| Depending on a package with a loose transitive `peerDependency` range | esm.sh resolves it to the latest major in the playground (a chakra icons package pulled React-incompatible v3 despite a v2 pin); avoid such packages or pin tighter |
 
 ## 13. References
 
-- [`audits/pack-equivalence-audit.md`](./audits/pack-equivalence-audit.md) — what's shared vs per-pack, with evidence
-- [`plans/per-pack-migration.md`](old/plans/per-pack-migration.md) — per-library historical migration notes (mantine→v9, mui→v7, chakra→v3, shadcn→v4)
+- [`audits/pack-equivalence-audit.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pack-equivalence-audit.md) — what's shared vs per-pack, with evidence
+- [`plans/per-pack-migration.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/per-pack-migration.md) — per-library historical migration notes (mantine→v9, mui→v7, chakra→v3, shadcn→v4)
 - `src/generator/_packs/loader.ts` — pure compile core
 - `src/generator/_packs/loader-fs.ts` — Node FS adapter
 - `web/src/build/loader-vfs.ts` — playground VFS adapter

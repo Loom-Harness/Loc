@@ -3,7 +3,7 @@ import { generateSystems } from "../../src/system/index.js";
 import { parseValid } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// M18 phase 8 slice 1 — Node debug wiring (docs/old/plans/dap-node-debug.md).
+// M18 phase 8 slice 1 — Node debug wiring (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
 //
 // The spike proved: plain `node --enable-source-maps` chains through the
 // phase-5 `.ts.map` sidecars straight to `.ddd` coordinates, PROVIDED

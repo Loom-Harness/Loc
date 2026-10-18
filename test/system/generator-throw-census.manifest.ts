@@ -115,13 +115,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/loader-fs.ts#loadPack": {
     deferred:
       'A custom design path with no pack.json. Relative paths resolve against the process CWD, not the .ddd directory (resolvePackDir is called without referenceDir at react/index.ts:168 and others). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/loader-fs.ts#loadPack$2": {
     deferred:
       'A custom pack whose pack.json has no emits map. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/loader-fs.ts#loadPack$3": {
@@ -131,13 +131,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/loader-fs.ts#loadPack$4": {
     deferred:
       'A custom pack whose emits entry names a .hbs file that does not exist. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/loader-fs.ts#loadPack$5": {
     deferred:
       'A custom pack that declares stack: "v999". Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/loader-fs.ts#loadPack$6": {
@@ -165,7 +165,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/loader.ts#compilePack$3": {
     deferred:
       'A custom pack missing a required primitive (validateRequired defaults to true). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/loader.ts#render": {
@@ -177,31 +177,31 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane": {
     deferred:
       'A custom pack with an empty chrome message. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$2": {
     deferred:
       'A custom pack whose chrome message contains `<`. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$3": {
     deferred:
       'A custom pack whose chrome message has an unbalanced brace. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#bind": {
     deferred:
       'A custom heex pack (elixir LiveView) whose template passes an ICU hole value ({{chrome "rowActions" who="x"}}); this fires when the ui is translatable (heexI18nEnabled). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#declared": {
     deferred:
       'A custom pack whose template uses {{chrome "boolTrue"}} with no chrome entry for it. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
 
@@ -209,7 +209,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/shell-emits.ts#emitShellFiles": {
     deferred:
       'A custom pack declaring shellFiles with a key that is not in emits. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
+    mission: "#3184",
     reviewUntil: "2027-01-31",
   },
 
@@ -268,7 +268,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_walker/walker-core.ts#emitExpr$4": {
     deferred:
       "No validator rejects `this` in a page/component body: `Text { this.name }` in a ui page parses with 0 errors and crashes react/vue/svelte/angular generation.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_walker/walker-core.ts#emitExpr$5": {
@@ -290,7 +290,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_walker/walker-core.ts#unsupportedPageStmt": {
     deferred:
       "A page action that assigns (`:=` or `+=`) to a name that is not a declared state field parses with 0 errors. Example: `action bump() { other := 1 }`. Only if/precondition/requires are gated (loom.if-stmt-page-body-unsupported / loom.ui-body-statement-kind).",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_walker/walker-core.ts#walk": {
@@ -436,7 +436,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/explicit-handlers-emit.ts#pagedRunStmt": {
     deferred:
       "Any `queryHandler H(...): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`, a let-bound paged find, or an aliased let) validates clean but crashes (repros also g2-pagedqh-find.ddd, g2-pagedqh-alias.ddd).",
-    mission: "M-T9.77",
+    mission: "#3194",
     reviewUntil: "2027-01-31",
   },
 
@@ -493,7 +493,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/render-expr.ts#renderCall": {
     deferred:
       "A resource-op inside a workflow `function` body (`function peek(k: string): string = salesFiles.get(k)`) is admitted (it is inside a workflow) but the <Wf>Functions class is rendered without resourceClasses, so renderCall throws.",
-    mission: "M-T9.80",
+    mission: "#3187",
     reviewUntil: "2027-01-31",
   },
   "src/generator/dotnet/render-expr.ts#renderCsAuthzFilter": {
@@ -505,7 +505,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     deferred:
       "An `eventSourced` workflow with only a command-triggered create (no `on`/event-create) and no id-typed state field has no correlation field and no diagnostic, yet the ES emitter unconditionally requires an id-typed correlation field.",
-    mission: "M-T9.78",
+    mission: "#3186",
     reviewUntil: "2027-01-31",
   },
 
@@ -547,7 +547,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/dispatch-emit.ts#renderStmt": {
     deferred:
       "A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/resource-call/domain-service-call in reactor bodies).",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 
@@ -595,7 +595,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/heex-walker-core.ts#renderVariantMatchStmt$2": {
     deferred:
       "A bare `match await Invoice.confirm()` on a LiveView page naming an aggregate from a context the elixir deployable does not host passes the system-wide async-effect check, but the HEEx emitter only knows served aggregates.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
 
@@ -607,7 +607,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/liveview-emit.ts#gatherComponentHandlers": {
     deferred:
       "A page using `onClick: Cart.clear` synthesizes a `clear` handle_event clause that collides with a stateful component's own `action clear()`; the validator never sees store-action-ref handlers.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
 
@@ -629,7 +629,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/render-expr.ts#renderCall": {
     deferred:
       'A raw verb (`orders.get("/orders")`) on a `kind: api` resource bound to an in-system api (no storage) lowers to a resource-op, but buildPhoenixResourceModules only maps storage-backed resources, and nothing rejects it.',
-    mission: "M-T9.80",
+    mission: "#3187",
     reviewUntil: "2027-01-31",
   },
   "src/generator/elixir/render-expr.ts#renderDecimalBinary": {
@@ -649,7 +649,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
     deferred:
       "The event-sourced pure core reads the same command body as the ES command runner, so it shares that runner's gap: an `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
@@ -661,7 +661,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
       "An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 
@@ -669,7 +669,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts#pagedRunStmt": {
     deferred:
       "A `queryHandler X(n): Thing paged { let xs = Things.byName(n) return xs }` (custom find, not a synthesized-criterion Repo.run) passes validation but has no synthCriterion repo-run.",
-    mission: "M-T9.77",
+    mission: "#3194",
     reviewUntil: "2027-01-31",
   },
 
@@ -677,13 +677,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
     deferred:
       "An eventSourced workflow `apply` that constructs a contained entity part of an aggregate in the same context (`let l = Line { sku: a.sku }`) validates clean, but the workflow fold has no part resolver.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
     deferred:
       "A `return` in an event-sourced aggregate `apply` body passes both applier-discipline validators but the elixir fold renderer has no `return` arm (an `if` in an eventSourced WORKFLOW apply is likely also unguarded).",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 
@@ -691,7 +691,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
     deferred:
       "A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 
@@ -793,19 +793,19 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/fs-expr.ts#renderFsExpr$3": {
     deferred:
       "An effect-free block-body lambda (only let statements) in a page action passes loom.effect-in-lambda and every other gate, then crashes.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
     deferred:
       "'b := this.b' (kind 'this') or 'let f = say' (kind 'action-ref') in a page action parse with 0 errors and hit the default arm.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
     deferred:
       "A page action using a collection/string method outside the small F# set (reverse, indexOf, concat, none, find, append, toString, format...) parses clean and crashes; no frontend method-vocabulary gate covers the feliz update path.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
 
@@ -837,13 +837,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/update-emit.ts#renderUpdateStmt": {
     deferred:
       "toast(...) in a page action lowers as a private-operation call; loom.unresolved-action-ref exempts it as a view-effect builtin but feliz has only a navigate arm. Also: an unresolved call foo() inside a STORE action is not checked by unresolved-action-ref.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$2": {
     deferred:
       "A match await nested inside another match-await arm on a :id page (or any match await in a store action) is never projected and no gate refuses it (feliz-async-effect-unsupported only flags component hosts; stores are not scanned).",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$3": {
@@ -863,25 +863,25 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/wire.ts#felizFindRead": {
     deferred:
       "A find returning a non-aggregate shape (string[], int) read in a feliz QueryView parses clean and crashes.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/wire.ts#felizFindRead$2": {
     deferred:
       "Find call arity is not checked: QueryView { of: C.Thing.byName() } (or bare C.Thing.byName, or 2 args) against a 1-param find parses with 0 errors.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/wire.ts#findParamQueryValue": {
     deferred:
       "A repository find with a list (or other non-scalar) parameter read in a feliz QueryView parses clean and crashes; no feliz find-shape gate.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/wire.ts#walk": {
     deferred:
       "A find read nested in a For/data lambda passing the row binding (C.Thing.byName(r.name)) is valid but the argument isn't a state cell/store field.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
 
@@ -921,13 +921,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": {
     deferred:
       "loom.unresolved-action-ref does not scan STORE action bodies, so a typo'd/unknown call foo() in a store action parses clean and crashes the flutter store notifier.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt$2": {
     deferred:
       "A match await nested inside a page match-await arm (or any match await in a store action) reaches the default arm; the page interceptor only handles top-level ones and no gate covers nested/store cases.",
-    mission: "M-T9.81",
+    mission: "#3182",
     reviewUntil: "2027-01-31",
   },
   "src/generator/flutter/riverpod-emit.ts#renderVariantMatchNotifier": {
@@ -971,13 +971,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations": {
     deferred:
       "An optional reference collection `tags: Tag id[]?` on an aggregate (or any `X id[]` on an entity part, or on a projection/workflow state) gets no AssociationIR, but jpaFieldAnnotations unwraps optional and demands one.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations$2": {
     deferred:
       "For aggregates/parts/bases valueCollectionsFor derives one entry per VO-array field (unwrapping optional), so the throw is unreachable there; but a projection (or saga) state field `tags: Tag[]` reaches this lookup with the stub owner {name, associations: []} and crashes one line earlier with 'TypeError: owner.fields is not iterable' (valid model, 0 errors) — repro g5-java-proj-voarray.ddd; fixing that TypeError would make this throw fire.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
 
@@ -989,7 +989,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/projection-reads.ts#corrWire": {
     deferred:
       "A folded projection with no `keyed by` whose handlers all use `on(e: E) by e.x` passes validation (0 errors) and has no id-source wire field; today generation crashes earlier in src/system/migrations-builder.ts projectionTableShape (TypeError: Cannot read properties of undefined (reading 'replace')) so this throw is masked — repro g5-java-singleton-fold-by.ddd.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/generator/java/emit/projection-reads.ts#guardProjectionField": {
@@ -1001,7 +1001,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/projection-state.ts#correlationField": {
     deferred:
       "Same singleton-with-`by` gap as corrWire: a folded projection without `keyed by` but with `on(...) by ...` validates clean, has correlationField undefined, and would throw here; currently masked by the earlier migrations-builder TypeError (repro g5-java-singleton-fold-by.ddd). Keyed projections are guarded by loom.projection-key-unknown (:607).",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/generator/java/emit/projection-state.ts#projectionCorrIdClass": {
@@ -1013,7 +1013,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/query-projection-reads.ts#groupKeyCoerce": {
     deferred:
       "Grouping by a bare `json` column (`group by o.meta; select k = o.meta`) is shape-valid, but groupKeyCoerce has no arm for primitive 'json' (or 'File') and throws.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/generator/java/emit/query-projection-reads.ts#keyCol": {
@@ -1046,7 +1046,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass": {
     deferred:
       "An eventSourced workflow with only a command-triggered create and no id-typed state field validates clean, has no correlationField, and renderEsWorkflowFoldClass is still emitted for it.",
-    mission: "M-T9.78",
+    mission: "#3186",
     reviewUntil: "2027-01-31",
   },
 
@@ -1080,7 +1080,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/explicit-handlers-emit.ts#pagedRunStmt": {
     deferred:
       "A queryHandler returning `Order paged` whose body is anything other than `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`) validates clean and throws here.",
-    mission: "M-T9.77",
+    mission: "#3194",
     reviewUntil: "2027-01-31",
   },
 
@@ -1088,7 +1088,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/render-expr.ts#renderCall": {
     deferred:
       'A resource op in a projection fold assign value (`blob := salesFiles.get("x")`) passes loom.projection-fold-impure (assign is allowed) and the resource-op gate, then hits the Java renderer with no resourceClasses.',
-    mission: "M-T9.80",
+    mission: "#3187",
     reviewUntil: "2027-01-31",
   },
   "src/generator/java/render-expr.ts#renderMoneyBinary": {
@@ -1098,7 +1098,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/java/render-expr.ts#renderNew": {
     deferred:
       "A part builder-call `Line { qty: 1 }` inside an aggregate-nested unit test lowers to a `new` expr, but the Java test renderer's JavaRenderContext has no agg.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
 
@@ -1130,7 +1130,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/explicit-handlers-emit.ts#pagedRunStmt": {
     deferred:
       "Same as Java: any paged queryHandler body other than the exact let/return repo-run shape validates clean.",
-    mission: "M-T9.77",
+    mission: "#3194",
     reviewUntil: "2027-01-31",
   },
 
@@ -1172,7 +1172,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": {
     deferred:
       "A workflow applier containing a `let` binding (`apply(pr: PaymentRegistered) { let x = pr.amount  paid := paid + x }`) validates clean, but the Python ES-workflow applier renderer only handles assign/add/remove.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 
@@ -1228,7 +1228,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType": {
     deferred:
       "A root value-object field whose VO contains a VO collection (`tags: Tag[]`) is flattened into sub-columns and recurses into columnsForType with a non-scalar array element; no validator rejects nested VO collections under persistence: mikroorm.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType$2": {
@@ -1284,7 +1284,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/typescript/emit/mikroorm-filter.ts#predicateEntry": {
     deferred:
       "A capability `filter this.owners.contains(<id>)` over an `X id[]` reference collection is admitted by firstNonQueryablePredicate, but mikroContextFilters calls whereToMikroFilter(pred) with no associations, so containsMembershipFragment returns null and predicateEntry falls through.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
 
@@ -1390,7 +1390,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/explicit-handlers-builder.ts#emitPagedRunHandler": {
     deferred:
       "No validator pins the body of a `queryHandler H(...): <Agg> paged`; `return Orders.run(InRegion(rgn))` (or a let-rebinding, or `let r = Orders.findAll()`, or a compound criterion) validates clean on node and crashes the paged branch.",
-    mission: "M-T9.77",
+    mission: "#3194",
     reviewUntil: "2027-01-31",
   },
 
@@ -1431,7 +1431,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow": {
     deferred:
       "A select-only query-time projection derives its row fields from the select expressions' resolved types (selectDerivedFields), so `select span = o.closedAt - o.openedAt` (datetime - datetime = duration) puts a duration into wireShape and zodForRow throws.",
-    mission: "M-T9.82",
+    mission: "#3188",
     reviewUntil: "2027-01-31",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$2": {
@@ -1461,7 +1461,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt": {
     deferred:
       "The applier purity rules (loom.applier-emits/-impure-call/-guard) cover aggregate appliers and explicitly allow let/if/expression/return; an eventSourced workflow `apply(r) { let a = r.at  firedAt := a }` (or an `if`) validates clean and the hono ES-workflow applier refuses it.",
-    mission: "M-T9.79",
+    mission: "#3183",
     reviewUntil: "2027-01-31",
   },
 

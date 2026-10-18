@@ -1,6 +1,6 @@
 // Unresolved bare-identifier check (`loom.unknown-name`).
 //
-// Finding 1 of docs/audits/full-code-review-2026-07.md: a `NameRef` is
+// Finding 1 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/full-code-review-2026-07.md: a `NameRef` is
 // NOT a Langium cross-reference, so `typeOf` returns `unknown` for a bare
 // identifier that resolves to nothing in scope — and EVERY downstream gate
 // (`checkAssignOrCall`, `checkSingleBinaryOperands`, `checkEmit`, …)

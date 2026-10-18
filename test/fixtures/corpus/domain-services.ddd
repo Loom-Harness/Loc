@@ -87,7 +87,7 @@ system DomainSvc {
       domainService FeeQuote {
         operation forAmount(amount: Money): Money {
           // A `precondition` in a domainService operation's OWN body — the shape
-          // docs/audits/2026-09-29-fixture-shape-coverage.md found in 0 of 406
+          // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md found in 0 of 406
           // models, and the evaluation's F-009 trigger.  It lowers to a
           // `throw`/`raise` of the domain-error type inside `domain/services.ts`
           // (and each backend's equivalent), whose import list is built by a

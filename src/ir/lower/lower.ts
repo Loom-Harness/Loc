@@ -241,7 +241,7 @@ export function lowerModel(model: Model): RawLoomModel {
  *  composing the lone `system { }` block (its name + singletons +
  *  deployment) with top-level `subdomain` / `context` declarations from
  *  ANY file into one project system.  See
- *  docs/old/proposals/implicit-system-composition.md.
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.
  *
  *  Resolution: exactly one `system` block in the project ⇒ fold every
  *  top-level domain member into it (the user / permission threading in
@@ -581,7 +581,7 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
 /** Lower a `system { … }` block.  `extraDomainMembers` are top-level
  *  `subdomain` / `context` declarations from sibling files (the import
  *  graph) that compose into THIS system — see `lowerProject` /
- *  docs/old/proposals/implicit-system-composition.md.  They are folded in
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.  They are folded in
  *  alongside `sys.members` so the `user` / `permissions` threading below
  *  applies to them identically to a nested declaration. */
 function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []): SystemIR {

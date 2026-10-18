@@ -21,7 +21,7 @@ system Shop {
 }
 ```
 
-**One `system` per project.** The composition validator (`src/language/validators/composition.ts`) folds every top-level `subdomain` / `context` / `deployable` / `ui` / … into the project's single system; when the import graph declares zero or more than one `system { … }` and there is anything to fold, every foldable top-level declaration is flagged with `loom.top-level-domain-needs-single-system`. This is what lets you split one-file-per-subdomain with the deployment in its own file (see [implicit-system-composition](../old/proposals/implicit-system-composition.md)). The system may be *just* a name plus deployment declarations.
+**One `system` per project.** The composition validator (`src/language/validators/composition.ts`) folds every top-level `subdomain` / `context` / `deployable` / `ui` / … into the project's single system; when the import graph declares zero or more than one `system { … }` and there is anything to fold, every foldable top-level declaration is flagged with `loom.top-level-domain-needs-single-system`. This is what lets you split one-file-per-subdomain with the deployment in its own file (see [implicit-system-composition](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md)). The system may be *just* a name plus deployment declarations.
 
 A project with **no** `system` block still parses and generates per-deployable code via the legacy `generate ts` / `generate dotnet` single-file path — `generate system` emits only the root `.loom/` artefact bundle without one.
 

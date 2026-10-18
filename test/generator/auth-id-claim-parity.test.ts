@@ -1,5 +1,5 @@
 // An id-typed `user { … }` claim — `customerId: Customer id?` — across all
-// five backends.  D6/P2 of `docs/audits/2026-09-10-eshop-dev-experience.md`.
+// five backends.  D6/P2 of `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md`.
 //
 // One `.ddd` line broke FOUR of five backends, four different ways, and the
 // four symptoms are two independent bugs:

@@ -1760,7 +1760,7 @@ describe(".NET generator", () => {
       // extension carried on `Extensions["errors"]`, status 422.
       // Shape matches Hono's defaultHook so the frontend ACL's
       // `applyServerErrors` works against either backend.  See
-      // docs/old/proposals/validation-error-extension.md.
+      // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
       expect(filter).toMatch(/Title = "Validation failed"/);
       expect(filter).toMatch(/Status = 422/);
       expect(filter).toMatch(/problem\.Extensions\["errors"\] = fv\.Errors/);

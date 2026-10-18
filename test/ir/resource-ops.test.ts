@@ -74,7 +74,7 @@ describe("usage-derived needs", () => {
     expect(need!.capabilities).toContain("blob");
   });
 
-  // Regression (docs/audits/repo-code-review-2026-07.md I1): `deriveNeeds`
+  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md I1): `deriveNeeds`
   // walked only WORKFLOW bodies (and only two statement shapes).  A resource-op
   // in a command/query HANDLER — a separate context field — derived no need, so
   // `validateNeedCapabilities` never checked the resource offers the verb.  The

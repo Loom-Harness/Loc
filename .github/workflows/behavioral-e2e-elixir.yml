@@ -12,7 +12,7 @@ name: Behavioral e2e — Elixir (plain Ecto/Phoenix)
 # both directions (RS-1), enum declared casing (RS-2), no leaked columns
 # (RS-3), temporal round-trip (RS-4), bool create default (RS-6), value-object
 # survival (RS-7), association round-trip (RS-8). See
-# docs/new-plan/T9-toolchain-health.md (M-T9.3).
+# https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md (M-T9.3).
 #
 # Reuses the proven boot recipe from elixir-vanilla-obs-e2e.yml (setup-beam +
 # mix deps.get + ecto.create/migrate + phx.server against DATABASE_URL) and the

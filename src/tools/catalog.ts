@@ -13,7 +13,7 @@
 // NAVIGATIONAL family (§4b) over the LSP providers, addressed by symbol name:
 // the read verbs (find_symbol / references / hover) and the rewrite verbs
 // (rename / quickfix / unfold_macro) — the latter RETURN edits, never applying
-// them (contract §3).  See docs/old/proposals/agent-tools-and-mcp.md §4b.
+// them (contract §3).  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/agent-tools-and-mcp.md §4b.
 // ---------------------------------------------------------------------------
 
 import {

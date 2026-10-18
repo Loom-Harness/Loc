@@ -139,7 +139,7 @@ import {
 // dotnet/index.ts's shape: iterate contexts → call per-emitter
 // functions → add the project shell.
 //
-// File layout (grows slice by slice — docs/old/plans/python-backend-plan.md):
+// File layout (grows slice by slice — https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/python-backend-plan.md):
 //   pyproject.toml                  — uv-managed project + tool config
 //   Dockerfile, .dockerignore       — python:3.13-slim + uv image
 //   certs/.gitkeep                  — proxy-CA escape hatch

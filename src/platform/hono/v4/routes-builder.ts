@@ -981,7 +981,7 @@ export function buildRoutesFile(
   // `applyServerErrors`).  Imported above so OpenAPI route declarations
   // resolve the same Zod schema instance and the cross-backend wire
   // contract stays byte-identical.  See
-  // docs/old/proposals/validation-error-extension.md.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
   lines.push("");
 
   // The router.  Audited / provenanced aggregates also receive `db` +
@@ -1120,7 +1120,7 @@ export function buildRoutesFile(
     if (emitTrace) {
       // wire_out — outbound payload shape (keys only).  Bound to a const
       // so `c.json` doesn't re-evaluate the payload expression alongside
-      // Object.keys.  See docs/old/proposals/observability.md.
+      // Object.keys.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
       lines.push(`      const out = { id: created.id as string };`);
       lines.push(
         `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
@@ -2086,7 +2086,7 @@ function emitOperationRoute(
     out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
     if (isVersionedUpdate) {
       // `If-Match` carries the client's expected version
-      // (docs/old/plans/optimistic-concurrency-versioned.md /
+      // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/optimistic-concurrency-versioned.md /
       // updatePreconditions); absent header falls back to the version just
       // loaded, so an unaware client still gets a coherent guarded write.
       //

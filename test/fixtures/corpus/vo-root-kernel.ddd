@@ -2,7 +2,7 @@
 // CONTEXT-LOCAL one — `Outer.origin: UnLocode` where `UnLocode` is declared at
 // file scope, outside any context.
 //
-// Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md).
+// Minted by the fixture-shape audit (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md).
 // A root-level VO is the documented shared kernel and the THIRD of the three
 // pools an emitter resolves a VO name through (`ctx.valueObjects`, then
 // `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  In

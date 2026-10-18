@@ -35,7 +35,7 @@
 //   LOOM_SCHEMATHESIS_BIN            schemathesis executable (default `schemathesis`)
 //   LOOM_SCHEMATHESIS_UPDATE=1       write observed.json for a DELIBERATE rebaseline
 //
-// Findings register: docs/audits/schemathesis-findings-2026-08.md.
+// Findings register: https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -292,8 +292,8 @@ function decodeBody(req) {
  *  a given bug surfaces on drifts between runs (the UTF-16 length bug showed up
  *  under `sales-system` one run and `storefront-system` the next) — which the
  *  key-level ratchet reports as one stale waiver plus one new finding, twice
- *  wrong.  A rule instead names a check plus an operation PATTERN and points at
- *  the entry in docs/audits/schemathesis-findings-2026-08.md that explains it.
+ *  wrong.  A rule instead names a check plus an operation PATTERN and carries
+ *  the `reason` that explains it.
  *
  *  The ratchet still bites, in both directions:
  *    • an observed finding NO rule matches fails the run — a new bug, or a
@@ -488,8 +488,7 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
     process.stdout.write(
       `\n✗ STALE WAIVER ${r.id} (${r.check} on /${r.operations}/) — it matched nothing on the ${backend} leg.\n` +
         "    If the root cause is fixed here, drop this leg from the rule's `backends` (or delete the\n" +
-        "    rule when no leg reproduces it) in schemathesis-waivers.json in the same PR, and strike the\n" +
-        "    finding in docs/audits/schemathesis-findings-2026-08.md.\n",
+        "    rule when no leg reproduces it) in schemathesis-waivers.json in the same PR.\n",
     );
   }
 
@@ -512,7 +511,7 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
     process.stdout.write(
       `\nwrote ${join(work, "observed.json")} (LOOM_SCHEMATHESIS_UPDATE=1) — ${observed.length} finding(s).\n` +
         "Waiver rules are hand-written, not machine-generated: each one has to name a root cause and\n" +
-        "point at its entry in docs/audits/schemathesis-findings-2026-08.md.\n",
+        "carry its own `reason`.\n",
     );
     process.exit(0);
   }

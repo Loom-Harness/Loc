@@ -9,7 +9,7 @@ import { CORPUS } from "../fixtures/corpus/manifest.js";
 import { gradleCmd, stopGradleDaemon } from "./support/gradle.js";
 
 // ---------------------------------------------------------------------------
-// Phase 1 compile tier (docs/old/plans/global-test-coverage-plan.md) for the Java
+// Phase 1 compile tier (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md) for the Java
 // (Spring Boot / JPA) backend — the sibling of `corpus-tsc-build.test.ts`.
 // The fast `corpus-coverage` gate proves every corpus feature *generates* on
 // `java`; this gate proves the emitted project actually *compiles* under

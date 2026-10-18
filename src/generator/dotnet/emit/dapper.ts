@@ -1704,7 +1704,7 @@ export function renderDapperRepository(
   //     join tables before the root.  Autocommitting those separately means a
   //     crash mid-delete leaves the root alive with its children already gone —
   //     the same data-loss class `SaveAsync` was made transactional for
-  //     (docs/audits/repo-code-review-2026-07.md T3), which fixed the save path
+  //     (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md T3), which fixed the save path
   //     and left the delete path behind.
   //   - audited: the handler stages the audit row before calling in, and it has
   //     to commit with the delete or roll back with it.

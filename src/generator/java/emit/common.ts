@@ -364,7 +364,7 @@ export function renderFileRefRecord(basePkg: string): string {
  *  type identity only; the JPA auditing wiring keys off the field annotations
  *  + AuditingEntityListener, not this interface, but it gives a documented
  *  join point and a single readable "this aggregate is audited" signal.
- *  See §5a of docs/old/plans/capability-stamp-dedup-simulation.md. */
+ *  See §5a of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/capability-stamp-dedup-simulation.md. */
 export function renderAuditableInterface(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,

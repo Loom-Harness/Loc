@@ -1,5 +1,5 @@
 // Pins the SHIPPED two-tier error→status contract from
-// `docs/old/proposals/validation-error-extension.md` on the reference (Hono)
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md` on the reference (Hono)
 // backend, so the route emitter can't silently drift from
 // `src/util/error-defaults.ts`.
 //

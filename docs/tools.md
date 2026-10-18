@@ -71,13 +71,13 @@ print as separate targets. A line with no mapping prints an informative
 message and still exits 0 — a future editor/DAP integration's primitive for
 translating "set a breakpoint on this `.ddd` line" into the real
 backend-native breakpoint(s) to arm. See
-[`docs/old/plans/dap-node-debug.md`](old/plans/dap-node-debug.md).
+[`docs/old/plans/dap-node-debug.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
 
 ### `patch` — apply node-addressed model patches
 
 `ddd patch <file.ddd> --patches <patches.json>` applies a list of
 node-addressed model patches (the protocol from
-[`proposals/ai-authoring-loop.md`](old/proposals/ai-authoring-loop.md) §4 —
+[`proposals/ai-authoring-loop.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md) §4 —
 the same patch shape that `parse --json` / `generate --json`
 diagnostics carry in their `fixHint`). `--patches -` reads the JSON
 from stdin; the file may be a bare array or `{ "patches": [...] }`.
@@ -141,7 +141,7 @@ reachable document with the Langium workspace, and produces a single
 project from the merged model.  See
 [`language.md`](language.md#multi-file-projects-import-and-root-level-shared-types)
 for the language surface; the original design rationale is preserved
-at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
+at [`plans/multi-file-source.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-file-source.md).
 
 `generate ts` / `generate dotnet` remain single-file: they read just
 the file you point them at, no import-graph walking.
@@ -310,6 +310,41 @@ an older Loom carries no digests, so the first regen after upgrading reports
 none; from the run after that they are recorded.
 
 ---
+
+## i18n translator workflow (`ddd i18n`)
+
+User-visible strings in generated UIs route through a `t(key, default)` catalog.
+`ddd i18n` is the translator side: `git merge` for strings, backed by the pure
+three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
+
+| Command | What it does |
+|---|---|
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.en.json` (front of the pipeline only, no codegen) |
+| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>.json` (every key as `TODO:`) and the source lock if absent |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale, then advance the lock; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
+| `ddd i18n status <file>` | what `sync` would do; exits non-zero if any locale has pending changes |
+| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers and missing keys; `--strict` exits non-zero on any finding (the CI gate) |
+| `ddd i18n prune <file>` | delete keys the source no longer emits (deliberate, never automatic) |
+
+The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
+overrides it; `generate system --locales <dir>` reads the same tree):
+
+- **BASE** — `locales/.loom/source.lock.json`, the source catalog as of the last
+  successful sync;
+- **OURS** — `locales/<locale>.json`, owned by the translator;
+- **THEIRS** — the fresh extraction.
+
+**Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
+source tree and never writes under `locales/`; reconciling translations is a
+commit-worthy intent (like a migration), and conflicts need a human. The lock
+advances only after every locale has reconciled: rewriting it on every codegen
+would make BASE equal THEIRS, and the merge would have nothing to act on.
+
+**What ships.** `generate system` emits each locale it finds into every frontend
+with a translation runtime, but drops values the translator has not finished
+(`TODO:` values, unresolved conflict markers, `_stale.*` shadows), so `t(key,
+default)` falls back to the source-language default per key. A locale created by
+`init` is registered even while its catalog is still empty.
 
 ## Watch mode
 

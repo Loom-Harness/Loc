@@ -10,7 +10,7 @@ import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
 // Lifecycle URL style — Phase 2 (urlStyle on the api body + routeSlug
-// enrichment).  See docs/old/proposals/lifecycle-url-style.md (D-URLSTYLE).
+// enrichment).  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/lifecycle-url-style.md (D-URLSTYLE).
 //   - `api X from Sub { urlStyle: literal | resource }`, default literal.
 //   - routeSlug derived per action: canonical => undefined (bare URL),
 //     literal => name, resource => plural(name).

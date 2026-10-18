@@ -522,7 +522,7 @@ export async function settlementOnPaymentReceived(db, events, pr): Promise<void>
 ```
 ::: end
 
-A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eventsourced-workflow.ddd`](../../test/fixtures/corpus/eventsourced-workflow.ddd); the appliers compile on every backend's build gate. See [`../workflow.md`](../workflow.md) and [`proposals/workflow-and-applier.md`](../old/proposals/workflow-and-applier.md).
+A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eventsourced-workflow.ddd`](../../test/fixtures/corpus/eventsourced-workflow.ddd); the appliers compile on every backend's build gate. See [`../workflow.md`](../workflow.md) and [`proposals/workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md).
 
 ## `transactional` & isolation
 

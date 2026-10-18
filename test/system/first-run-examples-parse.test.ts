@@ -27,8 +27,7 @@
 //     headline example, where the grammar puts `crossTenant` in the header
 //     region after the name — a parse error in the flagship example of the
 //     tenancy reference, which the same doc spells correctly 80 lines later.
-//     A language-docs audit had already reported it (`docs/audits/
-//     2026-09-03-language-docs-audit-findings.md`, F40) and it was still there
+//     A language-docs audit had already reported it and it was still there
 //     eleven days on, because nothing gated it.
 //   - `docs/auth.md`'s full auth example referenced `Customer id` without ever
 //     declaring `aggregate Customer`, so it did not link.
@@ -50,9 +49,7 @@
 //     `Could not resolve reference` or a sibling declaration shown separately.
 //
 // Blocks carrying an elision marker (`…` or `...`) are skipped outright — they
-// announce themselves as sketches — as are ones with unbalanced braces, and
-// everything under `docs/old/` (frozen design record) and `docs/audits/`
-// (snapshot records of broken input, deliberately invalid by nature).
+// announce themselves as sketches — as are ones with unbalanced braces.
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -118,17 +115,12 @@ function asSystem(b: Block): string {
  *  code, not merely fail somehow. */
 const EXPECTED_INVALID: Record<string, string> = {
   "docs/api-toolkit.md:153": "loom.bare-aggregate-in-type",
-  // A fail-closed register repro the single typing pass now refuses upstream
-  // (page `state` is typed, so `xs.reverse()` on an `int[]` is an unknown member).
-  "docs/new-plan/missions/M-T9.77-fail-closed-register.md:857": "loom.unknown-member",
 };
 
-/** Every `.md` under `docs/`, plus the README.  `old/` is the frozen design
- *  record and `audits/` are snapshot records of broken input — neither makes a
- *  claim about what parses today. */
+/** Every `.md` under `docs/`, plus the README. */
 function docFiles(dir: string, acc: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name === "old" || e.name === "audits" || e.name === "node_modules") continue;
+    if (e.name === "node_modules" || e.name === "_site") continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) docFiles(p, acc);
     else if (e.name.endsWith(".md")) acc.push(p);

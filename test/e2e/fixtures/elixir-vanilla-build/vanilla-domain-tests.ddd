@@ -1,5 +1,5 @@
 // Domain `test "..."` blocks on the vanilla foundation — the parity gate for
-// the pure-domain-core test emission (docs/audits/test-parity-generated-backends.md).
+// the pure-domain-core test emission (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md).
 //
 // The aggregate carries a pure domain core (`src/generator/elixir/vanilla/
 // domain-core-emit.ts`): `create/1` validates via `apply_action` and `confirm/2`

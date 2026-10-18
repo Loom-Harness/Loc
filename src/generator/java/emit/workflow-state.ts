@@ -25,7 +25,7 @@ import {
 // plus a Spring Data `JpaRepository` over it.  This is the persistence
 // foundation the in-process dispatcher (load-or-allocate / route-or-drop) and
 // the read-only instance endpoints build on —
-// (docs/old/plans/workflow-debt-backend-parity.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/workflow-debt-backend-parity.md).
 //
 // Field mapping mirrors the aggregate entity emitter (jpa-annotations.ts):
 // `X id` → `@Embedded`/`@EmbeddedId` record over one column, enums →

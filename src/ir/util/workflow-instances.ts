@@ -30,7 +30,7 @@ export function workflowCorrWireField(wf: WorkflowIR): WireField {
  *  `/instances/{id}` param schema derives from this on every backend —
  *  guid → uuid-format string, int/long → integer, string → plain string —
  *  so the parity gate's path-param dimension agrees by construction
- *  (docs/old/plans/non-guid-id-http-params.md). */
+ *  (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md). */
 export function workflowCorrIdValueType(wf: WorkflowIR): IdValueType {
   const t = workflowCorrWireField(wf).type;
   const inner = t.kind === "optional" ? t.inner : t;

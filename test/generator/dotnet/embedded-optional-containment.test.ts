@@ -1,4 +1,4 @@
-// B14 (docs/audits/behavioral-parity-bugs-2026-07.md): an OPTIONAL single
+// B14 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md): an OPTIONAL single
 // containment (`contains note: Memo?`) on a `shape: embedded` aggregate folds
 // into a NULLABLE jsonb column via EF owned-types `.ToJson(...)`.  Three things
 // must agree so the unset (null) containment round-trips:

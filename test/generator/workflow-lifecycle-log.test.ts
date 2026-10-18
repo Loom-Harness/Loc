@@ -8,7 +8,7 @@
 // through to a bare `console.error(err)` on raw stderr.
 //
 // S3 of the domain-seam structured-log parity drain
-// (docs/audits/domain-seam-log-parity.md): the catalog `info` events
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/domain-seam-log-parity.md): the catalog `info` events
 // `workflow_started` / `workflow_completed` (field `workflow`) must fire at a
 // workflow's entry + success tail on EVERY backend.  Before this, only the Ash
 // Phoenix foundation emitted them; Hono, .NET, Python, Java, and the vanilla

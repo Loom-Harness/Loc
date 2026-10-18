@@ -1,1 +1,0 @@
-context C { aggregate A { name: string  derived up: string = nmae } repository As for A { } }

@@ -66,7 +66,7 @@ export function mountsFileRoutes(src) {
  *  tracked gap there.  Honest and documented (not a silent drop) — the case still
  *  runs on every other backend, the gate (behavioural-coverage.test.ts) still
  *  requires it to EMIT everywhere, and each entry cites its bug in
- *  docs/audits/behavioral-parity-bugs-2026-07.md.  Removing an entry is how a fix
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md.  Removing an entry is how a fix
  *  re-arms the boot.  Keyed by platform clause; applies to BOTH featureCases and
  *  sharedSystemCases (a case name is either a corpus feature id or a systems/ file). */
 /** Exported so the fast-suite golden-coverage gate

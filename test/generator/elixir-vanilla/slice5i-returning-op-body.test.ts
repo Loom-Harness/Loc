@@ -122,7 +122,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
 // S12 — a returning op MUST persist whenever its body mutates, regardless of
 // the success-path shape (fall-through vs explicit `return this` vs a
 // non-aggregate success return).  A pure (non-mutating) returning op stays
-// in-memory.  (docs/old/plans/phoenix-event-delivery-s5a.md §S12.)
+// in-memory.  (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phoenix-event-delivery-s5a.md §S12.)
 // ---------------------------------------------------------------------------
 
 const S12 = `

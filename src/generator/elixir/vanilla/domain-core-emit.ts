@@ -26,7 +26,7 @@ import {
 // ---------------------------------------------------------------------------
 // Pure domain core for the vanilla (Ecto/Phoenix) aggregate module — the seam
 // that makes generated domain `test "..."` blocks run as plain ExUnit WITHOUT a
-// database (the elixir parity story; docs/audits/test-parity-generated-backends.md).
+// database (the elixir parity story; https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md).
 //
 // The other four backends generate a rich-domain object whose factory + methods
 // validate in memory, separable from persistence; the Loom `test` idiom

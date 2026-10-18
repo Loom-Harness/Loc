@@ -982,7 +982,7 @@ function defaultUsesThis(e: ExprIR | undefined): boolean {
  *  `primitive-modal-controlled` template wraps the walked children in a
  *  controlled dialog.  Returns undefined when `open:` is not a state ref or the
  *  pack ships no controlled-modal template (→ caller falls back to the stub).
- *  See docs/old/proposals/state-controlled-modal.md. */
+ *  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/state-controlled-modal.md. */
 function emitControlledModal(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,

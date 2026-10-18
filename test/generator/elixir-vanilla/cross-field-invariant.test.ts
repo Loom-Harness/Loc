@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // A single-field invariant (`price >= 0`) maps to an idiomatic `validate_number`
 // line.  A CROSS-field invariant (`handle != email`) fits no such chain, so
 // before this seam it was silently DROPPED on every path — the audit's
-// signable-blocking gap (`docs/audits/generated-code-ddd-review-2026-07.md`).
+// signable-blocking gap (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md`).
 // It now renders as a custom Ecto validation piped onto base_changeset,
 // update_changeset, AND the operation-persist path (parity with the other
 // backends' domain-floor `AssertInvariants()`).

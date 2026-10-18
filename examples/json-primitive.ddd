@@ -1,6 +1,6 @@
 // Alignment fixture for the `json` primitive type — an opaque JSON blob
 // whose interior Loom does not model.  See
-// docs/old/proposals/document-and-json-hierarchies.md (Option 1,
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/document-and-json-hierarchies.md (Option 1,
 // D-DOCUMENT-AXIS).
 //
 // Exercises the field shape across every backend: TS `unknown`, .NET

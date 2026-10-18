@@ -3,7 +3,7 @@
 // `<script setup>` before the body.  Vue's `computed` auto-tracks deps, so
 // no deps array is derived; reads re-point to `.value` in script position
 // (template reads auto-unwrap).  Sequential (a derived may reference an
-// earlier derived).  See docs/old/proposals/page-derived-bindings.md.
+// earlier derived).  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/page-derived-bindings.md.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

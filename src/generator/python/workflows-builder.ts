@@ -969,7 +969,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // The `{id}` param annotation derives from the correlation id's value type —
   // guid → the uuid-format str `ID_PARAM`, int/long → `int`, string → plain
   // `str` — parity with Hono / .NET / Java / Phoenix by construction
-  // (docs/old/plans/non-guid-id-http-params.md).
+  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
   const corrVt = workflowCorrIdValueType(wf);
   const idParam = corrVt === "guid" ? ID_PARAM : corrVt === "string" ? "id: str" : "id: int";
   // `_load_<wf>_events` / `_fold_<wf>` key streams as str; a numeric id stringifies.

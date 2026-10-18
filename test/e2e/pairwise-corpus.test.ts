@@ -117,7 +117,7 @@ describe.skipIf(!ENABLED)(
         "crossings whose pipeline THREW with no matching waiver — a system a user " +
           "could write must get an answer (an emitted project, or a named loom.* " +
           "rejection), never an exception.  Diagnose it, then add it to " +
-          "docs/audits/pairwise-corpus-findings-2026-08.md + test/pairwise/waivers.ts.",
+          "https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md + test/pairwise/waivers.ts.",
       ).toEqual([]);
 
       // ---- (2) STALE waivers fail (the ratchet). ---------------------------
@@ -128,7 +128,7 @@ describe.skipIf(!ENABLED)(
         stale,
         "waivers that matched no crashing crossing — the underlying bug is fixed, " +
           "so delete the entry from test/pairwise/waivers.ts and close its row in " +
-          "docs/audits/pairwise-corpus-findings-2026-08.md.",
+          "https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md.",
       ).toEqual([]);
 
       // ---- (3) The gate must have REACHED something. -----------------------
