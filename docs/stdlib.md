@@ -146,6 +146,25 @@ compute the value in a repository `find`, an aggregate `derived`, or a
 | `max` | `(λ): T?` |
 | `avg` | `(λ): decimal?` |
 
+## Value-object equality
+
+Every value object answers one member it does not declare:
+
+| op | signature |
+| --- | --- |
+| `equals` | `(other: Self): bool` |
+
+`a.equals(b)` is VALUE equality — field by field, the
+defining property of a value object — and means exactly what `a == b` means
+on two value objects.  It lowers to that same comparison, so each backend
+renders its own value-equality idiom: python `==` (frozen-dataclass
+`__eq__`), Java `Objects.equals` (record `equals`), .NET record `==`, Elixir
+`==`, TypeScript the `equals()` method every value-object class emits.  The
+argument must be the same value object type and the receiver must be
+non-null (the `loom.intrinsic-*` diagnostics); a value object that declares
+its own `equals` member keeps it.  Domain logic only — in a
+page expression compare the fields you mean instead.
+
 ## Layer 1 — the ambient prelude
 
 Auto-injected top-level functions, callable in any `.ddd` with nothing
