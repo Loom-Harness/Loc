@@ -406,10 +406,21 @@ create/update/destroy, while the update still writes every field.
 `immutable` is a *wire* constraint (read ✓ / create ✓ / update ✗), so the
 generic update loses the field while `approve()` keeps assigning it; see
 [`language.md`](language.md#field-access-modifiers) → "Field access modifiers".
-Loom flags the shape for you: a field that a `requires`-gated operation assigns
-AND `crudish`'s update mass-assigns raises the advisory
-`loom.update-gate-suggestion` (a `ddd parse` `Suggestions:` hint — advice, not
-an error, since some models genuinely want the field editable both ways).
+Loom flags the shape for you: a field that a gated operation assigns AND
+`crudish`'s update mass-assigns raises the warning `loom.update-gate-suggestion`
+(counted among `ddd parse`'s warnings; never an error). "Gated" is any of three
+shapes, because the bypass is the same for each:
+
+| Operation carries | Example | Bypass via `update` |
+|---|---|---|
+| `requires` | `operation approve() { requires … ; status := Approved }` | skips the 403 gate (and any `precondition`) |
+| `when` | `operation close() when status == Resolved { status := Closed }` | skips the 409 state gate — no auth involved |
+| `precondition` reading the field (and no parameter) | `operation resolve() { precondition status == Open; status := Resolved }` | skips the 422 transition check |
+
+`immutable` closes the update half only: the field stays on the `create` input,
+so a client can still start an instance in any state. For a state field with a
+default, `managed` (`status: TicketStatus managed = New`) closes both — the
+warning says so for the `when`/`precondition` shapes.
 
 #### Header `requires` clause (authorization.md §11.3)
 
@@ -747,7 +758,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
-| `loom.policy-out-of-scope` | a `PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
+| `loom.policy-out-of-scope` | a `PolicyName(args)` or `Ctx.PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
