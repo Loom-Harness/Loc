@@ -614,7 +614,7 @@ export function generateAngularForContexts(
   }
   if (navUsesSession) {
     appClassMembers.push(
-      "  get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
   }
   if (i18nEnabled) appClassMembers.push("  protected readonly t = t;");

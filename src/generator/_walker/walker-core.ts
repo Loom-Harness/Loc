@@ -1667,8 +1667,8 @@ function emitMemberAccess(
   // A `currentUser.<claim>` access — the receiver is the verified session
   // user (D-AUTH-OIDC).  A target that can resolve the claims (Feliz binds
   // `model.CurrentUser`) owns the WHOLE access via the seam, since the
-  // session user may be optionally bound; targets that leave the seam
-  // undefined fall through to the plain member emit below.
+  // session user may be optionally bound; the JSX targets read the
+  // shell-bound `currentUser`, which `usesCurrentUser` makes the shell emit.
   if (
     expr.receiver.kind === "ref" &&
     expr.receiver.refKind === "current-user" &&
