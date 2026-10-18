@@ -1601,7 +1601,10 @@ export function scaffoldList(
     label
       ? {
           value: callExpr("Column", [
-            { value: stringLit(humanize(aggName)) },
+            // Headed by the field the label reads when there is exactly one
+            // (`display = name` → "Name"): the header names what a click
+            // sorts by.  A composite label is headed by the aggregate.
+            { value: stringLit(humanize(label.sortField ?? aggName)) },
             {
               value: lambda(
                 "o",
