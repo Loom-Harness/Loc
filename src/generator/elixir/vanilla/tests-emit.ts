@@ -497,6 +497,11 @@ export function vtExpr(e: ExprIR, env: Env): string {
     case "method-call": {
       if (isCreate(e)) return renderCreate(e, env);
       if (isAggOp(e, env)) return renderOp(e, env);
+      // `xs.first()` over a collection — the head, raising on an empty list like
+      // the runtime renderer's `hd/1` (a domain test reading a contained part).
+      if (e.receiverType.kind === "array" && e.member === "first" && e.args.length === 0) {
+        return `hd(${vtExpr(e.receiver, env)})`;
+      }
       throw new UnsupportedTestShapeError(
         `unsupported method-call '${e.member}' in vanilla test position`,
       );
@@ -531,6 +536,9 @@ export function vtExpr(e: ExprIR, env: Env): string {
       return `%{${e.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, env)}`).join(", ")}}`;
     case "paren":
       return `(${vtExpr(e.inner, env)})`;
+    // A list literal (`charges: []` in a create's attrs map).
+    case "list":
+      return `[${e.elements.map((x) => vtExpr(x, env)).join(", ")}]`;
     case "unary": {
       if (e.op === "!") return `not ${vtExpr(e.operand, env)}`;
       // Fold a negative sign into a money/decimal literal — `-Decimal.new("1.0")`
