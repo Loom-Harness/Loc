@@ -19,6 +19,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { nearestName } from "../../../util/edit-distance.js";
 import type {
   BoundedContextIR,
   ExprIR,
@@ -617,6 +618,10 @@ function validateKey(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomDiagn
       message: diagMessage("loom.projection-key-unknown", {
         name: proj.name,
         correlationField: proj.correlationField,
+        suggestion: nearestName(
+          proj.correlationField ?? "",
+          proj.stateFields.map((f) => f.name),
+        ),
       }),
       source: `${ctx.name}/${proj.name}`,
       origin: proj.origin,
