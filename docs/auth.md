@@ -71,9 +71,21 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
   the author can write to satisfy it — the by-id gate surface
   (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
-  still apply to the by-id route: the tenancy filter (a foreign tenant's row
-  reads 404) and `mask unless` field redaction.  What does not: role
-  separation within a tenant.
+  still apply to the by-id route: every capability `filter` on the aggregate
+  (the tenancy filter — a foreign tenant's row reads 404 — and any row filter
+  the author writes) and `mask unless` field redaction.  So role separation
+  within a tenant is written as a row filter that tests the principal:
+
+  ```ddd
+  aggregate Ticket {
+    customer: Customer id
+    // agents read every ticket; a customer reads only their own — by id too
+    filter currentUser.role == "agent" || this.customer == currentUser.customerId
+  }
+  ```
+
+  A filtered-out row reads 404 on the by-id route, exactly like a foreign
+  tenant's.  See [capabilities.md § Principal terms](capabilities.md#principal-terms).
 - **an event-sourced `create` is the third exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there

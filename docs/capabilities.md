@@ -131,6 +131,50 @@ context Sales {
 }
 ```
 
+### Principal terms
+
+A filter may also test the **principal alone**: a `==` / `!=` between
+`currentUser.<claim>` and another claim, a literal or an enum value, with no
+column on either side.  This is how a filter branches on role — "agents see
+every ticket, customers see their own":
+
+```ddd
+aggregate Ticket {
+  customer: Customer id
+  filter currentUser.role == "agent" || this.customer == currentUser.customerId
+}
+```
+
+The term's truth depends only on who is asking, so each backend decides it
+against the request principal in the host language and drops the result into
+the query as a constant:
+
+| Backend | `currentUser.role == "agent"` renders as |
+|---|---|
+| node / Drizzle | `(requireCurrentUser().role === "agent" ? sql\`true\` : sql\`false\`)` |
+| node / MikroORM | `{ [raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: [] }` |
+| .NET / EF Core | `_currentUser.User.Role == "agent"` inside `HasQueryFilter` (EF binds it as a parameter) |
+| .NET / Dapper | `@__pt_<hash>`, bound to `(RequestContext.Current!.CurrentUser!.Role == "agent")` |
+| Java / JPA | `:#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true` (`cb.conjunction()` / `cb.disjunction()` in a Criteria `Specification`) |
+| Python / SQLAlchemy | `literal(require_current_user().role == "agent")` |
+| Phoenix / Ecto | `^(not is_nil(current_user) and current_user.role == "agent")` |
+
+Null semantics are Loom's on every backend (a null claim equals `null` and
+differs from every value — which a SQL `$1 <> 'agent'` over a null claim would
+not give, so no backend leaves the comparison to SQL), and the term is never
+true without a principal.  Because a capability filter is installed on every
+read of the aggregate, the synthesised `GET /<plural>/{id}` included, a
+principal term is the way to scope single-record reads by role today (the
+by-id route has no `requires` surface; see `loom.default-deny-by-id-ungated`
+in [auth.md](auth.md)).  A filtered-out row reads 404 there.
+
+Only `==` / `!=` qualify — an ordering between two host values has no single
+meaning across the host languages — and only in a capability `filter` (inline,
+or through a named `criterion` installed as `filter <Criterion>`).  A `find` /
+`retrieval` `where` still refuses a column-free comparison
+(`loom.find-where-not-queryable` / `loom.retrieval-where-not-queryable`): a
+per-read principal test is what `requires` is for.
+
 ### Backend emission
 
 All five backends — .NET, Hono, Java, Phoenix, and Python — reify
