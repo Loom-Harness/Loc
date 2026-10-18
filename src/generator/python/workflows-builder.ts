@@ -70,6 +70,12 @@ import {
   pyWireToDomain,
   requestFieldDecl,
 } from "./routes-builder.js";
+import {
+  AMBIENT_PRINCIPAL,
+  AMBIENT_PRINCIPAL_IMPORT,
+  type PySaveLines,
+  pySaveRenderer,
+} from "./stamp-call.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -280,6 +286,7 @@ export function buildPyWorkflowsFile(
     "from typing import Annotated",
     "",
     anyUser ? "from app.auth.user import User" : null,
+    refersTo(AMBIENT_PRINCIPAL) ? AMBIENT_PRINCIPAL_IMPORT : null,
     "from app.db.engine import get_session",
     // Command-workflow routes always log the lifecycle narrative; observable-
     // only contexts (no command route) emit no `log(...)` call, so gate on wfs.
@@ -832,6 +839,7 @@ function workflowRoute(
   }
   const hasEmit = collectEmits(wf.statements).length > 0;
   if (hasEmit) out.push("        workflow_events: list[DomainEvent] = []");
+  const saveLines = pySaveRenderer(wf.statements, ctx.aggregates);
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
   // (`renderWorkflowStmts` IS `chunks.flat()` by construction), but the
@@ -855,6 +863,7 @@ function workflowRoute(
       },
       ctx,
       collectLiveLetNames(wf.statements, wf.savesAtExit),
+      saveLines,
     ),
     "        ",
   );
@@ -868,9 +877,7 @@ function workflowRoute(
       });
     }
   }
-  for (const save of wf.savesAtExit) {
-    out.push(`        await ${snake(save.repoName)}.save(${snake(save.name)})`);
-  }
+  for (const save of wf.savesAtExit) out.push(...saveLines(save, "        "));
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
   // a later `on` reactor for the same key routes instead of dropping the event.
   if (corrParam) out.push("        await session.flush()");
@@ -1039,11 +1046,15 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
 // dispatch + `for-each` recursion live in the spine.  The table closes
 // over the render context (saga handlers render `this.<state>` against
 // the tracked row via `thisName: "state"`) and, when a context is
-// given, threads the actor into currentUser-gated op-calls.
+// given, threads the actor into currentUser-gated op-calls.  `saveLines`
+// renders every nested (per-iteration / per-branch) save, so a loop- or
+// branch-scoped persist takes the aggregate's lifecycle stamp exactly like an
+// exit save does.
 export function pyWorkflowStmtTarget(
-  rctx: PyRenderContext = { thisName: "self" },
-  ctx?: EnrichedBoundedContextIR,
-  usedLets?: ReadonlySet<string>,
+  rctx: PyRenderContext,
+  ctx: EnrichedBoundedContextIR | undefined,
+  usedLets: ReadonlySet<string> | undefined,
+  saveLines: PySaveLines,
 ): WorkflowStmtTarget {
   return {
     indentUnit: "    ",
@@ -1148,9 +1159,7 @@ export function pyWorkflowStmtTarget(
       return [`${i}await ${snake(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`];
     },
     forEach: (st, i, body) => {
-      const saves = st.savesPerIteration.map(
-        (s) => `${i}    await ${snake(s.repoName)}.save(${snake(s.name)})`,
-      );
+      const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
       return [
         `${i}for ${snake(st.var)} in ${renderPyExpr(st.iterable, rctx)}:`,
         ...(body.length + saves.length > 0 ? [...body, ...saves] : [`${i}    pass`]),
@@ -1164,12 +1173,8 @@ export function pyWorkflowStmtTarget(
       const hits = `__${v}_hits`;
       const inner = `${i}    `;
       const args = [...st.retrievalArgs.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ");
-      const thenSaves = st.savesInThen.map(
-        (s) => `${inner}await ${snake(s.repoName)}.save(${snake(s.name)})`,
-      );
-      const elseSaves = st.savesInElse.map(
-        (s) => `${inner}await ${snake(s.repoName)}.save(${snake(s.name)})`,
-      );
+      const thenSaves = st.savesInThen.flatMap((s) => saveLines(s, inner));
+      const elseSaves = st.savesInElse.flatMap((s) => saveLines(s, inner));
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
       const out = [

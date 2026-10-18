@@ -309,7 +309,13 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   repository persist: the domain class gets `_stamp_on_create` /
   `_stamp_on_update` methods (`now()` → `datetime.now(UTC)`; a `currentUser`
   value → `current_user.id`, threaded from `request.state.current_user`) that
-  the route handler calls before save.  Support is gated by
+  the route handler calls before save.  The in-process save sites — workflow
+  command routes, explicit command handlers, event reactors — call the same
+  methods (`src/generator/python/stamp-call.ts`): a `let x = X.create(…)`
+  binding takes the create stamp, a loaded one the update stamp, and a
+  principal stamp reads the ambient principal (`app.auth.user.current_user()`);
+  a save with no principal in scope (an outbox-relayed reactor) persists
+  unstamped, as Hono's does.  Support is gated by
   `validatePythonStampSupport` (a principal stamp without auth, or any stamp on
   an event-sourced aggregate, stays a fail-fast `loom.python-stamp-unsupported`).
 - **Phoenix** (`elixir`, plain-Ecto foundation) — context stamps
