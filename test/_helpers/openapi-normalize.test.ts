@@ -4,6 +4,7 @@ import {
   collectOps,
   collectResponseShapes,
   diffSpecs,
+  errorResponses,
   fieldSet,
   isCleanDiff,
   normalisePath,
@@ -562,6 +563,37 @@ describe("openapi-normalize", () => {
   // ---------------------------------------------------------------------
   // requestBodySchemas + responseBodySchemas + per-op schema-ref diffs
   // ---------------------------------------------------------------------
+
+  describe("errorResponses", () => {
+    const withProblem = (schema: unknown): OpenApiSpec => ({
+      paths: {
+        "/orders/{id}/reject": {
+          post: { responses: { "404": { content: { "application/problem+json": { schema } } } } },
+        },
+      },
+    });
+    const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
+
+    it("names a single problem component", () => {
+      expect(
+        errorResponses(withProblem(ref("ProblemDetails"))).get("POST /orders/{id}/reject"),
+      ).toBe("404:ProblemDetails");
+    });
+
+    // M-FT.24: an op-union error arm's status offers ProblemDetails OR the
+    // arm's problem body.  Rendered as the sorted set, so two backends that
+    // list the members in a different order still compare equal, and one that
+    // drops the arm's body does not.
+    it("names an anyOf of components as the sorted set", () => {
+      const a = withProblem({ anyOf: [ref("ProblemDetails"), ref("NotFoundProblem")] });
+      const b = withProblem({ anyOf: [ref("NotFoundProblem"), ref("ProblemDetails")] });
+      expect(errorResponses(a).get("POST /orders/{id}/reject")).toBe(
+        "404:NotFoundProblem|ProblemDetails",
+      );
+      expect(errorResponses(b)).toEqual(errorResponses(a));
+      expect(errorResponses(withProblem(ref("ProblemDetails")))).not.toEqual(errorResponses(a));
+    });
+  });
 
   describe("requestBodySchemas + responseBodySchemas", () => {
     const opWithBodies = (

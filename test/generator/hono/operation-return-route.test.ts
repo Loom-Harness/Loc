@@ -34,8 +34,19 @@ describe("hono routes — exception-less operation returns (spike)", () => {
 
   it("wires the union DTO as the operation route's 200 response schema", async () => {
     const r = await routes();
+    // M-FT.24: the 200 is the success arms only; the NotFound arm answers its
+    // own 404, which declares ProblemDetails or NotFound's problem body.
     expect(r).toMatch(
-      /200: \{ description: "OK", content: \{ "application\/json": \{ schema: OrderOrNotFound \} \} \}/,
+      /200: \{ description: "OK", content: \{ "application\/json": \{ schema: OrderOrNotFoundSuccess \} \} \}/,
+    );
+    expect(r).toContain(
+      'export const OrderOrNotFoundSuccess = z.discriminatedUnion("type", [z.object({ type: z.literal("Order"),',
+    );
+    expect(r).toContain(
+      'export const NotFoundProblem = ProblemDetails.extend({ resource: z.string() }).openapi("NotFoundProblem");',
+    );
+    expect(r).toContain(
+      '404: { description: "Not Found", content: { "application/problem+json": { schema: z.union([ProblemDetails, NotFoundProblem]) } } },',
     );
   });
 

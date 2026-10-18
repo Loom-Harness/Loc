@@ -58,7 +58,7 @@ npm run test:dotnet-corpus  # LOOM_DOTNET_BUILD=1 — dotnet build /warnaserror,
 npm run test:dapper-corpus  # LOOM_DOTNET_BUILD=1 — same fixtures with persistence: dapper forced
 npm run test:java-corpus    # LOOM_JAVA_BUILD=1
 npm run test:python-corpus  # LOOM_PYTHON_BUILD=1
-npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile per feature in the hexpm/elixir image (needs LOOM_HEX_MIRROR)
+npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile + ecto.migrate + MIX_ENV=test mix test --warnings-as-errors per feature in the hexpm/elixir image (needs LOOM_HEX_MIRROR)
 
 # Tenancy runtime e2e — flat isolation + registry self-scope/signup bootstrap, all five backends
 # (shared harness; docker postgres sidecar, or LOOM_TENANCY_PG_URL to skip it).  CI: the flat cells run
