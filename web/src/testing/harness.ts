@@ -44,7 +44,7 @@ export interface TestResult {
 export interface Harness {
   describe: (name: string, fn: () => void) => void;
   it: (name: string, fn: () => void | Promise<void>) => void;
-  expect: (received: unknown) => Expectation;
+  expect: HarnessExpect;
   /** Tests registered so far — filled as the suite module executes. */
   readonly tests: TestCase[];
 }
@@ -97,6 +97,19 @@ function matchesError(err: unknown, matcher?: string | RegExp): boolean {
 }
 
 class AssertionError extends Error {}
+
+/** `expect(...)` plus vitest's static `expect.fail(message)`, which a generated
+ *  unit suite's `expectDomainRejection` helper calls when a bare `toThrow()`
+ *  subject returns instead of being rejected. */
+export type HarnessExpect = ((received: unknown) => Expectation) & {
+  fail(message?: string): never;
+};
+
+const harnessExpect: HarnessExpect = Object.assign((received: unknown) => makeExpect(received), {
+  fail(message?: string): never {
+    throw new AssertionError(message ?? "expect.fail()");
+  },
+});
 
 function stringify(v: unknown): string {
   if (typeof v === "string") return JSON.stringify(v);
@@ -287,7 +300,7 @@ export function createHarness(): Harness {
     it(name: string, fn: () => void | Promise<void>): void {
       tests.push({ suite: currentSuite, name, fn });
     },
-    expect: makeExpect,
+    expect: harnessExpect,
     tests,
   };
 }

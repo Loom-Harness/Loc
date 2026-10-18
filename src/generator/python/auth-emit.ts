@@ -685,9 +685,13 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
-${oidcIdImport}
+${oidcIdImport}from app.obs.log import log
+
 _SCOPES = ${JSON.stringify(scopes)}
-_AUDIENCE = ${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}
+# An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
+# documented opt-out every backend honours.  Folded to None: PyJWT given
+# audience="" with verify_aud on rejects EVERY token.
+_AUDIENCE: str | None = (${auth.oidc.audience ? pyEnvOverridable("OIDC_AUDIENCE", auth.oidc.audience) : 'os.environ.get("OIDC_AUDIENCE")'}) or None
 
 
 def _issuer() -> str:
@@ -761,7 +765,10 @@ async def _oidc_verifier(request: Request) -> User | None:
             audience=_AUDIENCE,
             options={"verify_aud": _AUDIENCE is not None},
         )
-    except Exception:
+    except Exception as err:
+        # A rejected token is a 401, never a 500 — but say WHY at debug, so a
+        # misconfigured issuer / audience is diagnosable from the log stream.
+        log("debug", "auth_token_rejected", reason=str(err))
         return None
     return User(
 ${buildUser}

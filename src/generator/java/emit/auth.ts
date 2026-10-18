@@ -585,7 +585,7 @@ export function renderAuthFiles(
   // claim mapping onto the typed User.  @Primary so it wins over the dev
   // stub the moment an `auth { oidc }` block is present.
   if (oidc) {
-    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, pkg));
+    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, basePkg));
   }
 
   // Hierarchy (multi-tenancy): the registry-backed `orgPath` resolver.
@@ -826,7 +826,8 @@ function javaClaimRead(f: FieldIR, auth: AuthIR): string {
   return optional ? "null" : stubValue(t);
 }
 
-function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
+function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
+  const pkg = `${basePkg}.auth`;
   // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
   // List the string[] reader returns.
   const imports = new Set<string>(["java.util.List"]);
@@ -879,6 +880,8 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `import jakarta.servlet.http.Cookie;`,
     `import jakarta.servlet.http.HttpServletRequest;`,
     ``,
+    `import ${basePkg}.config.CatalogLog;`,
+    ``,
     `/** Generated OIDC verifier.  Validates the bearer token's`,
     ` *  signature against the issuer's JWKS (discovered + cached via Nimbus),`,
     ` *  checks iss / exp, then projects the configured claims onto User.`,
@@ -907,7 +910,10 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `            );`,
     `        } catch (Exception e) {`,
     `            // Any validation failure (bad signature / iss / exp / forged`,
-    `            // token / discovery error) rejects with 401, never 500.`,
+    `            // token / discovery error) rejects with 401, never 500 — and`,
+    `            // says why at debug, so a misconfigured issuer / audience is`,
+    `            // diagnosable from the log stream.`,
+    `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", String.valueOf(e.getMessage()));`,
     `            return null;`,
     `        }`,
     `    }`,
@@ -942,9 +948,12 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // AUDIENCE null -> audience validation is skipped (matches Hono/.NET).`,
+    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
+    `        // the documented opt-out every backend honours.  Nimbus given ""`,
+    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
-    `            new DefaultJWTClaimsVerifier<>(AUDIENCE, exactMatch, Set.of("exp")));`,
+    `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,
     `        return proc;`,
     `    }`,
     ``,
