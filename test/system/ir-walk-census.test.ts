@@ -680,9 +680,18 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "MISFILED by the old bucket, but correct as it stands: `default: return null` is a documented BEST-EFFORT fallback (the caller keeps its type-zero seed), never a throw. Wrong bucket, right behaviour — shape-wise it is a CLOSED_PREDICATE (packet CR1-e's class)",
   },
+  // MEASURED: an event-sourced aggregate whose `operation touch(n) { credit(n) }`
+  // calls a sibling command emits `events = []` on elixir — the sibling's
+  // events never reach the log — and `operation credit(n): int { emit …
+  // return n }` drops the return value; `ddd parse` reports `0 error(s)` for
+  // both.  The ES discipline (structural-checks.ts) refuses only direct
+  // mutation, and `variant-match` is refused by `loom.variant-match-placement`.
+  // Rendering a self-call means folding the callee's events into the caller's
+  // list (and its state into the next guard) — runner work, not a census
+  // migration.
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
-      "MISFILED by the old bucket: `default: break` — the statement is silently dropped. The ES command discipline it cites does refuse assign/add/remove/call, but `expression` / `return` / `variant-match` were NOT re-verified against a gate in CR1-f",
+      "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; `variant-match` is refused by `loom.variant-match-placement`. Needs the runner to fold a callee's events, or a refusal",
     reviewUntil: "2026-12-31",
   },
   // PROVEN silent: `on(pr: PaymentRegistered) { let o = Orders.getById(pr.order) … }`
@@ -691,14 +700,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
     deferred:
       "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in docs/new-plan/waves/handoffs/wave-cr1-f.md",
-    reviewUntil: "2026-12-31",
-  },
-  // `default`-less and NOT total: assign/add/remove/emit/call/variant-match
-  // fall out of the loop, pushing no line.  Unreachable, but by a gate the
-  // bucket never named.
-  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
-    deferred:
-      "MISFILED by the old bucket: there is no `default` and no throw — six kinds simply push no line. `loom.function-block-impure` (structural-checks.ts) refuses mutation / `emit` / any impure call in a `function` body and the caller re-asserts `loom.elixir-if-stmt-unsupported`, which covers five of the six; `variant-match` was NOT separately verified, so this is deferred rather than standing",
     reviewUntil: "2026-12-31",
   },
 
