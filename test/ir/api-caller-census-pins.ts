@@ -580,6 +580,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
