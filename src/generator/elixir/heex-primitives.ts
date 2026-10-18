@@ -27,6 +27,7 @@ import { gridCols, slugify } from "../_walker/shared/args.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
+  gateActionButton,
   hostStateAssign,
   indent,
   isAttrRenderable,
@@ -293,7 +294,7 @@ ${heading}${childrenHeex}
       )}}`
     : "";
   const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
-  return [
+  const dialog = [
     `<.button phx-click={show_modal("${modalId}")}${disabledAttr}${testidAttr}>${label}</.button>`,
     `<.modal id="${modalId}">`,
     `  <:title>${heading}</:title>`,
@@ -305,6 +306,9 @@ ${heading}${childrenHeex}
     `  </.simple_form>`,
     `</.modal>`,
   ].join("\n");
+  // A currentUser-only `requires` hides the trigger and its dialog for a
+  // principal it refuses, exactly as an `Action` button is hidden.
+  return op ? gateActionButton(dialog, op, ctx) : dialog;
 }
 
 /** `CreateForm(of: Agg, testid: "...", ...)` → `<.simple_form>` with auto

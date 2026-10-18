@@ -6,13 +6,12 @@
 import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-import { tryRenderGate } from "../../_frontend/gate-expr.js";
 import { tryDetectApiHook } from "../api-hook-detector.js";
 import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
 import { lookupBuiltinIcon } from "../icons.js";
-import { opGateFor } from "../op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { queryShape } from "../paged-query.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
@@ -332,20 +331,9 @@ export function emitAction(
   // `requires`, or ANY predicate touches `this.<field>` / params (not
   // client-evaluable — `tryRenderGate` returns null), the button stays
   // ungated; the backend 403 still enforces the gate (defence-in-depth).
-  if (ctx.authUi) {
-    const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
-    if (gates.length > 0) {
-      const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
-      if (parts.every((p) => p !== null)) {
-        ctx.usesCurrentUser = true;
-        return ctx.target.renderConditionalChild(
-          parts.map((p) => `(${p})`).join(" && "),
-          button,
-          "null",
-          depth,
-        );
-      }
-    }
+  const clientGate = opRequiresClientGate(op, ctx);
+  if (clientGate !== null) {
+    return ctx.target.renderConditionalChild(clientGate, button, "null", depth);
   }
   return button;
 }
