@@ -45,8 +45,8 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
