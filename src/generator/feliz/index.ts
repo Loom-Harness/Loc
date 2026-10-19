@@ -1960,7 +1960,8 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
  *  (root-served) keeps vite's default `/`.  A standalone deployable (one that
  *  `targets:` a backend) also gets the native-run block: `npm run dev` serves
  *  on its declared port (PORT overrides it) and proxies the bundle's relative
- *  `/api` to the target backend's declared port.  The image serves the built
+ *  `/api` to the target backend's declared port; `vite preview` takes the port only,
+ *  so a backend-less preview stays a static host.  The image serves the built
  *  bundle through nginx, which reads none of this. */
 const renderViteConfig = (
   basePath: string,
@@ -1974,7 +1975,7 @@ const proxy = { "/api": process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(na
 `
     : "";
   const serve = native
-    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true, proxy },\n`
+    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true },\n`
     : "";
   return `import { defineConfig } from "vite";
 
