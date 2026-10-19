@@ -131,6 +131,13 @@ context Sales {
 }
 ```
 
+**A test file must be imported.** File-root tests can live in their own file (conventionally `tests/*.ddd`), but nothing scans that directory: the project is exactly the import graph reachable from the entry file, so a `tests/order.ddd` that no file `import`s is silently ignored — no diagnostic, no emitted test. Import it from the entry file:
+
+```ddd
+// main.ddd
+import "./tests/order.ddd"   // without this line the tests in it never run
+```
+
 ### Context integration tests
 
 A `test` nested directly in a `context` (no `for`) is an **in-process integration test** — it boots the context's repositories against a real Postgres (`LOOM_PG_URL`, migrations applied) with **no HTTP**, so cross-aggregate persistence can be asserted without a deployable. Emitted on node, python, dotnet, java, and elixir (`test/<ctx>.integration.test.ts`, `Tests/<App>.Tests/<Ctx>IntegrationTests.cs`, …); a context hosted only on a frontend deployable warns `loom.context-test-unsupported`.
