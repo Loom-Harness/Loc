@@ -1361,7 +1361,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.ThrowsAny<Exception>(…)` + an `is DomainException or DisallowedException or ForbiddenException` check / JUnit `assertThrows(RuntimeException.class, …)` + the same `instanceof` family check (a `create(...)` / value-object literal keeps the exact `DomainException` assertion) / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1466,14 +1466,34 @@ with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
 
 On both, `DomainError` covers preconditions and invariants; a value object's
 `ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
-and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
-assert `DomainException` (a value-object construction asserts
-`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
-`{:error, _}` result.  All of these are domain classes, so a crash fails the test
-there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
-`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
-`when`-refused operation therefore fails on those two backends today.  Pin such a
-test on node / python / elixir, or assert the state instead.
+and `ForbiddenError` is a `requires` left in the operation body.  Java, .NET and
+elixir accept the same **domain-rejection family** — a precondition, an
+invariant, a `when` gate and a `requires`.  Java and .NET catch the throw and then
+assert it is one of `DomainException` / `DisallowedException` /
+`ForbiddenException` (.NET adds `ValueObjectInvariantException` when the context
+emits it); the `when` gate's `DisallowedException` is a sibling of
+`DomainException`, not a subclass, so a single-type assertion would miss it.
+Elixir asserts its `GuardError` (whose `:kind` is `:precondition`, `:forbidden` or
+`:disallowed` — the pure op core checks the `when` gate first) or an
+`{:error, _}` result.  A `create(...)` or a value-object literal can only be
+refused by an invariant, so there the bare form keeps its exact single-type
+assertion (`DomainException`; `ValueObjectInvariantException` for a .NET value
+object).  Every member of the family is a domain class, so a crash fails the test
+on these backends too.
+
+```java
+// generated (java): `expect(t.close()).toThrow()` over a `when`-gated op
+RuntimeException __thrown2 = assertThrows(RuntimeException.class, () -> t.close());
+assertTrue(__thrown2 instanceof DomainException || __thrown2 instanceof DisallowedException || __thrown2 instanceof ForbiddenException,
+    "expected the domain to reject this call, but it threw: " + __thrown2);
+```
+
+```csharp
+// generated (.NET)
+var __thrown2 = Assert.ThrowsAny<Exception>(() => { t.Close(); });
+Assert.True(__thrown2 is DomainException or DisallowedException or ForbiddenException,
+    $"expected the domain to reject this call, but it threw: {__thrown2}");
+```
 
 The context-level integration `test` (the `for <Context>` rung) is not covered by
 this.  It still accepts any rejection, because a repository read can also refuse
