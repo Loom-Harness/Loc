@@ -22,7 +22,7 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, pythonIdent, snake } from "../../../util/naming.js";
+import { plural, pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
 import {
   columnsForFields,
   contextEventRowClassName,
@@ -452,7 +452,7 @@ function renderWorkflowStateModel(
   durable = false,
   schema?: string,
 ): string {
-  const tableName = plural(snake(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const corr = wf.correlationField as string;
   const cols: PyColumn[] = [];
   for (const f of wf.stateFields ?? []) {
