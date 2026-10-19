@@ -1651,6 +1651,15 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     const kc = keycloakConfig(sys);
     lines.push(`    OIDC_ISSUER: ${JSON.stringify(kc.issuer)}`);
     lines.push(`    OIDC_CLIENT_ID: ${JSON.stringify(kc.clientId)}`);
+    // An `audience: env(...)` resolves to nothing unless the deploy env sets
+    // it, and an unset audience turns the `aud` check OFF on every backend —
+    // so without this line the dev stack verified tokens fail-open.  The realm
+    // mints the client id into `aud` for exactly this case (the audience
+    // mapper in `renderKeycloakRealm`); every backend reads `OIDC_AUDIENCE`
+    // ahead of the declared variable, so this one name covers any env name.
+    if (sys.auth?.oidc.audience?.kind === "env") {
+      lines.push(`    OIDC_AUDIENCE: ${JSON.stringify(kc.clientId)}`);
+    }
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );

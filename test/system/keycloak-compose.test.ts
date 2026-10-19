@@ -535,3 +535,33 @@ describe("bundled dev Keycloak realm — usable under denyByDefault (D8)", () =>
     expect(aud[0]!.config["included.client.audience"]).toBe(client.clientId);
   });
 });
+
+// `audience: env(...)` with nothing setting the variable leaves `aud`
+// unchecked on every backend.  The dev stack sets it to the client id the
+// realm's audience mapper mints, so the check is on and passes.
+describe("bundled Keycloak audience under audience: env(...)", () => {
+  it("compose sets OIDC_AUDIENCE to the client id the realm mints into aud", async () => {
+    const files = await filesFor(
+      system(
+        `auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") } }`,
+      ),
+    );
+    expect(files.get("docker-compose.yml")!).toContain('OIDC_AUDIENCE: "helpdesk-app"');
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      clients: { protocolMappers?: { config: Record<string, string> }[] }[];
+    };
+    const minted = (realm.clients[0]!.protocolMappers ?? []).map(
+      (m) => m.config["included.client.audience"],
+    );
+    expect(minted).toContain("helpdesk-app");
+  });
+
+  it("a literal audience is left to the declared value", async () => {
+    const files = await filesFor(
+      system(
+        `auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: "helpdesk-api" } }`,
+      ),
+    );
+    expect(files.get("docker-compose.yml")!).not.toContain("OIDC_AUDIENCE:");
+  });
+});
