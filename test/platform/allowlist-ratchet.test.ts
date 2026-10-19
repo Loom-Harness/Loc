@@ -763,13 +763,22 @@ const REGISTERED: Ratchet[] = [
     // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
     // missing symbol), and nothing in the fixture reads the claim at runtime.
     //
-    // 21 -> 22 (claims eval D18, PR #3250): a reviewed RAISE of one.
+    // 21 -> 22 (2026-10-12, claims-eval wave 2; re-derived on merge as main's
+    // 21 + this PR's one): `context-named-like-app`, a
+    // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
+    // controller's `alias Claims.Claims` shadowed the app module, so
+    // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
+    // the fix (spelling the facade fully qualified) is not observable on the
+    // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
+    // as base + each side's delta (see the #3024 note above).
+    //
+    // 22 -> 23 (claims eval D18, PR #3250; re-derived on merge as main's 22 + this PR's one): a reviewed RAISE of one.
     // `foreign-id-field` is the same shape for a hosted `X id` FIELD whose
     // target aggregate lives in a non-hosted sibling context — a missing
     // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
     // javac cannot find symbol) the corpus compile tier reads directly; its
     // CRUD routes are the ones `core-domain` already boots.
-    max: 22,
+    max: 23,
   },
 ];
 

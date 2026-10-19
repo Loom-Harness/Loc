@@ -446,6 +446,15 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "context-named-like-app",
+    title:
+      "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",
+    doc: "language",
+    backends: ALL,
+    deployables: ["claims"],
+    note: "Minted by the claims developer-persona eval (wave 2).  Every elixir controller opened with `alias Claims.Claims`, which rebinds `Claims` itself, so the same file's `rescue guard_error in Claims.GuardError` resolved to `Claims.Claims.GuardError` and `mix compile --warnings-as-errors` failed — while `generate system` reported `0 error(s), 0 warning(s)`.  Repaired, not refused: when the context name equals the app module the controller drops the facade alias and calls `Claims.Claims.<fn>` fully qualified (`contextCallRef` in `src/generator/elixir/vanilla/denial.ts`), so every non-clashing model stays byte-identical.  Both controller emitters (relational + event-sourced) are exercised.  The row is ALL because the other four backends have no alias semantics here and must keep compiling the same names.",
+  },
+  {
     id: "vo-field-default",
     title:
       "VALUE-OBJECT-typed field default — the wire boundary renders a non-scalar default differently from a scalar one",

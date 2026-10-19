@@ -1562,7 +1562,7 @@ function validateWorkflowStatements(
         // result is never paginated), then shallow-check the branch op-call
         // bindings the way `for-each` does.  `var` is in scope only in the
         // then-branch.
-        if (!st.synthCriterion.name) {
+        if (!st.synthCriterion.name && !st.findMethod) {
           diags.push({
             severity: "error",
             code: "loom.iflet-bad-source",
@@ -1570,6 +1570,19 @@ function validateWorkflowStatements(
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
           });
+          break;
+        }
+        // A declared optional find: the lowerer only sets `findMethod` for a
+        // find the repository declares, so there is no criterion to resolve —
+        // only the branch op-calls to check.
+        const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
+          checkNestedBodyOpCalls(body, st.var, "if-let");
+        };
+        if (st.findMethod) {
+          bindingAgg.set(st.var, st.aggName);
+          checkBranchOpCalls(st.thenBody);
+          bindingAgg.delete(st.var);
+          checkBranchOpCalls(st.elseBody ?? []);
           break;
         }
         const repo = reposByName.get(st.repoName);
@@ -1635,9 +1648,6 @@ function validateWorkflowStatements(
           });
           break;
         }
-        const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
-          checkNestedBodyOpCalls(body, st.var, "if-let");
-        };
         bindingAgg.set(st.var, st.aggName); // `var` bound only in the then-branch
         checkBranchOpCalls(st.thenBody);
         bindingAgg.delete(st.var);

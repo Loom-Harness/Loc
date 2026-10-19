@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sampleWireBody, type WireSpecDocument } from "../_helpers/wire-sample.js";
 import { hasDocker as dockerAvailable } from "./support/docker-probe.js";
 import { type HexMirror, startHexMirror } from "./support/hex-mirror.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
@@ -20,6 +21,13 @@ import { installGeneratedProject } from "./support/npm-install.js";
 // backend) and asserts each gate site hides/shows correctly — the real
 // client-side `currentUser.role === …` evaluation the compile-only build gates
 // can't exercise.
+//
+// The mocked `Job` read body is NOT written by hand: `jobBodyFor` synthesizes
+// it from the `.loom/wire-spec.json` the same generate run emitted and hands it
+// to the spec as `AUTH_GATE_JOB_BODY`.  A hand-written body drifts from the
+// wire shape, the emitted zod parse then rejects it, the detail page renders
+// blank, and the "button hidden" case passes vacuously — so a wire-shape
+// change must reach the mock without anyone remembering to edit it.
 //
 // Opt-in — heavy (npm install + vite build + a Playwright browser download).
 //   npm run test:auth-gate-ui      (= LOOM_AUTH_GATE_E2E=1 vitest run …)
@@ -40,9 +48,15 @@ const sharedSpec = path.join(here, "support", "auth-gate.spec.ts");
 
 const ENABLED = process.env.LOOM_AUTH_GATE_E2E === "1";
 
-function run(cmd: string, cwd: string): string {
+function run(cmd: string, cwd: string, env: Record<string, string> = {}): string {
   try {
-    return execSync(cmd, { cwd, encoding: "utf-8", stdio: "pipe", timeout: 900_000 });
+    return execSync(cmd, {
+      cwd,
+      encoding: "utf-8",
+      stdio: "pipe",
+      timeout: 900_000,
+      env: { ...process.env, ...env },
+    });
   } catch (e) {
     // execSync buries the child's stdout/stderr; surface them so a failing
     // `playwright test` (or build) shows WHICH assertion/step failed.
@@ -93,6 +107,14 @@ function generateAs(fw: string, work: string): string {
   return path.join(work, "out", "web");
 }
 
+/** The mocked `GET /api/jobs/:id` body: the minimal value the emitted wire
+ *  spec accepts for `Job`, read from the generate run that built `project`. */
+function jobBodyFor(project: string): string {
+  const specPath = path.join(path.dirname(project), ".loom", "wire-spec.json");
+  const spec = JSON.parse(fs.readFileSync(specPath, "utf-8")) as WireSpecDocument;
+  return JSON.stringify(sampleWireBody(spec, "Job"));
+}
+
 /** Copy the shared gate spec into the project's e2e/ dir, install it + a
  *  chromium browser, and run ONLY that spec against the running server.  The
  *  JSX frontends emit an `e2e/` harness (fixtures.ts + playwright.config);
@@ -124,7 +146,10 @@ function runGateSpec(project: string, baseUrl: string): void {
   fs.copyFileSync(sharedSpec, path.join(e2e, "auth-gate.spec.ts"));
   installGeneratedProject(e2e, { timeout: 900_000 });
   run("npx playwright install --with-deps chromium", e2e);
-  run(`E2E_BASE_URL=${baseUrl} npx playwright test auth-gate.spec.ts`, e2e);
+  run("npx playwright test auth-gate.spec.ts", e2e, {
+    E2E_BASE_URL: baseUrl,
+    AUTH_GATE_JOB_BODY: jobBodyFor(project),
+  });
 }
 
 /** Build the project, start its server (vite preview / static SPA serve) on a
