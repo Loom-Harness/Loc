@@ -402,7 +402,14 @@ function envStem(resourceName: string): string {
 
 const smtpDotnetAdapter: DotnetResourceAdapter = {
   name: "smtp",
-  nugetDeps: () => ({ MailKit: "4.8.0" }),
+  // MailKit → MimeKit pulls System.Security.Cryptography.Pkcs 8.0.0 on
+  // net10.0, flagged by GHSA-2fmv-rv2c-59x7 (moderate) + GHSA-846f-f764-76mx
+  // (high) — NU1902/NU1903 under `/warnaserror`.  Every MailKit release still
+  // depends on a vulnerable Pkcs, so pin the lowest patched one directly (the
+  // Newtonsoft-over-Hangfire pattern in renderCsproj) rather than suppressing
+  // an advisory that has a fix.  The pin flows to the xUnit project through
+  // its ProjectReference.
+  nugetDeps: () => ({ MailKit: "4.8.0", "System.Security.Cryptography.Pkcs": "8.0.2" }),
   emitClientClass(resources, stores, ns): string {
     const lines: string[] = [
       "// Auto-generated.",
