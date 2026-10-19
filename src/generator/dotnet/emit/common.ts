@@ -539,9 +539,14 @@ export function dotnetNotFoundThrow(ns: string, resource: string, keyExpr: strin
  * answer) AND by Swashbuckle, which publishes `minimum`/`maximum`.  The
  * attribute is fully qualified so no `using` is added under /warnaserror.
  */
-export const CS_PAGED_QUERY_PARAMS: readonly string[] = [
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
-  '[FromQuery] string sort = "id"',
-  '[FromQuery] string dir = "asc"',
-];
+export function csPagedQueryParams(sortDefault = "id"): readonly string[] {
+  return [
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
+    `[FromQuery] string sort = ${JSON.stringify(sortDefault)}`,
+    '[FromQuery] string dir = "asc"',
+  ];
+}
+
+/** The paged controls with the shared `id` sort default. */
+export const CS_PAGED_QUERY_PARAMS: readonly string[] = csPagedQueryParams();

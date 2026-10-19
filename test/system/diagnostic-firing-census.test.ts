@@ -1680,6 +1680,7 @@ system S {
     criterion InRegion(rgn: string) of Order = region == rgn
     retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
     queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let tag = "x"
       let r = Orders.run(ByRegion(rgn))
       return r
     }

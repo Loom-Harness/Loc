@@ -12,6 +12,7 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -193,7 +194,10 @@ export function generateSvelteForContexts(
   // Per-aggregate api modules.
   for (const { agg, ctx } of aggregates) {
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-    out.set(`src/lib/api/${lowerFirst(agg.name)}.ts`, buildSvelteApiModule(agg, repo, ctx));
+    out.set(
+      `src/lib/api/${lowerFirst(agg.name)}.ts`,
+      buildSvelteApiModule(agg, repo, ctx, pagedFindRoutes(sys, target ?? deployable)),
+    );
   }
   if (hasAnyWorkflow(contexts)) {
     out.set("src/lib/api/workflows.ts", buildWorkflowsApiModule(contexts));

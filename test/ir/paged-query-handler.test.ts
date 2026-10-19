@@ -93,22 +93,20 @@ describe("paged queryHandler — Hono emission", () => {
   });
 });
 
-// Item 7 (eval-closure review 2026-09-28): a paged queryHandler whose body runs
-// a named RETRIEVAL (`Repo.run(<Retrieval>(args))`) passed validation with 0
-// errors, then crashed `generate system` on all five backends with `internal:
-// paged queryHandler … does not match the supported … shape. Please file a
-// bug.`  Phase ⑦ now refuses every paged body that is not the criterion-run
-// shape (`loom.paged-query-handler-shape`), pointing at the retrieval's
-// criterion.
-const SYS_RETRIEVAL = (platform: string): string => `
+// A paged body over a named RETRIEVAL (`Repo.run(<Retrieval>(args))`) pages the
+// retrieval's `where`, ordered by its `sort:` — the declared order is the
+// route's default (`sort` defaults to `""`, which every paged find reads as
+// "the declared order, then `id`").
+const SYS_RETRIEVAL = (platform: string, aggHeader = "", extra = ""): string => `
 system S {
   subdomain Sales {
     context Orders {
-      aggregate Order { code: string  region: string }
+      aggregate Order${aggHeader} { code: string  region: string }
       repository Orders for Order { }
       criterion InRegion(rgn: string) of Order = region == rgn
-      retrieval RegionByCode(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
+      retrieval RegionByCode(rgn: string) of Order { where: InRegion(rgn)  sort: [code desc] }
       queryHandler ListViaRetrieval(rgn: string): Order paged {
+        ${extra}
         let r = Orders.run(RegionByCode(rgn))
         return r
       }
@@ -120,24 +118,56 @@ system S {
   deployable d { platform: ${platform}  contexts: [Orders]  dataSources: [s]  serves: A  port: 3000 }
 }`;
 
-describe("paged queryHandler — body shape refusal (loom.paged-query-handler-shape)", () => {
-  async function shapeDiags(src: string) {
-    const { model } = await parseString(src, { validate: false });
-    return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.paged-query-handler-shape",
-    );
-  }
+async function shapeDiags(src: string) {
+  const { model } = await parseString(src, { validate: false });
+  return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
+    (d) => d.code === "loom.paged-query-handler-shape",
+  );
+}
 
-  it("refuses a paged body over a retrieval on every backend, suggesting its criterion", async () => {
+describe("paged queryHandler over a retrieval", () => {
+  it("is accepted on every backend", async () => {
     for (const platform of ["node", "python", "java", "dotnet", "elixir"]) {
-      const diags = await shapeDiags(SYS_RETRIEVAL(platform));
-      expect(
-        diags.map((d) => d.severity),
-        platform,
-      ).toEqual(["error"]);
-      expect(diags[0]!.source).toBe("Orders/ListViaRetrieval");
-      expect(diags[0]!.message).toContain("`let r = Orders.run(InRegion(…))`");
+      expect(await shapeDiags(SYS_RETRIEVAL(platform)), platform).toEqual([]);
     }
+  });
+
+  it("synthesizes a paged find carrying the retrieval's filter and declared order", async () => {
+    const { model } = await parseString(SYS_RETRIEVAL("node"), { validate: false });
+    const ctx = allContexts(enrichLoomModel(lowerModel(model)))[0]!;
+    const find = ctx.repositories[0]!.finds.find((f) => f.name === "pageRegionByCode");
+    expect(find?.synthesized).toBe(true);
+    expect(find?.criterionRef?.name).toBe("InRegion");
+    expect(
+      find?.defaultSort?.map((t) => [t.path.map((s) => s.name).join("."), t.direction]),
+    ).toEqual([["code", "desc"]]);
+  });
+
+  it("node: the route's sort defaults to the declared order and the repo applies it", async () => {
+    const files = await generateSystemFiles(SYS_RETRIEVAL("node"));
+    const all = [...files.values()].join("\n");
+    expect(all).toContain('sort: z.string().default("")');
+    expect(all).toMatch(/orders\.pageRegionByCode\([^)]*page[^)]*pageSize[^)]*sort[^)]*dir/);
+  });
+});
+
+describe("paged queryHandler — body shape refusal (loom.paged-query-handler-shape)", () => {
+  it("refuses a body that does anything besides its gates and the run", async () => {
+    const diags = await shapeDiags(SYS_RETRIEVAL("node", "", 'let tag = "x"'));
+    expect(diags.map((d) => d.severity)).toEqual(["error"]);
+    expect(diags[0]!.source).toBe("Orders/ListViaRetrieval");
+    expect(diags[0]!.message).toContain("its `requires` gates and that run, nothing else");
+  });
+
+  it("accepts a body that opens with a `requires` gate", async () => {
+    expect(await shapeDiags(SYS_RETRIEVAL("node", "", 'requires rgn != ""'))).toEqual([]);
+  });
+
+  it("refuses a sorted retrieval over an aggregate that pages in memory", async () => {
+    const diags = await shapeDiags(SYS_RETRIEVAL("node", " shape: document"));
+    expect(diags.map((d) => d.severity)).toEqual(["error"]);
+    expect(diags[0]!.message).toContain("pages retrieval 'RegionByCode'");
+    expect(diags[0]!.message).toContain("not a single-table relational aggregate");
   });
 
   it("accepts the supported criterion-run shape", async () => {
@@ -145,7 +175,7 @@ describe("paged queryHandler — body shape refusal (loom.paged-query-handler-sh
   });
 
   it("the refused model never reaches an emitter crash: generate reports the diagnostic", async () => {
-    await expect(generateSystemFiles(SYS_RETRIEVAL("python"))).rejects.toThrow(
+    await expect(generateSystemFiles(SYS_RETRIEVAL("python", "", 'let tag = "x"'))).rejects.toThrow(
       /loom\.paged-query-handler-shape|paged envelope/,
     );
   });

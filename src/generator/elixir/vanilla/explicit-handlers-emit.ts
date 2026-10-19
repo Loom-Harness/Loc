@@ -42,6 +42,13 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../../ir/util/paged-run.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
@@ -52,7 +59,13 @@ import {
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
-import { contextsHaveWireDenials, denialOverrides, respondErrorTail } from "./denial.js";
+import {
+  contextsHaveWireDenials,
+  denialMessage,
+  denialOverrides,
+  denialResponse,
+  respondErrorTail,
+} from "./denial.js";
 import {
   PAGE_CALL_ARGS,
   PAGE_PARAM_HELPER,
@@ -479,17 +492,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -622,7 +625,7 @@ export function emitExplicitRoutesController(
       hasPaged = true;
       const run = pagedRunStmt(handler, ctx);
       const pathNames = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
-      const ctxFn = `${appModule}.${upperFirst(ctx.name)}.${snake(run.retrievalName)}_${snake(run.aggName)}`;
+      const ctxFn = `${appModule}.${upperFirst(ctx.name)}.${snake(pagedRunFindName(run))}_${snake(run.aggName)}`;
       const critArgs = handler.params.map(
         (p) => `params[${JSON.stringify(pathNames.has(p.name) ? snake(p.name) : p.name)}]`,
       );
@@ -631,19 +634,64 @@ export function emitExplicitRoutesController(
         // Bound by the `with` clauses below (page-param.ts) — an out-of-range
         // window 422s here instead of being clamped past the published bounds.
         ...PAGE_CALL_ARGS,
-        `Map.get(params, "sort", "id")`,
+        `Map.get(params, "sort", ${JSON.stringify(pagedRunSortDefault(handler, ctx))})`,
         `Map.get(params, "dir", "asc")`,
       ];
-      actions.push(`  def ${action}(conn, params) do
-    with ${PAGE_WITH_CLAUSES.join(",\n         ")},
+      const read = `    with ${PAGE_WITH_CLAUSES.join(",\n         ")},
          {:ok, result} <-
            ${ctxFn}(
              ${callArgs.join(",\n             ")}
            ) do
       json(conn, %{result | items: Enum.map(result.items, &serialize/1)})
 ${pagingElseArm("ProblemDetails", "    ")}
-    end
-  end`);
+    end`;
+      // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one)
+      // — each a 403 ProblemDetails before the read, carrying the same
+      // `Forbidden: <source>` detail the other four backends throw.
+      const gates = pagedRunGates(handler);
+      if (gates.length === 0) {
+        actions.push(`  def ${action}(conn, params) do\n${read}\n  end`);
+      } else {
+        const gateCtx: RenderCtx = {
+          thisName: "record",
+          contextModule: `${appModule}.${upperFirst(ctx.name)}`,
+          paramRenames: Object.fromEntries(
+            handler.params.map((p) => [
+              p.name,
+              `params[${JSON.stringify(pathNames.has(p.name) ? snake(p.name) : p.name)}]`,
+            ]),
+          ),
+        };
+        const arms = gates.map(
+          (g) =>
+            `      not (${renderExpr(g.expr, gateCtx)}) ->\n        ${denialResponse(
+              "forbidden",
+              JSON.stringify(denialMessage(g)),
+              denialOverrides(ctx),
+            )}\n`,
+        );
+        // The read nests one `cond` arm deeper.
+        const nestedRead = read
+          .split("\n")
+          .map((l) => (l.length > 0 ? `    ${l}` : l))
+          .join("\n");
+        actions.push(
+          [
+            `  def ${action}(conn, params) do`,
+            pagedRunGatesUseCurrentUser(handler)
+              ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+              : null,
+            "    cond do",
+            ...arms,
+            "      true ->",
+            nestedRead,
+            "    end",
+            "  end",
+          ]
+            .filter((l): l is string => l !== null)
+            .join("\n"),
+        );
+      }
       apiRoutes.push(routeEntry(r, action));
       continue;
     }

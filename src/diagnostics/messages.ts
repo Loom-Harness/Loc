@@ -795,10 +795,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
   "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — pass a criterion to ` +
-    `'run' (Repo.run(<Criterion>(args))) or name a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository. (A unique-key reconstitution find returning a ` +
-    `single 'T' / 'T?' stays fine.)`,
+    `repository find '${p.name}' is a wire-shaped list query — declare a 'criterion' ` +
+    `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
+    `bespoke list finder on the repository, and put it on the wire with ` +
+    `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
+    `when a client must call it. (A unique-key reconstitution find returning a single ` +
+    `'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -2603,7 +2605,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
   "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+  "loom.paged-query-handler-shape#sorted-retrieval-shape": (p: {
+    name: unknown;
+    retrieval: unknown;
+    aggName: unknown;
+  }) =>
+    `queryHandler '${p.name}' pages retrieval '${p.retrieval}', whose \`sort:\` is the page's default order — but '${p.aggName}' is not a single-table relational aggregate, and its paged read is taken in memory without that order. Drop the retrieval's \`sort:\` (the client orders through the route's \`sort\`/\`dir\`), or page a criterion instead.`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
@@ -3793,6 +3801,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unrouted": (p: {
+    aggregate: unknown;
+    operation: unknown;
+    framework: unknown;
+    deployable: unknown;
+  }) =>
+    `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
+    `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
+    `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
+    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
+    `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
+    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;
