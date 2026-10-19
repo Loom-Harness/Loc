@@ -11,6 +11,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
+import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
 import {
@@ -52,8 +53,9 @@ const TEST_ACTOR = 'new User(System.Guid.Empty, "admin", new List<string> { "*" 
 //   expect(x).not.toBeLessThanOrEqual(0)  → x.Should().NotBeLessThanOrEqualTo(0);
 //
 // Every `expect` carries a matcher (no bare-boolean fallback);
-// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` (xUnit +
-// AwesomeAssertions coexist).
+// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` for a create,
+// and an assertion over the domain-rejection family (`csBareToThrow`) for an
+// operation call (xUnit + AwesomeAssertions coexist).
 // ---------------------------------------------------------------------------
 
 export function renderTestsFile(
@@ -289,6 +291,51 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   return `${actual}.Should().${method}(${arg});`;
 }
 
+/** The exception types a BARE `toThrow()` accepts on .NET: every way the
+ *  in-process domain floor refuses a call.  xUnit's `Assert.Throws<T>` matches
+ *  the EXACT type, and these are siblings, not one hierarchy:
+ *
+ *    DomainException               — a `precondition`, an aggregate / part invariant;
+ *    DisallowedException           — an operation's `when` state gate (409);
+ *    ForbiddenException            — a `requires` left in the operation body;
+ *    ValueObjectInvariantException — a value object refused inside the body,
+ *                                    emitted only when the context declares
+ *                                    such an invariant.
+ *
+ *  Not `Exception`: a NullReferenceException out of broken generated code must
+ *  FAIL a negative test, not pass it. */
+function csDomainRejections(ctx: BoundedContextIR): string[] {
+  const out = ["DomainException", "DisallowedException", "ForbiddenException"];
+  if (hasValueObjectInvariants(ctx)) out.push("ValueObjectInvariantException");
+  return out;
+}
+
+/** The bare `expect(<expr>).toThrow()` assertion over the domain-rejection
+ *  family (claims D17), or `null` to keep the exact single-type
+ *  `Assert.Throws<…>`: a `create(...)` or a value-object construction can only
+ *  be refused by an invariant.  Anything else, an operation call above all,
+ *  may be refused by a `when` gate or a `requires` as well.  `body` is the
+ *  lambda body (`t.Close();`); `isAsync` renders the integration-test form. */
+export function csBareToThrow(
+  e: ExprIR,
+  body: string,
+  local: string,
+  indent: string,
+  ctx: BoundedContextIR,
+  isAsync = false,
+): string | null {
+  if (e.kind === "method-call" && e.member === "create") return null;
+  if (e.kind === "call" && e.callKind === "value-object-ctor") return null;
+  const caught = isAsync
+    ? `await Assert.ThrowsAnyAsync<Exception>(async () => { ${body} await Task.CompletedTask; })`
+    : `Assert.ThrowsAny<Exception>(() => { ${body} })`;
+  return [
+    `${indent}var ${local} = ${caught};`,
+    `${indent}Assert.True(${local} is ${csDomainRejections(ctx).join(" or ")},`,
+    `${indent}    $"expected the domain to reject this call, but it threw: {${local}}");`,
+  ].join("\n");
+}
+
 function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -328,7 +375,7 @@ function renderTestStmt(
         )}, ${local}.Message);`,
       ].join("\n");
     }
-    return `    ${thrown};`;
+    return csBareToThrow(s.expr, body, `__thrown${index}`, "    ", ctx) ?? `    ${thrown};`;
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);

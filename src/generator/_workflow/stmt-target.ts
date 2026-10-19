@@ -61,8 +61,9 @@ export interface WorkflowStmtTarget {
 
   /** `if-let`: `renderedThen` / `renderedElse` are the two branch bodies
    *  already rendered at `indent + indentUnit` by the spine. The target runs
-   *  the synthetic `findAllBy<Criterion>` retrieval with `limit: 1`, binds the
-   *  first row (or null/none) to `st.var`, and emits the present/absent
+   *  the synthetic `findAllBy<Criterion>` retrieval with `limit: 1` — or, when
+   *  `st.findMethod` is set, the repository's declared optional find — binds
+   *  the row (or null/none) to `st.var`, and emits the present/absent
    *  branches — appending each branch's saves (`savesInThen` / `savesInElse`).
    *  `renderedElse` is empty when the source had no `else`. */
   ifLet(

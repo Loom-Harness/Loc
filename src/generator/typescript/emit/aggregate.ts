@@ -151,14 +151,6 @@ export function renderAggregate(
   // gate, landing the refused write silently.  So the import follows any
   // `when`-carrying operation.
   const usesDisallowed = agg.operations.some((op) => !!op.when);
-  const errorsImportList = [
-    usesDisallowed && "DisallowedError",
-    usesDomain && "DomainError",
-    usesForbidden && "ForbiddenError",
-  ]
-    .filter(Boolean)
-    .join(", ");
-
   // Render the body up front so the value-object import can be narrowed
   // to `import type` when no operation constructs a VO (`new Money(...)`),
   // and dropped entirely when no VO appears in any type position either.
@@ -175,6 +167,19 @@ export function renderAggregate(
   // uses `new <Vo>(` (value-object construction) or `<Name>.<member>` (enum
   // value access). Type-only positions (annotation, `as <Name>`) qualify
   // for `type <Name>` inline. Symbols never referenced are dropped.
+  // Each declarative flag above is OR-ed with a reference scan of the rendered
+  // body: a raise site the flags do not enumerate (an event-sourced `create`'s
+  // `precondition`, which renders into `_init`, not an operation) still pulls
+  // its import — otherwise the class throws an undeclared `DomainError`
+  // (TS2304).  Same body-scan the python twin uses.
+  const throwsError = (n: string): boolean => new RegExp(`\\bnew\\s+${n}\\(`).test(body);
+  const errorsImportList = [
+    (usesDisallowed || throwsError("DisallowedError")) && "DisallowedError",
+    (usesDomain || throwsError("DomainError")) && "DomainError",
+    (usesForbidden || throwsError("ForbiddenError")) && "ForbiddenError",
+  ]
+    .filter(Boolean)
+    .join(", ");
   const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(body);
   const usedVoOrEnum = [...valueObjectAliases, ...enumAliases].filter((n) =>
     new RegExp(`\\b${n}\\b`).test(body),

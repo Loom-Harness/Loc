@@ -2340,10 +2340,15 @@ export function honoWorkflowStmtTarget(
       // `if let o = Repo.find(<Criterion>) { … } else { … }` → run the shared
       // `findAllBy<Criterion>` retrieval with `limit: 1`, take the first row (or
       // `null`), and branch.  The `!== null` narrows `o` to non-null in the
-      // then-branch; each branch's dirty bindings save INSIDE that branch.
+      // then-branch; each branch's dirty bindings save INSIDE that branch.  A
+      // declared optional find (`findMethod`) already answers `Agg | null`, so
+      // it is awaited directly.
       const inner = `${indent}  `;
       const args = st.retrievalArgs.map(renderArg);
-      args.push("{ limit: 1 }");
+      const repoVar = lowerFirst(st.repoName);
+      const lookup = st.findMethod
+        ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+        : `(await ${repoVar}.run${upperFirst(st.retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
@@ -2351,7 +2356,7 @@ export function honoWorkflowStmtTarget(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
         `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
