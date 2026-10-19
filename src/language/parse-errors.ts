@@ -47,6 +47,7 @@ import {
   isDeclareOnlySoftKeyword,
   isFieldNameKeyword,
   isGrammarKeyword,
+  isNameOnlyKeywordIn,
   isSoftKeyword,
 } from "./soft-keywords.js";
 
@@ -126,7 +127,11 @@ function renderCandidates(
  *  when they wrote a name of their own and Loom has spoken for the word, and
  *  the alternation case had no equivalent of the mismatched-token path's
  *  reserved-name arm. */
-export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): string {
+export function unexpectedTokenMessage(
+  actual: IToken,
+  paths: TokenType[][],
+  ruleName?: string,
+): string {
   const { keywords, terminals } = firstTokenLabels(paths);
   const reserved = reservedInExpressionMessage(actual, terminals);
   if (reserved) return reserved;
@@ -140,15 +145,28 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
   // still sees the full list, so a misspelt soft keyword is still caught.)
   // The colon-guarded soft keywords (`check`, `mask`, …) match through a
   // custom pattern, so they arrive among the TERMINALS (`<check>`) and need
-  // the same filter.
+  // the same filter.  A name rule's own extras (`NameRefIdent`'s `create`,
+  // `LooseName`'s `from`, …) are dropped too, but only where the failing rule
+  // reaches them solely as a name — a keyword that also heads real syntax in
+  // that rule stays a candidate.
   const nameLegal = terminals.includes("ID");
-  const shown = nameLegal ? keywords.filter((k) => !isSoftKeyword(k)) : keywords;
+  const rule = ruleName ? chevrotainRuleName(ruleName) : undefined;
+  const isName = (k: string) =>
+    isSoftKeyword(k) || (rule !== undefined && isNameOnlyKeywordIn(rule, k));
+  const shown = nameLegal ? keywords.filter((k) => !isName(k)) : keywords;
   const shownTerminals = nameLegal ? terminals.filter((t) => !isSoftKeyword(t)) : terminals;
   return diagMessage("loom.parse-error#unexpected-token", {
     found: actual.image,
     suggestion: suggestion ? ` Did you mean '${suggestion}'?` : "",
     candidates: renderCandidates(shown, shownTerminals, suggestion),
   });
+}
+
+/** The grammar rule name behind a chevrotain rule name.  Langium registers
+ *  each rule with a zero-width-space suffix so a rule cannot collide with a
+ *  chevrotain built-in; the grammar knows it without one. */
+function chevrotainRuleName(name: string): string {
+  return name.replace(/\u200B$/, "");
 }
 
 /** A Loom keyword sitting where a NAME was one of the legal continuations.
@@ -209,7 +227,7 @@ export class DddParserErrorMessageProvider extends LangiumParserErrorMessageProv
   }): string {
     const actual = options.actual[0];
     if (!actual) return super.buildNoViableAltMessage(options);
-    return unexpectedTokenMessage(actual, options.expectedPathsPerAlt.flat());
+    return unexpectedTokenMessage(actual, options.expectedPathsPerAlt.flat(), options.ruleName);
   }
 
   override buildEarlyExitMessage(options: {
@@ -221,7 +239,7 @@ export class DddParserErrorMessageProvider extends LangiumParserErrorMessageProv
   }): string {
     const actual = options.actual[0];
     if (!actual) return super.buildEarlyExitMessage(options);
-    return unexpectedTokenMessage(actual, options.expectedIterationPaths);
+    return unexpectedTokenMessage(actual, options.expectedIterationPaths, options.ruleName);
   }
 
   /** A keyword where a NAME was expected — `command File { … }`,
