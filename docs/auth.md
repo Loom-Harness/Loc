@@ -1238,6 +1238,19 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > principal it never meant to be. An absent or empty header still means the
 > built-in identity.
 
+**Under `auth { oidc }` the stub is preview-only.** The Hono backend still
+emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
+so a running app ignores the header. The playground preview registers the stub
+instead, because no identity provider is reachable from its browser worker —
+that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
+header there answers 401, not 400, since the OIDC middleware does not know the
+stub).
+
+```ts
+// generated (node, auth { oidc }) — index.ts
+registerOidcVerifier();          // auth/dev-stub.ts is never imported here
+```
+
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
 for a `guid`, `0` for a number, `false` for a `bool`, the epoch for a
