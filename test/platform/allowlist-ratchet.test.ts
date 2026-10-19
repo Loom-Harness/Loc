@@ -762,7 +762,16 @@ const REGISTERED: Ratchet[] = [
     // defect is a missing id-brand DECLARATION, which the corpus compile
     // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
     // missing symbol), and nothing in the fixture reads the claim at runtime.
-    max: 21,
+    //
+    // 21 -> 22 (2026-10-12, claims-eval wave 2; re-derived on merge as main's
+    // 21 + this PR's one): `context-named-like-app`, a
+    // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
+    // controller's `alias Claims.Claims` shadowed the app module, so
+    // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
+    // the fix (spelling the facade fully qualified) is not observable on the
+    // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
+    // as base + each side's delta (see the #3024 note above).
+    max: 22,
   },
 ];
 
