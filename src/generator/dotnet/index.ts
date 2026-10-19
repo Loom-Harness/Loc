@@ -58,7 +58,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink } from "../../util/emission-sink.js";
+import { emissionSink, rewrite } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -81,7 +81,7 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { clashFreeRootNamespace } from "./bcl-collision.js";
+import { clashFreeRootNamespace, layerClashAliases } from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -305,18 +305,22 @@ export function generateDotnetForContexts(
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
+    const root = clashFreeRootNamespace(namespace, contexts);
     emitProjectFromContexts(
       contexts,
-      clashFreeRootNamespace(namespace, contexts),
+      root,
       out,
       system,
       emitTrace,
       options.sourcemap,
       options.sourceTexts,
     );
+    for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
   } else {
     for (const ctx of contexts) {
-      emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);
+      const root = clashFreeRootNamespace(ctx.name, [ctx]);
+      emitContext(ctx, root, out, emitTrace);
+      for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
     }
   }
   return out;
