@@ -214,6 +214,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/products/{id}/reprice",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/newPrice"
+          }
+        ],
+        "instance": "/api/products/{id}/reprice",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

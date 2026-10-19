@@ -1327,6 +1327,38 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
     tier: "behavioral",
   },
+  {
+    id: "RS-39",
+    title:
+      "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
+    trigger:
+      "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
+    observable:
+      'no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. A REQUIRED parameter left out (by an empty body or by `{}`) is 422 with one `errors[]` entry per absent key, `{ pointer: "/<key>", message: "Required" }`, answered before the row is loaded — on operations, workflows and `route`d handlers alike. The OpenAPI `requestBody` of a parameterless command, and of a `create` with no input fields, is not `required`.',
+    // The split when measured (booted against Postgres, the booking trial's
+    // `confirm()`): node 415 (no body) / 400 (JSON, 0 bytes); python 422 for
+    // both and for EVERY foreign media type (FastAPI never answered 415);
+    // .NET 415 / 422; java and elixir 2xx for everything including
+    // `text/plain` and malformed JSON, because the zero-arg route never read
+    // its body. One normaliser per backend (hono middleware, an ASGI
+    // middleware, an ASP.NET middleware, a servlet filter, the Phoenix
+    // BodyParser) plus a body-reading zero-arg route on java.
+    //
+    // A parametered command's empty body (≡ `{}`) answered 500 on elixir: its
+    // operation params were not wire-validated, so the nil reached the body.
+    // The `require_command_params` controller plug refuses it first. The absent-field
+    // sentence was each framework's own ("expected string, received
+    // undefined" / "Field required" / "The reason field is required." / "must
+    // not be null"); it is one word, `MISSING_FIELD_MESSAGE`, on all five.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
+      "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415), and re-sends `{}` to the first instance command the tier sent a one-key body to (422 `Required`), on all seven wire-gated legs",
+    ],
+    // BEHAVIORAL: what a request with no body is answered is only observable on
+    // a booted backend; the static half is the generator test above.
+    tier: "behavioral",
+  },
 ];
 
 // ---------------------------------------------------------------------------

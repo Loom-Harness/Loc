@@ -229,6 +229,29 @@ if (err instanceof ConcurrencyError)       return problem(409, "Conflict", err.m
 
 A `requires` that reads `currentUser` needs a deployable that binds a verified principal (`loom.guard-principal-without-auth`); see [Auth](17-auth.md#requires--the-authorization-gate-http-403).
 
+### A parameterless operation needs no request body
+
+`operation confirm()` routes to `POST /api/<plural>/{id}/confirm`, and a caller with nothing to send may send nothing: on all five backends an empty body — no `Content-Type`, or a JSON one with zero bytes — is answered exactly as `{}` is ([RS-39](../conformance-semantics.md)). The same holds for a workflow started with no input. The published `requestBody` is optional; a foreign media type (`text/plain`, a form post) is still `415`.
+
+```ddd
+operation confirm() when status == Requested { status := Confirmed }
+```
+
+```ts
+// http/appointment.routes.ts
+request: {
+  params: z.object({ id: UuidString }),
+  body: { content: { "application/json": { schema: ConfirmAppointmentRequest } }, required: false },
+},
+```
+
+```python
+# app/http/appointment_routes.py
+async def confirm_appointment(id: …, body: Annotated[ConfirmAppointmentRequest, Body(default_factory=ConfirmAppointmentRequest)], …)
+```
+
+`curl -X POST …/appointments/$ID/confirm` → `204`. On an operation **with** parameters an empty body is the `{}` that fails validation: `422` with an `errors[]` entry per missing field — `{"pointer": "/reason", "message": "Required"}` on all five backends. A `create` with no input fields publishes an optional body too.
+
 ### `when` also auto-exposes `GET /{id}/can_<op>`
 
 A `when`-gated operation gets a free, side-effect-free companion route returning `{ allowed }` so a UI can enable/disable the action without invoking it (the canCommand pattern), on all five backends (`can_confirmOrder` / `CanConfirmQuery` / `canConfirm` / `can_confirm_order` / `can_confirm_order/1`). That companion route takes **no arguments**, so a `when` predicate may only read the aggregate's own state — referencing an operation parameter is `loom.when-references-op-param`. Move an argument-aware check into a `precondition` in the body, or express it as `from <Criterion>(args)`.

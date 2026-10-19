@@ -9,8 +9,10 @@
 // so the frontend ACL's `applyServerErrors` consumes it identically.
 // ---------------------------------------------------------------------------
 
+import type { TypeIR } from "../../../ir/types/loom-ir.js";
+import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { MISSING_FIELD_MESSAGE, problemTitle } from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
@@ -298,6 +300,22 @@ export function renderVanillaProblemDetailsModule(
   # The §3.2 \`errors[]\` 422 sender — one place, so every rung that answers the
   # WIRE-VALIDATION shape (the changeset path, and the wire-translatable
   # \`precondition\` path) emits byte-identical title / detail / envelope.
+  @missing_field ${JSON.stringify(MISSING_FIELD_MESSAGE)}
+
+  @doc """
+  The REQUIRED request keys \`params\` leaves out — absent or \`null\` — as
+  \`errors[]\` entries (RS-39).  A command's controller checks them before it
+  loads anything, so an empty body (which reads as \`{}\`) or a \`{}\` missing
+  a parameter answers the 422 the other four backends' request validators
+  answer, never the 500 a nil reaching the operation body would raise.
+  """
+  def missing_params(params, required) when is_map(params) do
+    for key <- required, is_nil(Map.get(params, key)), do: %{pointer: "/" <> key, message: @missing_field}
+  end
+
+  @doc "Send the 422 for the keys \`missing_params/2\` found absent."
+  def missing_params_response(conn, missing), do: send_validation_problem(conn, missing)
+
   defp send_validation_problem(conn, pointer_errors) do
     ${log422}
     ${renderPhoenixDomainFault("domain_error")}
@@ -560,6 +578,9 @@ ${forbiddenBodyRedaction}
   # field path forward on the \`loom_path\` opt, which is spliced in here so
   # \`/sku/code\` comes out rather than the whole object's \`/sku\`.
   defp render_changeset_error({field, {msg, opts}}, prefix) do
+    # An absent required field reads the same on every backend (RS-39).
+    msg = if Keyword.get(opts, :validation) == :required, do: @missing_field, else: msg
+
     interpolated =
       Enum.reduce(opts, msg, fn {key, value}, acc ->
         String.replace(acc, "%{#{key}}", error_opt_to_string(value))
@@ -676,4 +697,50 @@ export function renderPathIdCastPlug(problemDetailsAlias = "ProblemDetails"): st
   end
 
   defp __cast_path_id(conn, _opts), do: conn`;
+}
+
+/** The wire keys a command's request body MUST carry: every parameter whose
+ *  type is not nullable — the same set this backend's OpenAPI request schema
+ *  marks `required` (`openapi-emit.ts`) and the other four backends' request
+ *  validators enforce. */
+export function requiredWireParams(params: readonly { name: string; type: TypeIR }[]): string[] {
+  return params.filter((p) => !wireTypeInfo(p.type, "request").isNullable).map((p) => p.name);
+}
+
+/** The controller plug that refuses a command whose body omits a required
+ *  parameter (RS-39) with the 422 \`errors[]\` the other four backends'
+ *  request validators answer — BEFORE the action loads anything, so the answer
+ *  never depends on whether the row exists, and a nil never reaches an
+ *  operation body that would raise on it (500).  One plug per controller, keyed
+ *  by action, for the same reason \`__cast_path_id\` is a plug: the next action
+ *  an emitter adds is covered without a per-action \`case\`.  Empty when no
+ *  action requires anything, so such a controller is byte-identical.
+ *
+ *  @param required action name → the wire keys its body must carry. */
+export function renderRequiredParamsPlug(
+  required: ReadonlyMap<string, readonly string[]>,
+  problemDetailsAlias = "ProblemDetails",
+): string {
+  const entries = [...required].filter(([, keys]) => keys.length > 0);
+  if (entries.length === 0) return "";
+  // `~w(...)`, not a quoted list: the mask census reads a quoted list holding a
+  // masked field name as an audit-history field list, and wire keys never
+  // contain whitespace.
+  const map = entries.map(([action, keys]) => `${action}: ~w(${keys.join(" ")})`).join(", ");
+  const actions = entries.map(([action]) => `:${action}`).join(", ");
+  return `
+  @required_params %{${map}}
+  plug :require_command_params when action in [${actions}]
+
+  # A command body missing a required parameter answers 422 \`errors[]\` —
+  # one entry per absent key — before the action runs (RS-39).
+  defp require_command_params(conn, _opts) do
+    required = Map.fetch!(@required_params, action_name(conn))
+
+    case ${problemDetailsAlias}.missing_params(conn.params, required) do
+      [] -> conn
+      missing -> halt(${problemDetailsAlias}.missing_params_response(conn, missing))
+    end
+  end
+`;
 }

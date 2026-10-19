@@ -1,3 +1,4 @@
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -11,11 +12,14 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
   problemTitle,
   UNPROCESSABLE_ENTITY,
+  UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../../../ir/util/openapi-errors.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
@@ -40,6 +44,7 @@ import {
 } from "../render-expr.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
+import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
@@ -285,7 +290,7 @@ export function renderJavaController(
           opMapping,
           hasParams
             ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
@@ -316,7 +321,7 @@ export function renderJavaController(
           opMapping,
           hasParams
             ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
@@ -333,7 +338,7 @@ export function renderJavaController(
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
           ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
         hasParams
@@ -495,7 +500,9 @@ export function renderJavaController(
   const createRoute = createEntry
     ? [
         `    @PostMapping${relativeOpPath(createEntry) === "" ? "" : `("${relativeOpPath(createEntry)}")`}`,
-        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody Create${agg.name}Request request) {`,
+        // RS-39 — a create with no input fields publishes an optional body (the
+        // filter hands an empty one over as `{}`, so `request` is never null).
+        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody${commandBodyOptional(createInputFields(agg)) ? "(required = false)" : ""} Create${agg.name}Request request) {`,
         `        var id = service.create${agg.name}(request);`,
         `        CatalogLog.event(${javaLogEvent("aggregateCreated")}, "aggregate", "${agg.name}", "id", id.value());`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "create");`,
@@ -1001,9 +1008,11 @@ export function renderApiExceptionAdvice(
     // authored English — when the bundle has no entry for this locale.  The
     // message-less sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
+    // An absent required field (`@NotNull` on the boxed record component) reads
+    // the same on every backend (RS-39).
     localizeMessages
-      ? `                entry.put("message", resolveMessage(err, locale));`
-      : `                entry.put("message", err.getDefaultMessage());`,
+      ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : resolveMessage(err, locale));`
+      : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
     `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
     `                return entry;`,
@@ -1321,6 +1330,7 @@ export function renderApiExceptionAdvice(
     `            var detail = switch (status) {`,
     `                case 404 -> "no route for " + servletRequest.getMethod() + " " + path;`,
     `                case 405 -> "method " + servletRequest.getMethod() + " is not supported for " + path;`,
+    `                case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,
     `                default -> er.getBody().getDetail() != null ? er.getBody().getDetail() : reason;`,
     `            };`,
     `            CatalogLog.event(${javaLogEvent("clientError")}, "error", detail, "status", status);`,

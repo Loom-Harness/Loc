@@ -45,6 +45,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
   type ReadPort,
   readPortsForOperation,
@@ -847,7 +848,10 @@ function emitWorkflowRoute(
   out.push(`    tags: ["workflows"],`);
   out.push(`    operationId: "${camelId(opWorkflow(wf.name))}",`);
   out.push(`    request: {`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a workflow started with no input has an optional body.
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(wf.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);

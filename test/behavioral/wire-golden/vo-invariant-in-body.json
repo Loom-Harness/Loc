@@ -282,6 +282,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/resize",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/n"
+          }
+        ],
+        "instance": "/api/orders/{id}/resize",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

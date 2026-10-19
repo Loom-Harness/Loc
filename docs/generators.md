@@ -457,6 +457,13 @@ unreadable one (RS-9's split).  `Program.cs` pairs it with
 a `CustomizeProblemDetails` hook that normalises the ProblemDetails the
 framework builds itself (415).
 
+**`Middleware/EmptyJsonBodyMiddleware.cs`** — an empty request body reads as
+`{}` (RS-39), so a parameterless operation answers a body-less `POST`.  It
+swaps the body, its framing headers *and* `IHttpRequestBodyDetectionFeature`
+— MVC's body binder reads the feature, not the stream.  The other backends'
+twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
+`EmptyJsonBodyFilter`, the Phoenix `BodyParser`.
+
 **`Program.cs`** — hosting entry:
 
 - `AddDbContext<AppDbContext>` over `ConnectionStrings:Default`
