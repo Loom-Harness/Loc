@@ -1,21 +1,21 @@
 // Auto-generated.
 import { Routes, Route, Link as RouterLink, useLocation, Outlet } from "react-router";
-import { AppShell, Burger, Group, Title, NavLink, Anchor, Alert, Button, Stack } from "@mantine/core";
+import { AppShell, Burger, Group, Title, NavLink, Anchor, Alert, Button, Loader, Stack } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import React from "react";
 import { t } from "./i18n";
-import Home from "./pages/home";
-import ProductList from "./pages/products/list";
-import ProductNew from "./pages/products/new";
-import ProductDetail from "./pages/products/detail";
-import OrderList from "./pages/orders/list";
-import OrderNew from "./pages/orders/new";
-import OrderDetail from "./pages/orders/detail";
-import CustomerList from "./pages/customers/list";
-import CustomerNew from "./pages/customers/new";
-import CustomerDetail from "./pages/customers/detail";
-import WorkflowsIndex from "./pages/workflows/index";
-import PlaceOrderWorkflowPage from "./pages/workflows/place_order";
+const Home = React.lazy(() => import("./pages/home"));
+const ProductList = React.lazy(() => import("./pages/products/list"));
+const ProductNew = React.lazy(() => import("./pages/products/new"));
+const ProductDetail = React.lazy(() => import("./pages/products/detail"));
+const OrderList = React.lazy(() => import("./pages/orders/list"));
+const OrderNew = React.lazy(() => import("./pages/orders/new"));
+const OrderDetail = React.lazy(() => import("./pages/orders/detail"));
+const CustomerList = React.lazy(() => import("./pages/customers/list"));
+const CustomerNew = React.lazy(() => import("./pages/customers/new"));
+const CustomerDetail = React.lazy(() => import("./pages/customers/detail"));
+const WorkflowsIndex = React.lazy(() => import("./pages/workflows/index"));
+const PlaceOrderWorkflowPage = React.lazy(() => import("./pages/workflows/place_order"));
 
 // App-level error boundary catches render-time crashes from any
 // page component.  Without it, an unhandled exception inside
@@ -58,6 +58,17 @@ class AppErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
+}
+
+// Route-level Suspense fallback: every routed page is a lazy chunk, so a
+// first visit renders the pack's loader in the content slot while the
+// chunk downloads, and the shell around it stays mounted.
+function RouteLoading() {
+  return (
+    <Group justify="center" p="xl" role="status" aria-label={t("chrome.routeLoading", "Loading")} data-testid="route-loading">
+      <Loader />
+    </Group>
+  );
 }
 
 function NotFound() {
@@ -145,7 +156,9 @@ function AppShellLayout() {
       </AppShell.Navbar>
       <AppShell.Main id="main-content" style={{ minWidth: 0 }}>
         <AppErrorBoundary>
-          <Outlet />
+          <React.Suspense fallback={<RouteLoading />}>
+            <Outlet />
+          </React.Suspense>
         </AppErrorBoundary>
       </AppShell.Main>
     </AppShell>
@@ -155,6 +168,7 @@ function AppShellLayout() {
 
 export default function App() {
   return (
+    <React.Suspense fallback={<RouteLoading />}>
     <Routes>
       <Route element={<AppShellLayout />}>
         <Route path="/" element={<Home />} />
@@ -172,5 +186,6 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+    </React.Suspense>
   );
 }
