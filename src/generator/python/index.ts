@@ -764,7 +764,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // repository-backed cross-aggregate test module reading LOOM_PG_URL, no HTTP.
   // Python merges the deployable's contexts into one app, so this is one
   // combined module (`merged.tests` carries every context's integration tests).
-  const integrationTests = renderPyContextIntegrationTest(merged);
+  // Its dispatcher is the one `app/dispatch.py` actually defines: that module
+  // exists only under a dispatch condition, and its pure-producer shape has no
+  // `InProcessDispatcher` — so the test reads the class off the emitted file.
+  const integrationTests = renderPyContextIntegrationTest(merged, {
+    inProcessDispatcher: /^class InProcessDispatcher\b/m.test(dispatchFile ?? ""),
+  });
   if (integrationTests) {
     out.set(`tests/test_${snake(merged.name)}_integration.py`, integrationTests);
   }
