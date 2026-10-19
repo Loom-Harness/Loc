@@ -26,18 +26,22 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+// CI runners have no global git identity, so every git call (the merge
+// included) carries one explicitly.
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@t",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@t",
+};
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@t",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@t",
-    },
+    env: GIT_ENV,
   }).trim();
 }
 
@@ -117,10 +121,14 @@ describe.skipIf(!hasTools)("pre-push sync-only gate", () => {
     const { work, other } = setup();
     advanceMain(other, "b.txt", "main's b\n");
     git(work, "fetch", "-q", "origin", "main");
-    spawnSync("git", ["merge", "-q", "--no-edit", "origin/main"], { cwd: work });
+    const merge = spawnSync("git", ["merge", "-q", "--no-edit", "origin/main"], {
+      cwd: work,
+      env: GIT_ENV,
+    });
+    expect(merge.status).toBe(1); // a real conflict, not an aborted merge
     writeFileSync(join(work, "b.txt"), "resolved\n");
     git(work, "add", "b.txt");
-    git(work, "commit", "-q", "--no-edit");
+    git(work, "commit", "-q", "-m", "merge main, resolve b.txt");
     expect(denied(runHook(work))).toBe(false);
   });
 
