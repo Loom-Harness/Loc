@@ -460,7 +460,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.targets-misplaced": (p: { frontends: unknown }) =>
     `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
   "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
-    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v4').`,
+    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v5').`,
   "loom.platform-version-unknown": (p: {
     raw: unknown;
     name: unknown;
@@ -469,6 +469,14 @@ export const DIAGNOSTIC_MESSAGES = {
     available: unknown;
   }) =>
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
+  // Same code: the pin names a version that existed and was removed, so the
+  // message names its replacement rather than only listing what exists.
+  "loom.platform-version-unknown#retired": (p: {
+    raw: unknown;
+    name: unknown;
+    successor: unknown;
+  }) =>
+    `Platform '${p.raw}' on deployable '${p.name}' was retired. Pin '${p.successor}' or use the bareword family name.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
   // Same code, different reason.  The bare entry above is the no-UI-mount case;

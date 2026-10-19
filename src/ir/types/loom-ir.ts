@@ -3187,9 +3187,9 @@ export interface DeployableIR {
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
   platform: Platform;
-  /** The fully-qualified backend ref (`"node@v4"`) after lowering,
+  /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
-   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v4"`) flows
+   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
    *  through as written.  For frontend platforms (`react`/`static`)
    *  this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`

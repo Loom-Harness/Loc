@@ -703,7 +703,7 @@ function emitDeployable(
   // dictates).
   const sub = serviceSlug(d.name);
   // Resolve the EMITTER surface by the fully-qualified `platformRef`
-  // (`node@v4` / `node@v5`) so a backend version pin selects the right
+  // (`node@v5`) so a backend version pin selects the right
   // dep-pin set.  Family-level facts (`needsDb`, adapters) stay keyed on
   // `d.platform` — they're version-independent.  (Before multiple node
   // versions existed, family→default coincided with the only version.)

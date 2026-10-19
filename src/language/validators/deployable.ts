@@ -12,6 +12,7 @@ import {
   frontendPlatformNames,
   isRegisteredBackendRef,
   parseBuiltinPlatformRef,
+  RETIRED_BACKEND_VERSIONS,
 } from "../../platform/metadata.js";
 import {
   builtinVersionsForFamily,
@@ -306,8 +307,9 @@ export function checkDeployable(
  *
  *    - backend bareword (`node`) / frontend keyword
  *      (`react`/`static`) → always fine.
- *    - backend pin (`"node@v4"`) → the version must be a
- *      registered surface, else error listing the available pins.
+ *    - backend pin (`"node@v5"`) → the version must be a
+ *      registered surface, else error naming the successor of a
+ *      retired version or listing the available pins.
  *    - anything else (`"frobnicator"`, a typo'd quoted platform)
  *      → unknown-platform error (the STRING alternative parses anything the
  *      grammar enum would have rejected). */
@@ -342,6 +344,19 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   // registered surface; a bareword always resolves (latest).
   const isPinned = raw.includes("@");
   if (isPinned && !isRegisteredBackendRef(parsed.qualified)) {
+    const successor = RETIRED_BACKEND_VERSIONS[parsed.qualified];
+    if (successor !== undefined) {
+      accept(
+        "error",
+        diagMessage("loom.platform-version-unknown#retired", {
+          raw,
+          name: d.name,
+          successor,
+        }),
+        { node: d, property: "platform", code: "loom.platform-version-unknown" },
+      );
+      return;
+    }
     const available = backendVersionsForFamily(parsed.family);
     accept(
       "error",
@@ -357,7 +372,7 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   }
 }
 
-/** Resolve a `platform:` value to its canonical family (`node@v4` →
+/** Resolve a `platform:` value to its canonical family (`node@v5` →
  *  `node`), falling back to the raw value for frontends
  *  (`react`/`static`).  Mirrors how lowering qualifies the platform.
  *  (No alias desugaring — every platform alias was retired.) */

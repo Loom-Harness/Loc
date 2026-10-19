@@ -39,9 +39,9 @@ describe("@loom/core package", () => {
     expect(corePkg.loom?.contract).toBe(PLATFORM_SURFACE_CONTRACT);
   });
 
-  it("backend hono@v4's `loom.core` range is satisfied by the contract major", () => {
+  it("backend node@v5's `loom.core` range is satisfied by the contract major", () => {
     const honoPkg = JSON.parse(
-      fs.readFileSync(path.join(repoRoot, "packages", "backend-hono-v4", "package.json"), "utf8"),
+      fs.readFileSync(path.join(repoRoot, "packages", "backend-hono-v5", "package.json"), "utf8"),
     );
     // `^1.0.0` ⊇ `1.0.0` — assert majors match (a full semver-satisfies
     // check is deferred to publish tooling; majors are the contract
