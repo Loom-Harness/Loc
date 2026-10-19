@@ -863,6 +863,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // called from `Application.start/2` once the Repo is supervised (and from
     // the `priv/repo/seeds.exs` manual entry the shell emits alongside).
     seedModules,
+    deployable.port,
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto
