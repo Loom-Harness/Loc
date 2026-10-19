@@ -7,9 +7,11 @@
 // generated drizzle migrations, wires the context's repositories, and runs the
 // body.
 //
-// A context with workflows wires the SYNCHRONOUS `createInProcessDispatcher(db)`
-// so a `save`'s emitted event fires its reactors inline (a placed order reserves
-// stock before the next read); a workflow-free context uses the no-op dispatcher.
+// A context with workflows, in a deployable whose `http/workflows.ts` exports
+// the SYNCHRONOUS `createInProcessDispatcher(db)` (it has event subscriptions or
+// durable events), wires that dispatcher so a `save`'s emitted event fires its
+// reactors inline (a placed order reserves stock before the next read); any
+// other context has nothing to fan out and uses the no-op dispatcher.
 //
 // v1 constraint (`loom.integration-find-must-bind`): a repository find must be
 // LET-BOUND (`let inv = Inventory.forSku(x)`), not written inline inside an
@@ -24,7 +26,8 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
 
@@ -115,17 +118,17 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, reassigned: Set<string
         // row) before mutating + re-saving.
         const decl = reassigned.has(s.name) ? "let" : "const";
         return [
-          `${decl} ${s.name} = ${create.agg.name}.${create.method}(${input});`,
-          `await ${repoHandle(create.agg.name)}.save(${s.name});`,
+          `${decl} ${escapeTsIdent(s.name)} = ${create.agg.name}.${create.method}(${input});`,
+          `await ${repoHandle(create.agg.name)}.save(${escapeTsIdent(s.name)});`,
         ];
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
         const args = find.args.map((a) => renderTsExpr(a)).join(", ");
         const call = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
-        return [`const ${s.name} = ${find.nullable ? `(${call})!` : call};`];
+        return [`const ${escapeTsIdent(s.name)} = ${find.nullable ? `(${call})!` : call};`];
       }
-      return [`const ${s.name} = ${renderTsExpr(s.expr)};`];
+      return [`const ${escapeTsIdent(s.name)} = ${renderTsExpr(s.expr)};`];
     }
     case "expression": {
       // A mutating operation on a let-bound aggregate instance → RELOAD fresh,
@@ -175,8 +178,14 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
 }
 
 /** Emit `test/<ctx>.integration.test.ts` for a context that declares integration
- *  tests, or null when it declares none. */
-export function renderContextIntegrationTest(ctx: BoundedContextIR): string | null {
+ *  tests, or null when it declares none.  `inProcessDispatcher` says whether the
+ *  deployable's `http/workflows.ts` exports `createInProcessDispatcher` — the
+ *  caller reads it off the emitted file, so the import cannot name a symbol
+ *  that does not exist. */
+export function renderContextIntegrationTest(
+  ctx: BoundedContextIR,
+  opts: { inProcessDispatcher: boolean },
+): string | null {
   if (ctx.tests.length === 0) return null;
 
   const body: string[] = [`describe(${JSON.stringify(`${ctx.name} (integration)`)}, () => {`];
@@ -194,11 +203,18 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
   const usesIds = /\bIds\./.test(bodyStr);
-  // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
+  // A body that constructs a value object (`let a = Berth { … }`) names its
+  // class — import it, narrowed by the same body scan, as the unit-test
+  // emitter does; without it the file fails `tsc` with TS2304.
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
+  // A context that runs workflows wires the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
-  // reserves stock before the next read).  A workflow-free context has nothing
-  // to fan out → the no-op dispatcher (and `../http/workflows` may not exist).
-  const cascade = ctx.workflows.length > 0;
+  // reserves stock before the next read) — when the deployable emits one;
+  // without event subscriptions there is no reactor to fire and
+  // `createInProcessDispatcher` does not exist, so the no-op stands in.
+  const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;
 
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
@@ -213,6 +229,9 @@ export function renderContextIntegrationTest(ctx: BoundedContextIR): string | nu
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
   if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
+  if (voNames.length > 0) {
+    lines.push(`import { ${voNames.join(", ")} } from "../domain/value-objects";`);
+  }
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(

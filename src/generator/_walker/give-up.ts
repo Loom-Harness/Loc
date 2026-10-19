@@ -118,3 +118,18 @@ export function giveUpNotice(target: WalkerTarget, code: GiveUpCode, text: strin
   const render = target.renderNotice ?? target.renderComment;
   return render.call(target, giveUpText(code, text));
 }
+
+/** A body that rendered to exactly ONE `target.renderComment(…)` (a top-level
+ *  give-up) goes through the target's `wrapCommentOnlyRoot` seam, so the root
+ *  is still a valid element.  The comment delimiters are read off the target
+ *  itself, not re-spelled here. */
+export function wrapLoneRootComment(target: WalkerTarget, rendered: string): string {
+  if (!target.wrapCommentOnlyRoot) return rendered;
+  const marker = "\u0000";
+  const [open, close] = target.renderComment(marker).split(marker) as [string, string];
+  const lone =
+    rendered.startsWith(open) &&
+    rendered.endsWith(close) &&
+    rendered.indexOf(close, open.length) === rendered.length - close.length;
+  return lone ? target.wrapCommentOnlyRoot(rendered) : rendered;
+}

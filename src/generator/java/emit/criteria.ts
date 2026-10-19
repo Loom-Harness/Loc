@@ -7,8 +7,13 @@ import type {
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { firstNonQueryableNode } from "../../../ir/validate/validate.js";
 import { lines } from "../../../util/code-builder.js";
+import { javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { renderCriteriaPredicate } from "../render-criteria.js";
 import { renderJavaType } from "../render-expr.js";
+
+/** The parameters of the `(root, query, cb) ->` Specification lambda every
+ *  factory returns — names a criterion param must not redeclare. */
+const CRITERIA_LAMBDA_NAMES: ReadonlySet<string> = new Set(["root", "query", "cb"]);
 
 // ---------------------------------------------------------------------------
 // Reified criteria → Spring Data `Specification<T>` factories — java is
@@ -64,8 +69,23 @@ export function renderJavaCriteriaClasses(
   for (const { agg, crits } of byAgg.values()) {
     const imports = new Set<string>();
     const factories = crits.flatMap((crit) => {
-      const predicate = renderCriteriaPredicate(crit.body, { agg, voLookup, imports });
-      const params = crit.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", ");
+      // The params are closed over by the `(root, query, cb) ->` lambda below:
+      // keyword-escaped (`jid`) like every use the predicate renders, and moved
+      // off the three lambda parameters on a collision (`criterion C(root:
+      // string)` → "variable root is already defined").
+      const locals = javaLocals(
+        crit.params.map((p) => p.name),
+        CRITERIA_LAMBDA_NAMES,
+      );
+      const predicate = renderCriteriaPredicate(crit.body, {
+        agg,
+        voLookup,
+        imports,
+        paramExpr: (n) => movedLocalOrUndefined(locals, n),
+      });
+      const params = crit.params
+        .map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`)
+        .join(", ");
       return [
         `    /** criterion ${crit.name} of ${agg.name} */`,
         `    public static Specification<${agg.name}> ${crit.name}(${params}) {`,

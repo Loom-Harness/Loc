@@ -448,6 +448,11 @@ export interface FsExprCtx {
    *  action body resolves its destination here (`update-emit.ts`); absent on a
    *  non-routed ui, where the arm degrades to the root path. */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** Component param name -> the rendered F# value it takes — `init` seeding a
+   *  component `state {}` cell whose initializer reads a param, which `init`
+   *  has no props to bind (`component-state-init.ts`).  Absent everywhere
+   *  else. */
+  paramValues?: ReadonlyMap<string, string>;
 }
 
 /** The empty route id — what an `id` read resolves to on a ui with no routing
@@ -546,11 +551,6 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       if (e.refKind === "store-field" && e.storeName) {
         return `${ctx.modelExpr ?? "model"}.${storeModelField(e.storeName, e.name)}`;
       }
-      // Inside a store action body the store's own fields are `let` locals; a
-      // bare ref to one resolves to its namespaced Model field.
-      if (ctx.storeScope?.fields.has(e.name)) {
-        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
-      }
       // An enum VALUE (`Visibility.Public`) is a string on the Feliz wire
       // (`wireFieldType` spells every enum `string`), so it renders as its
       // quoted name — the same answer `auth-gate.ts` gives.  The bare name this
@@ -560,8 +560,19 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // an F#-keyword name needs the double-backtick spelling at every use, the
       // same one `component-emit.ts` gives the binding site.  (`upperFirst` on
       // the state branch is already keyword-safe: every F# keyword is
-      // lowercase.)  F-022.
+      // lowercase.)  F-022.  Checked BEFORE the Model-field scopes below: a
+      // local (an action param, a `let` earlier in the arm) SHADOWS a
+      // same-named state cell or store field, exactly as lowering resolved it.
       if (ctx.locals.has(e.name)) return fsIdent(e.name);
+      if (e.refKind === "param") {
+        const value = ctx.paramValues?.get(e.name);
+        if (value !== undefined) return value;
+      }
+      // Inside a store action body the store's own fields are `let` locals; a
+      // bare ref to one resolves to its namespaced Model field.
+      if (ctx.storeScope?.fields.has(e.name)) {
+        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
+      }
       if (ctx.stateNames.has(e.name)) return `${ctx.modelExpr ?? "model"}.${upperFirst(e.name)}`;
       return fsIdent(e.name);
     case "binary": {
