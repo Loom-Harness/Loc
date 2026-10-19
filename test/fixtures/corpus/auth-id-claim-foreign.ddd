@@ -1,0 +1,63 @@
+// An id-typed user claim whose aggregate the deployable does NOT host (D6 of
+// `eval-claims/FIX-PLAN.md`).
+//
+// The `user { … }` block is system-wide, so EVERY `auth: required` deployable
+// emits the same `User` shape — including `agentId: AgentId | null`.  But the
+// deployable's ids module only declared the brands of the aggregates it hosts
+// (plus the foreign ids its consumed events and workflows reference), so
+// `payments` below — which hosts `Billing`, not `Agents` — named an `AgentId`
+// that nothing emitted: node TS2694 (`Ids` has no exported member), python an
+// ImportError at boot (`from app.domain.ids import AgentId`), java/.NET a
+// missing symbol.  The claim shape is now one more foreign-id SOURCE in
+// `src/ir/util/foreign-ids.ts`, shared by all four typed backends.
+//
+// `agents` is the control: it hosts `Agent`, so its brand was always emitted.
+// Two deployables is the point of the fixture — the defect is only reachable
+// on the one that does not host the claim's aggregate.
+system Desk {
+  user {
+    id: string
+    role: string
+    permissions: string[]
+    // The claim under test: an id of an aggregate `payments` does not host.
+    agentId: Agent id?
+  }
+  auth {
+    enforcement: opt
+    oidc {
+      issuer: env("OIDC_ISSUER")
+      clientId: env("OIDC_CLIENT_ID")
+    }
+  }
+  subdomain Ops {
+    context Agents {
+      aggregate Agent with crudish {
+        name: string
+      }
+      repository AgentRepo for Agent { }
+    }
+    context Billing {
+      aggregate Payment with crudish {
+        amount: money
+      }
+      repository Payments for Payment { }
+    }
+  }
+  storage primary { type: postgres }
+  resource agentState { for: Agents, kind: state, use: primary }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable agents {
+    platform: __PLATFORM__
+    contexts: [Agents]
+    dataSources: [agentState]
+    port: 4000
+    auth: required
+  }
+  deployable payments {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    port: 4001
+    auth: required
+  }
+}

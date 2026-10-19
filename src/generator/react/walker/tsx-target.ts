@@ -430,6 +430,12 @@ export const tsxTarget: WalkerTarget = {
     return `{/* ${text} */}`;
   },
 
+  /** A comment-only body: `return ( {/* … *​/} )` is the empty object `{}`,
+   *  not a ReactNode — an empty fragment carries the comment instead. */
+  wrapCommentOnlyRoot(comment: string): string {
+    return `<>${comment}</>`;
+  },
+
   /** JSX child-position interpolation — the brace wrap. */
   renderInterpolation(jsExpr: string): string {
     return `{${jsExpr}}`;

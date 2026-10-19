@@ -15,6 +15,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -27,7 +28,7 @@ import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
 import { esEventRow, esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
-import { collectUsedLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
+import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
 // In-process event dispatch — `app/dispatch.py` (channels.md, the
@@ -401,6 +402,10 @@ export function buildPyDispatchFile(
     return r ? r.statements : [];
   });
   const resourceImports = sys ? resourceImportLines(sys, handlerStmts) : [];
+  // Events a handler body emits (anywhere — `if let` / `else` / `for` bodies
+  // included) are constructed by name, so they import alongside the
+  // subscribed ones even when nothing in this context subscribes to them.
+  const emittedEventNames = workflowEmits(handlerStmts).map((e) => e.eventName);
   // An event-sourced workflow's schema model is its `<Wf>EventRow` stream,
   // not a mutable `<Wf>Row` correlation row.
   const touchedWorkflows = [...helperDone]
@@ -462,7 +467,7 @@ export function buildPyDispatchFile(
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
-      ...[...new Set([...eventNames, ...esEventNames])].sort(),
+      ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
     ].join(", ")}`,
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
@@ -512,38 +517,40 @@ function resolveHandlerBody(
     : null;
 }
 
+/** The repositories a subscription handler body constructs.  Rides the shared
+ *  `walkWorkflowStmtsDeep` so a read or save nested in an `if let` branch (or
+ *  its `else`) is seen — the hand-rolled recursion this replaced descended only
+ *  `for` bodies, so a handler whose only `Repo.find` sat in an `if let` read
+ *  through a repository it never constructed (mypy `name-defined`). */
 function reposIn(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
   const out = new Map<string, { repoName: string; aggName: string }>();
-  const visit = (sts: WorkflowStmtIR[]): void => {
-    for (const st of sts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run") {
-        out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      }
-      if (st.kind === "for-each") {
-        visit(st.body);
-        for (const s of st.savesPerIteration) {
-          out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-        }
-      }
-    }
+  const add = (r: { repoName: string; aggName: string }): void => {
+    out.set(r.repoName, { repoName: r.repoName, aggName: r.aggName });
   };
-  visit(statements);
-  for (const s of saves) out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (st) => {
+      // Per-kind SELECTION only — `walkWorkflowStmtsDeep` owns the recursion.
+      if (st.kind === "repo-let" || st.kind === "repo-run") add(st);
+      if (st.kind === "for-each") st.savesPerIteration.forEach(add);
+      if (st.kind === "if-let") {
+        add(st);
+        st.savesInThen.forEach(add);
+        st.savesInElse.forEach(add);
+      }
+    });
+  saves.forEach(add);
   return [...out.values()];
 }
 
 function factoryAggsIn(statements: WorkflowStmtIR[]): string[] {
   const out: string[] = [];
-  const visit = (sts: WorkflowStmtIR[]): void => {
-    for (const st of sts) {
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (st) => {
       if (st.kind === "factory-let") out.push(st.aggName);
-      if (st.kind === "for-each") visit(st.body);
-    }
-  };
-  visit(statements);
+    });
   return out;
 }
 
@@ -784,7 +791,7 @@ function handlerFn(
   for (const r of reposIn(statements, saves)) {
     out.push(`    ${snake(r.repoName)} = ${r.aggName}Repository(session, events)`);
   }
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way, but the
@@ -795,7 +802,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -856,7 +863,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectUsedLetNames(statements)),
+    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -900,7 +907,7 @@ function esHandlerFn(
   for (const r of reposIn(statements, saves)) {
     out.push(`    ${snake(r.repoName)} = ${r.aggName}Repository(session, events)`);
   }
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
   out.push(...bodyLines);
   if (opFragments) {

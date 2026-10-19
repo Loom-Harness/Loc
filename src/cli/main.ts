@@ -12,7 +12,7 @@ import { fsDesignPackInspector } from "../generator/_packs/loader-fs.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
-import type { EnrichedLoomModel, ExecTestRef, TestOutcome } from "../ir/types/loom-ir.js";
+import type { EnrichedLoomModel, TestOutcome } from "../ir/types/loom-ir.js";
 import {
   irDiagnosticSourceRef,
   type LoomDiagnostic,
@@ -63,13 +63,20 @@ import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import type { DesignPackInspector } from "../util/design-pack-defects.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
+import {
+  describeMissingCause,
+  type LabelledReport,
+  missingEvidence,
+  reportWarnings,
+} from "../verify/diagnose.js";
+import { fromPlaywrightReport, PlaywrightReportError } from "../verify/from-playwright.js";
 import { fromVitestReport, VitestReportError } from "../verify/from-vitest.js";
 import {
   renderVerdictGraph,
   renderVerificationJson,
   renderVerificationMd,
 } from "../verify/render.js";
-import { computeVerification } from "../verify/verification.js";
+import { attributeResults, computeVerification } from "../verify/verification.js";
 import {
   loadTranslations,
   runI18nCheck,
@@ -1407,13 +1414,20 @@ function fileContentMatches(absPath: string, content: string): boolean {
 }
 
 interface VerifyOptions {
-  results?: string;
-  fromVitest?: string;
+  /** Every option below is repeatable (commander collects into an array). */
+  results: string[];
+  fromVitest: string[];
+  fromPlaywright: string[];
   out?: string;
   requireAll?: boolean;
   min?: string;
   allowMissing?: boolean;
   json?: boolean;
+}
+
+/** Commander collector for a repeatable option. */
+function collectRepeated(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 /** Structural probe for "this JSON is a vitest/jest report, not a Loom
@@ -1422,85 +1436,65 @@ interface Vitestish {
   testResults?: unknown;
 }
 
-/** Name the field that ACTUALLY differs when a result matched no declared
- *  test, for the gate-failure message.
- *
- *  The previous wording asserted a `suite` mismatch unconditionally and then
- *  printed the reported suite — so the case it was most likely to be read on
- *  was the case it got wrong: an api-e2e result, whose suite is correct and
- *  whose NAME carries the ` against <slug>` suffix `e2e-render.ts` appends.
- *  It said "likely a `suite` mismatch … got \"<System> e2e\"" while quoting
- *  the suite the join wanted.  So classify: compare the reported pair
- *  against the declared pairs and report the side that does not line up. */
-function describeJoinMismatch(
-  execTests: readonly ExecTestRef[],
-  unknown: readonly TestOutcome[],
-  serviceSlugs: readonly string[],
-): string {
-  const first = unknown[0];
-  if (!first) return "";
-  const got = `{name: ${JSON.stringify(first.name)}, suite: ${JSON.stringify(first.suite ?? null)}}`;
-  const quoted = (xs: string[]): string =>
-    xs
-      .slice(0, 3)
-      .map((x) => JSON.stringify(x))
-      .join(", ") + (xs.length > 3 ? ", …" : "");
-
-  // Undo the ` against <slug>` replay suffix the way the join does, so the
-  // rest of the classification compares the same name the join compared.
-  let effective = first.name;
-  const at = first.name.lastIndexOf(" against ");
-  if (at > 0) {
-    const stem = first.name.slice(0, at);
-    const slug = first.name.slice(at + " against ".length);
-    if (execTests.some((t) => t.name === stem)) {
-      // The stem IS declared.  Either the slug names a real deployable (so
-      // the suffix resolves and any remaining mismatch is the suite), or it
-      // does not — which is its own, very specific, breakage.
-      if (serviceSlugs.includes(slug)) {
-        effective = stem;
-      } else {
-        return (
-          ` — reported ${got}: ${JSON.stringify(stem)} IS declared, but ${JSON.stringify(slug)}` +
-          ` is not a deployable of this model, so the \` against <deployable>\` replay suffix` +
-          ` could not be resolved`
-        );
-      }
-    }
-  }
-
-  const byName = execTests.filter((t) => t.name === effective);
-  const bySuite = execTests.filter((t) => t.suite === first.suite);
-  if (byName.length > 0) {
-    const behind =
-      effective === first.name ? "" : ` (whose declared name is ${JSON.stringify(effective)})`;
-    return (
-      ` — the SUITE does not match: reported ${got}${behind}, but that test is declared with` +
-      ` suite ${quoted([...new Set(byName.map((t) => t.suite))])}`
-    );
-  }
-  if (bySuite.length > 0) {
-    return (
-      ` — the NAME does not match: reported ${got}; suite` +
-      ` ${JSON.stringify(first.suite ?? null)} is correct, but no declared test in it is called` +
-      ` that (declared there: ${quoted([...new Set(bySuite.map((t) => t.name))])})`
-    );
-  }
-  return (
-    ` — neither field matches a declared test: reported ${got}` +
-    ` (the join wants the AGGREGATE name as the suite for a unit test,` +
-    ` "<System> e2e" for an e2e test)`
-  );
+/** Structural probe for "this JSON is a Playwright report". */
+interface Playwrightish {
+  suites?: unknown;
+  config?: unknown;
 }
 
-/** `ddd verify` — join a test-results file onto the requirements graph,
+/** One runner report to read: which reader, and the file. */
+interface ReportInput {
+  flag: "--results" | "--from-vitest" | "--from-playwright";
+  path: string;
+}
+
+/** Read and adapt one report into normalized outcomes.  Throws — the caller
+ *  turns that into exit 2, naming the file. */
+function readReport(input: ReportInput): TestOutcome[] {
+  const raw: unknown = JSON.parse(fs.readFileSync(input.path, "utf8"));
+  if (input.flag === "--from-vitest") return fromVitestReport(raw);
+  if (input.flag === "--from-playwright") return fromPlaywrightReport(raw);
+  const parsed = raw as { results?: TestOutcome[] };
+  if (!Array.isArray(parsed?.results)) {
+    // The most common wrong input is a runner report fed to `--results`;
+    // name the flag that reads it rather than leaving the reader to write an
+    // adapter.
+    const isObj = raw != null && typeof raw === "object";
+    const looksVitest = isObj && Array.isArray((raw as Vitestish).testResults);
+    const looksPlaywright =
+      isObj &&
+      Array.isArray((raw as Playwrightish).suites) &&
+      (raw as Playwrightish).config !== undefined;
+    throw new Error(
+      'expected a top-level "results" array' +
+        (looksVitest
+          ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
+          : looksPlaywright
+            ? ' — this looks like a Playwright "--reporter=json" report; pass it with --from-playwright instead'
+            : ""),
+    );
+  }
+  return checkResultEntries(parsed.results);
+}
+
+/** `ddd verify` — join test-results reports onto the requirements graph,
  *  emit the verification artifacts, and gate the exit code.
+ *
+ *  Takes ANY NUMBER of reports, of any mix of kinds: a generated tree runs
+ *  its unit and e2e tiers in separate runner projects, each writing its own
+ *  report, so a whole-system verdict needs all of them.  They are merged by
+ *  concatenation — two runs of one test resolve to the worst of them, the
+ *  same rule that settles an api-e2e block replayed against two backends.
  *
  *  Multi-file aware for the same reason `runSnapshot` is: a requirements
  *  graph split across `import "./shared.ddd"` has to be READ the way
  *  `generate system` reads it, or the verb rejects a model that generates
  *  fine. */
-async function runVerify(file: string, options: VerifyOptions): Promise<void> {
+async function runVerify(
+  file: string,
+  inputs: readonly ReportInput[],
+  options: VerifyOptions,
+): Promise<void> {
   // Validate `--min` up front: `Number("90%")` / `Number("abc")` is NaN and
   // `actual < NaN` is always false, so a typo'd threshold would silently pass
   // the gate.  Reject non-numeric or out-of-[0,100] values before any work.
@@ -1527,60 +1521,50 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     for (const d of loomErrors) console.error(`${d.source} error: ${d.message}`);
     process.exit(2);
   }
-  // `verify` used to filter the diagnostics down to errors before binding them,
-  // so its warnings were not merely unprinted — they were discarded at the call
-  // site.  A verification run is a Definition-of-Done verdict; a phase-⑦
-  // warning is exactly the kind of thing that should reach whoever reads it.
-  // Exit code unchanged (the verdict below still gates it).
+  // A verification run is a Definition-of-Done verdict; a phase-⑦ warning is
+  // exactly the kind of thing that should reach whoever reads it.  Exit code
+  // unchanged (the verdict below still gates it).
   printLoomWarnings(loomDiags);
   if (loom.requirements.length === 0) {
     console.error(`No \`requirement\` declarations in ${file} — nothing to verify.`);
     process.exit(2);
   }
 
-  // Read + validate the results file.  Two accepted inputs: Loom's own
-  // `{ version, results: [...] }` document (`--results`), and a vitest/jest
-  // `--reporter=json` report (`--from-vitest`), which is what the generated
-  // backend's own test suite produces — see `src/verify/from-vitest.ts` for
-  // why shipping that adapter matters.
-  const resultsPath = options.fromVitest ?? options.results!;
-  if (!fs.existsSync(resultsPath)) {
-    console.error(`Results file not found: ${resultsPath}`);
-    process.exit(2);
-  }
-  let outcomes: TestOutcome[];
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
-    if (options.fromVitest) {
-      outcomes = fromVitestReport(raw);
-    } else {
-      const parsed = raw as { results?: TestOutcome[] };
-      if (!Array.isArray(parsed?.results)) {
-        // The single most common wrong input is a vitest report fed to
-        // `--results`; name the flag that reads it rather than leaving the
-        // reader to write an adapter.
-        const looksVitest =
-          raw != null && typeof raw === "object" && Array.isArray((raw as Vitestish).testResults);
-        throw new Error(
-          'expected a top-level "results" array' +
-            (looksVitest
-              ? ' — this looks like a vitest/jest "--reporter=json" report; pass it with --from-vitest instead'
-              : ""),
-        );
-      }
-      outcomes = checkResultEntries(parsed.results);
+  // Read + validate every report.  Three readers: Loom's own
+  // `{ version, results: [...] }` document (`--results`), a vitest/jest
+  // `--reporter=json` report (`--from-vitest`) — what the generated node
+  // backend's unit and api-e2e suites produce — and a Playwright
+  // `--reporter=json` report (`--from-playwright`), what the generated ui-e2e
+  // suite produces.  See `src/verify/from-*.ts`.
+  const reports: LabelledReport[] = [];
+  for (const input of inputs) {
+    if (!fs.existsSync(input.path)) {
+      console.error(`Results file not found: ${input.path} (${input.flag})`);
+      process.exit(2);
     }
-  } catch (err) {
-    const what = err instanceof VitestReportError ? "vitest report" : "results file";
-    console.error(`Could not parse ${what}: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(2);
+    try {
+      reports.push({ label: `${input.flag} ${input.path}`, outcomes: readReport(input) });
+    } catch (err) {
+      const what =
+        err instanceof VitestReportError
+          ? "vitest report"
+          : err instanceof PlaywrightReportError
+            ? "Playwright report"
+            : "results file";
+      console.error(
+        `Could not parse ${what} ${input.path}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(2);
+    }
   }
+  const outcomes = reports.flatMap((r) => r.outcomes);
 
   // Every deployable slug in the model — the closed set of ` against <slug>`
   // suffixes an api-e2e title can carry (`src/system/e2e-render.ts` replays
   // one `test e2e` block per compatible backend).  Passing it lets the join
   // undo the suffix exactly instead of pattern-matching it.
   const serviceSlugs = loom.systems.flatMap((s) => s.deployables.map((d) => serviceSlug(d.name)));
+  const execTests = loom.traceability!.execTests;
 
   const verification = computeVerification(
     loom.traceability!,
@@ -1588,6 +1572,7 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
     outcomes,
     { serviceSlugs },
   );
+  const attribution = attributeResults(loom.traceability!, outcomes, { serviceSlugs });
 
   // Emit artifacts.
   const outDir = path.join(path.resolve(options.out ?? path.dirname(file)), ".loom");
@@ -1601,32 +1586,37 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   // ── Evidence accounting ────────────────────────────────────────────
   //
   // A declared executable test with no matching result lands in the join as
-  // `status: "missing"`.  Nothing used to SAY so: an empty results file, or a
-  // results file whose `suite` convention had drifted, produced
-  // "Verified 0/N requirements (0 failing, N unverified, 0 untested)." and
-  // exit 0 — a gate that cannot fail on the most likely CI breakage.  The two
-  // counts below are the signal, and `unknownTests` (results matching no
-  // declared test) is specifically the fingerprint of a convention mismatch:
-  // the same run reports the test both missing AND unknown.
-  const missing: { testCaseId: string; name: string }[] = [];
-  for (const [tcId, tc] of Object.entries(verification.testCases)) {
-    for (const b of tc.backing) {
-      if (b.status === "missing") missing.push({ testCaseId: tcId, name: b.name });
-    }
-  }
+  // `status: "missing"` and fails the gate below.  The summary line counts
+  // three kinds of evidence problem separately, because each has a different
+  // fix: a declared test with no result, a result no declared test claims
+  // (a drifted title — `diagnostics.unknownTests`), and — not a problem, but
+  // not evidence either — a result of a declared test whose block carries no
+  // `verifies` (`diagnostics.unlinkedTests`).
+  const missing = missingEvidence(execTests, attribution);
   const unknown = verification.diagnostics.unknownTests;
+  const unlinked = verification.diagnostics.unlinkedTests;
+
+  // A report that contributed nothing to the join is almost certainly the
+  // wrong file; with several merged it would otherwise vanish silently.
+  for (const w of reportWarnings(reports, attribution)) console.error(`warning: ${w}.`);
 
   // Under `--json` the human summary goes to stderr: stdout then carries the
   // verification document and nothing else, so `ddd verify --json | jq` works
   // the way `parse --json` / `generate system --json` do.  Without `--json`
   // the summary IS the output and stays on stdout.
   const evidence: string[] = [];
-  if (missing.length > 0) evidence.push(`${missing.length} declared test(s) with no result`);
+  if (missing.refs.length > 0)
+    evidence.push(`${missing.refs.length} declared test(s) with no result`);
   if (unknown.length > 0) evidence.push(`${unknown.length} result(s) matching no declared test`);
+  if (unlinked.length > 0) {
+    evidence.push(`${unlinked.length} result(s) from declared tests with no \`verifies\``);
+  }
+  const fromReports = reports.length > 1 ? ` [${reports.length} reports merged]` : "";
   const summaryLine =
     `Verified ${s.verified}/${s.total} requirements ` +
     `(${s.failing} failing, ${s.unverified} unverified, ${s.untested} untested)` +
-    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".");
+    (evidence.length > 0 ? ` — ${evidence.join(", ")}.` : ".") +
+    fromReports;
   if (options.json) {
     console.error(summaryLine);
     console.log(renderVerificationJson(verification));
@@ -1637,30 +1627,26 @@ async function runVerify(file: string, options: VerifyOptions): Promise<void> {
   // Gate.
   //
   // MISSING EVIDENCE FAILS BY DEFAULT.  "No result for a declared test" is not
-  // "the test passed", and the two used to share an exit code — so a CI job
-  // whose runner wrote the wrong file, wrote nothing, or reported a `suite`
-  // string the join does not recognise went green having verified nothing.
-  // `--allow-missing` is the opt-out for the deliberately-partial run (one
-  // suite of many, a staged rollout); it is named in the failure so the
-  // migration is one flag, and `--require-all` / `--min` are untouched — this
-  // gate is strictly narrower than `--require-all` (which also fails on skips
-  // and on requirements no test covers), so a pipeline already passing
-  // `--require-all` sees no behaviour change.
+  // "the test passed": a CI job whose runner wrote the wrong file, wrote
+  // nothing, reported a `suite` string the join does not recognise, or whose
+  // second report was never passed, must not go green having verified
+  // nothing.  `--allow-missing` is the opt-out for the deliberately-partial
+  // run (one suite of many, a staged rollout); it is named in the failure so
+  // the migration is one flag.  This gate is strictly narrower than
+  // `--require-all` (which also fails on skips and on requirements no test
+  // covers).
   let failed = s.failing > 0;
   let reason = failed ? `${s.failing} requirement(s) failing` : "";
-  if (missing.length > 0 && !options.allowMissing) {
+  if (missing.refs.length > 0 && !options.allowMissing) {
     failed = true;
-    const sample = missing
+    const sample = missing.refs
       .slice(0, 3)
       .map((m) => `${m.testCaseId} → "${m.name}"`)
       .join(", ");
     reason =
-      `${missing.length} declared test(s) had no matching result (${sample}` +
-      `${missing.length > 3 ? ", …" : ""})` +
-      (unknown.length > 0
-        ? ` while ${unknown.length} result(s) matched no declared test` +
-          describeJoinMismatch(loom.traceability!.execTests, unknown, serviceSlugs)
-        : "") +
+      `${missing.refs.length} declared test(s) had no matching result (${sample}` +
+      `${missing.refs.length > 3 ? ", …" : ""})` +
+      describeMissingCause(missing, attribution, execTests, serviceSlugs) +
       `; pass --allow-missing to accept a partial run`;
   }
   if (options.requireAll && s.verified < s.total) {
@@ -2009,12 +1995,25 @@ generate
 program
   .command("verify <file>")
   .description(
-    "Join a test-results JSON onto the requirements graph, write .loom/verification.* and gate the exit code.",
+    "Join test-results reports onto the requirements graph, write .loom/verification.* and gate the exit code.",
   )
-  .option("--results <file>", "JSON file: { version, results: [{ name, status, suite? }] }")
+  .option(
+    "--results <file>",
+    "JSON file: { version, results: [{ name, status, suite? }] } (repeatable)",
+    collectRepeated,
+    [],
+  )
   .option(
     "--from-vitest <file>",
-    "read a vitest/jest `--reporter=json` report instead of --results",
+    "read a vitest/jest `--reporter=json` report (repeatable)",
+    collectRepeated,
+    [],
+  )
+  .option(
+    "--from-playwright <file>",
+    "read a Playwright `--reporter=json` report (repeatable)",
+    collectRepeated,
+    [],
   )
   .option("--out <dir>", "output directory for .loom/ artifacts (default: the .ddd file's dir)")
   .option("--require-all", "fail unless every requirement is VERIFIED")
@@ -2025,22 +2024,24 @@ program
   )
   .option("--json", "also print verification.json to stdout")
   .action(async (file: string, options: VerifyOptions) => {
-    // `--results` was a `requiredOption`; it is now one of TWO inputs, so the
-    // arity check moves here.  Exactly one — silently preferring one over the
-    // other would make a typo'd flag look like it was read.
-    if (!options.results && !options.fromVitest) {
+    // Every report flag is repeatable and they mix freely: a generated tree's
+    // unit and e2e tiers each write their own report, and the verdict needs
+    // all of them.  Each one given is read — none is preferred over another.
+    const inputs: ReportInput[] = [
+      ...options.results.map((p) => ({ flag: "--results" as const, path: p })),
+      ...options.fromVitest.map((p) => ({ flag: "--from-vitest" as const, path: p })),
+      ...options.fromPlaywright.map((p) => ({ flag: "--from-playwright" as const, path: p })),
+    ];
+    if (inputs.length === 0) {
       console.error(
         "ddd verify needs test results: pass --results <file> (Loom's " +
-          "{ version, results: [...] } document) or --from-vitest <file> " +
-          "(a vitest/jest --reporter=json report).",
+          "{ version, results: [...] } document), --from-vitest <file> " +
+          "(a vitest/jest --reporter=json report) or --from-playwright <file> " +
+          "(a Playwright --reporter=json report) — each repeatable, one per runner report.",
       );
       process.exit(2);
     }
-    if (options.results && options.fromVitest) {
-      console.error("Pass either --results or --from-vitest, not both.");
-      process.exit(2);
-    }
-    await runVerify(file, options);
+    await runVerify(file, inputs, options);
   });
 
 program
