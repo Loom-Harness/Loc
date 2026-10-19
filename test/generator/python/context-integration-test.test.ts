@@ -168,4 +168,60 @@ system Ship {
     expect(f).toContain("o.place()");
     expect(f).toContain("await order_repo.save(o)");
   });
+
+  // `app/dispatch.py` exists only under a dispatch condition, and its
+  // pure-producer shape defines no `InProcessDispatcher`.  A workflow alone
+  // does not emit the class, so the test must not import it (mypy: missing
+  // module / missing attribute in the generated project).
+  const NO_REACTOR = `
+system Shop {
+  subdomain Sales { context Ordering {
+    aggregate Order {
+      code: string  qty: int
+      operation bump() { qty := qty + 1  emit OrderBumped { order: id } }
+    }
+    repository Orders for Order { }
+    event OrderBumped { order: Order id }
+    workflow placeOrder {
+      create(code: string) { let o = Order.create({ code: code, qty: 1 }) }
+    }
+    test "persists and reads back an order" {
+      let o = Order.create({ code: "abc", qty: 2 })
+      let found = Order.findById(o.id)
+      expect(found.qty).toBe(2)
+    }
+  } }
+  api ShopApi from Sales
+  storage db { type: postgres }
+  resource st { for: Ordering, kind: state, use: db }
+  deployable api { platform: python contexts: [Ordering] serves: ShopApi dataSources: [st] port: 8080 }
+}`;
+
+  it("a workflow with no event subscription and no app/dispatch.py uses the no-op dispatcher", async () => {
+    const files = await gen(NO_REACTOR);
+    expect(find(files, "app/dispatch.py")).toBeUndefined();
+    const f = find(files, "tests/test_ordering_integration.py") ?? "";
+    expect(f).not.toContain("app.dispatch");
+    expect(f).toContain("from app.domain.events import NoopDomainEventDispatcher");
+    expect(f).toContain("events = NoopDomainEventDispatcher()");
+  });
+
+  it("a pure-producer app/dispatch.py (no InProcessDispatcher) leaves the test on the no-op dispatcher", async () => {
+    const producer = NO_REACTOR.replace(
+      "event OrderBumped { order: Order id }",
+      "event OrderBumped { order: Order id }\n    channel Lifecycle { carries: OrderBumped  delivery: queue  retention: work }",
+    )
+      .replace(
+        "storage db { type: postgres }",
+        "storage db { type: postgres }\n  storage bus { type: rabbitmq }\n  channelSource lifecycleBus { for: Lifecycle, use: bus }",
+      )
+      .replace("dataSources: [st] port", "dataSources: [st] channels: [lifecycleBus] port");
+    const files = await gen(producer);
+    const dispatch = find(files, "app/dispatch.py");
+    expect(dispatch, "app/dispatch.py").toBeDefined();
+    expect(dispatch).not.toMatch(/^class InProcessDispatcher\b/m);
+    const f = find(files, "tests/test_ordering_integration.py") ?? "";
+    expect(f).not.toContain("InProcessDispatcher");
+    expect(f).toContain("events = NoopDomainEventDispatcher()");
+  });
 });
