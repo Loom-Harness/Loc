@@ -25,7 +25,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
-import { escapeElixirIdent, plural, snake, upperFirst } from "../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
@@ -395,7 +395,7 @@ function renderStateSchema(
   const corrField = (wf.stateFields ?? []).find((f) => f.name === corr);
   const pkType =
     corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
-  const table = plural(snake(wf.name));
+  const table = workflowStateTableName(wf.name);
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
     .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);

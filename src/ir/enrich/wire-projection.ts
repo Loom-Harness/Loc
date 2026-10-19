@@ -308,6 +308,20 @@ export function isConstructible(agg: AggregateIR): boolean {
   return agg.invariants.every((inv) => satisfiableAtConstruction(inv, available));
 }
 
+/** The source text of every invariant that makes `agg` non-constructible —
+ * the ones {@link isConstructible}'s own predicate rejects, not every
+ * invariant the aggregate declares.  The `loom.create-call-not-constructible`
+ * message names these, so the author is sent to the line that actually blocks
+ * construction (`lossDate <= reportedAt`) rather than to a
+ * `description.length >= 10` that never did. */
+export function constructionBlockingInvariants(agg: AggregateIR): string[] {
+  const available = new Set(forCreateInput(agg.fields).map((f) => f.name));
+  return agg.invariants
+    .filter((inv) => !satisfiableAtConstruction(inv, available))
+    .map((inv) => inv.source)
+    .filter((s) => s.length > 0);
+}
+
 /** Whether a backend emits a create surface (route + request DTO +
  * factory) for this aggregate — i.e. whether it is {@link isConstructible}.
  * A constructible aggregate gets a parameterized create over its

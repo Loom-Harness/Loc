@@ -1250,7 +1250,14 @@ export function generateTypeScriptForContexts(
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
     // repository-backed cross-aggregate test file reading a PG_URL, no HTTP.
-    const integrationTests = renderContextIntegrationTest(ctx);
+    // Its dispatcher is the one `http/workflows.ts` actually exports: that file
+    // emits `createInProcessDispatcher` only for a deployable with event
+    // subscriptions or durable events, not for every workflow-hosting one.
+    const integrationTests = renderContextIntegrationTest(ctx, {
+      inProcessDispatcher: /^export function createInProcessDispatcher\(/m.test(
+        out.get("http/workflows.ts") ?? "",
+      ),
+    });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
     }
