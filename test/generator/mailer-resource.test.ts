@@ -105,12 +105,18 @@ describe("mailer resource — cross-backend emission", () => {
     expect(csproj).toMatch(
       /<NuGetAuditSuppress Include="https:\/\/github\.com\/advisories\/GHSA-g7hc-96xr-gvvx" \/>/,
     );
-    // MimeKit's transitive System.Security.Cryptography.Pkcs 8.0.0 carries
-    // NU1902/NU1903 advisories that no suppression covers; the pin lifts the
-    // restore graph to the patched line.
+  });
+
+  it("dotnet csproj pins the patched System.Security.Cryptography.Pkcs over MailKit's transitive", async () => {
+    const { files } = generateSystems(await parseValid(src("dotnet", "smtp")));
+    const csproj = find(files, /\.csproj$/)!;
+    // MailKit → MimeKit resolves Pkcs 8.0.0 (GHSA-2fmv-rv2c-59x7 moderate,
+    // GHSA-846f-f764-76mx high → NU1902/NU1903 under /warnaserror); 8.0.2 is
+    // the lowest patched release, so it is pinned, never suppressed.
     expect(csproj).toMatch(
-      /<PackageReference Include="System\.Security\.Cryptography\.Pkcs" Version="10\.0\.13" \/>/,
+      /<PackageReference Include="System\.Security\.Cryptography\.Pkcs" Version="8\.0\.2" \/>/,
     );
+    expect(csproj).not.toMatch(/GHSA-2fmv-rv2c-59x7|GHSA-846f-f764-76mx/);
   });
 
   it("dotnet csproj emits no NuGetAuditSuppress when no mailer is consumed", async () => {
@@ -127,7 +133,9 @@ system Sys {
   deployable d { platform: dotnet, contexts: [Sales], dataSources: [salesState], serves: A, port: 4000 }
 }`),
     );
-    expect(find(files, /\.csproj$/)!).not.toMatch(/NuGetAuditSuppress/);
+    const csproj = find(files, /\.csproj$/)!;
+    expect(csproj).not.toMatch(/NuGetAuditSuppress/);
+    expect(csproj).not.toMatch(/System\.Security\.Cryptography\.Pkcs/);
   });
 
   it("java emits SmtpResources.mailSend via Jakarta Mail + the call site", async () => {
