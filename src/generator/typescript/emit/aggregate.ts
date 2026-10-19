@@ -1,8 +1,8 @@
 import { unionMembers } from "../../../generator/_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -17,11 +17,18 @@ import type {
   FunctionIR,
   InvariantIR,
   OperationIR,
+  ParamIR,
+  StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregateUsesMoney } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
@@ -74,6 +81,15 @@ interface EntityShape {
    *  Shipment); equals `rootName` for root-level parts (byte-identical). */
   parentName?: string;
   fields: FieldIR[];
+  /** The create factory's input fields — the aggregate's create-input
+   *  contract (`createInputFields`); empty for an entity part. */
+  createInputs: FieldIR[];
+  /** The canonical create's body statements the factory runs after
+   *  construction (`createBodyStatements`) and the params they read
+   *  (`createBodyParams`); empty for an entity part and for a create with
+   *  nothing to render. */
+  createParams: ParamIR[];
+  createBody: StmtIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
   invariants: InvariantIR[];
@@ -254,6 +270,9 @@ function rootShape(a: AggregateIR): EntityShape {
     isRoot: true,
     hasCreate: hasCreate(a),
     fields: a.fields,
+    createInputs: createInputFields(a),
+    createParams: createBodyParams(a),
+    createBody: createBodyStatements(a),
     contains: a.contains,
     derived: a.derived,
     invariants: a.invariants,
@@ -273,6 +292,9 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
     rootName: root.name,
     parentName: directParentName(root, p.name, root.name),
     fields: p.fields,
+    createInputs: [],
+    createParams: [],
+    createBody: [],
     contains: p.contains,
     derived: p.derived,
     invariants: p.invariants,
@@ -744,10 +766,11 @@ function renderEntity(
     ].join("\n");
   });
 
-  // Create-factory input — the create-input set (`forCreateInput`, incl.
-  // optionals) matching the wire DTO.  Every constructible aggregate's
-  // create is parameterized by this set; there is no parameterless form.
-  const createInputs = forCreateInput(e.fields);
+  // Create-factory input — the create-input contract (`createInputFields`,
+  // incl. optionals; narrowed to a declared `create(…)`'s params) matching the
+  // wire DTO.  Every constructible aggregate's create is parameterized by this
+  // set; there is no parameterless form.
+  const createInputs = e.createInputs;
   const createInputNames = new Set(createInputs.map((f) => f.name));
   // A declared default is a CONSTRUCTION rule, so the factory — not the wire —
   // materializes it.  Returns the TS expression for "what this field becomes
@@ -780,7 +803,10 @@ function renderEntity(
   // closes the node gap and the shared predicate closes the `money` half on
   // all four.
   const defaultSeeds = new Map(
-    constructionSeededFields(e.fields).map((f) => [f.name, renderTsExpr(f.default)]),
+    constructionSeededFields(e.fields, createInputNames).map((f) => [
+      f.name,
+      renderTsExpr(f.default),
+    ]),
   );
   const fieldInit = (f: FieldIR): string => {
     if (createInputNames.has(f.name)) {
@@ -870,6 +896,15 @@ function renderEntity(
   // non-constructible aggregate exposes no factory; it is reconstructed
   // only via `_create` (repository hydration).  Suppressed for event-sourced
   // aggregates, which use the event-sourced factory above.
+  // The private method the factory runs the create body through — named clear
+  // of every `_<field>` backing slot, like the invariant helper.
+  const createBodyName = (() => {
+    if (e.createBody.length === 0) return undefined;
+    const taken = new Set(e.fields.map((f) => `_${f.name}`));
+    let name = "_createBody";
+    while (taken.has(name)) name += "_";
+    return name;
+  })();
   const createFactory =
     e.isRoot && e.hasCreate && !e.eventSourced
       ? [
@@ -888,13 +923,38 @@ function renderEntity(
               .join("; ")} }`,
             e.name,
           ),
-          `    return ${newSelfCallee}({`,
+          `    ${createBodyName ? "const inst = " : "return "}${newSelfCallee}({`,
           `      id: Ids.new${e.name}Id(),`,
           ...e.fields.map((f) => `      ${f.name}: ${fieldInit(f)},`),
           ...provFields.map((f) => `      ${f.name}_provenance: null,`),
           ...e.contains.map((c) => `      ${c.name}: ${c.collection ? "[]" : "null"},`),
           "    });",
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBodyName
+            ? [
+                `    inst.${createBodyName}(${e.createParams.map((p) => `input.${p.name}`).join(", ")});`,
+                "    return inst;",
+              ]
+            : []),
           "  }",
+          ...(createBodyName
+            ? [
+                "",
+                `  private ${createBodyName}(${e.createParams
+                  .map((p) => `${p.name}: ${renderTsType(p.type)}`)
+                  .join(", ")}): void {`,
+                renderTsStatements(e.createBody, emitProvenance, {
+                  emitTrace,
+                  aggregate: e.name,
+                  op: "create",
+                  eventSourced: false,
+                  domainFloorCodes: true,
+                }),
+                "  }",
+              ]
+            : []),
         ]
       : [];
 

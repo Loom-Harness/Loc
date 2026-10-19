@@ -1,8 +1,7 @@
-import { emitsRestCreate, forCreateInput } from "../../ir/enrich/wire-projection.js";
+import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   ExprIR,
-  FieldIR,
   InvariantIR,
   OperationIR,
   TypeIR,
@@ -61,10 +60,7 @@ interface ValidatorEmission {
 }
 
 /** Render the validator file for a Create<Agg>Command. */
-export function renderCreateValidator(
-  agg: { name: string; invariants: InvariantIR[]; fields: FieldIR[] },
-  ns: string,
-): ValidatorEmission {
+export function renderCreateValidator(agg: AggregateIR, ns: string): ValidatorEmission {
   return renderValidatorFile({
     ns,
     aggName: agg.name,
@@ -74,7 +70,7 @@ export function renderCreateValidator(
     // an invariant over an excluded field (e.g. a `managed` collection)
     // is enforced in the domain layer, not here, so it must not reference
     // an absent request property.
-    available: new Set(forCreateInput(agg.fields).map((f) => f.name)),
+    available: new Set(createInputFields(agg).map((f) => f.name)),
   });
 }
 
@@ -320,7 +316,7 @@ function requestParamSets(
       name: `Create${agg.name}Request`,
       params: esCreate
         ? esCreate.params.map((p) => ({ name: p.name, type: p.type }))
-        : forCreateInput(agg.fields).map((f) => ({
+        : createInputFields(agg).map((f) => ({
             name: f.name,
             type: f.type,
             default: f.default,

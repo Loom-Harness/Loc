@@ -1,4 +1,5 @@
 import {
+  createInputFields,
   createOmissionValue,
   forCreateInput,
   hasCreate,
@@ -15,7 +16,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -249,7 +255,7 @@ export function renderJavaEntity(
   const _idValueType = isAgg(entity) ? entity.idValueType : "guid";
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
   const operations = isAgg(entity) ? entity.operations : [];
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // The declared value an omittable create input takes when the caller passes
   // null, or undefined when the caller must supply it.  Server-sourced defaults
   // (`now()`, `currentUser.*`) keep their existing path.
@@ -907,6 +913,8 @@ export function renderJavaEntity(
   // --- factories --------------------------------------------------------------------
   // Public create — constructible, state-based roots only (event-sourced
   // construction goes through the `_init` emit-and-fold path above).
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines: string[] =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -940,14 +948,52 @@ export function renderJavaEntity(
           // `new BigDecimal("2.50")`, so a `money managed = money("2.50")` no
           // longer INSERTs a null into its NOT NULL column.
           ...(isAgg(entity)
-            ? constructionSeededFields(entity.fields).map(
-                (f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
-              )
+            ? constructionSeededFields(
+                entity.fields,
+                new Set(createInputFieldList.map((f) => f.name)),
+              ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
+            : []),
+          // A field a narrowed `create(…)` leaves out with no declared default
+          // is a bare `bool` or a collection (`loom.create-param-required-
+          // omitted` refuses the rest); seed its omission value, or the column
+          // would INSERT null.
+          ...(isAgg(entity)
+            ? forCreateInput(entity.fields)
+                .filter(
+                  (f) =>
+                    !createInputFieldList.some((c) => c.name === f.name) && f.default === undefined,
+                )
+                .flatMap((f) => {
+                  const v = javaFactoryDefault(f);
+                  return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
+                })
             : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [`        e._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`]
+            : []),
           `        return e;`,
           `    }`,
           ``,
+          ...(createBody.length > 0
+            ? [
+                `    private void _createBody(${createParams
+                  .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+                  .join(", ")}) {`,
+                renderJavaStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                `    }`,
+                ``,
+              ]
+            : []),
         ]
       : [];
   // Part factory — the target of the renderer's `new <Part>` arm:

@@ -13,7 +13,9 @@
 // ---------------------------------------------------------------------------
 
 import {
+  createInputFields,
   createOmissionValue,
+  declaredCreateParamNames,
   isRequiredCreateInput,
   isRequiredUpdateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -764,7 +766,14 @@ ${
   //
   // A single VALUE OBJECT is the one shape neither pass reaches — see
   // `voKeyFields` above.
-  const keyNormalizeHelper = `\n\n${NORMALIZE_KEYS_DEFP}${
+  // A narrowed declared `create(…)`: its parameters are the create input, so
+  // the create seams (repository insert, the context's validate-first clause,
+  // the pure domain core) take ONLY those keys before `base_changeset` casts —
+  // every other field, a `when`-gated `status` included, takes its declared
+  // default.  `base_changeset` itself still casts `@all_fields`, because the
+  // form seed and (absent a dedicated one) the update path share it.
+  const createTakeBlock = createTakeAttrsFn(agg);
+  const keyNormalizeHelper = `${createTakeBlock}\n\n${NORMALIZE_KEYS_DEFP}${
     voKeyFields.length > 0 ? `\n\n${NORMALIZE_VO_KEYS_DEFP}` : ""
   }`;
 
@@ -788,6 +797,25 @@ defmodule ${changesetMod} do
 ${actionHelpers}
 end
 `;
+}
+
+/** The public `take_create_attrs/1` the create seams call on a narrowed
+ *  aggregate; empty otherwise.  Matches both key spellings: wire bodies
+ *  arrive string-keyed (snaked by `__normalize_keys`), in-process callers may
+ *  pass atom keys. */
+function createTakeAttrsFn(agg: AggregateIR): string {
+  if (declaredCreateParamNames(agg) === undefined) return "";
+  const cols = createInputFields(agg).map((f) => `:${snake(f.name)}`);
+  return `
+
+  @create_fields [${cols.join(", ")}]
+
+  @doc "The declared \`create(…)\`'s parameters are the create input: keep only those keys, so every other field takes its declared default."
+  def take_create_attrs(attrs) when is_map(attrs) do
+    attrs
+    |> __normalize_keys()
+    |> Map.take(@create_fields ++ Enum.map(@create_fields, &Atom.to_string/1))
+  end`;
 }
 
 function renderActionHelper(

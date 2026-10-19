@@ -304,7 +304,7 @@ system Shop {
       aggregate Order {
         code: string
         status: string
-        create(code: string) { }
+        create(code: string, status: string) { }
         operation setNote(note: string) { status := note }
       }
       repository Orders for Order {

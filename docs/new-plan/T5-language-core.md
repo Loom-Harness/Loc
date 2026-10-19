@@ -175,18 +175,6 @@ Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 - **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
 - **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
 
-## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
-
-The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
-
-Today `POST /<plural>` always takes the **field-derived** create input. A narrowed parameter list on a declared `create` shapes nothing, so an author who writes `create(title: string)` against a five-field aggregate gets a client for a contract they did not declare — the generated `test e2e` suite failed at runtime with a 422 naming a field the create does not accept. `loom.lifecycle-body-dropped` does not cover it: the ubiquitous `field := <same-named param>` idiom is exempt there, and that is exactly the shape that misleads.
-
-**The fix:** the declared parameter list becomes the create input — wire schema, route binding, and the frontend `CreateForm`'s field set all derive from it rather than from the aggregate's fields.
-
-**Why it was blocked (now cleared).** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
-
-**Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
-
 ## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `partial` (#3050 landed the `of:`-form half) · **M** · P1
 
 `src/ir/lower/lower-expr.ts:1214` lowers a bare lambda with a hard-coded placeholder element type:

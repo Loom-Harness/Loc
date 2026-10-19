@@ -1,6 +1,7 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
   forCreateInput,
   hasCreate,
@@ -19,7 +20,12 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
@@ -318,7 +324,7 @@ export function renderEntity(
   // call order + wire DTO, so `Agg.Create(cmd.Field, ...)` binds
   // positionally.  Every constructible aggregate's create is parameterized
   // by this set; there is no parameterless form.
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // Event sourcing (appliers A2.2b): an event-sourced aggregate folds
   // events into state via appliers, is rehydrated by `_FromEvents`, and is
   // constructed by its single `create` action's emit-only body (not a
@@ -913,10 +919,24 @@ export function renderEntity(
   // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
   // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededFields(entity.fields).map(
+    ? constructionSeededFields(entity.fields, new Set(createInputFieldList.map((f) => f.name))).map(
         (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
       )
     : [];
+  // A field a narrowed `create(…)` leaves out with no declared default is a
+  // bare `bool` or a collection (`loom.create-param-required-omitted` refuses
+  // the rest); the CLR leaves a `List<T>` null, so seed its omission value.
+  const createInputNames = new Set(createInputFieldList.map((f) => f.name));
+  const createNarrowedSeeds = isAgg(entity)
+    ? forCreateInput(entity.fields)
+        .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
+        .flatMap((f) => {
+          const v = csFactoryDefault(f);
+          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+        })
+    : [];
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -944,10 +964,36 @@ export function renderEntity(
           `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
+          ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
           emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [
+                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+              ]
+            : []),
           "        return e;",
           "    }",
+          ...(createBody.length > 0
+            ? [
+                "",
+                `    private void _CreateBody(${createParams
+                  .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+                  .join(", ")})`,
+                "    {",
+                renderCsStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                "    }",
+              ]
+            : []),
         ]
       : [];
 

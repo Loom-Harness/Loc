@@ -24,7 +24,7 @@ system MaskAudit {
       aggregate Order audited {
         code: string
         salary: int mask unless currentUser.role == "hr"
-        create(code: string) { }
+        create(code: string, salary: int) { }
         destroy { }
         operation bump() {
           salary := salary + 1

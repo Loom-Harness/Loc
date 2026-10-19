@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -856,7 +856,7 @@ function emitProjectFromContexts(
     for (const agg of ctx.aggregates) {
       const voNames = new Set<string>();
       referencedValueObjects(
-        forCreateInput(agg.fields).map((f) => f.type),
+        createInputFields(agg).map((f) => f.type),
         voNames,
       );
       for (const op of agg.operations) {

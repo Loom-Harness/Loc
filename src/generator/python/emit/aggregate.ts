@@ -1,7 +1,7 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -18,10 +18,17 @@ import {
   type FunctionIR,
   type InvariantIR,
   type OperationIR,
+  type ParamIR,
+  type StmtIR,
   type TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
@@ -96,6 +103,9 @@ interface EntityShape {
    *  single-level output is byte-identical. */
   parentName?: string;
   fields: FieldIR[];
+  /** The create factory's input fields — the aggregate's create-input
+   *  contract (`createInputFields`); empty for an entity part. */
+  createInputs: FieldIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
   invariants: InvariantIR[];
@@ -107,6 +117,10 @@ interface EntityShape {
   eventSourced?: boolean;
   appliers?: import("../../../ir/types/loom-ir.js").ApplyIR[];
   esCreate?: OperationIR;
+  /** The state-based canonical create's rendered body (`createBodyStatements`)
+   *  and the params it reads (`createBodyParams`); absent on a part. */
+  createBody?: StmtIR[];
+  createParams?: ParamIR[];
   /** Root-only lifecycle stamps (audit / softDelete capability stamps, or
    *  hand-written `stamp onCreate`/`onUpdate`) — `_stamp_on_create` /
    *  `_stamp_on_update` methods the route calls before persist. */
@@ -185,6 +199,7 @@ export function renderPyAggregate(
       for (const st of ap.statements) collectStmtExprImports(st, exprImports);
     }
     for (const st of s.esCreate?.statements ?? []) collectStmtExprImports(st, exprImports);
+    for (const st of s.createBody ?? []) collectStmtExprImports(st, exprImports);
     // Lifecycle-stamp values (e.g. `now()`) need their own import triggers.
     for (const rule of s.contextStamps ?? []) {
       for (const a of rule.assignments) collectPyExprImports(a.value, exprImports);
@@ -196,7 +211,7 @@ export function renderPyAggregate(
     root.hasCreate &&
     root.fields.some(
       (f) =>
-        !forCreateInput(root.fields).includes(f) &&
+        !root.createInputs.includes(f) &&
         !f.optional &&
         f.type.kind === "primitive" &&
         f.type.name === "datetime",
@@ -384,6 +399,7 @@ function rootShape(a: AggregateIR): EntityShape {
     isRoot: true,
     hasCreate: hasCreate(a),
     fields: a.fields,
+    createInputs: createInputFields(a),
     contains: a.contains,
     derived: a.derived,
     invariants: a.invariants,
@@ -392,6 +408,8 @@ function rootShape(a: AggregateIR): EntityShape {
     eventSourced: a.persistedAs === "eventLog",
     appliers: a.appliers,
     esCreate: a.creates?.[0],
+    createBody: createBodyStatements(a),
+    createParams: createBodyParams(a),
     contextStamps: a.contextStamps,
   };
 }
@@ -404,6 +422,7 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
     rootName: root.name,
     parentName: directParentName(root, p.name, root.name),
     fields: p.fields,
+    createInputs: [],
     contains: p.contains,
     derived: p.derived,
     invariants: p.invariants,
@@ -887,7 +906,7 @@ function renderEntity(
   // the wire create set (incl. optionals); server-owned fields seed.
   let createFactory: string[] = [];
   if (e.isRoot && e.hasCreate && !e.eventSourced) {
-    const inputs = forCreateInput(e.fields);
+    const inputs = e.createInputs;
     const inputNames = new Set(inputs.map((f) => f.name));
     // A declared default is a CONSTRUCTION rule, so the factory materializes
     // it and the caller may omit the argument.  Server-sourced defaults
@@ -927,7 +946,7 @@ function renderEntity(
     // `mm: money managed = money("2.50")` no longer lands as `None` under a
     // `Decimal` annotation.
     const defaultSeeds = new Map(
-      constructionSeededFields(e.fields).map((f) => [f.name, renderPyExpr(f.default)]),
+      constructionSeededFields(e.fields, inputNames).map((f) => [f.name, renderPyExpr(f.default)]),
     );
     const fieldInit = (f: FieldIR): string => {
       if (inputNames.has(f.name)) {
@@ -944,17 +963,44 @@ function renderEntity(
       if (f.optional) return "None";
       return serverInitSeed(f.type);
     };
+    // The create body (`createBodyStatements`) runs against the constructed
+    // instance, exactly like an operation body: params as locals, unlisted
+    // fields already at their declared defaults.
+    const createBody = e.createBody ?? [];
+    const createParams = e.createParams ?? [];
+    const bodyName = (() => {
+      const taken = new Set(e.fields.map((f) => `_${snake(f.name)}`));
+      let name = "_create_body";
+      while (taken.has(name)) name += "_";
+      return name;
+    })();
     createFactory = [
       "",
       "    @classmethod",
       `    def create(cls${factoryParams.length > 0 ? `, *, ${factoryParams.join(", ")}` : ""}) -> ${self}:`,
-      "        return cls(",
+      `        ${createBody.length > 0 ? "inst = " : "return "}cls(`,
       `            id=new_${snake(e.name)}_id(),`,
       ...e.fields.map((f) => `            ${pythonIdent(f.name)}=${fieldInit(f)},`),
       ...e.contains.map(
         (c) => `            ${pythonIdent(c.name)}=${c.collection ? "[]" : "None"},`,
       ),
       "        )",
+      ...(createBody.length > 0
+        ? [
+            `        inst.${bodyName}(${createParams.map((p) => pythonIdent(p.name)).join(", ")})`,
+            "        return inst",
+            "",
+            `    def ${bodyName}(self${createParams
+              .map((p) => `, ${pythonIdent(p.name)}: ${renderPyType(p.type)}`)
+              .join("")}) -> None:`,
+            renderPyStatements(createBody, undefined, {
+              eventSourced: false,
+              trace: emitTrace ? { aggregate: e.name, op: "create" } : undefined,
+              emitProvenance,
+              domainFloorCodes: true,
+            }),
+          ]
+        : []),
     ];
   }
 
