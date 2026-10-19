@@ -171,6 +171,7 @@ function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): st
         return `new Decimal("0")`;
       case "bool":
         return "false";
+      case "date":
       case "datetime":
         return `""`;
       case "File":

@@ -114,6 +114,11 @@ function encodeExpr(access: string, t: TypeIR): string {
       ? `${access} && DateTime.to_iso8601(${access})`
       : `DateTime.to_iso8601(${access})`;
   }
+  if (inner.kind === "primitive" && inner.name === "date") {
+    return t.kind === "optional"
+      ? `${access} && Date.to_iso8601(${access})`
+      : `Date.to_iso8601(${access})`;
+  }
   if (inner.kind === "primitive" && inner.name === "money") {
     // money pins the FIXED wire scale (RS-12) — a bare `Decimal.to_string`
     // echoes whatever scale the domain value happens to carry rather than the
@@ -154,6 +159,7 @@ const ELIXIR_WIRE_DECODE: WireDecodeTarget = {
   read: (payload, field) => `${payload}[${JSON.stringify(field)}]`,
   primitive: {
     datetime: (e) => `elem(DateTime.from_iso8601(${e}), 1)`,
+    date: (e) => `Date.from_iso8601!(${e})`,
     // `Decimal` has no native JSON form on either side of this wire, so both
     // money and plain decimal cross as strings and rebuild the same way.
     money: (e) => `Decimal.new(${e})`,

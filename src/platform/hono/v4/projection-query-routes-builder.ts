@@ -1370,6 +1370,7 @@ export function zodForRow(t: TypeIR, enumValues: Map<string, string[]>): string 
           return "z.string()";
         case "bool":
           return "z.boolean()";
+        case "date":
         case "datetime":
           return "z.string()";
         case "json":

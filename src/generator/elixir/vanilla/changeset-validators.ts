@@ -221,6 +221,8 @@ export function voEctoType(t: TypeIR): string {
           return ":boolean";
         case "datetime":
           return LOOM_DATETIME_MODULE;
+        case "date":
+          return ":date";
         case "guid":
           return "Ecto.UUID";
         case "json":

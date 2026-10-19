@@ -178,6 +178,11 @@ const KNOWN_UNREACHABLE: ReadonlyArray<{
   },
   {
     format: "angular",
+    template: "field-input-date",
+    reason: "field-input-* family behind the Angular form fork — see field-input-array.",
+  },
+  {
+    format: "angular",
     template: "field-input-datetime",
     reason: "field-input-* family behind the Angular form fork — see field-input-array.",
   },

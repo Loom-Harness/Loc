@@ -66,6 +66,8 @@ function toDataExpr(prop: string, t: TypeIR, vos: VoFields = new Map()): string 
     return t.kind === "optional" ? `(${prop} is null ? null : ${record})` : record;
   }
   if (inner.kind === "primitive" && inner.name === "datetime") return `${access}.ToString("o")`;
+  if (inner.kind === "primitive" && inner.name === "date")
+    return `${access}.ToString("yyyy'-'MM'-'dd", CultureInfo.InvariantCulture)`;
   // money pins the FIXED wire scale (RS-12) — a bare `.ToString(culture)` echoes
   // whatever scale the domain `decimal` happens to carry rather than the
   // canonical 4dp `projectToResponse` applies on the REST wire (#2549's class;
@@ -104,6 +106,8 @@ function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarg
       money: (e) => `decimal.Parse(${e}.GetString()!, CultureInfo.InvariantCulture)`,
       datetime: (e) =>
         `DateTime.Parse(${e}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`,
+      date: (e) =>
+        `DateOnly.ParseExact(${e}.GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture)`,
       string: asString,
       guid: asString,
       json: asString,

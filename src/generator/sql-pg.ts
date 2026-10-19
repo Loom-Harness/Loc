@@ -292,6 +292,8 @@ function renderPgType(t: ColumnType): string {
       return t.precision !== undefined && t.scale !== undefined
         ? `DECIMAL(${t.precision}, ${t.scale})`
         : "DECIMAL";
+    case "date":
+      return "DATE";
     case "datetime":
       return "TIMESTAMP WITH TIME ZONE";
     case "json":

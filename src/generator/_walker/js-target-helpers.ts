@@ -43,6 +43,7 @@ export function defaultInitForJs(type: TypeIR): string {
       case "bool":
         return "false";
       case "string":
+      case "date":
       case "datetime":
       case "guid":
         return '""';
