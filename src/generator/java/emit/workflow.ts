@@ -18,7 +18,11 @@ import {
   workflowNeedsCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
-import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
+import {
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+  workflowEmits,
+} from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -211,6 +215,8 @@ function reposInBodies(
             for (const sv of s.savesPerIteration) aggs.add(sv.aggName);
             break;
           case "if-let":
+            // The retrieval itself reads through the repo (`Repo.find(...)`).
+            aggs.add(s.aggName);
             for (const sv of s.savesInThen) aggs.add(sv.aggName);
             for (const sv of s.savesInElse) aggs.add(sv.aggName);
             break;
@@ -476,7 +482,11 @@ export function javaWorkflowStmtTarget(
       // and branch.  Each branch's dirty bindings save inside it.
       for (const a of s.retrievalArgs) collectJavaExprImports(a, imports);
       const args = s.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
-      args.push("null", "1"); // offset null, limit 1 — single result
+      // A declared optional find (`findMethod`) is emitted on the repository
+      // under its own name and answers the aggregate or `null` directly.
+      const lookup = s.findMethod
+        ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+        : `${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.map(
         (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
@@ -485,7 +495,7 @@ export function javaWorkflowStmtTarget(
         (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
       );
       const out = [
-        `${indent}var ${bound(s.var)} = ${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${args.join(", ")}).stream().findFirst().orElse(null);`,
+        `${indent}var ${bound(s.var)} = ${lookup};`,
         `${indent}if (${bound(s.var)} != null) {`,
         ...thenLines,
         ...thenSaves,
@@ -1202,11 +1212,7 @@ export function renderJavaWorkflows(
 
   const repoFields = [...repoAggs].sort();
   const anyUser = authed && cmdWorkflows.some((wf) => workflowUsesCurrentUser(wf, ctx));
-  const hasEmit = cmdWorkflows.some((wf) => {
-    const walk = (ss: WorkflowStmtIR[]): boolean =>
-      ss.some((s) => s.kind === "emit" || (s.kind === "for-each" && walk(s.body)));
-    return walk(wf.statements);
-  });
+  const hasEmit = cmdWorkflows.some((wf) => workflowEmits(wf.statements).length > 0);
   const serviceName = `${ctx.name}Workflows`;
   // Injected reading-tier service beans (domain-services.md rev. 4): field name
   // `lowerFirst(service)` — the SAME var the `domain-service` call arm renders
