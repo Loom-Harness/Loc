@@ -165,8 +165,11 @@ describe("Java domain-test emitter (renderJavaTestsFile)", () => {
     expect(create).toContain('Project.create("demo", null, new BigDecimal("0.0"))');
     // money-like value matcher routes through BigDecimal.compareTo.
     expect(src).toContain('assertEquals(0, (p.budget()).compareTo(new BigDecimal("0.0")))');
-    // toThrow → assertThrows(DomainException.class, …).
-    expect(src).toContain('assertThrows(DomainException.class, () -> p.rename(""))');
+    // A bare toThrow over an operation call → the domain-rejection family
+    // (`javaBareToThrow`): a `when` gate throws the sibling DisallowedException.
+    expect(src).toMatch(
+      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DomainException \|\| \1 instanceof DisallowedException/,
+    );
   });
 
   it("passes null for an omitted create-input and coerces the typed ones", async () => {
