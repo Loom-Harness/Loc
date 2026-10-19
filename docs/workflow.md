@@ -76,7 +76,7 @@ context Sales {
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array or nullable result. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { ... } else { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
+| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.<find>(args) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row) or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
@@ -140,7 +140,29 @@ Both `find` and `findAll` over one criterion share a single internal
 `findAllBy<Criterion>` retrieval (no public endpoint is exposed — unlike a
 declared `find`).  The else-branch may create a fallback aggregate
 (`let s = Seat.create({...})`); branch-local creations / mutations save at the
-end of their branch.  `if let`'s source is a criterion `find` in this release.
+end of their branch.
+
+The source may also be a **declared optional find** — `if let o =
+Orders.byCode(c.code) { … }` over `find byCode(c: string): Order?`.  The
+generated code calls the repository's own find (no retrieval is synthesised)
+and branches on presence, exactly as above; the same form works in a
+`commandHandler` / `queryHandler` body.  Any other source (`getById`, a
+non-optional or union-valued find) is `loom.iflet-bad-source`.
+
+```ddd
+commandHandler BumpByCode(code: string, n: int) {
+  if let hit = Orders.byCode(code) { hit.bump(n) }
+}
+```
+
+```ts
+// node (Hono) — the handler body
+const hit = await orders.byCode(code);
+if (hit !== null) {
+  hit.bump(n);
+  await orders.save(hit);
+}
+```
 
 Own-state assignment (`field := value`) — writing one of the workflow's own
 declared state fields — is allowed inside a `create` / `handle` / `on` body; it
