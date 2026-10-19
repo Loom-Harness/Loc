@@ -60,7 +60,14 @@ import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js"
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
+import {
+  contextAliasLine,
+  contextCallRef,
+  denialOverrides,
+  denialResponse,
+  denialTerm,
+  disallowedTerm,
+} from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
@@ -669,13 +676,15 @@ ${findLines.length > 0 ? `${findLines.join("\n")}\n` : ""}${opFns.length > 0 ? `
 
 export function renderEsController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // Fully qualified when `alias <App>.<Ctx>` would shadow the app module.
+  const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
 
@@ -832,8 +841,7 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   return `# Auto-generated.
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 

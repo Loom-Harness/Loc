@@ -15,7 +15,9 @@ public sealed class OrderTests
     public void Confirming_an_order_with_no_lines_is_rejected()
     {
         var order = Order.Create(customerId: "cust-001", status: OrderStatus.Draft, placedAt: DateTime.UtcNow);
-        Assert.Throws<DomainException>(() => { order.Confirm(); });
+        var __thrown1 = Assert.ThrowsAny<Exception>(() => { order.Confirm(); });
+        Assert.True(__thrown1 is DomainException or DisallowedException or ForbiddenException,
+            $"expected the domain to reject this call, but it threw: {__thrown1}");
     }
 
 }
