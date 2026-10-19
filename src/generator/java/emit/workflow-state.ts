@@ -212,6 +212,8 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
         return "false";
       case "datetime":
         return "java.time.Instant.now()";
+      case "date":
+        return "java.time.LocalDate.now(java.time.ZoneOffset.UTC)";
       default:
         return '""';
     }

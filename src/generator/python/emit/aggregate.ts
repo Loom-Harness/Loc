@@ -419,6 +419,8 @@ function serverInitSeed(t: TypeIR): string {
     switch (t.name) {
       case "datetime":
         return "datetime.now(UTC)";
+      case "date":
+        return "datetime.now(UTC).date()";
       case "int":
       case "long":
         return "0";
@@ -995,6 +997,8 @@ function shellSeed(f: FieldIR): string {
         return '""';
       case "datetime":
         return "datetime.now(UTC)";
+      case "date":
+        return "datetime.now(UTC).date()";
       default:
         return "None";
     }

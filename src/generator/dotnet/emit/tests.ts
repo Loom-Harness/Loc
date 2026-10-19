@@ -31,6 +31,8 @@ const CS_TEST_LITERAL: TestLiteralTarget = {
       : `new ${targetName}Id(${rendered})`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
+  date: (rendered) =>
+    `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`,
 };
 
 // A currentUser-gated operation's method signature picks up a trailing

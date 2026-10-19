@@ -39,6 +39,7 @@
 export const RENDERABLE_FILTER_PRIMITIVES: ReadonlySet<string> = new Set([
   "string",
   "guid",
+  "date",
   "datetime",
   "int",
   "long",

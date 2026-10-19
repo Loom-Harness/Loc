@@ -115,6 +115,7 @@ import {
   renderDapperEventSourcedRepository,
   renderDapperRepository,
   renderDapperSchema,
+  wireDapperDateOnlyHandler,
 } from "./emit/dapper.js";
 import {
   dapperPortRegistrations,
@@ -316,6 +317,9 @@ export function generateDotnetForContexts(
       options.sourceTexts,
     );
     for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
+    // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
+    // only when the finished project uses the `date` scalar.
+    if (system?.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);
   } else {
     for (const ctx of contexts) {
       const root = clashFreeRootNamespace(ctx.name, [ctx]);

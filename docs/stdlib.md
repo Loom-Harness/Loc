@@ -96,11 +96,21 @@ Flutter page bodies do not translate them yet.
 | `floor` | `(): money` | yes |
 | `ceil` | `(): money` | yes |
 
+#### `date`
+
+| op | signature | queryable |
+| --- | --- | --- |
+| `year` | `(): int` | no |
+| `month` | `(): int` | no |
+| `day` | `(): int` | no |
+| `daysUntil` | `(other: date): int` | no |
+
 #### `datetime`
 
 | op | signature | queryable |
 | --- | --- | --- |
 | `startOfDay` | `(): datetime` | yes |
+| `toDate` | `(): date` | no |
 
 ## Collection operations
 
@@ -196,11 +206,12 @@ function roundTo(n: decimal, places: int): decimal = n.round(places)
 
 ### `temporal`
 
-Datetime comparisons against `now()`.
+Datetime comparisons against `now()`, and `today()`'s UTC calendar date.
 
 ```ddd
 // Loom stdlib — temporal.
 function isOverdue(due: datetime): bool = now() > due
 function isFuture(t: datetime): bool = t > now()
 function isPast(t: datetime): bool = t < now()
+function today(): date = now().toDate()
 ```
