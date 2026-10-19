@@ -157,6 +157,18 @@ function renderStmt(
   }
 }
 
+/** Namespaces of the framework symbols the test text may spell beyond the
+ *  fixed header: the `using` exists iff the symbol is written, so the two
+ *  cannot drift (the EF boot reaches Npgsql through `UseNpgsql`, an extension
+ *  in `Microsoft.EntityFrameworkCore`, and needs no `using Npgsql;`). */
+const NAMESPACE_OF_SYMBOL: Readonly<Record<string, string>> = { NpgsqlDataSource: "Npgsql" };
+
+function namespacesUsedBy(text: string): string[] {
+  return Object.entries(NAMESPACE_OF_SYMBOL)
+    .filter(([symbol]) => new RegExp(`\\b${symbol}\\b`).test(text))
+    .map(([, nsp]) => nsp);
+}
+
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
@@ -224,7 +236,7 @@ export function renderContextIntegrationTest(
     lines.push("using Microsoft.EntityFrameworkCore;");
     lines.push("using Microsoft.Extensions.Logging.Abstractions;");
   }
-  if (dapper) lines.push("using Npgsql;");
+  for (const nsp of namespacesUsedBy(methodBlocks.flat().join("\n"))) lines.push(`using ${nsp};`);
   lines.push("using Xunit;");
   lines.push("using AwesomeAssertions;");
   lines.push(`using ${ns}.Domain.Common;`);
