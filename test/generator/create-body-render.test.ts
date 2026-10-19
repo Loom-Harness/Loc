@@ -41,7 +41,7 @@ describe("the canonical create body runs on every backend", () => {
     expect(call).toBeGreaterThan(at(src, "const inst = new Appointment({"));
     expect(src).toContain("private _createBody(patient: string, minutes: number): void {");
     expect(src).toContain(
-      'if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "msg.ojnyph", "/patient");',
+      'if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "precondition", "msg.ojnyph", "/patient");',
     );
     expect(src).toContain(
       'this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient, minutes: minutes });',
