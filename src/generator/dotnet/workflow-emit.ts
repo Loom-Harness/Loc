@@ -44,7 +44,7 @@ import {
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import {
   workflowParamPayloads,
@@ -1811,7 +1811,7 @@ export function csWorkflowStmtTarget(
       // (matching the source field name), so the named-arg call site
       // must use the same casing — PascalCase here would fail with
       // CS1739 "best overload does not have a parameter named X".
-      const provided = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`);
+      const provided = st.fields.map((f) => `${escapeCsharpIdent(f.name)}: ${renderArg(f.value)}`);
       // The .NET Create(...) factory declares *every* canonical create
       // input as a required parameter (no C# default — optionals would
       // have to trail the required params, which the wire-shape ordering
@@ -1824,7 +1824,10 @@ export function csWorkflowStmtTarget(
       const agg = ctx.aggregates.find((a) => a.name === st.aggName);
       const omitted = (agg ? createInputFields(agg) : [])
         .filter((f) => !named.has(f.name))
-        .map((f) => `${f.name}: ${renderCsOmission(createOmissionValue(f), renderArg)}`);
+        .map(
+          (f) =>
+            `${escapeCsharpIdent(f.name)}: ${renderCsOmission(createOmissionValue(f), renderArg)}`,
+        );
       const args = [...provided, ...omitted].join(", ");
       // C# doesn't support reordering positional args; using named
       // args lets the user write fields in any order in the .ddd source.
@@ -2027,9 +2030,19 @@ export function csWorkflowStmtTarget(
       };
       const thenSaves = st.savesInThen.map(saveLine);
       const elseSaves = st.savesInElse.map(saveLine);
+      // A declared optional find (`findMethod`) is emitted under its own name
+      // with no `Async` suffix (the `repoLet` convention) and already answers
+      // `Task<T?>`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${indent}var ${st.var} = await ${fieldName}.${upperFirst(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+          ]
+        : [
+            `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
+            `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+          ];
       const out = [
-        `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
-        `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+        ...lookup,
         `${indent}if (${st.var} is not null)`,
         `${indent}{`,
         ...thenLines,

@@ -29,6 +29,29 @@ export function plural(input: string): string {
   return input + "s";
 }
 
+/** SQL table name of a workflow's persisted correlation (saga) state row.
+ *
+ *  A workflow name is a verb phrase (`fulfillOrder`, `replicatePolicies`), so
+ *  its stem may already be plural.  A snake stem ending in `-ies` is always
+ *  already plural (or invariant: `series`, `species`) — {@link plural} would
+ *  double it (`replicate_policies` → `replicate_policieses`), so it is kept
+ *  as-is.  Every other stem pluralises exactly as before, so only the `-ies`
+ *  spelling changes.  The migrations builder pairs an existing project's
+ *  pre-fix table ({@link legacyWorkflowStateTableName}) with this name as an
+ *  `ALTER TABLE … RENAME`, never a drop + create.  Every backend's saga-table
+ *  mapping (and the migration DDL) routes through here so they cannot drift. */
+export function workflowStateTableName(wfName: string): string {
+  const stem = snake(wfName);
+  return stem.endsWith("ies") ? stem : plural(stem);
+}
+
+/** The saga-table spelling before {@link workflowStateTableName} stopped
+ *  double-pluralising `-ies` stems.  Read ONLY by the migrations builder, to
+ *  rename a table an existing snapshot still records under this name. */
+export function legacyWorkflowStateTableName(wfName: string): string {
+  return plural(snake(wfName));
+}
+
 /** Per-workflow-scoped name for an emitted workflow `function` helper.
  *  A workflow body is not a class, so its `function` helpers are emitted as
  *  file/module-scoped helpers — and workflows share a generated file, so the

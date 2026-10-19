@@ -112,7 +112,11 @@ import {
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  userClaimIdTypeSources,
+  workflowIdTypeSources,
+} from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
   isTphBase,
@@ -803,6 +807,7 @@ export function generateTypeScriptForContexts(
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
     ...workflowIdTypeSources(merged.workflows),
+    ...userClaimIdTypeSources(system?.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
   out.set("domain/value-objects.ts", renderEnumsAndValueObjects(merged));
@@ -1245,7 +1250,14 @@ export function generateTypeScriptForContexts(
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
     // repository-backed cross-aggregate test file reading a PG_URL, no HTTP.
-    const integrationTests = renderContextIntegrationTest(ctx);
+    // Its dispatcher is the one `http/workflows.ts` actually exports: that file
+    // emits `createInProcessDispatcher` only for a deployable with event
+    // subscriptions or durable events, not for every workflow-hosting one.
+    const integrationTests = renderContextIntegrationTest(ctx, {
+      inProcessDispatcher: /^export function createInProcessDispatcher\(/m.test(
+        out.get("http/workflows.ts") ?? "",
+      ),
+    });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
     }
