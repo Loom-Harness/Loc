@@ -112,10 +112,34 @@ no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
 
 Reach the other context at its **public surface** instead — the same two
 sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
-names, both of which a workflow may use: call `Directory`'s api through a
-`resource { kind: api }` binding, or read a local projection folded over
-`Directory`'s published events.  If the two aggregates genuinely change
-together in one transaction, they belong in the same context.
+names: call `Directory`'s api through a `resource { kind: api }` binding, or
+consume `Directory`'s published events.  To use event-fed data **inside a
+workflow**, fold the events into a local **replica aggregate** and read that
+through its repository — a workflow loads data only through its own context's
+repositories:
+
+```ddd
+aggregate TechReplica { tech: Technician id immutable  unique (tech)  skills: string[] }
+repository TechReplicas for TechReplica { }
+criterion ForTech(t: Technician id) of TechReplica = tech == t
+
+workflow replicateTechs {
+  tech: Technician id                       // the correlation field
+  create(e: TechnicianRegistered) by e.tech { let r = TechReplica.create({ tech: e.tech, skills: e.skills }) }
+}
+workflow assign {
+  create(workOrderId: WorkOrder id, assignTo: Technician id) {
+    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition false message "unknown technician" }
+  }
+}
+```
+
+A `projection` folded over the same events is **not** readable from a
+workflow — it is a read model with no repository, served through its GET
+endpoint and pages.  `let s = Seen.byKey(k)` in a workflow body is refused with
+`loom.workflow-unknown-name` (before the gate, every backend emitted an
+undefined `Seen` receiver).  If the two aggregates genuinely change together in
+one transaction, they belong in the same context.
 
 ### `if let` — single-result criterion lookup
 

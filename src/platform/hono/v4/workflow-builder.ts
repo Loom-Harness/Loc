@@ -72,6 +72,7 @@ import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -970,7 +971,7 @@ function emitWorkflowRoute(
   // constructs `new <Agg>Repository(...)` for them so the service is handed a
   // live handle even when the workflow body never reads that repo itself.
   const reposNeeded = mergeReadPortRepos(collectReposForWorkflow(wf), wf, ctx);
-  const hasEmit = wf.statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
   }
@@ -1801,7 +1802,7 @@ function emitHandlerFn(
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
   const persisted = !!wf.correlationField;
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
   const noParams = new Map<string, string>();
   let thisName = "this";
