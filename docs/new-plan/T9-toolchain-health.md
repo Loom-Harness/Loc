@@ -825,6 +825,7 @@ M-T9.84's slices for `src/generator/dotnet`. 26 census sites at minting, plus th
 ## M-T9.88 — Imports derived from use: Elixir — `open` · **S** · P3
 
 M-T9.84's slices for `src/generator/elixir`. 2 census sites at minting. The emitters mostly spell fully-qualified module names, which need no `alias`. Close by migrating the two sites and pinning the census at zero. Oracle: `npm run test:elixir-corpus`.
+
 ## M-T9.89 — Widen `ir-walk-census` to independent `if (x.kind === …)` statements — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
