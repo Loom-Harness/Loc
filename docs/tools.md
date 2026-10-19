@@ -1193,8 +1193,18 @@ worktrees and `settings.local.json` stay local.
 
 ### The push preflight
 
-`pre-push-merge-check.sh` runs **two** gates on a `git push`, in order:
+`pre-push-merge-check.sh` runs **three** gates on a `git push`, in order:
 
+0. **Sync-only** — a push whose only new commits are merges of `origin/main`
+   (every non-merge commit it adds is already on `main`) is denied, unless the
+   old remote head conflicted with `main` or the push is marked deliberate
+   with `LOOM_ALLOW_SYNC=1` (in the environment or on the command line). Such
+   a push changes nothing a reviewer reads but re-runs the whole per-PR check
+   set; dozens at once starve the shared runner pool. The merge queue re-tests
+   every entry on current `main` anyway. Merging another PR's branch (a stack),
+   a rebase, or any push with a commit of its own passes. Pinned by
+   `test/system/pre-push-sync-gate.test.ts`. The rules behind it are in
+   `.claude/skills/steward/SKILL.md`.
 1. **Textual** — `git merge-tree --write-tree origin/main HEAD`. A definite
    conflict denies the push, listing the conflicting paths.
 2. **Semantic** — on a clean merge, the hook materialises `origin/main + HEAD`
@@ -1220,9 +1230,9 @@ slot; the hook moves it to ~1 minute before the push.
 **It fails open on everything else.** No `npx`, no borrowable `node_modules`,
 an unparsable merged-tree OID, a worktree that will not create, a 900 s
 timeout per gate, not a git repo, no `origin/main`, an offline fetch, git older
-than 2.38, or pushing trunk itself — all ALLOW. It denies on exactly two
-things: a definite conflict, and a gate that ran to completion on the merged
-tree and failed.
+than 2.38, or pushing trunk itself — all ALLOW. It denies on exactly three
+things: a sync-only push, a definite conflict, and a gate that ran to
+completion on the merged tree and failed.
 
 **Opting out deliberately:**
 

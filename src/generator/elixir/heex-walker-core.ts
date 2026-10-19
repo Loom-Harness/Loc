@@ -254,6 +254,10 @@ export interface QueryBinding {
    *  substituting one (`loom.ui-read-unresolved` rejects that model upstream, so
    *  the refusal is a backstop, not the user-facing message). */
   readFn?: string;
+  /** `source: "aggregate"` only — trailing arguments threading the socket's
+   *  principal into the read (`readActorArgs` in `heex-primitives.ts`); absent
+   *  when the read's context function takes no actor. */
+  actorArgs?: string[];
   /** kind:"list" only — the enclosing `match` arm's condition (handler-position
    *  Elixir), when the `QueryView` sits inside one.  The load runs under
    *  `if <gate> do … else socket end`, so only the arm the template actually

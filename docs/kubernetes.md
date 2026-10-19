@@ -170,7 +170,11 @@ the same process, so there is nothing to split.
 - **D-K8S-DB** — external / managed database. The chart emits a connection
   `Secret` (placeholder) + a `values.yaml` slot; there is **no** in-cluster
   postgres `StatefulSet`. The compose path keeps its in-container postgres
-  for the inner loop. The same `Secret` also holds any other sensitive env
+  for the inner loop. The chart does not create databases either: each
+  backend's `database.url` must name a database that already exists on the
+  managed instance — including one for a deployable added in a later
+  generation (the compose path re-provisions those on every `up` through its
+  `db-bootstrap` one-shot; there is no in-cluster equivalent to run). The same `Secret` also holds any other sensitive env
   (passwords / app secret keys), kept out of the plaintext `ConfigMap`.
 - **D-K8S-INGRESS** — one optional `Ingress` per UI-serving deployable,
   host/className from `values.yaml`, **off by default**. Backends are

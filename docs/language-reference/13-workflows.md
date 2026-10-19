@@ -214,7 +214,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `let x = Repo.<find>(args)` | A declared find returning a single non-nullable aggregate. An array (`loom.workflow-load-array-unsupported`) or nullable (`…-nullable-unsupported`) return is rejected here — bind it via `Repo.run`/`find` below. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { … } else { … }` | Single-result criterion lookup; `x` bound (non-null) only in the then-branch. The body's only option-handling construct. |
+| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.<find>(args) { … }` | Single-result lookup — a criterion, or a declared optional `find` (`T?`); `x` bound (non-null) only in the then-branch. The body's only option-handling construct. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |

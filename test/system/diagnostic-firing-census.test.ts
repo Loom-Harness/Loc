@@ -3693,6 +3693,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // on the second, and stays silent on the first run, on the generation that
   // runs the block, and while one sql step is still unledgered.
   "loom.migration-block-applied": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (B-20b): a unique index added to a table the
+  // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
+  // file drives the warning, its `sql before` silencing, and the rebuild /
+  // new-table / first-generation exemptions.
+  "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // B-20: the AST validator rejects any `sql <placement>` other than `before`.
+  "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 
