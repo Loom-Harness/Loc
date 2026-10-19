@@ -45,7 +45,7 @@ add.
 
 | Family | `platform:` id | Versions registered | Stack |
 |---|---|---|---|
-| Hono / TS | `node` | `node@v5` (default, zod 4 / TS 6) + `node@v4` (zod 3 / TS 5, pinnable) | Hono + Drizzle |
+| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6; `node@v4` retired) | Hono + Drizzle |
 | .NET | `dotnet` | `dotnet@v10` | ASP.NET + EF Core + Mediator |
 | Java | `java` | `java@v1` | Spring Boot + Spring Data JPA |
 | Python | `python` | `python@v1` | FastAPI + SQLAlchemy 2 |

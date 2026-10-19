@@ -373,6 +373,13 @@ forbidden by the live invariant. The *direction* that survives is
 per-`<family>/v<N>/` homes that map 1:1 to packages; the existing hono
 hoist is correct, not to be reversed.
 
+**Note (2026-10).** `node@v4` was retired (see #3687): `packages/backend-hono-v4/`
+and its pins are gone, `node@v5` is the only registered Hono version, and a
+`node@v4` pin fails with `loom.platform-version-unknown` naming `node@v5`
+(`RETIRED_BACKEND_VERSIONS` in `src/platform/metadata.ts`).
+`src/platform/hono/v4/` remains only as the shared Hono emitter +
+`makeHonoPlatform` factory that v5 calls.
+
 **Mechanism / sequencing.**
 
 - No speculative scaffolding — no `v5/`, `express/`, `nestjs/`, adapter
@@ -1343,7 +1350,8 @@ as unknown platforms. All in-tree sources, fixtures and docs were migrated to
 `platform: node`. The Hono web framework keeps its name only as the `transport:`
 value on `platform: node` (and as the `src/platform/hono/` / `@loom/backend-hono-v4`
 package directory). The historical body below is preserved as the original
-rationale for the rename.
+rationale for the rename. (2026-10: `node@v4` itself was later retired, see
+#3687 — `@loom/backend-hono-v5` is now the only Hono package.)
 
 **Problem.** `platform: hono` conflates the **JS runtime** (Node) with the **web
 framework** (Hono) in one token — the same conflation just resolved for
