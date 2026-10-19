@@ -504,6 +504,32 @@ describe("bundled dev Keycloak realm — usable under denyByDefault (D8)", () =>
     expect(attrs.vip).toEqual(["false"]);
   });
 
+  // D16 (#3241): the .NET / java verifiers decode typed claims and REJECT a
+  // token whose required typed claim does not decode — so every typed seed
+  // must be a value all five backends decode, or the demo users are 401'd.
+  it("seeds every typed claim with a value that decodes (datetime, decimal, money, enum, lists)", async () => {
+    const realm = await realmFor(
+      claimsSystem(
+        "id: string  permissions: string[]  since: datetime  limit: decimal  budget: money  big: long  org: guid  tier: Tier  agents: Agent id[]  seats: int[]  label: string",
+      ).replace("context A {", "context A {\n      enum Tier { Gold, Silver }"),
+    );
+    for (const username of ["demo", "demo-admin"]) {
+      const attrs = realm.users.find((u) => u.username === username)!.attributes!;
+      expect(attrs.since).toEqual(["2026-01-01T00:00:00Z"]);
+      expect(Number.isNaN(Date.parse(attrs.since![0]!))).toBe(false);
+      expect(attrs.limit).toEqual(["0"]);
+      expect(attrs.budget).toEqual(["0"]);
+      expect(attrs.big).toEqual(["0"]);
+      expect(attrs.org).toEqual([ZERO_UUID]);
+      expect(attrs.tier).toEqual(["Gold"]);
+      // A list rides a multivalued mapper: one VALID element of its element type.
+      expect(attrs.agents).toEqual([ZERO_UUID]);
+      expect(attrs.seats).toEqual(["0"]);
+      // A plain string keeps the obviously-synthetic seed.
+      expect(attrs.label).toEqual(["demo-label"]);
+    }
+  });
+
   it("enables the user profile's unmanagedAttributePolicy (attributes added later survive)", async () => {
     const realm = await realmFor(claimsSystem("id: string  role: string"));
     const up = realm.components?.["org.keycloak.userprofile.UserProfileProvider"];
