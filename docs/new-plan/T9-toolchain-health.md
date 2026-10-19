@@ -808,6 +808,29 @@ One-off crashes with no shared root: JPA's optional / entity-part reference coll
 
 `design: "<path>"` on a deployable is accepted with only the `loom.design-pack-custom-unchecked` warning, and every way the pack can be malformed then crashes generate with a descriptive but uncoded `Error`. The cases: no `pack.json`, no `emits`, an `emits` entry naming a missing `.hbs`, an unknown `stack`, a required primitive missing, an empty / `<`-carrying / brace-unbalanced chrome message, an undeclared chrome role used by a template, an ICU hole passed by a HEEx pack template, and a `shellFiles` key not in `emits` (`_packs/loader-fs.ts`, `loader.ts`, `pack-chrome.ts`, `shell-emits.ts`). Load and check the pack in phase ⑦ and raise a `loom.design-pack-invalid` error naming the defect. **Side bug, same mission:** a relative `design:` path resolves against the process working directory, not the `.ddd` file's directory (`resolvePackDir` is called without `referenceDir`, e.g. `react/index.ts:168`).
 
+## M-T9.84 — Imports derived from use: the shared `ref(sym)` seam, the census ratchet, the python pilot — `in-flight` · **L** · P1
+
+*Minted 2026-10-04 from the September merge review: ten-plus PRs fixed one "names a symbol it never imports / imports one it never uses" instance each (#3028, #3060, #2939, #2881, #2925, #2786, #2991, #2741, #2671, #2869, #3029). Design: [`missions/M-T9.84-derived-imports.md`](missions/M-T9.84-derived-imports.md).*
+
+Every backend decides its import block with a hand-written predicate computed separately from the code that writes the usage. The fix is structural. `ref(sym)` writes the usage as a marker, and a per-module finalizer resolves the markers and derives the import block from what survived, so the block can't disagree with the text. The census `test/system/import-predicate-census.test.ts` pins the remaining predicate sites per backend and only lets them go down (python 285 · TypeScript 230 · Java 51 · .NET 26 · Elixir 2 at minting).
+
+**Slices:** (1) design + census, (2) `src/generator/_imports/` + python canonical import order (an import-equivalence-verified reorder), (3) python mirrors (`collectPyExprImports`, `visitPyTypeImports`) → `ref`, (4) python emitters one by one, each byte-identical except where the old predicate was wrong (`vo-regex-invariant`: `re.search` without `import re` in `app/http/wire_models.py`). Oracle: `ruff check` F401/F821 + `--select I` and `mypy --strict` over the corpus python leg.
+
+## M-T9.85 — Imports derived from use: TypeScript (`src/generator/typescript`, `src/platform/hono`) — `open` · **L** · P1
+
+Follows M-T9.84's four slices (canonicalize → mirrors → emitters → close) for the node backend. 230 census sites at minting. Handles: named, default, namespace and type-only (`refType` replaces the hand `isValueUsed(n) ? n : \`type ${n}\`` sites). Relative specifiers are computed from the importing file's path. #2939's `drizzle-imports.ts` vocabulary scan is replaced by `ref` at the drizzle render sites. Oracle: `test/system/emitted-symbol-binding.test.ts` (the binder gate) + `npm run test:tsc-corpus`.
+
+## M-T9.86 — Imports derived from use: Java — `open` · **M** · P2
+
+M-T9.84's slices for `src/generator/java`. 51 census sites at minting. Same-package and `java.lang` symbols render no import, and a simple-name collision spells the later symbol fully qualified (Java has no import alias). The `exprImports` collectors in `render-expr.ts` / `render-criteria.ts` are the mirrors to delete first. Oracle: `npm run test:java-corpus`.
+
+## M-T9.87 — Imports derived from use: .NET — `open` · **M** · P2
+
+M-T9.84's slices for `src/generator/dotnet`. 26 census sites at minting, plus the `collectCsExprUsings` mirror (#2741: VO usings built from expressions only). A namespace already in `GlobalUsings.cs` renders no line, and a cross-namespace simple-name collision takes the handle's `using Alias = Ns.Name;`. Oracle: `npm run test:dotnet-corpus` (+ dapper).
+
+## M-T9.88 — Imports derived from use: Elixir — `open` · **S** · P3
+
+M-T9.84's slices for `src/generator/elixir`. 2 census sites at minting. The emitters mostly spell fully-qualified module names, which need no `alias`. Close by migrating the two sites and pinning the census at zero. Oracle: `npm run test:elixir-corpus`.
 ## M-T9.89 — Widen `ir-walk-census` to independent `if (x.kind === …)` statements — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
