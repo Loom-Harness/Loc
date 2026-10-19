@@ -500,7 +500,10 @@ def is_at(self, pier: str, position: int) -> bool:
 ```
 
 Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
-`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+`this.Berth == new Berth(pier, position)` (record equality), Elixir
+`Loom.ValueObject.equal?(record.berth, %{pier: pier, position: position})` — value
+equality across the shapes an Elixir value object takes (a column value, a
+constructor map, a collection-element struct; decimals by value, not scale).
 
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
