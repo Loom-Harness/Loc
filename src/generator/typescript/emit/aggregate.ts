@@ -740,8 +740,8 @@ function renderEntity(
     // `errors[]` entry the wire rung carries for the rule.
     const code = domainFloorCode(inv.message);
     const exprSrc = code
-      ? `${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
-      : text;
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      : `${text}, "invariant"`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`

@@ -102,7 +102,10 @@ describe(".NET generator", () => {
     const tests = files.get("Tests/Sales.Tests/Orders/OrderTests.cs")!;
     expect(tests).toMatch(/using Xunit;/);
     expect(tests).toMatch(/\[Fact\(DisplayName = "money literal builds"\)\]/);
-    expect(tests).toMatch(/Assert\.Throws<DomainException>/);
+    // sales.ddd's only `toThrow()` is a Money literal: a value object's
+    // invariant throws `ValueObjectInvariantException`, and xUnit's
+    // `Assert.Throws<T>` matches the exact type.
+    expect(tests).toMatch(/Assert\.Throws<ValueObjectInvariantException>/);
     const testCsproj = files.get("Tests/Sales.Tests/Sales.Tests.csproj")!;
     expect(testCsproj).toMatch(/Microsoft\.NET\.Test\.Sdk/);
     expect(testCsproj).toMatch(/<PackageReference Include="xunit"/);

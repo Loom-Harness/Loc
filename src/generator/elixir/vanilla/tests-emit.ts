@@ -418,7 +418,10 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
       // THE structural form, and the reason this backend needs no message
       // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
       // is a field rather than a substring an authored `message` could erase.
-      const bound = `__thrown${index}`;
+      // The binding is READ on the next line, so it carries no leading
+      // underscore: Elixir warns on a used `_`-prefixed variable, and the
+      // emitted suite runs under `mix test --warnings-as-errors`.
+      const bound = `rejected${index}`;
       return [`${bound} = ${raises}`, `assert ${bound}.kind == :${kind}`];
     }
     return [raises];

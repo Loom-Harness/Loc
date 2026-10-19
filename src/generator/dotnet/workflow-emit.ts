@@ -1793,7 +1793,7 @@ export function csWorkflowStmtTarget(
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)}, DomainErrorKind.Precondition);`,
       ];
     },
     requires: (st, indent) => {

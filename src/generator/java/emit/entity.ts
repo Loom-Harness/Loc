@@ -879,8 +879,8 @@ export function renderJavaEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const thrown = code
-      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
-      : `throw new DomainException(${text})`;
+      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderJavaExpr(inv.guard, renderCtx)}) && !(${renderJavaExpr(inv.expr, renderCtx)}))`

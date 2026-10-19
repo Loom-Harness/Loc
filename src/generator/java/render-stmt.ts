@@ -237,8 +237,8 @@ function precondition(
     ? domainFloorCode(message !== undefined ? { text: message } : undefined)
     : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(message)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
-    : `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)})`;
+    ? `throw new DomainException(${JSON.stringify(message)}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)}, DomainException.Kind.PRECONDITION)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderJavaExpr(expr, ctx)})) ${thrown};`;
   }

@@ -2203,7 +2203,7 @@ export function honoWorkflowStmtTarget(
   return {
     indentUnit: "  ",
     precondition: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)}, "precondition");`,
     ],
     requires: (st, indent) => [
       `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,

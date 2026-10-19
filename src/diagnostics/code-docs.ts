@@ -428,7 +428,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",
   "loom.contain-receiver-invalid": "18-testing.md#tocontain--membership-or-substring",
   "loom.absent-receiver-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.throw-kind-custom-message": "18-testing.md#tothrow--the-throw-assertion",
   "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",
