@@ -9,9 +9,23 @@ using Api.Domain.Events;
 
 namespace Api.Domain.Common;
 
+/// <summary>Which rung of the domain floor refused a call — carried apart
+/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+public enum DomainErrorKind
+{
+    Precondition,
+    Invariant,
+}
+
 public sealed class DomainException : Exception
 {
-    public DomainException(string message) : base(message) { }
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
+    public DomainException(string message, DomainErrorKind? kind = null) : base(message)
+    {
+        Kind = kind;
+    }
 }
 
 /// <summary>A value object's invariant refused a value (M-T5.1).
