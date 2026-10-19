@@ -488,7 +488,7 @@ web_app/
 │                                    # @mantine/* (core, hooks, form, notifications, dates, modals),
 │                                    # mantine-form-zod-resolver
 ├── tsconfig.json + tsconfig.node.json
-├── vite.config.ts                   # @vitejs/plugin-react, dev/preview both bind 0.0.0.0:3000
+├── vite.config.ts                   # @vitejs/plugin-react, dev/preview bind 0.0.0.0:<port:> (PORT overrides; the image passes --port 3000)
 ├── index.html
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime: vite preview
 ├── .dockerignore                    # excludes e2e/, dist/, playwright-report/, test-results/

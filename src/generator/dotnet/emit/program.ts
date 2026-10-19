@@ -98,6 +98,10 @@ export function renderProgram(
   ctx: BoundedContextIR,
   ns: string,
   options?: {
+    /** The deployable's declared port: a `dotnet run` with no URL configured
+     *  listens there.  Absent (the per-context legacy mode) leaves Kestrel's
+     *  own default. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
@@ -817,7 +821,18 @@ using OpenTelemetry.Trace;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
-
+${
+  options?.nativePort !== undefined
+    ? `
+// A native \`dotnet run\` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:${options.nativePort}");
+}
+`
+    : ""
+}
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot
