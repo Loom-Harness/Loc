@@ -23,6 +23,7 @@ import {
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
@@ -31,7 +32,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
-import { constructionSeededFields } from "../../construction-default.js";
+import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js";
 import { jid } from "../java-ident.js";
 import {
@@ -968,6 +969,16 @@ export function renderJavaEntity(
                   return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
                 })
             : []),
+          // A server-owned field with no default (`openedAt: datetime managed`)
+          // takes the shared language-defined seed — the value node and python
+          // name too.  Left unassigned it went into its NOT NULL column as NULL
+          // (500), for every type Java has no primitive zero for.
+          ...(isAgg(entity)
+            ? serverSeededFields(entity).map(
+                ({ field, seed }) =>
+                  `        e.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
+              )
+            : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
           // The create body (`createBodyStatements`) runs against the
           // constructed instance, exactly like an operation body: params as
@@ -1388,4 +1399,22 @@ export function renderJavaAbstractBaseEntity(
     `}`,
     ``,
   );
+}
+
+/** The Java spelling of a shared server-init seed kind
+ *  (`src/ir/util/server-init-seed.ts`) for a field of type `t`. */
+function javaServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
+  const name = t.kind === "primitive" ? t.name : "";
+  switch (seed) {
+    case "now":
+      return "java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)";
+    case "zero":
+      return name === "decimal" ? "java.math.BigDecimal.ZERO" : name === "long" ? "0L" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "new java.util.ArrayList<>()";
+  }
 }

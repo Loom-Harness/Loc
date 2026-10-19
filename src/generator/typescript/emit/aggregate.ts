@@ -336,8 +336,16 @@ function serverInitSeedExpr(t: TypeIR): string {
     case "empty-collection":
       return "[]";
     default:
-      return "null";
+      // A `guid` has no language-defined seed (the gate refuses an unwritten
+      // one), but a lifecycle stamp may write it later (`createdBy`), so the
+      // factory still needs a string-typed placeholder for the state literal.
+      return isGuid(t) ? '""' : "null";
   }
+}
+
+function isGuid(t: TypeIR): boolean {
+  const base = t.kind === "optional" ? t.inner : t;
+  return base.kind === "primitive" && base.name === "guid";
 }
 
 export function renderOperationReturnType(returnType: TypeIR, ctx: BoundedContextIR): string {

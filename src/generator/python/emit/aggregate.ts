@@ -31,6 +31,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { serverInitSeed as sharedServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
@@ -432,28 +433,28 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
 }
 
 /** Type-correct seed for a non-optional server-owned field the create
- *  factory must still populate (managed / token / internal). */
+ *  factory must still populate (managed / token / internal).  WHICH types have
+ *  a seed is the shared table (`src/ir/util/server-init-seed.ts`); this only
+ *  spells it in Python.  `None` is the unreachable-by-valid-input arm — the
+ *  constructibility gate refuses a type the table has no seed for. */
 function serverInitSeed(t: TypeIR): string {
-  if (t.kind === "primitive") {
-    switch (t.name) {
-      case "datetime":
-        return "datetime.now(UTC)";
-      case "int":
-      case "long":
-        return "0";
-      case "decimal":
-        return "0.0";
-      case "bool":
-        return "False";
-      case "string":
-      case "guid":
-        return '""';
-      default:
-        return "None";
-    }
+  const base = t.kind === "optional" ? t.inner : t;
+  switch (sharedServerInitSeed(t)) {
+    case "now":
+      return "datetime.now(UTC)";
+    case "zero":
+      return base.kind === "primitive" && base.name === "decimal" ? "0.0" : "0";
+    case "false":
+      return "False";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+    default:
+      // A `guid` has no language-defined seed, but a lifecycle stamp may
+      // write it later (`createdBy`): the factory still names a str placeholder.
+      return base.kind === "primitive" && base.name === "guid" ? '""' : "None";
   }
-  if (t.kind === "array") return "[]";
-  return "None";
 }
 
 function containsType(c: ContainmentIR): string {

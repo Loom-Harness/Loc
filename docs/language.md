@@ -633,6 +633,50 @@ shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 > against the API-read DTO, which omits them. Both are the same rule read off the
 > two ✗ columns above.
 
+#### A server-owned field with no default starts at its type's seed
+
+A `managed` / `token` / `internal` field is off the create input, so a
+non-optional one with no `= <default>` gets its first value from the create
+factory: the language-defined **seed** for its type
+(`src/ir/util/server-init-seed.ts`, one table every backend reads).
+
+| Type | Seed |
+|---|---|
+| `datetime` | now (UTC) |
+| `int` / `long` / `decimal` | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| `T[]` | `[]` |
+
+```ddd
+aggregate Ticket {
+  title: string
+  openedAt: datetime managed       // no default: created at now
+  hits: int managed                // created at 0
+  create(title: string) { }
+}
+```
+
+```java
+// Java — Ticket.create(...)
+e.openedAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+e.hits = 0;
+```
+
+```elixir
+# Elixir — Ticket changeset, ahead of validate_required
+|> __default(:opened_at, Loom.Datetime.normalize(DateTime.utc_now()))
+|> __default(:hits, 0)
+```
+
+The other types have no honest seed: `money` has no currency, an enum has no
+first value, a value object or `X id` has no value to invent, and a `guid` has
+no "absent" (`""` is not a uuid and the nil uuid is a real value). A
+non-optional server-owned field of one of these needs a `= <default>`, a
+capability stamp, or a `?`. Otherwise it is refused with
+`loom.unconstructible-server-field`. The `corpus/managed-seeds` wire golden
+pins the seeds on all five backends.
+
 #### `immutable` constrains the CLIENT UPDATE INPUT, not domain assignment
 
 Every ✗ in the matrix is a **wire** fact. `immutable` in particular reads

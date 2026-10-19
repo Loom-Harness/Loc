@@ -26,12 +26,13 @@ import {
   operationBody,
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
-import { constructionSeededFields } from "../../construction-default.js";
+import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
@@ -919,9 +920,20 @@ export function renderEntity(
   // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
   // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededFields(entity.fields, new Set(createInputFieldList.map((f) => f.name))).map(
-        (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
-      )
+    ? [
+        ...constructionSeededFields(
+          entity.fields,
+          new Set(createInputFieldList.map((f) => f.name)),
+        ).map((f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`),
+        // A server-owned field with no default (`openedAt: datetime managed`)
+        // takes the shared language-defined seed — the value node and python
+        // name too.  Left to the CLR default it read back as 0001-01-01, and a
+        // `string` / list one went in as NULL (500).
+        ...serverSeededFields(entity).map(
+          ({ field, seed }) =>
+            `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
+        ),
+      ]
     : [];
   // A field a narrowed `create(…)` leaves out with no declared default is a
   // bare `bool` or a collection (`loom.create-param-required-omitted` refuses
@@ -1236,4 +1248,22 @@ export function renderAbstractBaseEntity(
       "}",
     ) + "\n"
   );
+}
+
+/** The C# spelling of a shared server-init seed kind
+ *  (`src/ir/util/server-init-seed.ts`) for a field of type `t`. */
+function csServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
+  const name = t.kind === "primitive" ? t.name : "";
+  switch (seed) {
+    case "now":
+      return "DateTime.UtcNow";
+    case "zero":
+      return name === "decimal" ? "0m" : name === "long" ? "0L" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "new()";
+  }
 }
