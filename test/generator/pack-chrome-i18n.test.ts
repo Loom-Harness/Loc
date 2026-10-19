@@ -593,20 +593,16 @@ describe("pack-chrome i18n — pager position counter (ICU chrome)", () => {
 // is simply untranslatable, which no build gate and no single-pack assertion can
 // see.  The `design:` clause names a FAMILY and resolves to its newest version,
 // so a generate-and-assert test can only ever reach one version per family;
-// rendering each pack directly is what reaches all fifteen.
+// rendering each pack directly is what reaches every one.
 
 describe("pager counter — every pack version renders it through the token", () => {
   const GRID_PACKS = [
     "angularMaterial@v1",
-    "chakra@v2",
     "chakra@v3",
     "flowbite@v1",
-    "mantine@v7",
     "mantine@v9",
-    "mui@v5",
     "mui@v7",
     "primeng@v1",
-    "shadcn@v3",
     "shadcn@v4",
     "shadcnSvelte@v1",
     "shadcnVue@v1",

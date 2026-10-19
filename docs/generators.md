@@ -484,7 +484,7 @@ For a frontend `webApp` targeting `api` (which hosts Order + Product):
 
 ```
 web_app/
-├── package.json                     # deps: react, react-router-dom, @tanstack/react-query, zod,
+├── package.json                     # deps: react, react-router, @tanstack/react-query, zod,
 │                                    # @mantine/* (core, hooks, form, notifications, dates, modals),
 │                                    # mantine-form-zod-resolver
 ├── tsconfig.json + tsconfig.node.json
@@ -729,10 +729,10 @@ project (routing, RQ hooks, page objects, smoke tests) is identical.
 
 | Family | Path | Versions shipped | Component library | Latest (bareword resolves to) |
 |---|---|---|---|---|
-| `mantine` | `designs/mantine/` | v7, v9 | `@mantine/*` | `mantine@v9` |
-| `shadcn` | `designs/shadcn/` | v3, v4 | Tailwind + Radix primitives | `shadcn@v4` |
-| `mui` | `designs/mui/` | v5, v7 | `@mui/material` | `mui@v7` |
-| `chakra` | `designs/chakra/` | v2, v3 | `@chakra-ui/react` | `chakra@v3` |
+| `mantine` | `designs/mantine/` | v9 | `@mantine/*` | `mantine@v9` |
+| `shadcn` | `designs/shadcn/` | v4 | Tailwind + Radix primitives | `shadcn@v4` |
+| `mui` | `designs/mui/` | v7 | `@mui/material` | `mui@v7` |
+| `chakra` | `designs/chakra/` | v3 | `@chakra-ui/react` | `chakra@v3` |
 | `vuetify` | `designs/vuetify/` | v1 | Vuetify 3 — Vue only | `vuetify@v1` |
 | `shadcnVue` | `designs/shadcnVue/` | v1 | Tailwind + Radix Vue primitives — Vue only | `shadcnVue@v1` |
 | `flowbite` | `designs/flowbite/` | v1 | Flowbite Svelte — Svelte only | `flowbite@v1` |
@@ -759,11 +759,11 @@ Zod + Vite + TypeScript dep bundle).  Each pack version declares its
 stack in its `pack.json`; the bundler reads that declaration and
 emits the matching `package.json`.  See
 [`design-packs.md`](design-packs.md) for the full pack authoring
-surface, including the stack catalogue (v1/v2/v3) and the recipe for
+surface, including the stack catalogue and the recipe for
 adding a new pack version.
 
 A bareword `design: "mantine"` resolves to the family's current default
-version; pinning is via `family@version` (e.g. `design: "mui@v5"`).
+version; pinning is via `family@version` (e.g. `design: "mui@v7"`).
 The per-version folder under `designs/<family>/<vN>/` is what the
 bundler actually loads.
 

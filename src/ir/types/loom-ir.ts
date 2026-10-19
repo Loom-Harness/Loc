@@ -3224,7 +3224,7 @@ export interface DeployableIR {
    *  ignored otherwise.
    *
    *  After lowering this field is always fully qualified
-   *  (`family@version`, e.g. `"mantine@v7"`) for built-in packs.  The
+   *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The
    *  bareword DSL form `design: mantine` resolves through
    *  `BUILTIN_PACK_LATEST` during lowering, so downstream consumers
    *  (generator dispatch in `src/generator/react/index.ts`, the

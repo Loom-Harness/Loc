@@ -121,7 +121,7 @@ export function loadPack(packDir: VfsPath): LoadedPack {
   const m = packDir.match(/^\/designs\/([^/]+)\/([^/]+)$/);
   if (m && manifest.version !== m[2]) {
     throw new Error(
-      `loader-vfs: pack at ${packDir} has version="${manifest.version}" but lives under directory "${m[2]}".  The two must match (e.g. /designs/mantine/v7/pack.json must declare "version": "v7").`,
+      `loader-vfs: pack at ${packDir} has version="${manifest.version}" but lives under directory "${m[2]}".  The two must match (e.g. /designs/mantine/v9/pack.json must declare "version": "v9").`,
     );
   }
   const sources: Record<string, string> = {};

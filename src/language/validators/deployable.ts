@@ -19,6 +19,7 @@ import {
   DAISYUI_THEMES,
   packFormatForBuiltin,
   parseBuiltinDesignRef,
+  retiredPackSuccessor,
 } from "../../util/builtin-formats.js";
 import type { Deployable, Ui, UiComposeBinding } from "../generated/ast.js";
 import {
@@ -524,7 +525,7 @@ export function checkDeployableDesignPack(
   const expectedFormat = expectedPackFormatFor(framework);
   // Parse the slot value into {family, version, qualified}.
   // Bareword (`mantine`) and pinned
-  // (`mantine@v7`) forms both produce a parsed ref pointing at a
+  // (`mantine@v9`) forms both produce a parsed ref pointing at a
   // built-in family; custom paths (`./design/foo`) parse to null and
   // fall through to Case 2.  Distinguishing "known family, unknown
   // version" from "custom path" lets us emit a distinctive error
@@ -543,6 +544,17 @@ export function checkDeployableDesignPack(
         expectedFormat: expectedFormat ?? "tsx",
       }),
       { node: d, property: "design", code: "loom.design-pack-custom-unchecked" },
+    );
+    return;
+  }
+  const successor = retiredPackSuccessor(parsedRef.qualified);
+  if (successor !== undefined) {
+    // Case 1c — a pin to a pack version that shipped once and was
+    // removed.  Name the successor instead of the generic version list.
+    accept(
+      "error",
+      diagMessage("loom.design-pack-retired", { design: d.design, name: d.name, successor }),
+      { node: d, property: "design", code: "loom.design-pack-retired" },
     );
     return;
   }

@@ -449,11 +449,11 @@ DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyu
           | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin an older one with `design: "mantine@v7"`.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|
-| `react` / `static` (tsx) | `mantine` (v9; v7 pinnable), `shadcn` (v4; v3), `mui` (v7; v5), `chakra` (v3; v2) | `mantine` |
+| `react` / `static` (tsx) | `mantine` (v9), `shadcn` (v4), `mui` (v7), `chakra` (v3) | `mantine` |
 | `vue` | `vuetify` (v3), `shadcnVue` (v1) | `vuetify` |
 | `svelte` | `shadcnSvelte` (v1), `flowbite` (v1) | `shadcnSvelte` |
 | `angular` | `angularMaterial` (v1), `primeng` (v1), `spartanNg` (v1) | `angularMaterial` |

@@ -114,13 +114,9 @@ export interface ReactPackSpec {
  *  CI sweep asks the harness for "all packs" per example rather than
  *  enumerating them in the workflow. */
 export const reactBuildPacks: readonly ReactPackSpec[] = [
-  { family: "mantine", version: "v7" },
   { family: "mantine", version: "v9" },
-  { family: "shadcn", version: "v3" },
   { family: "shadcn", version: "v4" },
-  { family: "mui", version: "v5" },
   { family: "mui", version: "v7" },
-  { family: "chakra", version: "v2" },
   { family: "chakra", version: "v3" },
 ];
 

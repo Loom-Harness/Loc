@@ -127,7 +127,7 @@ jobs:
             # #401) × two representative packs: one Mantine (the React
             # baseline) and one shadcn (the Tailwind/Radix family).  This
             # catches nearly all pack-template / generator drift; the
-            # remaining packs (mui, chakra, older versions) and per-example
+            # remaining packs (mui, chakra) and per-example
             # drift are deferred to the push:main sweep below.  Full sweep
             # is one merge later — or force it with workflow_dispatch.
             #

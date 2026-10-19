@@ -65,7 +65,7 @@ const ENABLED = process.env.LOOM_REACT_BUILD === "1" || SHARD !== undefined;
  *  bareword slots and pinned slots both get rewritten in place. */
 function injectDesign(src: string, qualified: string): string {
   // Existing slot — either bareword (`design: mantine`) or pinned
-  // (`design: "mantine@v7"`).  Match both shapes and rewrite to the
+  // (`design: "mantine@v9"`).  Match both shapes and rewrite to the
   // quoted pinned form.
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   const replacement = `$1"${qualified}"`;

@@ -60,7 +60,6 @@ root `package.json` — they're Handlebars-template strings.
 
 | File | Pins |
 |---|---|
-| `stacks/v1/stack-package-deps.hbs` + `-devdeps.hbs` | React 18 + react-router-dom 6 + zod 3 + react-query 5 + react-hook-form 7 / resolvers 3; vite 8, **typescript 6** (devdeps) |
 | `stacks/v3/stack-package-deps.hbs` + `-devdeps.hbs` | React 19 + react-router 7 + zod 4 + resolvers 5; vite 8, typescript 6 |
 | `stacks/sv1/stack-package-deps.hbs` + `-devdeps.hbs` | Svelte 5 + SvelteKit 2 + adapter-static 3 + svelte-query 6 + zod 4 + vite 8 + **TS 6.0** + svelte-check 4 |
 | `stacks/vue1/stack-package-deps.hbs` + `-devdeps.hbs` | Vue 3.5 + vue-router 4 + @vitejs/plugin-vue 6 + vue-query 5 + vue-tsc 3 + zod 4 + vite 8 + **TS 6.0** |
@@ -148,7 +147,6 @@ and is exactly the narrow diff that path-filtered gates skip.
 
 | Stack | Family | React/FW | router | zod | TS | vite |
 |---|---|---|---|---|---|---|
-| `v1` | React (mantine@v7, chakra@v2, mui@v5, shadcn@v3) | 18 | react-router-dom 6 | 3 | 6 | 8 |
 | `v3` | React (mantine@v9, chakra@v3, mui@v7, shadcn@v4) | 19.2 | react-router 7 | 4 | 6 | 8 |
 | `sv1` | Svelte (shadcnSvelte, flowbite) | Svelte 5 / Kit 2 | — | 4 | 6 | 8 |
 | `vue1` | Vue (vuetify, shadcnVue) | Vue 3.5 | vue-router 4 | 4 | 6 | 8 |

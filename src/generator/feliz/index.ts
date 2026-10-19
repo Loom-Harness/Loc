@@ -1973,7 +1973,7 @@ const DEFAULT_FELIZ_THEME = "corporate";
 
 /** The daisyUI theme a feliz deployable renders under, chosen by its `design:`
  *  slot.  A `design:` naming a built-in daisyUI theme (`design: dracula`) selects
- *  it; anything else (unset → the lowered `mantine@v7` default, or a non-theme
+ *  it; anything else (unset → the lowered `mantine@v9` default, or a non-theme
  *  value) falls back to `corporate`.  The validator (Rule 14, feliz branch)
  *  already rejects a user-written non-theme `design:`, so the fallback only ever
  *  fires for the unset default. */
