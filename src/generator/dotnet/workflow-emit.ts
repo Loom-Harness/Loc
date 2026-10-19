@@ -2044,9 +2044,19 @@ export function csWorkflowStmtTarget(
       };
       const thenSaves = st.savesInThen.map(saveLine);
       const elseSaves = st.savesInElse.map(saveLine);
+      // A declared optional find (`findMethod`) is emitted under its own name
+      // with no `Async` suffix (the `repoLet` convention) and already answers
+      // `Task<T?>`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${indent}var ${st.var} = await ${fieldName}.${upperFirst(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+          ]
+        : [
+            `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
+            `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+          ];
       const out = [
-        `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
-        `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+        ...lookup,
         `${indent}if (${st.var} is not null)`,
         `${indent}{`,
         ...thenLines,

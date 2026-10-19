@@ -72,6 +72,7 @@ import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../../ir/util/walk.js";
 import { commandCreateResult, emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -979,7 +980,7 @@ function emitWorkflowRoute(
   // constructs `new <Agg>Repository(...)` for them so the service is handed a
   // live handle even when the workflow body never reads that repo itself.
   const reposNeeded = mergeReadPortRepos(collectReposForWorkflow(wf), wf, ctx);
-  const hasEmit = wf.statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
   }
@@ -1843,7 +1844,7 @@ function emitHandlerFn(
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
   const persisted = !!wf.correlationField;
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
   const noParams = new Map<string, string>();
   let thisName = "this";
@@ -2381,10 +2382,15 @@ export function honoWorkflowStmtTarget(
       // `if let o = Repo.find(<Criterion>) { … } else { … }` → run the shared
       // `findAllBy<Criterion>` retrieval with `limit: 1`, take the first row (or
       // `null`), and branch.  The `!== null` narrows `o` to non-null in the
-      // then-branch; each branch's dirty bindings save INSIDE that branch.
+      // then-branch; each branch's dirty bindings save INSIDE that branch.  A
+      // declared optional find (`findMethod`) already answers `Agg | null`, so
+      // it is awaited directly.
       const inner = `${indent}  `;
       const args = st.retrievalArgs.map(renderArg);
-      args.push("{ limit: 1 }");
+      const repoVar = lowerFirst(st.repoName);
+      const lookup = st.findMethod
+        ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+        : `(await ${repoVar}.run${upperFirst(st.retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
@@ -2392,7 +2398,7 @@ export function honoWorkflowStmtTarget(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
         `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,
