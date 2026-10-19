@@ -187,7 +187,11 @@ describe("minting behaviour", () => {
   });
 
   it("a dev-stub principal (E2E_DEV_CLAIMS) or E2E_DEV_IDP=off stands it aside", async () => {
-    for (const env of [{ E2E_DEV_CLAIMS: '{"id":"u"}' }, { E2E_DEV_IDP: "off" }]) {
+    const envs: Record<string, string>[] = [
+      { E2E_DEV_CLAIMS: '{"id":"u"}' },
+      { E2E_DEV_IDP: "off" },
+    ];
+    for (const env of envs) {
       const run = await driveMint(await e2eFor(GOOGLE), env, [TOKEN_OK]);
       expect(run.urls, JSON.stringify(env)).toEqual([]);
       expect(run.authorization, JSON.stringify(env)).toBeUndefined();
