@@ -65,7 +65,7 @@ describe("feliz workflow forms", () => {
   it("emits a paramless workflow Api fn (POST /api/workflows/<wf>, 204 → unit)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "let runOpenAccountWorkflow (form: OpenAccountWorkflowForm) : Async<Result<unit, string>> =",
+      "let runOpenAccountWorkflow (form: OpenAccountWorkflowForm) : Async<Result<unit, ServerErrors>> =",
     );
     expect(app).toContain('Http.request "/api/workflows/open_account"');
     expect(app).toContain("|> Http.method POST");
@@ -77,13 +77,13 @@ describe("feliz workflow forms", () => {
     expect(app).toContain("| SetOpenAccountWorkflowFormName of string");
     expect(app).toContain("| SetOpenAccountWorkflowFormInitial of string");
     expect(app).toContain("| SubmitOpenAccountWorkflowForm\n"); // paramless (no `of`)
-    expect(app).toContain("| OpenAccountWorkflowDone of Result<unit, string>");
+    expect(app).toContain("| OpenAccountWorkflowDone of Result<unit, ServerErrors>");
   });
 
   it("wires the update arms (setters, paramless submit Cmd, done)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "  | SubmitOpenAccountWorkflowForm -> model, Cmd.OfAsync.perform Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone",
+      "  | SubmitOpenAccountWorkflowForm -> { model with OpenAccountWorkflowFormServer = ServerErrors.empty }, Cmd.OfAsync.perform Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone",
     );
     expect(app).toContain(
       '  | OpenAccountWorkflowDone (Ok ()) -> { model with OpenAccountWorkflowForm = emptyOpenAccountWorkflowForm }, Cmd.navigatePath("")',

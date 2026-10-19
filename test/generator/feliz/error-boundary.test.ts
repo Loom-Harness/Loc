@@ -49,8 +49,10 @@ describe("feliz error boundary + failure sink (M-T1.8)", () => {
     expect(src).toContain("    view model dispatch");
     expect(src).toContain("  with ex ->");
     expect(src).toContain('Fable.Core.JS.console.error ("Uncaught render error:", ex)');
+    // The title reads the shared `chrome.rootErrorTitle` key (the fixture's ui
+    // is i18n-enabled).
     expect(src).toContain(
-      'Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text "Something went wrong." ]',
+      'Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text (I18n.t "chrome.rootErrorTitle" "Something went wrong.") ]',
     );
   });
 

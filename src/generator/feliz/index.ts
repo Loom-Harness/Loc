@@ -46,6 +46,7 @@ import {
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
+import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
@@ -137,6 +138,7 @@ import {
   renderFileRefType,
   renderFormTypes,
   renderProvLineageType,
+  renderServerErrorsModule,
   renderValidation,
   renderViewModule,
   renderWireTypes,
@@ -728,30 +730,59 @@ function humanizeLabel(name: string): string {
  *  button) — otherwise the bar advertises a route whose own view immediately
  *  renders `forbiddenView` and whose backend answers 403.  This is the Feliz
  *  half of the per-link auth the JS frontends get from
- *  `_frontend/menu-emitter.ts` (`requiresJs`). */
+ *  `_frontend/menu-emitter.ts` (`requiresJs`).
+ *
+ *  An explicit `menu { }` replaces the page list: its sections and links, in
+ *  the author's order, from the SAME derivation the JS sidebars render
+ *  (`deriveSidebarFromUi`) — a section heading is a `menu-title` item, an
+ *  authored label renders through `I18n.t` under its catalog key, and a link to
+ *  a `requires`-gated page carries the page's own claims guard. */
 function renderNavbar(
   pages: readonly PageIR[],
   brand: string,
   i18nEnabled = false,
   pageGate = false,
+  menu?: readonly NavSectionVM[],
 ): string {
-  const navPages = pages.filter((p) => !hasRouteParam(p));
-  if (navPages.length < 2) return "";
-  const items = navPages
-    .map((p) => {
-      // PATH href (History API routing), not a `#/…` hash link.
-      const href = p.route ?? "/";
-      const li = `Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
-      // ONE line per entry, guard included: F# keys a newline-separated list
-      // element by its first-token column, so a multi-line guard here would
-      // have to re-indent with the surrounding `prop.children [` block.
-      const gated =
-        pageGate && p.requires
-          ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(p.requires, "currentUser")} -> ${li} | _ -> Html.none)`
-          : li;
-      return `          ${gated}`;
-    })
-    .join("\n");
+  // ONE line per entry, guard included: F# keys a newline-separated list
+  // element by its first-token column, so a multi-line guard here would
+  // have to re-indent with the surrounding `prop.children [` block.
+  const guard = (page: PageIR | undefined, li: string): string =>
+    pageGate && page?.requires
+      ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(page.requires, "currentUser")} -> ${li} | _ -> Html.none)`
+      : li;
+  const label = (text: string, key: string | undefined): string =>
+    i18nEnabled && key ? `(I18n.t ${fsString(key)} ${fsString(text)})` : fsString(text);
+  let entries: string[];
+  if (menu) {
+    entries = menu.flatMap((section) => [
+      ...(section.label
+        ? [
+            `Html.li [ prop.className "menu-title"; prop.text ${label(section.label, section.labelKey)} ]`,
+          ]
+        : []),
+      ...section.entries.map((e) =>
+        e.external
+          ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
+          : guard(
+              pages.find((p) => p.route === e.to),
+              `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+            ),
+      ),
+    ]);
+    if (entries.length === 0) return "";
+  } else {
+    const navPages = pages.filter((p) => !hasRouteParam(p));
+    if (navPages.length < 2) return "";
+    // PATH href (History API routing), not a `#/…` hash link.
+    entries = navPages.map((p) =>
+      guard(
+        p,
+        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
+      ),
+    );
+  }
+  const items = entries.map((e) => `          ${e}`).join("\n");
   // The bar is a real <nav> landmark (a11y contract) — a screen reader
   // announces it as the primary navigation and can jump straight to it.
   // The landmark's accessible name is pack-chrome: translated through the
@@ -790,13 +821,16 @@ function renderRootView(
   brand = "",
   i18nEnabled = false,
   pageGate = false,
+  /** The ui's explicit `menu { }`, derived — the navbar renders it instead of
+   *  the top-level page list. */
+  menu?: readonly NavSectionVM[],
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1599,7 +1633,15 @@ function renderAppFs(
           return text;
         }),
         "",
-        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled, pageGate),
+        renderRootView(
+          pages,
+          nameCtx,
+          rootFn,
+          ui.name,
+          i18nEnabled,
+          pageGate,
+          ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
+        ),
       ]
     : [
         ((): string => {
@@ -1675,8 +1717,9 @@ function renderAppFs(
     "open Elmish",
     "open Elmish.React",
     // Thoth is needed for decoders (reads + async effects), encoders (forms),
-    // the UI-gate claims decode, AND the FileRef upload decoder.
-    (hasReads || hasForms || hasEffects || pageGate || hasFileState || hasFileWire) &&
+    // a rejected submit's `ServerErrors` decode, the UI-gate claims decode, AND
+    // the FileRef upload decoder.
+    (hasReads || hasFormSubmits || hasEffects || pageGate || hasFileState || hasFileWire) &&
       "open Thoth.Json",
     hasHttp && "open Fable.SimpleHttp",
     // Browser.Dom provides `window` for the auth sign-in/out redirects.
@@ -1752,14 +1795,18 @@ function renderAppFs(
     hasForms && encoders,
     hasForms && validation ? "" : false,
     validation || undefined,
+    // A rejected submit's decoded ProblemDetails — the error every create /
+    // operation / workflow Api fn fails with, so it precedes `Api`.
+    hasFormSubmits && "",
+    hasFormSubmits && renderServerErrorsModule(),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
     // View helpers — Remote matchers (reads) + the per-field `fieldError` matcher
     // (validated forms), so a form-only page still gets the helper.
-    (hasReads || hasFieldErrors || usesChart) && "",
-    (hasReads || hasFieldErrors || usesChart) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart),
+    (hasReads || hasFieldErrors || usesChart || hasForms) && "",
+    (hasReads || hasFieldErrors || usesChart || hasForms) &&
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
@@ -1835,7 +1882,7 @@ function renderAppFs(
     "  with ex ->",
     '    Fable.Core.JS.console.error ("Uncaught render error:", ex)',
     '    Html.div [ prop.role "alert"; prop.className "p-4"; prop.children [',
-    '      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text "Something went wrong." ]',
+    `      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text ${shellChrome("rootErrorTitle", i18nEnabled)} ]`,
     '      Html.pre [ prop.className "text-red-700 whitespace-pre-wrap"; prop.text ex.Message ]',
     "    ] ]",
     "",

@@ -72,10 +72,12 @@
       "path": "/api/orders/{id}",
       "status": 200,
       "body": {
+        "createdAt": "<timestamp>",
         "id": "<volatile:key>",
         "quantity": 5,
         "reference": "R1",
         "status": 7,
+        "updatedAt": "<timestamp>",
         "version": 2
       }
     },
@@ -85,10 +87,12 @@
       "path": "/api/orders/by_reference?reference=R1",
       "status": 200,
       "body": {
+        "createdAt": "<timestamp>",
         "id": "<volatile:key>",
         "quantity": 5,
         "reference": "R1",
         "status": 7,
+        "updatedAt": "<timestamp>",
         "version": 2
       }
     },
@@ -108,10 +112,12 @@
       "path": "/api/orders/{id}",
       "status": 200,
       "body": {
+        "createdAt": "<timestamp>",
         "id": "<volatile:key>",
         "quantity": 8,
         "reference": "R1",
         "status": 7,
+        "updatedAt": "<timestamp>",
         "version": 3
       }
     },
@@ -313,17 +319,21 @@
       "body": {
         "items": [
           {
+            "createdAt": "<timestamp>",
             "id": "<volatile:key>",
             "quantity": 8,
             "reference": "R1",
             "status": 7,
+            "updatedAt": "<timestamp>",
             "version": 3
           },
           {
+            "createdAt": "<timestamp>",
             "id": "<volatile:key>",
             "quantity": 1,
             "reference": "R2",
             "status": 2,
+            "updatedAt": "<timestamp>",
             "version": 2
           }
         ],

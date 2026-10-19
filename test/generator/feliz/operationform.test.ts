@@ -67,7 +67,7 @@ describe("feliz operation forms", () => {
   it("emits a curried id-qualified operation Api fn (POST /<id>/<op>, 204 → unit)", async () => {
     const app = await appFs(OPFORM);
     expect(app).toContain(
-      "let renameProduct (id: string) (form: RenameProductOpForm) : Async<Result<unit, string>> =",
+      "let renameProduct (id: string) (form: RenameProductOpForm) : Async<Result<unit, ServerErrors>> =",
     );
     expect(app).toContain('Http.request (sprintf "/api/products/%s/rename" id)');
     expect(app).toContain("|> Http.method POST");
@@ -79,7 +79,7 @@ describe("feliz operation forms", () => {
     const app = await appFs(OPFORM);
     expect(app).toContain("| SetRenameProductOpFormNewName of string");
     expect(app).toContain("| SubmitRenameProductOpForm of string");
-    expect(app).toContain("| RenameProductOpDone of Result<unit, string>");
+    expect(app).toContain("| RenameProductOpDone of Result<unit, ServerErrors>");
   });
 
   it("wires the update arms (setter, curried submit Cmd, done navigate)", async () => {
@@ -89,12 +89,14 @@ describe("feliz operation forms", () => {
     );
     // The curried `Api.renameProduct id` partial-app is the Cmd's async fn.
     expect(app).toContain(
-      "  | SubmitRenameProductOpForm id -> model, Cmd.OfAsync.perform (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone",
+      "  | SubmitRenameProductOpForm id -> { model with RenameProductOpFormServer = ServerErrors.empty }, Cmd.OfAsync.perform (Api.renameProduct id) model.RenameProductOpForm RenameProductOpDone",
     );
     expect(app).toContain(
       '  | RenameProductOpDone (Ok ()) -> { model with RenameProductOpForm = emptyRenameProductOpForm }, Cmd.navigatePath("products")',
     );
-    expect(app).toContain("  | RenameProductOpDone (Error _) -> model, Cmd.none");
+    expect(app).toContain(
+      "  | RenameProductOpDone (Error e) -> { model with RenameProductOpFormServer = e }, Cmd.none",
+    );
   });
 
   it("the OperationForm renders inputs + a submit dispatching Submit… id", async () => {

@@ -465,8 +465,8 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "string.trim": (recv) => `${recv}.strip()`,
   "string.toUpper": (recv) => `${recv}.upper()`,
   "string.toLower": (recv) => `${recv}.lower()`,
-  // 0-based clamping semantics = JS slice (see the catalogue contract);
-  // Python slicing clamps natively.  Space around the slice colon is the
+  // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
+  // contract) — Python slicing is all three natively.  Space around the slice colon is the
   // black/ruff-format style for non-trivial slice operands.
   "string.substring": (recv, args) =>
     args.length > 1 ? `${recv}[${args[0]} : (${args[0]}) + (${args[1]})]` : `${recv}[${args[0]} :]`,

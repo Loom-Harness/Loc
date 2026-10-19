@@ -31,7 +31,7 @@ import { hydrateRootExpr } from "../repository-find-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { projectFieldEntries } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited } from "./audit-stamp.js";
+import { aggregateIsAudited, auditStampImport } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import {
@@ -370,7 +370,7 @@ export function renderMikroEmbeddedRepository(
       `import { EntityManager } from "@mikro-orm/postgresql";`,
       `import { ${row} } from "../entities";`,
       maskUserImport(agg, repo),
-      audited && `import { stampInsert${versioned ? ", stampUpdate" : ""} } from "../audit-stamp";`,
+      audited && auditStampImport(agg, { update: versioned }),
       `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,

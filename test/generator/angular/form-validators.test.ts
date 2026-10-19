@@ -107,7 +107,9 @@ describe("angular generator — invariant-derived form Validators", () => {
     // (M-T1.12 slice 6; the raw-pack `<p>` shape is pinned in
     // `field-aria.test.ts`).
     expect(page).toContain(
-      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">Sku is invalid</mat-error>}</mat-form-field>',
+      // A server 422's message for the field (`errors.server`) takes the slot
+      // over the client sentence.
+      '@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.[\'server\']; as serverError) { {{ serverError }} } @else { Sku is invalid }</mat-error>}</mat-form-field>',
     );
     expect(page).toContain('data-testid="products-new-error-quantity"');
   });

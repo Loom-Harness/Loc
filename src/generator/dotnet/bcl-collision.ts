@@ -140,6 +140,42 @@ export function taskInScopeOfAggregate(agg: Pick<AggregateIR, "name" | "parts">)
 }
 
 // ---------------------------------------------------------------------------
+// Id types colliding with an IMPLICIT global using of the Web SDK.
+//
+// The main project is `Microsoft.NET.Sdk.Web` with `<ImplicitUsings>`, which
+// adds `global using Microsoft.Extensions.Logging;` to every file.  That
+// namespace declares a `struct EventId`, so a domain type named `Event` — whose
+// identity record is `<ns>.Domain.Ids.EventId` — is CS0104-ambiguous in every
+// file that also does `using <ns>.Domain.Ids;` (measured under
+// `dotnet build /warnaserror`, sdk:10.0; EF and Dapper alike):
+//
+//     error CS0104: 'EventId' is an ambiguous reference between
+//                   'Api.Domain.Ids.EventId' and
+//                   'Microsoft.Extensions.Logging.EventId'
+//
+// A `using` alias outranks a namespace import at the same scope, so the id file
+// opens with `global using EventId = <ns>.Domain.Ids.EventId;` and every file
+// resolves the bare name to the domain id.  Only the names listed here get the
+// alias, so every other model's id files stay byte-identical.  The generated
+// code never names the logging `EventId` itself.
+// ---------------------------------------------------------------------------
+
+/** Id-type names (`<Name>Id`) that an implicit SDK `global using` also brings
+ *  into every file of the main project. */
+export const IMPLICIT_USING_COLLIDING_ID_NAMES: ReadonlySet<string> = new Set([
+  // Microsoft.Extensions.Logging (Microsoft.NET.Sdk.Web implicit usings)
+  "EventId",
+]);
+
+/** The `global using` alias line a domain id file needs so its bare name beats
+ *  an implicit SDK import, or `undefined` when the name collides with none. */
+export function implicitUsingIdAlias(idName: string, ns: string): string | undefined {
+  return IMPLICIT_USING_COLLIDING_ID_NAMES.has(idName)
+    ? `global using ${idName} = ${ns}.Domain.Ids.${idName};`
+    : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Static receivers shadowed by a same-named domain MEMBER.
 //
 // A domain member spelled `math` is emitted as the C# member `Math`, and

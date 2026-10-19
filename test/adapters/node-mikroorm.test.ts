@@ -1228,14 +1228,16 @@ describe("mikroorm — persist-time audit stamping", () => {
     expect(helper).toBeDefined();
     // Adapter-agnostic principal source.
     expect(helper).toContain('import { requestContext } from "../obs/als";');
-    expect(helper).toContain("export function stampInsert");
+    expect(helper).toContain("export function stampOrderInsert");
     expect(helper).toContain("createdBy: ctx.actorId");
   });
 
   it("the mikro versioned save wraps insert in stampInsert and the CAS update in stampUpdate (M-T3.4)", async () => {
     const { files } = await emit(AUDIT_SRC);
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    expect(repo).toContain('import { stampInsert, stampUpdate } from "../audit-stamp";');
+    expect(repo).toContain(
+      'import { stampOrderInsert as stampInsert, stampOrderUpdate as stampUpdate } from "../audit-stamp";',
+    );
     // Default-on versioning turns the blind upsert into a guarded write: the
     // create branch stamps + seeds version 1; the update branch is a version-CAS
     // `nativeUpdate` whose `stampUpdate` only touches updatedAt/updatedBy, so the

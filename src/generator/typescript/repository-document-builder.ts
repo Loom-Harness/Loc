@@ -25,7 +25,7 @@ import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
-import { aggregateIsAudited } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, auditStampImport } from "./emit/audit-stamp.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -282,7 +282,7 @@ export function buildDocumentRepositoryFile(
     // `getById` command load, so key off the emitted body too (F2-ADP-5).
     (usesPrincipalFilter || /\brequireCurrentUser\(/.test(bodyScan)) &&
       `import { requireCurrentUser } from "../../auth/middleware";`,
-    audited && `import { stampInsert } from "../audit-stamp";`,
+    audited && auditStampImport(agg, { update: false }),
     `import { requestLog } from "../../obs/als";`,
     "",
     `type Db = NodePgDatabase<typeof schema>;`,

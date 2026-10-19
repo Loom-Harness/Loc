@@ -3280,6 +3280,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `no request-scoped ${p.principalNoun} to evaluate it against, so the gate is emitted as an ` +
     `unbound identifier and the generated project does not compile. Add 'auth: required' (and a ` +
     `system 'user {}' block), or drop the principal reference from the gate.`,
+  "loom.field-mask-principal-without-auth": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    field: unknown;
+    principalNoun: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts field '${p.ctxName}.${p.field}' with a ` +
+    `\`mask unless\` predicate that references currentUser, but the deployable has no auth — ` +
+    `there is no request-scoped ${p.principalNoun} to evaluate it against, so the field could ` +
+    `only ever read as null and the emitted redaction does not compile or boot. Add ` +
+    `'auth: required' (and a system 'user {}' block), or drop the mask.`,
   "loom.stamp-principal-without-auth": (p: {
     dep: unknown;
     family: unknown;

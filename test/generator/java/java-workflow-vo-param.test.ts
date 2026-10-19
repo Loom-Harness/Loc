@@ -59,10 +59,10 @@ describe("java workflow value-object params + int money-literals", () => {
     const files = await gen();
     const svc = fileEndingWith(files, "WalletWorkflows.java");
     expect(svc).toContain("import com.loom.api.features.accounts.MoneyRequest;");
-    expect(svc).toContain("private static Money toMoney(MoneyRequest request)");
+    expect(svc).toContain("private static Money toMoney(MoneyRequest request, String at)");
     expect(svc).toContain("return new Money(request.amount(), request.currency());");
     // The param is converted through that mapper.
-    expect(svc).toContain("var amount = toMoney(request.amount());");
+    expect(svc).toContain('var amount = toMoney(request.amount(), "/amount");');
   });
 
   it("promotes a bare int literal in a decimal create-input to BigDecimal", async () => {

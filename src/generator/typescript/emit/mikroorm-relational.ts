@@ -39,7 +39,12 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited, insertStampEntries, updateStampEntries } from "./audit-stamp.js";
+import {
+  aggregateIsAudited,
+  auditStampImport,
+  insertStampEntries,
+  updateStampEntries,
+} from "./audit-stamp.js";
 import {
   MIKRO_OUTBOX_DRAIN_LINES,
   MIKRO_OUTBOX_RECORD_LINE,
@@ -936,7 +941,7 @@ export function renderMikroRepository(
       // Persist-time audit stamping helper — pulled in only when this
       // aggregate's `save()` stamps (audited).  Stamps the audit columns from
       // the ambient request principal at the upsert (db/audit-stamp.ts).
-      audited && `import { stampInsert${versioned ? ", stampUpdate" : ""} } from "../audit-stamp";`,
+      audited && auditStampImport(agg, { update: versioned }),
       // The aggregate root + its contained entity parts (same domain module).
       `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,

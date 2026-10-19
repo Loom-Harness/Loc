@@ -643,7 +643,9 @@ function primitiveImage(c: Ctx): string {
 /** Avatar(src?, alt?) — a circle-cropped image, or a neutral placeholder circle. */
 function primitiveAvatar(c: Ctx): string {
   if (!c.hasSrc) {
-    return `Html.div [ prop.className "avatar placeholder"; prop.children [ Html.div [ prop.className "w-10 rounded-full bg-neutral text-neutral-content" ] ] ]`;
+    // No image to carry the alt, so the placeholder itself is the named image.
+    const name = c.hasAltLabel ? `prop.role "img"; prop.ariaLabel ${String(c.alt)}; ` : "";
+    return `Html.div [ prop.className "avatar placeholder"; ${name}prop.children [ Html.div [ prop.className "w-10 rounded-full bg-neutral text-neutral-content" ] ] ]`;
   }
   const alt = c.hasAlt ? String(c.alt) : '""';
   return `Html.div [ prop.className "avatar"; prop.children [ Html.div [ prop.className "w-10 rounded-full"; prop.children [ Html.img [ prop.src ${String(c.src)}; prop.alt ${alt} ] ] ] ] ]`;

@@ -112,6 +112,9 @@ export interface ServiceCtx {
   domainRepoPkg: string;
   /** auth: required + system user block — gates currentUser threading. */
   authed?: boolean;
+  /** Declared `user { … }` field names, in declaration order — the shape the
+   *  audit `actor` records (RS-42).  Empty without auth. */
+  userFields?: readonly string[];
   /** The enclosing context — resolves exception-less return unions. */
   boundedContext: EnrichedBoundedContextIR;
   /** Strongly-typed id class (default `<Agg>Id`); a TPH concrete passes
@@ -224,14 +227,14 @@ export function renderJavaService(
   // the generated id; actor + correlation/scope/parent ids from RequestContext.
   const createAuditLines = auditCreate
     ? [
-        `        var __after = ${agg.name}Response.from(aggregate);`,
+        `        var __after = ${agg.name}Response.from(__saved);`,
         `        auditRecords.save(new AuditRecord(`,
         `            UUID.randomUUID().toString(),`,
         `            ${JSON.stringify(`create${agg.name}`)},`,
         `            "create",`,
         `            ${JSON.stringify(agg.name)},`,
         `            aggregate.id().value().toString(),`,
-        `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
+        `            ${ctx.authed ? "auditActor()" : "null"},`,
         `            NullNode.getInstance(),`,
         `            __after,`,
         `            OffsetDateTime.now(),`,
@@ -296,7 +299,14 @@ export function renderJavaService(
         // without a caller (stamps nothing) or a caller without a method (does
         // not compile) cannot drift apart (§89).
         docClaimCreateStamps ? `        aggregate._stampOnCreate();` : null,
-        `        repository.save(aggregate);`,
+        // The audited create snapshots the instance the repository SAVED, not
+        // the one it was handed: JPA's `save` of an assigned-id entity merges a
+        // managed copy, and only that copy carries the persist-time stamps
+        // (`@CreatedDate` / `@LastModifiedDate`) — projecting the un-stamped
+        // original dereferenced a null stamp.  Events stay on `aggregate`.
+        auditCreate
+          ? `        var __saved = repository.save(aggregate);`
+          : `        repository.save(aggregate);`,
         ...createAuditLines,
         `        publishEvents(aggregate);`,
         `        return aggregate.id();`,
@@ -486,6 +496,26 @@ export function renderJavaService(
   if (anyLifecycleAudited) {
     imports.add("tools.jackson.databind.node.NullNode");
   }
+  // The audit row's `actor` (RS-42): the principal's DECLARED `user { … }`
+  // shape by declared name — the `/auth/me` projection — or null.  Handing
+  // Jackson the `User` record instead let its introspection decide the keys.
+  const auditActorLines =
+    anyAudited && ctx.authed
+      ? [
+          `    private java.util.Map<String, Object> auditActor() {`,
+          `        var user = currentUserAccessor.user();`,
+          `        if (user == null) {`,
+          `            return null;`,
+          `        }`,
+          `        var actor = new java.util.LinkedHashMap<String, Object>();`,
+          ...(ctx.userFields ?? []).map(
+            (f) => `        actor.put(${JSON.stringify(f)}, user.${jid(f)}());`,
+          ),
+          `        return actor;`,
+          `    }`,
+          ``,
+        ]
+      : [];
   // The audit-record actor reads `currentUserAccessor.user()` on an authed
   // system even when no operation otherwise uses the current user, so the
   // accessor must be injected whenever audit + auth are both present — not only
@@ -603,7 +633,7 @@ export function renderJavaService(
         audited ? `            ${JSON.stringify(op.name)},` : null,
         audited ? `            ${JSON.stringify(agg.name)},` : null,
         audited ? `            id.value().toString(),` : null,
-        audited ? `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},` : null,
+        audited ? `            ${ctx.authed ? "auditActor()" : "null"},` : null,
         audited ? `            __before,` : null,
         audited ? `            __after,` : null,
         audited ? `            OffsetDateTime.now(),` : null,
@@ -651,7 +681,7 @@ export function renderJavaService(
                 `            "destroy",`,
                 `            ${JSON.stringify(agg.name)},`,
                 `            id.value().toString(),`,
-                `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
+                `            ${ctx.authed ? "auditActor()" : "null"},`,
                 `            __before,`,
                 `            NullNode.getInstance(),`,
                 `            OffsetDateTime.now(),`,
@@ -676,11 +706,19 @@ export function renderJavaService(
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${jid(f.name)}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(
+          eff(f.type, f.optional),
+          `request.${jid(f.name)}()`,
+          `/${f.name}`,
+          undefined,
+          "at",
+        ),
+      )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request) {`,
+      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
       `        return new ${vo}(${args});`,
       `    }`,
       ``,
@@ -777,6 +815,7 @@ export function renderJavaService(
     ...canLines,
     ...destroyLines,
     ...voMappers,
+    ...auditActorLines,
     `    private void publishEvents(${agg.name} aggregate) {`,
     `        for (var event : aggregate.pullEvents()) {`,
     // The domain-event narrative line fires at the dispatch seam regardless of

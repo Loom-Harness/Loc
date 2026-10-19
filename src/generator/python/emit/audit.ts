@@ -1,6 +1,7 @@
-import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { EnrichedBoundedContextIR, UserIR } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { lines } from "../../../util/code-builder.js";
+import { snake } from "../../../util/naming.js";
 import { renderPyAuditHistoryModule } from "./audit-history.js";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,20 @@ export function contextsHaveAudit(contexts: EnrichedBoundedContextIR[]): boolean
  *  Hono `audit_records` Drizzle table / the .NET / Java AuditRecord
  *  column-for-column: snake_case columns, jsonb on the actor / before / after
  *  blobs, indexes on (target_type, target_id) + (correlation_id). */
-function renderPyAudit(): string {
+function renderPyAudit(user: UserIR | undefined): string {
+  // The audit row's `actor` (RS-42): the request principal in its DECLARED
+  // `user { … }` shape, by declared name — the `/auth/me` projection — or
+  // None when no principal is bound (and always None without auth).
+  const actorBody = user
+    ? [
+        `    user = current_user_var.get()`,
+        `    if user is None:`,
+        `        return None`,
+        `    return {`,
+        ...user.fields.map((f) => `        ${JSON.stringify(f.name)}: user.${snake(f.name)},`),
+        `    }`,
+      ]
+    : [`    return None`];
   return lines(
     `"""Per-operation audit runtime — the append-only history model.`,
     ``,
@@ -64,7 +78,13 @@ function renderPyAudit(): string {
     `from sqlalchemy.dialects.postgresql import JSONB`,
     `from sqlalchemy.orm import Mapped, mapped_column`,
     ``,
+    user ? `from app.auth.user import current_user_var` : null,
     `from app.db.schema import Base`,
+    ``,
+    ``,
+    `def audit_actor() -> dict[str, object] | None:`,
+    `    """The audit row's actor: the principal in its declared user shape."""`,
+    ...actorBody,
     ``,
     ``,
     `class AuditRecordRow(Base):`,
@@ -96,9 +116,14 @@ function renderPyAudit(): string {
 
 /** Emit the audit SDK model when any audited op exists.  No-op otherwise
  *  (keeps non-audit projects byte-identical). */
-export function emitPyAudit(contexts: EnrichedBoundedContextIR[], out: Map<string, string>): void {
+export function emitPyAudit(
+  contexts: EnrichedBoundedContextIR[],
+  out: Map<string, string>,
+  /** The system's `user { … }` block when this deployable is authenticated. */
+  user?: UserIR,
+): void {
   if (!contextsHaveAudit(contexts)) return;
-  out.set("app/db/audit.py", renderPyAudit());
+  out.set("app/db/audit.py", renderPyAudit(user));
   // Entity history (docs/audit.md) — the shared shape + helpers the per-aggregate
   // mappers call.  Emitted whenever any served repository carries the
   // enrichment-derived history read, which is the same condition the routes

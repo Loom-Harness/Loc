@@ -237,7 +237,12 @@ export function emitAction(
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
-  const aggName = ctx.paramTypes?.get(instanceName);
+  // A component param / detail record (`paramTypes`), or a ROW of a list —
+  // the item of a `Table` column or `For` lambda (`listRowAggregates`).
+  const rowAgg = ctx.paramTypes?.has(instanceName)
+    ? undefined
+    : ctx.listRowAggregates?.get(instanceName);
+  const aggName = ctx.paramTypes?.get(instanceName) ?? rowAgg;
   if (!aggName) {
     return giveUp(
       ctx.target,
@@ -261,6 +266,7 @@ export function emitAction(
       `Action(${instanceName}.${opName}): no public operation '${opName}' on ${agg.name}`,
     );
   }
+  if (rowAgg) return gateAction(emitRowAction(call, ctx, agg, op, opRef.receiver), op, ctx, depth);
   // Hoist the mutation hook to function top (React requires hooks at
   // component scope, not inside the onClick handler).
   const localVar = `${lowerFirst(op.name)}${agg.name}`;
@@ -325,29 +331,130 @@ export function emitAction(
         )
       : "",
   });
-  // Action-button gating (D-AUTH-OIDC, the action-level mirror of the page
-  // `requires` guard).  On an `auth: ui` frontend, hide the button at runtime
-  // when EVERY `requires` predicate on the operation is currentUser-only (the
-  // verified session claims can decide it client-side).  If the op has no
-  // `requires`, or ANY predicate touches `this.<field>` / params (not
-  // client-evaluable — `tryRenderGate` returns null), the button stays
-  // ungated; the backend 403 still enforces the gate (defence-in-depth).
-  if (ctx.authUi) {
-    const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
-    if (gates.length > 0) {
-      const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
-      if (parts.every((p) => p !== null)) {
-        ctx.usesCurrentUser = true;
-        return ctx.target.renderConditionalChild(
-          parts.map((p) => `(${p})`).join(" && "),
-          button,
-          "null",
-          depth,
-        );
-      }
+  return gateAction(button, op, ctx, depth);
+}
+
+/** A ROW-scoped `Action { o.<op> }` — one button per row of a `Table` column
+ *  or `For` lambda, each mutating ITS row.  The op hooks bind their id when
+ *  the hook is called, and a hook cannot be called per row inside the render
+ *  loop, so:
+ *
+ *  - React gives each row a component of its own (hoisted to module scope),
+ *    whose hook is bound to the row's id — so each row also has its own
+ *    pending state;
+ *  - Vue and Svelte read the id through a getter, so one hook serves every
+ *    row: the row's click writes its id into a holder the getter reads, then
+ *    mutates.  The shared mutation's pending flag is not per row, so the
+ *    button carries no loading state.
+ *
+ *  A `when`-gated op's `can_<op>` probe is per record, so the row button does
+ *  not pre-disable on it; the server still answers the op's own refusal. */
+function emitRowAction(
+  call: ExprIR & { kind: "call" },
+  ctx: WalkContext,
+  agg: AggregateIR,
+  op: AggregateIR["operations"][number],
+  receiver: ExprIR,
+): string {
+  const hookName = `use${upperFirst(op.name)}${agg.name}`;
+  const rowId = `${emitExpr(receiver, ctx)}.id`;
+  const thenArg = namedArgValue(call, "then");
+  const thenJs = thenArg ? emitActionThen(thenArg, ctx) : undefined;
+  const label = humanize(op.name);
+  if (ctx.target.framework === "react") {
+    const child = `${upperFirst(op.name)}${agg.name}RowAction`;
+    if (!ctx.actionMutations.some((m) => m.localVar === child)) {
+      ctx.actionMutations.push({
+        localVar: child,
+        hookName,
+        aggCamel: lowerFirst(agg.name),
+        importOnly: true,
+      });
+      const local = lowerFirst(`${op.name}${agg.name}`);
+      const button = renderPrimitive(ctx, "primitive-button", {
+        label,
+        onClick: `() => void ${local}.mutateAsync({}).then(() => onDone?.())`,
+        hasOnClick: true,
+        disabled: undefined,
+        hasDisabled: false,
+        loading: `${local}.isPending`,
+        hasLoading: true,
+        testidAttr: " data-testid={testid}",
+        styleAttr: "",
+        a11yAttr: "",
+      });
+      ctx.hoistedModuleDecls ??= [];
+      ctx.hoistedModuleDecls.push(
+        [
+          `/** One row's \`${op.name}\` button: its own component, so its hook is bound to that row's id. */`,
+          `function ${child}({ id, testid, onDone }: { id: string; testid?: string; onDone?: () => void }) {`,
+          `  const ${local} = ${hookName}(id);`,
+          `  return ${button};`,
+          `}`,
+        ].join("\n"),
+      );
     }
+    const tidArg = namedArgValue(call, "testid");
+    let testidProp = "";
+    if (tidArg?.kind === "literal" && tidArg.lit === "string") {
+      ctx.collectedTestids.add(tidArg.value);
+      testidProp = ` testid=${JSON.stringify(tidArg.value)}`;
+    } else if (tidArg) {
+      testidProp = ` testid={${emitExpr(tidArg, ctx)}}`;
+    }
+    const onDone = thenJs ? ` onDone={() => { ${thenJs}; }}` : "";
+    return `<${child} id={${rowId}}${testidProp}${onDone} />`;
   }
-  return button;
+  const localVar = `${lowerFirst(op.name)}${agg.name}Row`;
+  const holder = `${localVar}Id`;
+  if (!ctx.actionMutations.some((m) => m.localVar === localVar)) {
+    ctx.actionMutations.push({
+      localVar,
+      hookName,
+      aggCamel: lowerFirst(agg.name),
+      rowIdHolder: holder,
+    });
+  }
+  const mutate = `${localVar}.mutateAsync({})`;
+  return renderPrimitive(ctx, "primitive-button", {
+    label,
+    onClick: `() => { ${holder}.current = ${rowId}; void ${mutate}${thenJs ? `.then(() => { ${thenJs}; })` : ""}; }`,
+    hasOnClick: true,
+    disabled: undefined,
+    hasDisabled: false,
+    loading: undefined,
+    hasLoading: false,
+    testidAttr: testidAttr(call, ctx),
+    styleAttr: styleAttr(call, ctx),
+    a11yAttr: "",
+  });
+}
+
+/** Action-button gating (D-AUTH-OIDC, the action-level mirror of the page
+ *  `requires` guard).  On an `auth: ui` frontend, hide the button at runtime
+ *  when EVERY `requires` predicate on the operation is currentUser-only (the
+ *  verified session claims can decide it client-side).  If the op has no
+ *  `requires`, or ANY predicate touches `this.<field>` / params (not
+ *  client-evaluable — `tryRenderGate` returns null), the button stays
+ *  ungated; the backend 403 still enforces the gate (defence-in-depth). */
+function gateAction(
+  button: string,
+  op: AggregateIR["operations"][number],
+  ctx: WalkContext,
+  depth: number,
+): string {
+  if (!ctx.authUi) return button;
+  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  if (gates.length === 0) return button;
+  const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
+  if (!parts.every((p) => p !== null)) return button;
+  ctx.usesCurrentUser = true;
+  return ctx.target.renderConditionalChild(
+    parts.map((p) => `(${p})`).join(" && "),
+    button,
+    "null",
+    depth,
+  );
 }
 
 /** Render an `Action`'s `then:` effect — the JS run after the

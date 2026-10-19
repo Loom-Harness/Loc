@@ -109,6 +109,65 @@
     },
     {
       "seq": 9,
+      "method": "POST",
+      "path": "/api/workflows/register_account",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/accounts/by_holder?holder=bob",
+      "status": 200,
+      "body": {
+        "balance": {
+          "amount": 40,
+          "currency": "USD"
+        },
+        "holder": "bob",
+        "id": "<volatile:key>",
+        "version": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/workflows/move_money",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": {
+          "amount": 85,
+          "currency": "USD"
+        },
+        "holder": "alice2",
+        "id": "<volatile:key>",
+        "version": 5
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": {
+          "amount": 55,
+          "currency": "USD"
+        },
+        "holder": "bob",
+        "id": "<volatile:key>",
+        "version": 2
+      }
+    },
+    {
+      "seq": 14,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -116,29 +175,45 @@
         "items": [
           {
             "balance": {
-              "amount": 100,
+              "amount": 85,
               "currency": "USD"
             },
             "holder": "alice2",
             "id": "<volatile:key>",
-            "version": 4
+            "version": 5
+          },
+          {
+            "balance": {
+              "amount": 55,
+              "currency": "USD"
+            },
+            "holder": "bob",
+            "id": "<volatile:key>",
+            "version": 2
           }
         ],
         "page": 1,
         "pageSize": 20,
-        "total": 1,
+        "total": 2,
         "totalPages": 1
       }
     },
     {
-      "seq": 10,
+      "seq": 15,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 16,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -151,7 +226,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 18,
       "method": "GET",
       "path": "/api/accounts/by_holder?holder=alice2",
       "status": 404,
@@ -164,7 +239,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 19,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -177,7 +252,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 20,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -190,7 +265,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 21,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -203,7 +278,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 22,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,

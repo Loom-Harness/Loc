@@ -78,6 +78,9 @@ system ClaimIntake {
     let cargo = api.cargos.create({ code: "CRG-1" })
     api.claimHandling.run({ c: { cargo: cargo.id, description: "Dented crate", amount: money("125.50"), priority: 2, note: "handle with care" } })
     api.claimHandling.run({ c: { cargo: cargo.id, description: "Wet pallet", amount: money("10.00"), priority: 5 } })
+    // A refusal INSIDE the payload points through it — `/c/amount`, the
+    // whole path, never the leaf `/amount` (RS-33).
+    expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "Bad amount", amount: "1.2.3", priority: 1 } })).toThrow(422)
     let filed = api.claims.all({ sort: "priority", dir: "asc" })
     expect(filed.total).toBe(2)
     let first = filed.items.first()

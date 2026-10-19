@@ -94,16 +94,16 @@ describe("python VO invariant → 422 at the wire", () => {
     // `Field` is now unconditional: the `Int32` alias uses it, and that alias
     // is emitted into every wire_models.py exactly as `UuidStr` is.
     expect(wm).toContain(
-      // `AfterValidator` joins the unconditional set: the always-emitted `WireStr`
-      // alias uses it, exactly as `Int32` uses `Field` (F20).  `BeforeValidator`
-      // joins it for the same reason — the always-emitted `WireNum`/`WireInt`
-      // aliases and `Int32` all carry the F17 numeric-type guard.
-      "from pydantic import BaseModel, Field, AfterValidator, BeforeValidator, StringConstraints, WithJsonSchema\n",
+      // `AfterValidator` is in the unconditional set: the always-emitted
+      // `WireStr` alias and `Int32`'s range check use it (F20, RS-39).
+      // `BeforeValidator` joins it for the same reason — the always-emitted
+      // `WireNum`/`WireInt` aliases and `Int32` all carry the F17 numeric-type
+      // guard.  `Field` is not: nothing always-emitted needs it any more.
+      "from pydantic import BaseModel, AfterValidator, BeforeValidator, StringConstraints, WithJsonSchema\n",
     );
-    // Scoped to the VO's own class body: `Field` now appears at module level
-    // unconditionally, because the shared `Int32` alias uses it (F11). What
-    // this case is about is that a VO with no invariants gets no per-field
-    // constraint — so that is what it reads.
+    // Scoped to the VO's own class body: what this case is about is that a VO
+    // with no invariants gets no per-field constraint — so that is what it
+    // reads.
     const voBody = wm.slice(wm.indexOf("class Plain(BaseModel):"));
     expect(voBody).not.toContain("Field(");
     expect(wm).not.toContain("model_validator");

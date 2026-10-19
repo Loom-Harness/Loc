@@ -1,6 +1,7 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
 import {
@@ -166,16 +167,29 @@ export const PY_INT32 = "Int32";
  *  published `format: int32` and rejected the overflow at the binder; this is
  *  python catching up to them, not a new rule.
  *
- *  `Field(ge=…, le=…)` supplies the VALIDATION (an out-of-range value is an
- *  ordinary pydantic error, so FastAPI answers its standard 422 — the same
- *  envelope every other bad field gets), `WithJsonSchema` supplies the
- *  published SCHEMA, so the spec reads `{"type": "integer", "format":
- *  "int32"}` exactly as .NET's and java's do instead of pydantic's
- *  `exclusiveMinimum`/`maximum` pair.
+ *  `_int32` supplies the VALIDATION (an out-of-range value is an ordinary
+ *  pydantic error, so FastAPI answers its standard 422 — the same envelope
+ *  every other bad field gets), `WithJsonSchema` supplies the published
+ *  SCHEMA, so the spec reads `{"type": "integer", "format": "int32"}` exactly
+ *  as .NET's and java's do.  A `PydanticCustomError`, not `Field(ge=…, le=…)`:
+ *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-39),
+ *  and `Field`'s would be pydantic's own "Input should be less than or equal
+ *  to 2147483647".  It runs AFTER the int coercion and any declared bound, so
+ *  a field whose rule states a tighter range answers that rule's sentence
+ *  first — as node, which drops the int32 pair beside a declared bound, does.
  *
  *  `long` is deliberately NOT given a twin: it is a `bigint` column, and the
  *  int64 range it would declare is wider than the JSON numbers either python
  *  or node can carry exactly — a bound nothing enforces is the F21 mistake. */
+const PY_INT32_CHECK_DEF = [
+  "def _int32(value: int) -> int:",
+  `    if not ${INT32_MIN} <= value <= ${INT32_MAX}:`,
+  `        raise PydanticCustomError("int_range", ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`,
+  "    return value",
+  "",
+  "",
+];
+
 const PY_INT32_DEF = [
   `${PY_INT32} = Annotated[`,
   "    int,",
@@ -184,7 +198,7 @@ const PY_INT32_DEF = [
   // it.  Placed FIRST so it runs before the int coercion that would have
   // silently turned the bool into 0/1.
   `    BeforeValidator(_reject_non_number),`,
-  "    Field(ge=-2147483648, le=2147483647),",
+  "    AfterValidator(_int32),",
   '    WithJsonSchema({"type": "integer", "format": "int32"}),',
   "]",
 ];
@@ -206,7 +220,7 @@ export const PY_INT32_PARAM = "Int32Param";
 const PY_INT32_PARAM_DEF = [
   `${PY_INT32_PARAM} = Annotated[`,
   "    int,",
-  "    Field(ge=-2147483648, le=2147483647),",
+  "    AfterValidator(_int32),",
   '    WithJsonSchema({"type": "integer", "format": "int32"}),',
   "]",
 ];
@@ -523,9 +537,9 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   const enumNames = ctx.enums.map((e) => e.name).filter(uses);
   const pydanticNames = [
     ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
-    // `Field` is unconditional because `Int32` uses it, and `Int32` — like
-    // `UuidStr` and `WireStr` — is emitted unconditionally.
-    "Field",
+    // `Field` only where a model uses it: `Int32` states its bound through
+    // `_int32`, so nothing always-emitted needs it.
+    uses("Field") ? "Field" : null,
     // `AfterValidator` likewise: the always-emitted `WireStr` alias uses it.
     "AfterValidator",
     // `BeforeValidator` likewise: the always-emitted `WireNum`/`WireInt` aliases
@@ -566,11 +580,8 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     hasProv ? "from typing import Annotated, Generic, TypeVar" : "from typing import Annotated",
     "",
     `from pydantic import ${pydanticNames.join(", ")}`,
-    // `_money_str` raises one too, so the money alias pulls it in even when no
-    // messaged invariant does.
-    uses("PydanticCustomError") || needsMoney
-      ? `from pydantic_core import ${uses("InitErrorDetails") ? "InitErrorDetails, PydanticCustomError" : "PydanticCustomError"}`
-      : null,
+    // Unconditional: the always-emitted `_int32` raises one.
+    `from pydantic_core import ${uses("InitErrorDetails") ? "InitErrorDetails, PydanticCustomError" : "PydanticCustomError"}`,
     enumNames.length > 0 ? "" : null,
     enumNames.length > 0 ? `from app.domain.value_objects import ${enumNames.join(", ")}` : null,
     "",
@@ -579,6 +590,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     "",
     PY_WIRE_NUM_DEF,
     "",
+    PY_INT32_CHECK_DEF,
     PY_INT32_DEF,
     "",
     PY_INT32_PARAM_DEF,

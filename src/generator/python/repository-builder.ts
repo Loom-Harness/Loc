@@ -550,7 +550,7 @@ export function buildPyRepositoryFile(
       // projection's fail-closed principal read (`to_wire_masked`).
       aggHasFieldMask(agg),
     ),
-    hasAudit ? "from app.db.audit import AuditRecordRow" : null,
+    hasAudit ? "from app.db.audit import AuditRecordRow, audit_actor" : null,
     refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     hasProv ? "from app.db.provenance import ProvenanceRecord" : null,
     rowNames.length > 0 ? `from app.db.schema import ${rowNames.join(", ")}` : null,
@@ -1803,9 +1803,11 @@ export function recordAuditMethod(): string {
     // the NOT NULL jsonb column (parity with the Hono route's `before: null`).
     "        before: object,",
     "        after: object,",
-    "        actor: object | None = None,",
     '        status: str = "ok",',
     "    ) -> None:",
+    // The actor is the ambient principal's declared shape, read here rather
+    // than threaded through every call site (RS-42).
+    "        actor = audit_actor()",
     "        self._session.add(",
     "            AuditRecordRow(",
     "                audit_id=uuid4().hex,",

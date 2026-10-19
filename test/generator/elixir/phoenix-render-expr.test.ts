@@ -519,7 +519,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
     );
   });
 
-  it("renders string.substring in both arities via String.slice (stdlib A2)", () => {
+  it("renders string.substring in both arities over code points (RS-41)", () => {
     const twoArg: ExprIR = {
       kind: "method-call",
       receiver: thisProp("name"),
@@ -530,10 +530,14 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
     };
     // Two-arg: `String.slice/3` takes start + LENGTH and clamps — the
     // catalogue's JS-slice contract.
-    expect(renderExpr(twoArg, ctx)).toBe("String.slice(record.name, 1, 3)");
+    expect(renderExpr(twoArg, ctx)).toBe(
+      "List.to_string(Enum.slice(String.to_charlist(record.name), 1, 3))",
+    );
     // One-arg: run to the end via the stepped range (out-of-range start → "").
     const oneArg: ExprIR = { ...twoArg, args: [litInt("2")] } as ExprIR;
-    expect(renderExpr(oneArg, ctx)).toBe("String.slice(record.name, 2..-1//1)");
+    expect(renderExpr(oneArg, ctx)).toBe(
+      "List.to_string(Enum.drop(String.to_charlist(record.name), 2))",
+    );
   });
 
   it("renders string.contains as the String.contains? intrinsic — never Enum.member? (stdlib A2)", () => {
