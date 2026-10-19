@@ -3053,7 +3053,7 @@ export function wireDapperDateOnlyHandler(out: Map<string, string>, ns: string):
  *  binds a `DateOnly` to `date` natively; a `date` column READS back as a
  *  `DateTime` at midnight through Dapper's untyped `GetValue`, whose calendar
  *  day is the stored one — no zone is applied to a `date`. */
-export function renderDapperDateOnlyHandler(ns: string): string {
+function renderDapperDateOnlyHandler(ns: string): string {
   return lines(
     `namespace ${ns}.Infrastructure.Persistence;`,
     "",
