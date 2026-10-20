@@ -248,7 +248,7 @@ end
 ```
 ::: end
 
-Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `callback`, `logout`, `me` (the session probe the `auth: ui` guard reads) and `POST /api/auth/refresh` (silent renewal with refresh-token rotation). PKCE is unconditional. `generate system` also emits a `keycloak/realm.json` for a local IdP. Full route table, session depth and bypass list: [`../auth.md`](../auth.md#auth-routes).
+Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `callback`, `logout`, `me` (the session probe the `auth: ui` guard reads) and `POST /api/auth/refresh` (silent renewal with refresh-token rotation). PKCE is unconditional. `generate system` also emits a `keycloak/realm.json` and a compose `keycloak` service as the local IdP — for every provider, hosted presets included ([`../auth.md`](../auth.md#local-dev-idp-bundled-keycloak)). Full route table, session depth and bypass list: [`../auth.md`](../auth.md#auth-routes).
 
 ### Dev-stub verifier (`x-loom-dev-claims`)
 
