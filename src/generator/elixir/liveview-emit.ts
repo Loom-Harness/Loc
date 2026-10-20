@@ -1580,10 +1580,8 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
     // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
     // carries its own argument, and reaching for the route id instead both
     // dropped the filter and read an assign such a page never binds.
-    const singleArgs = [
-      ...(qb.listArgs?.length ? qb.listArgs : ["socket.assigns.id"]),
-      ...(qb.actorArgs ?? []),
-    ].join(", ");
+    const readKeyArgs = qb.listArgs?.length ? qb.listArgs : ["socket.assigns.id"];
+    const singleArgs = [...readKeyArgs, ...(qb.actorArgs ?? [])].join(", ");
     // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
     // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
     // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
@@ -1607,7 +1605,7 @@ ${nilArm}${okArm}
     // keeps its plain read.
     if (readFn !== `get_${aggSnake}`) return `    socket =\n${read}`;
     return `    socket =
-      case Ecto.UUID.cast(${singleArgs}) do
+      case Ecto.UUID.cast(${readKeyArgs.join(", ")}) do
         :error ->
           assign(socket, :${qb.assign}, :not_found)
 

@@ -9,6 +9,7 @@
 // record".  The in-process history loader (`QueryView { of: <Agg>.history(id) }`)
 // calls the same `get_<agg>` and gets the same cast first.
 
+import * as fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -60,5 +61,30 @@ describe("LiveView detail page — a malformed route id (M-T6.71)", () => {
       0,
     );
     expect(loader.indexOf("get_employee(id)")).toBeGreaterThan(cast);
+  });
+});
+
+// A principal-filtered aggregate threads `current_user` into the by-id read
+// (`get_<agg>(id, current_user)`).  The malformed-id guard must cast ONLY the
+// key: `Ecto.UUID.cast(id, current_user)` is `Ecto.UUID.cast/2`, which does not
+// exist and fails `mix compile --warnings-as-errors`.
+describe("LiveView detail page — malformed-id guard over a principal-filtered read", () => {
+  it("casts only the id, never the actor argument", async () => {
+    const src = fs.readFileSync(
+      new URL(
+        "../../e2e/fixtures/elixir-vanilla-build/vanilla-tenancy-liveview-reads.ddd",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const files = await generateSystemFiles(src);
+    const lives = [...files].filter(([p]) => p.endsWith("_live.ex"));
+    expect(lives.length).toBeGreaterThan(0);
+    const all = lives.map(([, c]) => c).join("\n");
+    expect(all).not.toMatch(/Ecto\.UUID\.cast\([^)]*,/);
+    expect(all).toMatch(/Ecto\.UUID\.cast\(socket\.assigns\.id\)/);
+    expect(all).toMatch(
+      /get_account\(socket\.assigns\.id, Map\.get\(socket\.assigns, :current_user\)\)/,
+    );
   });
 });
