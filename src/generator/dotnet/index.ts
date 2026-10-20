@@ -111,6 +111,7 @@ import {
 } from "./emit/audit-history.js";
 import { renderDotnetChannels } from "./emit/channels.js";
 import {
+  dapperUniqueIndexesByTable,
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
   renderDapperRepository,
@@ -817,6 +818,12 @@ function emitProjectFromContexts(
         (system?.migrations ?? [])
           .flatMap((m) => m.next.tables)
           .find((t) => t.name === "provenance_records"),
+        // `unique (…)` → DB unique index, read off the same snapshot (the
+        // shared `uniqueIndexesFor` derivation) so the Dapper bootstrap enforces
+        // exactly the index EF's migration creates and the 23505 → 409 mapping
+        // in DomainExceptionFilter fires.  Empty when another deployable owns
+        // this module's migrations — that owner's migration creates the index.
+        dapperUniqueIndexesByTable((system?.migrations ?? []).flatMap((m) => m.next.tables)),
       ),
     );
     // Workflow / saga / event-store / projection port adapters + the reused
@@ -1208,7 +1215,7 @@ function emitProjectFromContexts(
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
     orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
   });
-  emitTestProject(merged, ns, out);
+  emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
   // The SPA hits `/api/*` on its own origin (apiBaseUrl: ""), so
   // `api/config.ts` produces `fetch("/api/...")`-shaped calls that
@@ -2159,7 +2166,12 @@ function emitProject(
   }
 }
 
-function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, string>): void {
+function emitTestProject(
+  ctx: BoundedContextIR,
+  ns: string,
+  out: Map<string, string>,
+  resourceNugetDeps: Record<string, string> = {},
+): void {
   // Only emit a test csproj when at least one subject (aggregate / value object
   // / domain service) declares a `test` block — otherwise the project would
   // have nothing to compile.
@@ -2169,7 +2181,7 @@ function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, str
     ctx.domainServices.some((s) => s.tests.length > 0) ||
     ctx.tests.length > 0;
   if (!anyTests) return;
-  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns));
+  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns, resourceNugetDeps));
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {

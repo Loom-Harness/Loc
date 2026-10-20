@@ -35,7 +35,13 @@ const CODE = "loom.page-gate-not-client-evaluable";
 
 /** A system with a permission catalogue in subdomain `Warehouse`, one
  *  aggregate, and a react ui — the minimum that reproduces the audit shape. */
-function system(opts: { workflowGate?: string; pageGate?: string }): string {
+function system(opts: {
+  workflowGate?: string;
+  pageGate?: string;
+  policies?: string;
+  findAllGate?: string;
+}): string {
+  const findAll = opts.findAllGate ? `find all(): Item[] requires ${opts.findAllGate}` : "";
   const wfGate = opts.workflowGate ? `requires ${opts.workflowGate} ` : "";
   const page = opts.pageGate
     ? `
@@ -51,13 +57,14 @@ system Shop {
   subdomain Warehouse {
     permissions { manage }
     context Stock {
+      ${opts.policies ?? ""}
       event ItemActivated { item: Item id }
       aggregate Item with crudish {
         sku: string
         active: bool
         operation activate() { active := true  emit ItemActivated { item: id } }
       }
-      repository Items for Item { }
+      repository Items for Item { ${findAll} }
       workflow Restock ${wfGate}{
         itemId: Item id
         create(ev: ItemActivated) by ev.item { itemId := ev.item }
@@ -89,10 +96,9 @@ system Shop {
 `;
 }
 
-async function gateDiags(opts: {
-  workflowGate?: string;
-  pageGate?: string;
-}): Promise<{ source: string; message: string }[]> {
+type SystemOpts = Parameters<typeof system>[0];
+
+async function gateDiags(opts: SystemOpts): Promise<{ source: string; message: string }[]> {
   const { model } = await parseString(system(opts), { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.code === CODE)
@@ -101,10 +107,7 @@ async function gateDiags(opts: {
 
 /** The page `requires` of the named page, lowered — used to hand the SAME IR
  *  node the emitters would see to the three gate renderers. */
-async function pageGateIR(opts: {
-  workflowGate?: string;
-  pageGate?: string;
-}): Promise<Record<string, ExprIR>> {
+async function pageGateIR(opts: SystemOpts): Promise<Record<string, ExprIR>> {
   const { model } = await parseString(system(opts), { validate: false });
   const loom = enrichLoomModel(lowerModel(model));
   const out: Record<string, ExprIR> = {};
@@ -191,6 +194,51 @@ describe("the accepted subset is exactly what the frontend gate renderers can re
         expect(() => render(ir), `${name}: ${gate}`).not.toThrow();
       }
     }
+  });
+
+  // Claims eval D9 — a NAMED policy in the header / find gate.  The server
+  // inlines it at the gate; the scaffold's page copy used to keep the bare
+  // `CanManage()` call, which the page (outside the context) cannot resolve,
+  // so a client-evaluable policy was refused.  The copy now inlines it.
+  const POLICIES = `
+      policy CanManage(): bool = currentUser.permissions.contains(permissions.manage)
+      policy HasRole(r: string): bool = currentUser.role == r
+      policy Lead(): bool = CanManage() && HasRole("lead")
+      policy Odd(): bool = currentUser.role.startsWith("x")`;
+
+  it("a named policy in a workflow header is inlined onto the instance pages and renders", async () => {
+    const opts = { policies: POLICIES, workflowGate: "Lead()" };
+    expect(await gateDiags(opts)).toEqual([]);
+    const gates = await pageGateIR(opts);
+    for (const page of ["RestockInstancesList", "RestockInstanceDetail"]) {
+      const ir = gates[page]!;
+      expect(ir, page).toBeDefined();
+      expect(firstNonUiGateNode(ir), page).toBeNull();
+      for (const [name, render] of RENDERERS) {
+        const out = render(ir);
+        expect(out, `${name}: ${page}`).toContain("warehouse.manage");
+        expect(out, `${name}: ${page}`).toContain("lead");
+      }
+    }
+  });
+
+  it("a named policy in a `find all` gate is inlined onto the List page", async () => {
+    const opts = { policies: POLICIES, findAllGate: `CanManage() || HasRole("admin")` };
+    expect(await gateDiags(opts)).toEqual([]);
+    // The List page is the only gated page (no workflow header gate here).
+    const gates = Object.values(await pageGateIR(opts));
+    expect(gates).toHaveLength(1);
+    const ir = gates[0]!;
+    expect(firstNonUiGateNode(ir)).toBeNull();
+    expect(renderGateExpr(ir, "currentUser")).toBe(
+      '(currentUser.permissions.includes("warehouse.manage")) || (currentUser.role === "admin")',
+    );
+  });
+
+  it("a policy whose BODY is not client-evaluable is still refused on the copy", async () => {
+    const ds = await gateDiags({ policies: POLICIES, workflowGate: "Odd()" });
+    expect(ds).toHaveLength(2);
+    for (const d of ds) expect(d.message).toContain("`.startsWith(…)` is outside that set");
   });
 
   it("the gate the check REJECTS is the one all three renderers throw on", async () => {
