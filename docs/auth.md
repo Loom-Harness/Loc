@@ -758,7 +758,7 @@ Composition falls out of the ordinary boolean operators
 | `loom.policy-fn-return-type` | the return annotation is not `bool` |
 | `loom.policy-fn-arity` | a `PolicyName(args)` call supplies the wrong argument count |
 | `loom.policy-fn-cycle` | a policy function (transitively) references itself |
-| `loom.policy-out-of-scope` | a `PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
+| `loom.policy-out-of-scope` | a `PolicyName(args)` or `Ctx.PolicyName(args)` call from a context other than the policy's declaring one — policies are context-local; redeclare it there |
 
 **Not yet shipped (P3.x follow-ups):** the `resource` scope (referencing the
 gated row's fields directly instead of passing them as arguments), field
@@ -1134,9 +1134,9 @@ operation take() { requires currentUser.agentId != null }
 
 ```ts
 // node — auth/oidc.ts
-const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];
+const REQUIRED_CLAIMS: readonly (readonly [string, null])[] = [["sub", null], ["realm_access.roles", null]];
 function toUser(payload: JWTPayload): UserClaims | null {
-  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null; // → 401
+  if (REQUIRED_CLAIMS.some(([path, format]) => claim(payload, path) == null)) return null; // → 401
   return {
     id: claim(payload, "sub") as string,
     // …
@@ -1147,13 +1147,84 @@ function toUser(payload: JWTPayload): UserClaims | null {
 
 - **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
   `!= null` gate denies (403). The token still verifies.
-- **Required scalar claim, absent** → node rejects the token (401). The other
-  backends map it to `""` (.NET, Java) or `None`/`nil` (Python, Elixir).
+- **Identifier claim, malformed** → treated as absent. A `guid` or `X id` claim
+  that is present but not a UUID (`"demo-agent"`) would otherwise be non-null
+  and pass a `!= null` gate. A list claim drops its malformed elements.
+- **Required scalar claim, absent or malformed** → the token is rejected (401)
+  on node, Python and Elixir, and for typed claims on .NET and Java. A required
+  **string** claim that is absent still maps to `""` on .NET and Java.
 - **Required array claim, absent** → the empty list. An IdP routinely omits an
   empty `permissions`, so this is not a reason to reject.
-- **Unread claims.** .NET and Java read optional claims only when the type is
-  `string`. Any other optional type (for example `Customer id?`) is always
-  null there.
+
+```ddd
+user { id: string  role: string  permissions: string[]  assignee: Ticket id? }
+// …
+operation assign() { requires currentUser.assignee != null }
+```
+
+```ts
+// node — auth/oidc.ts: `assignee: "not-a-uuid"` → null → 403
+assignee: (claimAs(claim(payload, "assignee"), "uuid") ?? null) as Ids.TicketId | null,
+```
+
+```python
+# python — app/auth/oidc.py
+assignee=cast(TicketId | None, _claim_as(_claim(payload, "assignee"), "uuid")),
+```
+
+## Local dev IdP (bundled Keycloak)
+
+Once a system declares an `auth { oidc { … } }` block, the backends verify real
+JWTs and the dev-stub header below is not emitted. So `generate system` bundles
+a dev Keycloak into the compose stack for **every** provider — hosted presets
+(`google`, `auth0`, `entra`, …) included — and repoints the backends at it by
+env. The declared issuer is what a deployment uses; compose is the local stack.
+
+```ddd
+auth {
+  provider: auth0
+  oidc { issuer: "https://shop.eu.auth0.com/"  clientId: env("OIDC_CLIENT_ID") }
+}
+```
+
+```yaml
+# generated — docker-compose.yml
+keycloak:
+  image: quay.io/keycloak/keycloak:26.0
+  command: ["start-dev", "--import-realm"]   # imports ./keycloak/realm.json
+api:
+  environment:
+    OIDC_ISSUER: "http://host.docker.internal:8081/realms/shop"
+    OIDC_CLIENT_ID: "shop-app"
+```
+
+```ts
+// generated (node) — auth/oidc.ts: the env wins, the declared issuer is the fallback
+const ISSUER = process.env.OIDC_ISSUER ?? "https://shop.eu.auth0.com/";
+```
+
+The realm seeds a `demo` / `demo` user carrying one value per declared `user`
+claim. To sign in to the real provider locally instead, set `OIDC_ISSUER` (and
+`OIDC_CLIENT_ID`) on the backend service.
+
+**The generated e2e suite mints its own token.** When a backend is
+`auth: required`, every test first asks the bundled realm for a token by
+password grant (the `demo` user) and sends it as the bearer, so
+`docker compose up -d` then `npx vitest run` in `e2e/` needs nothing exported:
+
+```ts
+// generated — e2e/Shop.e2e.test.ts
+const __DEV_IDP_TOKEN_URL = process.env.E2E_OIDC_TOKEN_URL ?? "http://localhost:8081/realms/shop/protocol/openid-connect/token";
+it("creates an order against api", async () => {
+  const base = ENDPOINTS.api;
+  await __ensureBearer();
+  // …
+});
+```
+
+It stands aside when you pick the principal yourself: `E2E_BEARER_TOKEN=<jwt>`
+wins, `E2E_DEV_CLAIMS` means a dev-stub target, and `E2E_DEV_IDP=off` disables
+it. `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` select another realm user.
 
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
@@ -1183,6 +1254,19 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > so a permission test that sent a typo'd header could pass as the broad
 > principal it never meant to be. An absent or empty header still means the
 > built-in identity.
+
+**Under `auth { oidc }` the stub is preview-only.** The Hono backend still
+emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
+so a running app ignores the header. The playground preview registers the stub
+instead, because no identity provider is reachable from its browser worker —
+that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
+header there answers 401, not 400, since the OIDC middleware does not know the
+stub).
+
+```ts
+// generated (node, auth { oidc }) — index.ts
+registerOidcVerifier();          // auth/dev-stub.ts is never imported here
+```
 
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
@@ -1227,6 +1311,17 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 > diagnostic, and it is why a permission-gated fixture cannot be driven from
 > the behavioural harness on four of the five backends.
 
+**Typed claims on the OIDC path.** A verified token's non-string claims —
+`X id`, `guid`, `int`, `long`, `bool`, `datetime`, `decimal`, and lists of
+them — reach `currentUser` on every backend. .NET and Java decode each into the
+declared type (an `X id` claim is built through the generated `XId` type; a
+number may arrive as a JSON number or a numeric string; a `datetime` as
+ISO-8601 or epoch seconds). Node, Python and Elixir carry the JSON value, except
+that an identifier claim (`guid`, or an `X id`) must be a UUID. An optional
+claim that is absent or can't be decoded is `null`. A **required** one rejects
+the token with 401. Value-object, enum, `money` and `json` claims are not decoded on
+.NET/Java; they keep the type default.
+
 ## Token audience (`aud`)
 
 `oidc { audience: … }` is the token's intended recipient. When it resolves to a
@@ -1253,11 +1348,22 @@ on at deploy time without editing the `.ddd`).
 So an operator can enforce audience isolation on a stack that never declared one
 by setting `OIDC_AUDIENCE` in compose — no `.ddd` edit, no rebuild.
 
-> **Turning it back OFF differs by backend.** `OIDC_AUDIENCE=""` is an explicit
-> opt-out on **node** and **elixir** (both treat an empty audience as "skip the
-> check"). On **dotnet**, **java** and **python** an empty string is a *declared*
-> audience of `""`, which no real token carries — so every token is rejected.
-> Unset the variable there rather than emptying it.
+> **Turning it back OFF is the same on every backend.** An EMPTY audience —
+> `OIDC_AUDIENCE` unset, or set to `""` — skips the check on all five. (Until
+> the claims-eval fix D7, dotnet, java and python treated `""` as a *declared*
+> audience no token carries and rejected every token; python and dotnet did so
+> even with the variable merely unset under `audience: env("OIDC_AUDIENCE")`.)
+>
+> **A rejected token is logged.** Every verifier still answers a failed
+> verification with 401 (never 500), and now also logs the catalog event
+> `auth_token_rejected` at `debug` with a `reason` field (`unexpected "aud"
+> claim value`, `Audience doesn't match`, a discovery failure, …). Set
+> `LOG_LEVEL=debug` to see why a token was refused.
+>
+> **The bundled dev realm mints the audience.** A literal `audience: "x"` gets an
+> audience mapper for `x`; an `env(…)` audience gets one for the realm's own
+> client id (`<realm>-app`), so `OIDC_AUDIENCE=<realm>-app` turns the check on
+> against the bundled Keycloak with no realm edit.
 
 ```ddd
 auth {

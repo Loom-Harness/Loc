@@ -198,7 +198,7 @@ drops `tenantOwned`'s filter — bypasses it.
 ### The bundled dev Keycloak's demo tenant
 
 Because the self-scope matches only a uuid claim, the demo user of the bundled
-dev Keycloak (an `auth { oidc … }` block with a self-hosted provider) is seeded
+dev Keycloak (bundled for any `auth { oidc … }` block, whatever the provider) is seeded
 with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
 (`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
 matched no registry row ever (eval-closure #26). A matching first-boot registry
@@ -212,7 +212,15 @@ production boot never inserts a demo tenant. A registry whose required columns
 have no obvious synthetic value (a value object, an `X id` reference, a list),
 or that is inherited, event-sourced, non-relational or not on Postgres, gets no
 row — the realm claim is still the uuid. The demo user's `permissions` are
-deliberately not seeded, so denial stays demonstrable.
+deliberately not seeded, so denial stays demonstrable. The allow path is a
+second seeded user, `demo-admin` / `demo-admin`, emitted whenever the system
+declares a `permissions { }` block: it carries every declared permission (the
+`<subdomain>.<name>` runtime strings) through whichever claim `permissions`
+reads — the flat user attribute, or realm roles when it is mapped onto
+`realm_access.roles`. Every other id-typed claim (`agentId: Agent id?`) is
+seeded with the all-zero uuid the dev stub uses, and the realm's user profile
+sets `unmanagedAttributePolicy: ENABLED`, so a claim attribute granted later
+through the admin console survives into the token.
 
 ## `ignoring` and the tenant filter
 

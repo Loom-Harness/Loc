@@ -48,6 +48,7 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.callable-modifier-not-allowed-here":
     "06-behavior-and-statements.md#the-callable-modifier-surface",
+  "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.unconstructible-server-field":
@@ -64,6 +65,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
   "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
   "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
+  "loom.storage-type-unbound": "14-apis-storage-resources-channels.md#storage",
   "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
@@ -356,6 +358,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#for--list-comprehension",
   "loom.money-in-text-slot":
     "16-ui-walker-primitives.md#formatters--money-datedisplay-enumbadge-idlink-filelink-provenanceinfo-timeline",
+  "loom.button-icon-unknown": "16-ui-walker-primitives.md#button-icons",
+  "loom.valueobject-in-text-slot":
+    "16-ui-walker-primitives.md#a-text-slot-renders-a-scalar-not-a-value-object",
   // The body-walker give-up codes (M-T9.55).  The first four are argument /
   // reference / expression refusals — the chapter's own gate section lists the
   // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
@@ -448,6 +453,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   // --- docs-root-relative (no language-reference chapter covers migrations) ---
   "loom.migration-rename-inferred":
     "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
+  "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
+  "loom.migration-unique-on-existing-table":
+    "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

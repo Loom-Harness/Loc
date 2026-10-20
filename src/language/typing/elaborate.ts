@@ -35,6 +35,7 @@ import {
 } from "../../util/principal.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import type {
   Aggregate,
@@ -138,6 +139,7 @@ import { stdFunction } from "../stdlib.js";
 import type { DeclIndex } from "./decl-index.js";
 import { primitiveFieldType } from "./primitive-fields.js";
 import { astProjectionReadShape } from "./projection-shape.js";
+import { qualifiedOutOfScopePolicyCall } from "./qualified-policy.js";
 import { isPrim, mergeTags, PAGED_META, type RecordShape, Ty, withTags } from "./ty.js";
 
 // ---------------------------------------------------------------------------
@@ -320,8 +322,18 @@ export class Elaborator {
     const data = lv.call ? segs.slice(0, -1) : segs;
     const out: Ty[] = [self];
     let cur = self;
+    // A BARE assignment head that names a member of the enclosing aggregate is
+    // that member, even when a parameter / `let` of the same name is in scope
+    // (M-T5.42, V4): every backend emits an assignment as a write to the
+    // member (`this._name = …`), so typing `name := name` against the
+    // shadowing parameter accepted a write its own target language rejects
+    // (TS2322 / CS0029).  An explicit `this.` already skips the lexical scope.
+    const owner = scope.frame.owner;
+    const headIsMember =
+      !lv.call && owner !== undefined && isAggregate(owner) && declaresDataMember(owner, lv.head);
     data.forEach((seg, i) => {
-      cur = i === 0 && !lv.thisRef ? this.synthName(seg, scope, lv) : step(cur, seg);
+      cur =
+        i === 0 && !lv.thisRef && !headIsMember ? this.synthName(seg, scope, lv) : step(cur, seg);
       out.push(cur);
     });
     return out;
@@ -1172,6 +1184,12 @@ export class Elaborator {
     }
     if (!isMemberSuffix(first) || shadowed) return undefined;
     const ms = first;
+    // `Ctx.Policy(args)` across contexts: `bool`, so `loom.policy-out-of-scope`
+    // is the one error the call raises (see qualified-policy.ts).
+    if (ms.call && qualifiedOutOfScopePolicyCall(name, String(ms.member), node)) {
+      this.synthArgs(ms.args, scope);
+      return { t: Ty.prim("bool"), consumed: 1 };
+    }
     // `test e2e`: `api.<handle>.<verb>(…)` calls the target deployable's
     // generated test client (cutover family 3f).
     if (scope.frame.e2e && name === "api") {
@@ -1374,7 +1392,17 @@ export class Elaborator {
       case "valueobject": {
         if (!recv.ref) return Ty.unknown("unresolved-type");
         const t = this.memberOf(recv.ref, ms, scope);
-        return t ?? Ty.unknown("unresolved-member");
+        if (t) return t;
+        // `<vo>.equals(other)` — the value-equality intrinsic every value
+        // object answers when it declares no `equals` of its own (`memberOf`
+        // found none above).  Call form only: a bare `.equals` stays unresolved
+        // and `checkIntrinsicCalls` reports it.  Lowering turns the call into
+        // the `binary ==` a `vo == other` writes, whose type is this `bool`.
+        if (ms.call && isValueObjectEqualsIntrinsic(recv.ref.members, ms.member)) {
+          this.synthArgs(ms.args, scope);
+          return Ty.prim("bool");
+        }
+        return Ty.unknown("unresolved-member");
       }
       case "id": {
         if (name === "id") return recv;
@@ -1667,6 +1695,16 @@ function ownerChain(
     out.push(cur);
   }
   return out;
+}
+
+/** True when `agg` (or a base it extends) declares a property, containment
+ *  or derived member named `name`. */
+function declaresDataMember(agg: Aggregate, name: string): boolean {
+  return ownerChain(agg).some((o) =>
+    (o.members as AstNode[]).some(
+      (m) => (isProperty(m) || isContainment(m) || isDerivedProp(m)) && m.name === name,
+    ),
+  );
 }
 
 function elementOf(t: Ty): Ty | undefined {

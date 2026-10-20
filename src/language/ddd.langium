@@ -87,9 +87,17 @@ MigrationStepDecl:
 // One raw one-shot SQL statement (M-T2.3), applied through the migration
 // chain exactly once (the builder records `<block>#<index>` in the snapshot's
 // `appliedDataMigrations` ledger).  Postgres-flavoured — every backend
-// applies Postgres (Ecto wraps it in `execute/1`).
+// applies Postgres (Ecto wraps it in `execute/1`).  By default the step runs
+// AFTER the generation's structural DDL; the opt-in `before` placement
+// (`sql before "…"`) emits it AHEAD of them — the dedupe that must precede a
+// new `unique (…)` index, or any fix-up the new DDL would otherwise reject.
+// `placement` is a bare ID, NOT a `'before'` keyword: Langium keywords are
+// lexed globally, so a keyword would reserve `before` in every name position
+// that is not soft-keyword-aware (workflow / let / param names — the corpus
+// uses all of them).  The validator admits only `before`
+// (`loom.migration-sql-placement`).
 SqlStep:
-    'sql' sql=STRING;
+    'sql' (placement=ID)? sql=STRING;
 
 // A column step, left-factored on the shared `Agg.field` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
@@ -2051,6 +2059,8 @@ Parameter:
 //     statement head, silently so: with `requires` soft, a gate line missing
 //     its subject (`requires .permissions.contains(x)`) parsed as a CALL
 //     statement on a name `requires` instead of failing (review of the sweep).
+//     `precondition` (and `invariant`, below) are also the `ThrowKind` slot
+//     words: soft, `toThrow(precondition)` is ambiguous (see `ThrowKind`).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
@@ -2638,6 +2648,13 @@ PostfixSuffix:
 // has already committed to a member call.  A kind word in any OTHER call is a
 // parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
 // the catalogue stays closed and compiler-known.
+//
+// The slot is unambiguous ONLY while both words stay HARD.  Soften either into
+// `NameRefIdent` and it is also a one-token `CallArg`, so `toThrow(precondition)`
+// parses two ways and ALL(*) prints "Ambiguous Alternatives Detected … inside
+// <PostfixSuffix>" to the user's stdout on every `ddd parse` / `generate` /
+// `verify`.  `test/language/parsing/grammar-ambiguity.test.ts` pins both the
+// hardness and the silent parse.
 ThrowKind returns string:
     'precondition' | 'invariant';
 

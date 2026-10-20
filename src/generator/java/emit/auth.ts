@@ -23,8 +23,10 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -585,7 +587,7 @@ export function renderAuthFiles(
   // claim mapping onto the typed User.  @Primary so it wins over the dev
   // stub the moment an `auth { oidc }` block is present.
   if (oidc) {
-    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, pkg));
+    out.set("OidcUserVerifier.java", renderOidcVerifier(fields, oidc, basePkg));
   }
 
   // Hierarchy (multi-tenancy): the registry-backed `orgPath` resolver.
@@ -800,33 +802,201 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
   return `(System.getenv(${JSON.stringify(envVar)}) != null ? System.getenv(${JSON.stringify(envVar)}) : ${javaAuthValue(v)})`;
 }
 
-/** The IdP claim path projected onto a given user field — explicit `claims:`
- *  mapping wins; `id` defaults to `sub`, others read their own name. */
-/** The User-constructor argument reading a field off the verified payload.
- *  string / string[] are mapped (dotted paths supported); other field types
- *  fall back to the dev-stub default (a documented limitation — OIDC claims
- *  map cleanly onto string / string[] user fields). */
-function javaClaimRead(f: FieldIR, auth: AuthIR): string {
-  const path = JSON.stringify(claimPathFor(f.name, auth));
+/** The java element decoder (a static helper in CLAIM_DECODE_HELPERS) and the
+ *  boxed java type it yields, per scalar claim type. */
+const JAVA_SCALAR_DECODERS: Readonly<Partial<Record<string, { fn: string; boxed: string }>>> = {
+  guid: { fn: "asUuid", boxed: "UUID" },
+  int: { fn: "asInt", boxed: "Integer" },
+  long: { fn: "asLong", boxed: "Long" },
+  bool: { fn: "asBool", boxed: "Boolean" },
+  datetime: { fn: "asInstant", boxed: "Instant" },
+  decimal: { fn: "asDecimal", boxed: "BigDecimal" },
+  string: { fn: "asString", boxed: "String" },
+};
+
+/** A `Function<Object, T>` decoding one claim value to a non-string claim
+ *  type (null when wrongly shaped / unparseable), or `undefined` when the
+ *  type has no claim decoding (value objects, enums, money, json keep the
+ *  stub value).  An `X id` claim decodes its id's VALUE type and is then
+ *  constructed through the emitted strong-id record — the value
+ *  node/python/elixir carry as the raw claim. */
+function javaClaimDecoder(t: TypeIR): { decode: string; boxed: string } | undefined {
+  if (t.kind === "primitive" && t.name !== "string") {
+    const d = JAVA_SCALAR_DECODERS[t.name];
+    return d ? { decode: `OidcUserVerifier::${d.fn}`, boxed: d.boxed } : undefined;
+  }
+  if (t.kind === "id") {
+    const d = JAVA_SCALAR_DECODERS[t.valueType];
+    const cls = renderJavaType(t);
+    return d ? { decode: `v -> mapOrNull(${d.fn}(v), ${cls}::new)`, boxed: cls } : undefined;
+  }
+  return undefined;
+}
+
+/** One User-constructor argument reading a field off the verified payload,
+ *  plus the guard statements that run before the constructor: a REQUIRED
+ *  typed claim that is absent or undecodable rejects the token (→ 401) — it
+ *  does not describe a principal (node's `REQUIRED_CLAIMS`). */
+interface JavaClaimRead {
+  readonly pre: readonly string[];
+  readonly arg: string;
+  /** True when the read uses the typed decoder helpers. */
+  readonly typed: boolean;
+}
+
+function javaClaimRead(f: FieldIR, auth: AuthIR): JavaClaimRead {
+  const rawPath = claimPathFor(f.name, auth);
+  const path = JSON.stringify(rawPath);
   // An optional field's `type` carries the `optional` wrapper, so the string
   // test below must see the inner type — read off the bare `f.type`, every
   // optional `string?` claim fell through to `stubValue` (`null`) and was null
   // for every token, the claim never read.
   const optional = f.optional || f.type.kind === "optional";
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  const plain = (arg: string): JavaClaimRead => ({ pre: [], arg, typed: false });
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
-    return `claimStringList(payload, ${path})`;
+    return plain(`claimStringList(payload, ${path})`);
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    return plain(
+      optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`,
+    );
+  }
+  // D16: every other declared claim type used to be the stub value — an id /
+  // guid / int / bool / datetime claim was null (or the zero id) for EVERY
+  // token, so `requires assignedTo == currentUser.agentId` was always false
+  // on java while node/python/elixir read the claim.  Decode it instead.
+  const elem = t.kind === "array" ? t.element : undefined;
+  const dec = javaClaimDecoder(elem ?? t);
+  if (dec && elem) {
+    // Absent list claim: the EMPTY list when declared required, null when
+    // optional.  Undecodable elements are dropped.
+    const read = `claimList(payload, ${path}, ${dec.decode})`;
+    return { pre: [], arg: optional ? read : `orEmpty(${read})`, typed: true };
+  }
+  if (dec) {
+    const read = `claimAs(payload, ${path}, ${dec.decode})`;
+    // An absent OPTIONAL claim is null — never the stub default: the zero id
+    // is non-null, and `requires currentUser.x != null` would pass for every
+    // token.
+    if (optional) return { pre: [], arg: read, typed: true };
+    const local = `claim${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [
+        `${dec.boxed} ${local} = ${read};`,
+        `if (${local} == null) {`,
+        `    CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${reason});`,
+        `    return null;`,
+        `}`,
+      ],
+      arg: local,
+      typed: true,
+    };
   }
   // An unmapped OPTIONAL claim is null — never the stub default: the zero id
   // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
   // for every token.
-  return optional ? "null" : stubValue(t);
+  return plain(optional ? "null" : stubValue(t));
 }
 
-function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): string {
+/** The typed claim-decoding helpers (D16) — emitted only when a declared
+ *  claim needs them.  Lenient on wire shape: a numeric claim may arrive as a
+ *  JSON number or a numeric string, a datetime as an ISO-8601 string or a JWT
+ *  NumericDate (epoch seconds). */
+const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
+  ``,
+  `    private static <T> T claimAs(Map<String, Object> payload, String path, Function<Object, T> decode) {`,
+  `        Object value = navigate(payload, path);`,
+  `        return value == null ? null : decode.apply(value);`,
+  `    }`,
+  ``,
+  `    private static <T> List<T> claimList(Map<String, Object> payload, String path, Function<Object, T> decode) {`,
+  `        Object value = navigate(payload, path);`,
+  `        if (value == null) {`,
+  `            return null;`,
+  `        }`,
+  `        List<T> out = new ArrayList<>();`,
+  `        if (value instanceof List<?> list) {`,
+  `            for (Object item : list) {`,
+  `                T decoded = item == null ? null : decode.apply(item);`,
+  `                if (decoded != null) {`,
+  `                    out.add(decoded);`,
+  `                }`,
+  `            }`,
+  `        }`,
+  `        return out;`,
+  `    }`,
+  ``,
+  `    private static <T> List<T> orEmpty(List<T> list) {`,
+  `        return list == null ? List.of() : list;`,
+  `    }`,
+  ``,
+  `    private static <A, B> B mapOrNull(A value, Function<A, B> wrap) {`,
+  `        return value == null ? null : wrap.apply(value);`,
+  `    }`,
+  ``,
+  `    private static String asString(Object v) {`,
+  `        return v instanceof String || v instanceof Number ? String.valueOf(v) : null;`,
+  `    }`,
+  ``,
+  `    private static UUID asUuid(Object v) {`,
+  `        try {`,
+  `            return v instanceof String s ? UUID.fromString(s) : null;`,
+  `        } catch (IllegalArgumentException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Long asLong(Object v) {`,
+  `        try {`,
+  `            if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) {`,
+  // Numeric coercions route through the java numeric codec seam (M-T9.36).
+  `                return ${numericEncode(JAVA_NUMERIC, "long", "find-param", "v")};`,
+  `            }`,
+  `            return v instanceof String s ? Long.valueOf(s.trim()) : null;`,
+  `        } catch (NumberFormatException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Integer asInt(Object v) {`,
+  `        Long n = asLong(v);`,
+  `        return n == null || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE ? null : n.intValue();`,
+  `    }`,
+  ``,
+  `    private static BigDecimal asDecimal(Object v) {`,
+  `        try {`,
+  `            return v instanceof Number || v instanceof String ? ${numericEncode(JAVA_NUMERIC, "decimal", "find-param", "v")} : null;`,
+  `        } catch (NumberFormatException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Boolean asBool(Object v) {`,
+  `        if (v instanceof Boolean b) {`,
+  `            return b;`,
+  `        }`,
+  `        if (v instanceof String s && (s.equalsIgnoreCase("true") || s.equalsIgnoreCase("false"))) {`,
+  `            return Boolean.valueOf(s);`,
+  `        }`,
+  `        return null;`,
+  `    }`,
+  ``,
+  `    private static Instant asInstant(Object v) {`,
+  `        try {`,
+  `            if (v instanceof Number n) {`,
+  `                return Instant.ofEpochSecond(n.longValue());`,
+  `            }`,
+  `            return v instanceof String s ? java.time.OffsetDateTime.parse(s).toInstant() : null;`,
+  `        } catch (java.time.format.DateTimeParseException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+];
+
+function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
+  const pkg = `${basePkg}.auth`;
   // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
   // List the string[] reader returns.
   const imports = new Set<string>(["java.util.List"]);
@@ -846,7 +1016,18 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
   const audienceExpr = auth.oidc.audience
     ? envOr("OIDC_AUDIENCE", auth.oidc.audience)
     : `System.getenv("OIDC_AUDIENCE")`;
-  const args = fields.map((f) => `                ${javaClaimRead(f, auth)}`).join(",\n");
+  const reads = fields.map((f) => javaClaimRead(f, auth));
+  const args = reads.map((r) => `                ${r.arg}`).join(",\n");
+  const guards = reads.flatMap((r) => r.pre).map((l) => `            ${l}`);
+  const typed = reads.some((r) => r.typed);
+  if (typed) {
+    // The decode helpers name every scalar type, whatever the claim shape.
+    for (const i of ["java.util.UUID", "java.time.Instant", "java.math.BigDecimal"]) imports.add(i);
+    imports.add("java.util.function.Function");
+  }
+  // A decoded `X id` claim constructs the strong id, which lives in
+  // `<basePkg>.domain.ids` (the same wildcard the User record imports).
+  if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
   return lines(
     `package ${pkg};`,
     ``,
@@ -879,6 +1060,8 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `import jakarta.servlet.http.Cookie;`,
     `import jakarta.servlet.http.HttpServletRequest;`,
     ``,
+    `import ${basePkg}.config.CatalogLog;`,
+    ``,
     `/** Generated OIDC verifier.  Validates the bearer token's`,
     ` *  signature against the issuer's JWKS (discovered + cached via Nimbus),`,
     ` *  checks iss / exp, then projects the configured claims onto User.`,
@@ -902,12 +1085,16 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        try {`,
     `            JWTClaimsSet claims = processor().process(token, null);`,
     `            Map<String, Object> payload = claims.toJSONObject();`,
+    ...guards,
     `            return new User(`,
     args,
     `            );`,
     `        } catch (Exception e) {`,
     `            // Any validation failure (bad signature / iss / exp / forged`,
-    `            // token / discovery error) rejects with 401, never 500.`,
+    `            // token / discovery error) rejects with 401, never 500 — and`,
+    `            // says why at debug, so a misconfigured issuer / audience is`,
+    `            // diagnosable from the log stream.`,
+    `            CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", String.valueOf(e.getMessage()));`,
     `            return null;`,
     `        }`,
     `    }`,
@@ -942,9 +1129,12 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        DefaultJWTProcessor<SecurityContext> proc = new DefaultJWTProcessor<>();`,
     `        proc.setJWSKeySelector(keySelector);`,
     `        JWTClaimsSet exactMatch = new JWTClaimsSet.Builder().issuer(ISSUER).build();`,
-    `        // AUDIENCE null -> audience validation is skipped (matches Hono/.NET).`,
+    `        // An EMPTY audience (OIDC_AUDIENCE unset or "") skips the aud check —`,
+    `        // the documented opt-out every backend honours.  Nimbus given ""`,
+    `        // would demand aud == "" and reject every token, so fold it to null.`,
+    `        String audience = AUDIENCE == null || AUDIENCE.isEmpty() ? null : AUDIENCE;`,
     `        proc.setJWTClaimsSetVerifier(`,
-    `            new DefaultJWTClaimsVerifier<>(AUDIENCE, exactMatch, Set.of("exp")));`,
+    `            new DefaultJWTClaimsVerifier<>(audience, exactMatch, Set.of("exp")));`,
     `        return proc;`,
     `    }`,
     ``,
@@ -1015,6 +1205,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, pkg: string): strin
     `        }`,
     `        return out;`,
     `    }`,
+    ...(typed ? JAVA_TYPED_CLAIM_HELPERS : []),
     `}`,
     ``,
   );

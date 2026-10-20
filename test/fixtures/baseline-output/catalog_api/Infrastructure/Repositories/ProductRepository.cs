@@ -60,7 +60,7 @@ public sealed class ProductRepository : IProductRepository
         foreach (var ev in __deferred)
         {
             _log.LogInformation("{Event} event_type={EventType} aggregate={Aggregate} id={Id}", "event_dispatched", ev.GetType().Name, "Product", aggregate.Id.Value);
-            await _events.DispatchAsync(ev, cancellationToken);
+            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);
         }
     }
 

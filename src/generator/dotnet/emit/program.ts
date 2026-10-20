@@ -98,12 +98,19 @@ export function renderProgram(
   ctx: BoundedContextIR,
   ns: string,
   options?: {
+    /** The deployable's declared port: a `dotnet run` with no URL configured
+     *  listens there.  Absent (the per-context legacy mode) leaves Kestrel's
+     *  own default. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
      *  auth. */
     userFields?: string[];
     usesValidators?: boolean;
+    /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
+     *  operation-return union with an `error` arm, M-FT.24); registers it. */
+    opUnionFilter?: boolean;
     /** When true, at least one aggregate carries `flags.isAuditable`
      *  (any aggregate has contextStamps from one or more macros).
      *  Program.cs registers the `AuditableInterceptor` and attaches
@@ -814,7 +821,18 @@ using OpenTelemetry.Trace;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
-
+${
+  options?.nativePort !== undefined
+    ? `
+// A native \`dotnet run\` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:${options.nativePort}");
+}
+`
+    : ""
+}
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot
@@ -1064,7 +1082,14 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<ProblemDetailsResponsesFilter>();
     // Promote inline array list responses to named <Agg>ListResponse
     // components (matches Hono/Phoenix, which name the wrapper).
-    c.DocumentFilter<ListResponseWrapperFilter>();
+    c.DocumentFilter<ListResponseWrapperFilter>();${
+      options?.opUnionFilter
+        ? `
+    // An operation returning \`T or <Error>\`: 200 carries the success arms,
+    // each error arm's status carries its problem body (M-FT.24).
+    c.DocumentFilter<OpUnionResponsesFilter>();`
+        : ""
+    }
     // Mark non-nullable reference-type properties as required in the
     // schema — matches Hono/Phoenix, which mark every non-optional field
     // required.  Without this Swashbuckle leaves the required set empty.
@@ -1462,19 +1487,7 @@ export function renderCsproj(
   const cronosRef = withCronTimers
     ? `\n    <!-- Hangfire — durable cron timerSource scheduler (Postgres storage) -->\n    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />\n    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />\n    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />`
     : "";
-  // MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
-  // moderate BouncyCastle advisory present on every published version; the
-  // generated code only uses the SMTP send path.  Suppress the two audit
-  // entries so `dotnet build /warnaserror` (NU1902) passes with MailKit present.
-  const mailkitAuditSuppress =
-    "MailKit" in resourceNugetDeps
-      ? `\n  <ItemGroup>
-    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
-  </ItemGroup>`
-      : "";
+  const mailkitAuditSuppress = nugetAuditSuppressItemGroup(resourceNugetDeps);
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
@@ -1551,8 +1564,16 @@ export function renderCsproj(
          is the wire field (and the column) on all five, so the generator may
          not rename it and refusing it would reject a valid model for a C#
          naming guideline.  The rule fires on the property, the request /
-         response record parameters and the command — every surface of it. -->
-    <NoWarn>CA1707;CA1711;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
+         response record parameters and the command — every surface of it.
+         CA1716: "identifiers should not match keywords" — of ANY .NET
+         language, so Visual Basic's too.  The same bargain for TYPE and
+         parameter names: \`aggregate Module\`, \`aggregate Case\` (a legal-case
+         model), \`aggregate Step\`, \`entity Event\` are domain vocabulary
+         that compiles clean on the other four backends, and the C# type name
+         is the wire / table name the generator may not rewrite.  It also
+         rejects a keyword-named parameter of an interface member even when
+         verbatim-escaped (\`@static\` in \`find byLevel(static: int)\`). -->
+    <NoWarn>CA1707;CA1711;CA1716;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->
@@ -1583,7 +1604,32 @@ ${persistenceRefs}
 `;
 }
 
-export function renderTestCsproj(ns: string): string {
+/** The `<NuGetAuditSuppress>` item group a csproj needs for the resource
+ *  packages it restores, or `""` when it needs none.
+ *
+ *  MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
+ *  moderate BouncyCastle advisory present on every published version; the
+ *  generated code only uses the SMTP send path.  Suppressing the two audit
+ *  entries keeps `dotnet build /warnaserror` (NU1902) green with MailKit present.
+ *
+ *  Both the API csproj and the xUnit csproj carry it: NuGet audits a project's
+ *  whole transitive graph, MailKit reaches the test project through its
+ *  `ProjectReference`, and an audit suppression is a per-project item that a
+ *  reference does not carry across. */
+export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, string>): string {
+  if (!("MailKit" in resourceNugetDeps)) return "";
+  return `\n  <ItemGroup>
+    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
+         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
+  </ItemGroup>`;
+}
+
+export function renderTestCsproj(
+  ns: string,
+  resourceNugetDeps: Record<string, string> = {},
+): string {
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -1607,7 +1653,7 @@ export function renderTestCsproj(ns: string): string {
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../${ns}.csproj" />
-  </ItemGroup>
+  </ItemGroup>${nugetAuditSuppressItemGroup(resourceNugetDeps)}
 </Project>
 `;
 }

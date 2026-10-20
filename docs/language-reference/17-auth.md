@@ -248,7 +248,7 @@ end
 ```
 ::: end
 
-Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `callback`, `logout`, `me` (the session probe the `auth: ui` guard reads) and `POST /api/auth/refresh` (silent renewal with refresh-token rotation). PKCE is unconditional. `generate system` also emits a `keycloak/realm.json` for a local IdP. Full route table, session depth and bypass list: [`../auth.md`](../auth.md#auth-routes).
+Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `callback`, `logout`, `me` (the session probe the `auth: ui` guard reads) and `POST /api/auth/refresh` (silent renewal with refresh-token rotation). PKCE is unconditional. `generate system` also emits a `keycloak/realm.json` and a compose `keycloak` service as the local IdP — for every provider, hosted presets included ([`../auth.md`](../auth.md#local-dev-idp-bundled-keycloak)). Full route table, session depth and bypass list: [`../auth.md`](../auth.md#auth-routes).
 
 ### Dev-stub verifier (`x-loom-dev-claims`)
 
@@ -422,7 +422,7 @@ policy CanClose(prio: int): bool = currentUser.permissions.contains(permissions.
 operation close() requires IsAgent() || CanClose(priority) { … }
 ```
 
-A policy function is **context-local**: calling one from another bounded context is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"). Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
+A policy function is **context-local**: calling one from another bounded context — bare (`IsAdmin()`) or qualified with its context (`Orders.IsAdmin()`) — is `loom.policy-out-of-scope` ("policy X is declared in context A; policies are context-local — redeclare it in B"). Sharing a policy across contexts (a subdomain- or system-level policy) is not supported yet.
 
 The call is **inlined at the gate** — no function is emitted, and the `ForbiddenError` message keeps the author's source text:
 
