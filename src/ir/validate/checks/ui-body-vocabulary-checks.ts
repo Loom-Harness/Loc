@@ -174,7 +174,7 @@ export interface UiBodyFeatureUse {
 }
 
 /** Every vocabulary feature a ui's bodies use, deduped by (where, feature). */
-export function uiBodyFeaturesUsed(
+function uiBodyFeaturesUsed(
   ui: UiIR,
   findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>,
   aggNames: ReadonlySet<string>,
