@@ -13,6 +13,7 @@ import { useProductById } from "../../api/product";
 function openUpdateModal(mut: ReturnType<typeof useUpdateProduct>): void {
   modals.open({
     title: t("page.Detail.modalTitle.uk4kus", "Update"),
+    closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
 }

@@ -25,6 +25,7 @@ import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
+import { opDialogChrome } from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
@@ -46,6 +47,7 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
+import { formChromeAttr } from "./i18n.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +160,9 @@ export function renderAnchor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  walker's `emitModal`. */
 export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let title = "";
+  // The English the submit button shows — the literal title when authored,
+  // else the humanized op name — for the op-dialog chrome rule.
+  let titleEnglish: string | undefined;
   let triggerExpr: ExprIR | undefined;
   let openExpr: ExprIR | undefined;
   const positional: ExprIR[] = [];
@@ -167,6 +172,7 @@ export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     if (name === "title") {
       // A user-visible named slot (`modalTitle`) — translated under i18n,
       // the raw escaped literal otherwise (byte-identical).
+      if (arg.kind === "literal" && typeof arg.value === "string") titleEnglish = arg.value;
       title =
         arg.kind === "literal"
           ? renderInTemplate(arg, ctx, "modalTitle")
@@ -273,6 +279,13 @@ ${heading}${childrenHeex}
   }
   const testidAttr = testIdAttr(expr, ctx);
   const heading = title || humanize(opName);
+  // The modal's close icon is named by the shared op-dialog rule, so it never
+  // shares the submit button's accessible name (`operation close` → "Close
+  // dialog").
+  const closeLabel = formChromeAttr(
+    opDialogChrome(titleEnglish ?? humanize(opName)).close,
+    Boolean(ctx.i18nPrefix),
+  );
 
   const inputs =
     params.length > 0
@@ -301,7 +314,7 @@ ${heading}${childrenHeex}
   const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
   const dialog = [
     `<.button phx-click={show_modal("${modalId}")}${disabledAttr}${testidAttr}>${label}</.button>`,
-    `<.modal id="${modalId}">`,
+    `<.modal id="${modalId}" close_label=${closeLabel}>`,
     `  <:title>${heading}</:title>`,
     `  <.simple_form for={@${formAssign}} phx-change="validate_${opSnake}" phx-submit="submit_${opSnake}">`,
     ...inputs,

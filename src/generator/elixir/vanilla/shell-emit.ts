@@ -101,6 +101,9 @@ export function emitVanillaShellFiles(
    *  `Application.start/2` after the supervision tree is up.  Empty ⇒ no
    *  seeding calls. */
   seedModules: readonly string[] = [],
+  /** The port `mix phx.server` listens on in dev when PORT is unset — the
+   *  deployable's declared port. */
+  devPort = 4000,
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -319,7 +322,7 @@ export function emitVanillaShellFiles(
       hasLiveView,
     ),
   );
-  out.set("config/dev.exs", renderVanillaDev(appName, appModule));
+  out.set("config/dev.exs", renderVanillaDev(appName, appModule, devPort));
   out.set("config/prod.exs", renderVanillaProd(appName, appModule));
   out.set("config/runtime.exs", renderVanillaRuntime(appName, appModule));
   out.set("config/test.exs", renderVanillaTest(appName, appModule));
@@ -1589,7 +1592,7 @@ import_config "#{config_env()}.exs"
 `;
 }
 
-function renderVanillaDev(appName: string, appModule: string): string {
+function renderVanillaDev(appName: string, appModule: string, devPort: number): string {
   return `import Config
 
 # Honor DATABASE_URL when set (containerized dev + e2e harnesses point
@@ -1612,9 +1615,9 @@ else
 end
 
 config :${appName}, ${appModule}Web.Endpoint,
-  # PORT env var overrides the dev default so test harnesses + parallel
-  # dev workflows can avoid port collisions without editing this file.
-  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "4000")],
+  # The dev default is the deployable's declared port; PORT overrides it so
+  # test harnesses and parallel dev workflows avoid port collisions.
+  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "${devPort}")],
   check_origin: false,
   debug_errors: true,
   secret_key_base: "ZqJBpdEaAxQpgK0d63NydhxsP2VrZLgJ6mhJrShdWf6mYLRVy6Iuc1FdN5lW9bz9"

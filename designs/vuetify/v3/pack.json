@@ -4,6 +4,7 @@
   "format": "vue",
   "stack": "vue1",
   "seedsOpFormRecord": true,
+  "componentImports": { "tagPrefix": "v-", "from": "vuetify/components" },
   "emits": {
     "primitive-alert": "primitive-alert.hbs",
     "primitive-anchor": "primitive-anchor.hbs",

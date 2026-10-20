@@ -47,7 +47,7 @@ import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
-import { renderE2EFile } from "./e2e-render.js";
+import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
@@ -318,7 +318,7 @@ export function generateSystemsFromLoom(
         slugOf: serviceSlug,
         emitted: out,
         dbImage: POSTGRES_IMAGE,
-        devIdp: bundlesKeycloak(sys) ? keycloakConfig(sys) : undefined,
+        ...(bundlesKeycloak(sys) ? { devIdp: keycloakConfig(sys) } : {}),
       }),
     );
   }
@@ -507,7 +507,7 @@ function emitSystem(
   // E2E test scaffolding — emitted only when the system declares
   // `test e2e` blocks.  Lives at the system root so it can run against
   // the whole compose stack with one `vitest run e2e/`.
-  const e2eFile = renderE2EFile(sys, modulesByName);
+  const e2eFile = renderE2EFile(sys, modulesByName, devIdpTokenSource(sys));
   if (e2eFile) {
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
     out.set("e2e/package.json", E2E_PACKAGE_JSON);
@@ -967,9 +967,9 @@ function renderDockerCompose(sys: SystemIR): string {
 
 // ---------------------------------------------------------------------------
 // Bundled dev Keycloak (D-AUTH-OIDC §4.2 — the zero-config quick-start).
-// Added when the system declares an OIDC `auth { … }` block whose provider is
-// self-hosted (keycloak / custom / a raw `oidc { issuer }`); hosted presets
-// (google / auth0 / …) use their own IdP and get no bundled service.
+// Added whenever the system declares an OIDC `auth { … }` block, hosted
+// presets (google / auth0 / …) included — see `bundlesDevKeycloak` for why the
+// local stack never depends on the real provider.
 // ---------------------------------------------------------------------------
 
 /** Host port the bundled Keycloak is published on.  Starts at 8081 (8080 is
@@ -1006,6 +1006,24 @@ function keycloakConfig(sys: SystemIR): {
     clientId: `${realm}-app`,
     issuer: `http://host.docker.internal:${hostPort}/realms/${realm}`,
     hostPort,
+  };
+}
+
+/** Where the generated e2e suite mints its bearer token when the runner hands
+ *  it none: the bundled realm's token endpoint as the HOST sees it, plus the
+ *  realm's public client.  `undefined` when no backend requires auth or no
+ *  realm is bundled — the suite then emits no minting code at all.
+ *
+ *  `localhost`, not `host.docker.internal`: the suite runs on the host.  The
+ *  token's `iss` is still the `KC_HOSTNAME` URL the backends verify against,
+ *  because Keycloak stamps its configured hostname, not the request's. */
+function devIdpTokenSource(sys: SystemIR): DevIdpTokenSource | undefined {
+  if (!bundlesKeycloak(sys)) return undefined;
+  if (!sys.deployables.some((d) => d.auth?.required)) return undefined;
+  const { realm, clientId, hostPort } = keycloakConfig(sys);
+  return {
+    tokenUrl: `http://localhost:${hostPort}/realms/${realm}/protocol/openid-connect/token`,
+    clientId,
   };
 }
 
@@ -1189,7 +1207,7 @@ function renderKeycloakRealm(sys: SystemIR): string {
         ? ["admin"]
         : f.name === demoTenantClaim(sys)
           ? [DEMO_TENANT_ID]
-          : [demoClaimValue(f)];
+          : [demoClaimValue(f, sys)];
   }
 
   // A SECOND seeded user, `demo-admin`, holding EVERY declared permission.
@@ -1707,6 +1725,15 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     const kc = keycloakConfig(sys);
     lines.push(`    OIDC_ISSUER: ${JSON.stringify(kc.issuer)}`);
     lines.push(`    OIDC_CLIENT_ID: ${JSON.stringify(kc.clientId)}`);
+    // An `audience: env(...)` resolves to nothing unless the deploy env sets
+    // it, and an unset audience turns the `aud` check OFF on every backend —
+    // so without this line the dev stack verified tokens fail-open.  The realm
+    // mints the client id into `aud` for exactly this case (the audience
+    // mapper in `renderKeycloakRealm`); every backend reads `OIDC_AUDIENCE`
+    // ahead of the declared variable, so this one name covers any env name.
+    if (sys.auth?.oidc.audience?.kind === "env") {
+      lines.push(`    OIDC_AUDIENCE: ${JSON.stringify(kc.clientId)}`);
+    }
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );
@@ -1786,16 +1813,61 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
  *  id parse (and the .NET/java UUID-backed id types outright); a numeric claim
  *  is `0` and a `bool` claim `false`, because Keycloak types the claim from the
  *  mapper's `jsonType.label` and a non-numeric seed is dropped from the token.
- *  Everything else keeps the obviously-synthetic `demo-<kebab-name>`. */
-function demoClaimValue(f: FieldIR): string {
-  const t = f.type.kind === "optional" ? f.type.inner : f.type;
-  if (t.kind === "id") return DEV_STUB_ID_GUID;
-  if (t.kind === "primitive") {
-    if (t.name === "guid") return DEV_STUB_ID_GUID;
-    if (t.name === "int" || t.name === "long") return "0";
-    if (t.name === "bool") return "false";
+ *  Every TYPED claim must decode on all five backends: the .NET / java
+ *  verifiers decode typed claims (D16) and reject a token whose REQUIRED typed
+ *  claim does not decode, so a `demo-since` datetime would 401 the demo user.
+ *  Hence a fixed ISO-8601 instant for `datetime`, `"0"` for `decimal`/`money`,
+ *  an enum's first member, and a list claim seeded with ONE valid element of
+ *  its element type (it rides a `multivalued` mapper).  Only a `string` (or
+ *  an unmodelled shape) keeps the obviously-synthetic `demo-<kebab-name>`. */
+function demoClaimValue(f: FieldIR, sys: SystemIR): string {
+  const synthetic = `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+  const seed = (t: TypeIR): string => {
+    switch (t.kind) {
+      case "optional":
+        return seed(t.inner);
+      case "array":
+        return seed(t.element);
+      case "id":
+        return DEV_STUB_ID_GUID;
+      case "enum":
+        return enumFirstMember(sys, t.name) ?? synthetic;
+      case "primitive":
+        switch (t.name) {
+          case "guid":
+            return DEV_STUB_ID_GUID;
+          case "int":
+          case "long":
+          case "decimal":
+          case "money":
+            return "0";
+          case "bool":
+            return "false";
+          case "datetime":
+            return DEMO_CLAIM_INSTANT;
+          default:
+            return synthetic;
+        }
+      default:
+        return synthetic;
+    }
+  };
+  return seed(f.type);
+}
+
+/** The fixed instant a `datetime` claim is seeded with — ISO-8601 UTC, which
+ *  every backend's verifier decodes. */
+const DEMO_CLAIM_INSTANT = "2026-01-01T00:00:00Z";
+
+/** The first declared member of the enum `name`, searched across the system. */
+function enumFirstMember(sys: SystemIR, name: string): string | undefined {
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      const e = ctx.enums.find((x) => x.name === name);
+      if (e) return e.values[0];
+    }
   }
-  return `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+  return undefined;
 }
 
 /** The realm's declarative user profile (Keycloak 24+): Keycloak's own default

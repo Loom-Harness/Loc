@@ -27,13 +27,16 @@ import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
+import { opDialogChrome } from "../i18n-chrome.js";
 import {
   localizedNamedAttr,
   localizedNamedText,
   localizedNamedValue,
   localizedPageChromeText,
   localizedPageChromeValue,
+  localizedPageChromeValueUnbound,
   localizedText,
+  registerI18nImport,
 } from "../i18n-emit.js";
 import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
@@ -260,6 +263,20 @@ function registerOperationFormChrome(ctx: WalkContext): void {
   addImportsForPrimitive(ctx, "primitive-modal");
 }
 
+/** The op dialog's dismiss-button label (markup text) and close-icon name
+ *  (a value expression), both derived from the submit label by the one rule
+ *  in `opDialogChrome`. */
+function opDialogChromeLabels(
+  ctx: WalkContext,
+  submitLabel: string,
+): { cancelLabel: string; closeLabelExpr: string } {
+  const chrome = opDialogChrome(submitLabel);
+  return {
+    cancelLabel: localizedPageChromeText(ctx, chrome.dismiss),
+    closeLabelExpr: localizedPageChromeValue(ctx, chrome.close),
+  };
+}
+
 /** The id an op form mutates when there is no in-scope record to read it off:
  *  the ROUTE `id` (a `/things/:id` page).  Marking it used is not enough — the
  *  shells gate the whole `id` binding on `usesRouteId` (React destructures
@@ -362,7 +379,7 @@ function emitFormOfOperationByName(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    ...opDialogChromeLabels(ctx, humanize(op.name)),
     agg,
     op,
     bc,
@@ -887,7 +904,7 @@ function emitFormOfOperation(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    ...opDialogChromeLabels(ctx, humanize(op.name)),
     agg,
     op,
     bc,
@@ -1007,7 +1024,11 @@ function emitControlledModal(
   // container that hardcoded the JSX assumption.
   const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1, "children"));
   const childrenJsx = children.join(`${ctx.target.interChildSeparator ?? ""}\n${indent}`);
-  return renderPrimitive(ctx, "primitive-modal-controlled", {
+  // The close icon's accessible name (on the packs whose dialog has one).  No
+  // submit button here, so nothing to collide with — always `chrome.close`.
+  const closeLabelExpr = localizedPageChromeValueUnbound(ctx, "close");
+  const out = renderPrimitive(ctx, "primitive-modal-controlled", {
+    closeLabelExpr,
     opened: stateName,
     setter,
     hasTitle,
@@ -1027,6 +1048,8 @@ function emitControlledModal(
     closeIndent,
     testidAttr: testidAttr(call, ctx),
   });
+  if (ctx.i18nPrefix && out.includes(closeLabelExpr)) registerI18nImport(ctx);
+  return out;
 }
 
 export function emitModal(

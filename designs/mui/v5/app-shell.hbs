@@ -4,7 +4,7 @@ import {
   AppBar, Box, Card, CardContent, Chip, Container, CssBaseline, Divider, Drawer, Grid,
   IconButton, Link,
   List, ListItem, ListItemButton, ListItemText, ListSubheader,
-  Toolbar, Typography, Alert, Button, Stack,
+  Toolbar, Typography, Alert, Button, CircularProgress, Stack,
 } from "@mui/material";
 {{!-- Barrel import, NOT `@mui/icons-material/Menu`: v5 ships CJS with no
      `exports` map, so Vite hands a deep default import the module OBJECT and
@@ -17,7 +17,8 @@ import React from "react";
 {{/if}}{{#if authUi}}import { signOut } from "./auth/session";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
-{{/if}}
+{{/if}}{{#each lazyPages}}const {{specifier}} = React.lazy(() => import("{{from}}"));
+{{/each}}
 
 const DRAWER_WIDTH = 240;
 
@@ -54,6 +55,17 @@ class AppErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
+}
+
+// Route-level Suspense fallback: every routed page is a lazy chunk, so a
+// first visit renders the pack's loader in the content slot while the
+// chunk downloads, and the shell around it stays mounted.
+function RouteLoading() {
+  return (
+    <Box sx=\{{ display: "flex", justifyContent: "center", p: 4 }} role="status" {{{routeLoadingAria}}} data-testid="route-loading">
+      <CircularProgress />
+    </Box>
+  );
 }
 
 function NotFound() {
@@ -173,7 +185,9 @@ function AppShellLayout() {
       >
         <Toolbar />
         <AppErrorBoundary>
-          <Outlet />
+          <React.Suspense fallback={<RouteLoading />}>
+            <Outlet />
+          </React.Suspense>
         </AppErrorBoundary>
       </Box>
     </Box>
@@ -191,7 +205,9 @@ function {{name}}Layout() {
 {{#if hasHeader}}      <header>{{{headerJsx}}}</header>
 {{/if}}      <main id="main-content">
         <AppErrorBoundary>
-          <Outlet />
+          <React.Suspense fallback={<RouteLoading />}>
+            <Outlet />
+          </React.Suspense>
         </AppErrorBoundary>
       </main>
 {{#if hasFooter}}      <footer>{{{footerJsx}}}</footer>
@@ -203,7 +219,8 @@ function {{name}}Layout() {
   return (
 {{#if hasRealtimeHandlers}}    <>
       <RealtimeHandlers />
-{{/if}}    <Routes>
+{{/if}}    <React.Suspense fallback={<RouteLoading />}>
+    <Routes>
 {{#each outOfShellRoutes}}      <Route path="{{path}}" element={{expr elementJsx}} />
 {{/each}}{{#each namedLayouts}}      <Route element={<{{name}}Layout />}>
 {{#each routes}}        <Route path="{{path}}" element={{expr elementJsx}} />
@@ -213,6 +230,7 @@ function {{name}}Layout() {
 {{/each}}        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+    </React.Suspense>
 {{#if hasRealtimeHandlers}}    </>
 {{/if}}  );
 }

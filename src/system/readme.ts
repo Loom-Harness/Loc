@@ -56,10 +56,9 @@ export interface SystemReadmeContext {
   /** The Postgres image the emitted compose stack runs, so the host-side
    *  `docker run` the README hands the reader cannot drift from it. */
   dbImage: string;
-  /** The bundled dev Keycloak's issuer and client id, when the compose stack
-   *  carries one — the same values the compose file hands each backend, so
-   *  the host-side recipe cannot drift from them. */
-  devIdp?: { issuer: string; clientId: string };
+  /** The compose stack's bundled dev IdP, when the system declares
+   *  `auth { oidc }` — what a reader signs in with locally. */
+  devIdp?: { hostPort: number; realm: string; clientId: string };
 }
 
 /** The generated system's `README.md`. */
@@ -77,6 +76,7 @@ export function renderSystemReadme(sys: SystemIR, ctx: SystemReadmeContext): str
   out.push("");
   out.push(...whatIsHere(sys, ctx));
   out.push(...runIt(sys, ctx));
+  out.push(...signingIn(sys, ctx));
   out.push(...tests(sys, ctx));
   out.push(...loomDir(ctx));
   out.push(...regenerating());
@@ -171,45 +171,43 @@ function runIt(sys: SystemIR, ctx: SystemReadmeContext): string[] {
       lines.push("```");
       lines.push("");
     }
-    lines.push(...idpForLocalRuns(sys, ctx));
   }
   return lines;
 }
 
 /**
- * What a deployable run outside compose needs when the model declares
- * `auth { oidc … }`.  The `oidc` block replaces the accept-all dev-stub
- * verifier on every backend (D-AUTH-OIDC), so a host-side run has no
- * `x-loom-dev-claims` path and needs a real IdP.  Saying nothing left the
- * recipes above looking complete while every authenticated request 401s.
+ * How to sign in to the local stack.  Under `auth { oidc }` the backends accept
+ * only verified tokens, and the provider the model names (a hosted Auth0 or
+ * Entra tenant, say) is not something a local run can reach — so compose
+ * bundles a dev Keycloak and repoints the backends at it.  A reader, human or
+ * agent, who does not know that reaches for a fake-login header that the
+ * backends no longer honour.
  */
-function idpForLocalRuns(sys: SystemIR, ctx: SystemReadmeContext): string[] {
-  if (!sys.auth) return [];
-  const lines = [
-    "This system declares `auth { oidc … }`, so its deployables verify real OIDC tokens. There is no dev-stub verifier (`x-loom-dev-claims`) here — the stub is generated only for a model without an `oidc` block — so a deployable started on its own still needs the identity provider.",
+function signingIn(sys: SystemIR, ctx: SystemReadmeContext): string[] {
+  const idp = ctx.devIdp;
+  if (!idp) return [];
+  const backends = sys.deployables.filter((d) => d.auth?.required);
+  if (backends.length === 0) return [];
+  const base = `http://localhost:${idp.hostPort}`;
+  const tokenUrl = `${base}/realms/${idp.realm}/protocol/openid-connect/token`;
+  const probe = backends[0]!;
+  return [
+    "### Signing in",
+    "",
+    `The backends accept only verified OIDC tokens. \`docker compose up\` starts a dev Keycloak at <${base}> (admin console: \`admin\` / \`admin\`) with the realm \`${idp.realm}\` and one user, **\`demo\` / \`demo\`**, and points every backend at it through \`OIDC_ISSUER\` — whatever provider the model declares. Signing in through a UI redirects there.`,
+    "",
+    "A token for scripts and `curl`:",
+    "",
+    "```bash",
+    `TOKEN=$(curl -s ${tokenUrl} \\`,
+    `  -d grant_type=password -d client_id=${idp.clientId} -d username=demo -d password=demo \\`,
+    "  | jq -r .access_token)",
+    `curl -H "Authorization: Bearer $TOKEN" http://localhost:${probe.port}/api/auth/me`,
+    "```",
+    "",
+    "There is no fake-login header on this stack: `x-loom-dev-claims` is ignored once the model declares `auth { oidc }`. To sign in with the real provider instead, set `OIDC_ISSUER` and `OIDC_CLIENT_ID` on the backend services.",
     "",
   ];
-  if (ctx.devIdp) {
-    lines.push(
-      "Start the bundled dev Keycloak from the compose file and give each authenticated deployable its issuer (log in as `demo` / `demo`):",
-    );
-    lines.push("");
-    lines.push("```bash");
-    lines.push("docker compose up -d keycloak");
-    lines.push(`export OIDC_ISSUER=${ctx.devIdp.issuer}`);
-    lines.push(`export OIDC_CLIENT_ID=${ctx.devIdp.clientId}`);
-    lines.push("```");
-    lines.push("");
-    lines.push(
-      "The issuer names `host.docker.internal`, which must resolve on the host too: Docker Desktop provides it; on Linux add `127.0.0.1 host.docker.internal` to `/etc/hosts`.",
-    );
-  } else {
-    lines.push(
-      "Set `OIDC_ISSUER` and `OIDC_CLIENT_ID` (and `OIDC_CLIENT_SECRET` if your provider needs one) to your provider's tenant before starting an authenticated deployable.",
-    );
-  }
-  lines.push("");
-  return lines;
 }
 
 /**
@@ -510,6 +508,12 @@ function rootE2E(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   lines.push("npm test");
   lines.push("```");
   lines.push("");
+  if (ctx.devIdp && sys.deployables.some((d) => d.auth?.required)) {
+    lines.push(
+      "The suite signs itself in: before its first request it gets a token for `demo` from the dev Keycloak above. `E2E_BEARER_TOKEN=<jwt>` supplies one instead, `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` pick another realm user, and `E2E_DEV_IDP=off` turns it off.",
+    );
+    lines.push("");
+  }
   lines.push(
     "Each deployable's base URL comes from an environment variable, defaulting to its port above. Override them to point the suite at a stack that is not on `localhost`:",
   );

@@ -28,8 +28,8 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
@@ -563,7 +563,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-    ...workflowIdTypeSources(merged.workflows),
+    ...hostedContextIdTypeSources([merged]),
     ...userClaimIdTypeSources(args.sys.user),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -919,6 +919,17 @@ function renderPyproject(
     "dev = [",
     [...PYTHON_PINS.devDependencies, ...extraDevDeps].map(dep),
     "]",
+    "",
+    "# A pip editable install (`pip install -e .`) builds the project, so it",
+    "# needs a backend and the one package to ship: `app`.  Automatic",
+    "# discovery refuses the flat layout, which also holds `migrations/` and",
+    "# `tests/` beside it.",
+    "[build-system]",
+    `requires = ["setuptools>=77"]`,
+    `build-backend = "setuptools.build_meta"`,
+    "",
+    "[tool.setuptools.packages.find]",
+    `include = ["app*"]`,
     "",
     "# Application project, not a distributable package — uv installs the",
     "# dependency set without building/installing the project itself.",

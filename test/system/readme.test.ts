@@ -228,42 +228,6 @@ describe("README.md — run recipes", () => {
     // Same image the compose stack runs, threaded through rather than retyped.
     expect(md).toContain("postgres:18-alpine");
   });
-
-  // An `auth { oidc … }` block replaces the dev-stub verifier on every
-  // backend, so a host-side run needs the IdP.  The recipe must say so, and
-  // name the bundled Keycloak's issuer the compose file hands the backend.
-  const withAuth = (auth: string) =>
-    BACKEND_ONLY.replace(
-      "storage pg { type: postgres }",
-      `user { sub: string }\n    auth { ${auth}\n enforcement: opt }\n    storage pg { type: postgres }`,
-    ).replace("port: 3000", "port: 3000, auth: required");
-
-  it("with a self-hosted oidc block, says there is no dev stub and starts the bundled Keycloak", async () => {
-    const md = await readme(
-      withAuth(`oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }`),
-    );
-    expect(md).toContain("There is no dev-stub verifier (`x-loom-dev-claims`) here");
-    expect(md).toContain("docker compose up -d keycloak");
-    expect(md).toContain("export OIDC_ISSUER=http://host.docker.internal:8081/realms/ledger");
-    expect(md).toContain("export OIDC_CLIENT_ID=ledger-app");
-  });
-
-  it("with a hosted preset, names the OIDC variables instead of a bundled IdP", async () => {
-    const md = await readme(
-      withAuth(
-        `provider: google\n oidc { issuer: env("OIDC_ISSUER"), clientId: env("OIDC_CLIENT_ID") }`,
-      ),
-    );
-    expect(md).toContain("There is no dev-stub verifier");
-    expect(md).not.toContain("docker compose up -d keycloak");
-    expect(md).toContain("Set `OIDC_ISSUER` and `OIDC_CLIENT_ID`");
-  });
-
-  it("without an auth block, says nothing about an IdP", async () => {
-    const md = await readme(BACKEND_ONLY);
-    expect(md).not.toContain("x-loom-dev-claims");
-    expect(md).not.toContain("OIDC_ISSUER");
-  });
 });
 
 describe("README.md — the test projects", () => {
@@ -383,5 +347,53 @@ describe("README.md — regeneration", () => {
     expect(md).toContain("`.loomignore`");
     expect(md).toContain("--dry-run");
     expect(md).toContain("overwrite a file you hand-edited");
+  });
+});
+
+// Under `auth { oidc }` the backends accept only verified tokens, so a reader
+// (or an agent) who reaches for the dev-claims header gets 401 and no reason.
+// The README names the bundled dev IdP, its user, and a working token recipe.
+describe("signing in to an auth { oidc } stack", () => {
+  const OIDC = `
+system Shop {
+  user { id: string  role: string }
+  auth { enforcement: opt  provider: auth0  oidc { issuer: "https://shop.eu.auth0.com/"  clientId: env("OIDC_CLIENT_ID") } }
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish { code: string }
+      repository Orders for Order { }
+    }
+  }
+  storage primary { type: postgres }
+  resource s { for: Orders, kind: state, use: primary }
+  api SalesApi from Sales
+  deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [s] port: 4000 auth: required }
+  test e2e "creates an order" against api {
+    let o = api.orders.create({ code: "A1" })
+    expect(api.orders.getById(o).code).toBe("A1")
+  }
+}`;
+
+  it("names the dev Keycloak, the demo user and a token recipe that matches the realm", async () => {
+    const files = await generateSystemFiles(OIDC);
+    const md = files.get("README.md")!;
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      realm: string;
+      clients: { clientId: string }[];
+    };
+    expect(md).toContain("### Signing in");
+    expect(md).toContain("**`demo` / `demo`**");
+    expect(md).toContain(
+      `http://localhost:8081/realms/${realm.realm}/protocol/openid-connect/token`,
+    );
+    expect(md).toContain(`client_id=${realm.clients[0]!.clientId}`);
+    expect(md).toContain("`x-loom-dev-claims` is ignored");
+    expect(md).toContain("The suite signs itself in");
+  });
+
+  it("says nothing about signing in when there is no auth block", async () => {
+    const md = await readme(BACKEND_ONLY);
+    expect(md).not.toContain("### Signing in");
+    expect(md).not.toContain("signs itself in");
   });
 });

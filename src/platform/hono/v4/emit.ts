@@ -114,8 +114,8 @@ import {
 } from "../../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -809,7 +809,7 @@ export function generateTypeScriptForContexts(
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-    ...workflowIdTypeSources(merged.workflows),
+    ...hostedContextIdTypeSources([merged]),
     ...userClaimIdTypeSources(system?.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
@@ -1575,6 +1575,9 @@ export function generateTypeScriptForContexts(
       // loop feeding the in-process dispatcher.
       hasChannels,
       hasChannelConsumers,
+      // A native run (`npm run dev`) listens on the deployable's declared
+      // port; the image sets PORT to its container port.
+      system?.deployable.port ?? 3000,
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
@@ -1979,6 +1982,7 @@ function renderProjectIndexTs(
   hasTimers = false,
   hasChannels = false,
   hasChannelConsumers = false,
+  nativePort = 3000,
 ): string {
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
@@ -2105,7 +2109,7 @@ ${importHeader}
 ${resourceImportBlock}
 ${connectionBlock}
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? ${nativePort});
 baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
 ${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
   needsDispatcher
