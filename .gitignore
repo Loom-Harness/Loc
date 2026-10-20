@@ -53,3 +53,7 @@ out-tsc-test/
 # README says "local only, do not commit", and every agent that follows it
 # leaves this file untracked in the tree.
 web/playwright.local.config.ts
+
+# Stray artefacts a CLI run against a fixture at test/e2e/fixtures/ writes beside it.
+# Per-fixture .loom/ baselines in subdirectories are committed and stay tracked.
+/test/e2e/fixtures/.loom/

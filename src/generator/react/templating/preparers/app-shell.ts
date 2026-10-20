@@ -204,6 +204,16 @@ export function prepareAppShellVM(
   const moduleFor = (slot: string, conventional: string): string =>
     pageModules.get(slot) ?? conventional;
   const imports: ImportVM[] = [];
+  /** Routed page components.  Each becomes a `React.lazy(() => import(...))`
+   *  binding rather than a static import, so the bundler splits every page
+   *  into its own chunk and the initial bundle carries only the shell; the
+   *  template wraps each layout's `<Outlet />` in a `Suspense` whose fallback
+   *  is the pack's loader.  Every page module default-exports its component,
+   *  which is the shape `React.lazy` requires. */
+  const lazyPages: ImportVM[] = [];
+  const lazyPage = (specifier: string, from: string): void => {
+    lazyPages.push({ specifier, from });
+  };
   const routes: RouteVM[] = [];
   // App.tsx sits at `src/App.tsx`, so the runtime shim is one hop away.
   if (i18nEnabled) imports.push({ specifier: "{ t }", from: "./i18n" });
@@ -215,7 +225,7 @@ export function prepareAppShellVM(
   // no scaffold so the scaffold expander never synthesised Home.
   const userHasRootRoute = extraRoutes?.some((r) => r.route === "/") ?? false;
   if (!userHasRootRoute && hasScaffoldHome) {
-    imports.push({ specifier: "Home", from: moduleFor("home", "./pages/home") });
+    lazyPage("Home", moduleFor("home", "./pages/home"));
     routes.push({ path: "/", elementJsx: "<Home />" });
   }
 
@@ -229,19 +239,9 @@ export function prepareAppShellVM(
     // `pages/<slug>/new` file is emitted.  Gate its import + route on the same
     // fact, else App.tsx imports a module that doesn't exist (tsc TS2307).
     const hasNew = emitsRestCreate(agg);
-    imports.push({
-      specifier: `${cap}List`,
-      from: moduleFor(`agg:${agg.name}:list`, `./pages/${slug}/list`),
-    });
-    if (hasNew)
-      imports.push({
-        specifier: `${cap}New`,
-        from: moduleFor(`agg:${agg.name}:new`, `./pages/${slug}/new`),
-      });
-    imports.push({
-      specifier: `${cap}Detail`,
-      from: moduleFor(`agg:${agg.name}:detail`, `./pages/${slug}/detail`),
-    });
+    lazyPage(`${cap}List`, moduleFor(`agg:${agg.name}:list`, `./pages/${slug}/list`));
+    if (hasNew) lazyPage(`${cap}New`, moduleFor(`agg:${agg.name}:new`, `./pages/${slug}/new`));
+    lazyPage(`${cap}Detail`, moduleFor(`agg:${agg.name}:detail`, `./pages/${slug}/detail`));
     routes.push({ path: `/${slug}`, elementJsx: `<${cap}List />` });
     if (hasNew) routes.push({ path: `/${slug}/new`, elementJsx: `<${cap}New />` });
     routes.push({ path: `/${slug}/:id`, elementJsx: `<${cap}Detail />` });
@@ -251,19 +251,13 @@ export function prepareAppShellVM(
   // + per-workflow form.
   if (workflows.length > 0) {
     if (hasWorkflowsIndex) {
-      imports.push({
-        specifier: "WorkflowsIndex",
-        from: moduleFor("workflows-index", "./pages/workflows/index"),
-      });
+      lazyPage("WorkflowsIndex", moduleFor("workflows-index", "./pages/workflows/index"));
       routes.push({ path: "/workflows", elementJsx: "<WorkflowsIndex />" });
     }
     for (const wf of workflows) {
       const slug = snake(wf.name);
       const cap = `${upperFirst(wf.name)}WorkflowPage`;
-      imports.push({
-        specifier: cap,
-        from: moduleFor(`wf:${wf.name}:form`, `./pages/workflows/${slug}`),
-      });
+      lazyPage(cap, moduleFor(`wf:${wf.name}:form`, `./pages/workflows/${slug}`));
       routes.push({ path: `/workflows/${slug}`, elementJsx: `<${cap} />` });
     }
   }
@@ -275,14 +269,14 @@ export function prepareAppShellVM(
   for (const wf of observableWorkflows) {
     const slug = snake(wf.name);
     const cap = upperFirst(wf.name);
-    imports.push({
-      specifier: `${cap}InstancesList`,
-      from: moduleFor(`wf:${wf.name}:instances`, `./pages/workflows/${slug}/instances`),
-    });
-    imports.push({
-      specifier: `${cap}InstanceDetail`,
-      from: moduleFor(`wf:${wf.name}:instance-detail`, `./pages/workflows/${slug}/instance_detail`),
-    });
+    lazyPage(
+      `${cap}InstancesList`,
+      moduleFor(`wf:${wf.name}:instances`, `./pages/workflows/${slug}/instances`),
+    );
+    lazyPage(
+      `${cap}InstanceDetail`,
+      moduleFor(`wf:${wf.name}:instance-detail`, `./pages/workflows/${slug}/instance_detail`),
+    );
     routes.push({ path: `/workflows/${slug}/instances`, elementJsx: `<${cap}InstancesList />` });
     routes.push({
       path: `/workflows/${slug}/instances/:id`,
@@ -297,10 +291,7 @@ export function prepareAppShellVM(
   // doesn't dedupe — caller is responsible for not handing the
   // same component twice.
   for (const extra of extraRoutes ?? []) {
-    imports.push({
-      specifier: extra.componentName,
-      from: extra.importFrom,
-    });
+    lazyPage(extra.componentName, extra.importFrom);
     routes.push({
       path: extra.route,
       elementJsx: `<${extra.componentName} />`,
@@ -315,10 +306,7 @@ export function prepareAppShellVM(
   // both channels.
   const outOfShellRoutesVM: RouteVM[] = [];
   for (const extra of outOfShellRoutes ?? []) {
-    imports.push({
-      specifier: extra.componentName,
-      from: extra.importFrom,
-    });
+    lazyPage(extra.componentName, extra.importFrom);
     outOfShellRoutesVM.push({
       path: extra.route,
       elementJsx: `<${extra.componentName} />`,
@@ -352,7 +340,7 @@ export function prepareAppShellVM(
   }));
   for (const nl of namedLayouts ?? []) {
     for (const route of nl.routes) {
-      imports.push({ specifier: route.componentName, from: route.importFrom });
+      lazyPage(route.componentName, route.importFrom);
     }
   }
   for (const imp of layoutImports ?? []) imports.push(imp);
@@ -377,6 +365,7 @@ export function prepareAppShellVM(
   return {
     systemNameHuman: humanize(systemName),
     imports,
+    lazyPages,
     routes,
     outOfShellRoutes: outOfShellRoutesVM,
     namedLayouts: namedLayoutsVM,
@@ -390,6 +379,7 @@ export function prepareAppShellVM(
     // keyed to `APP_SHELL_CHROME` (M-T1.11).
     notFoundText: shellChromeText("notFound", i18nEnabled),
     skipToContentText: shellChromeText("skipToContent", i18nEnabled),
+    routeLoadingAria: shellChromeAttr("aria-label", "routeLoading", i18nEnabled),
     primaryNavAria: shellChromeAttr("aria-label", "primaryNav", i18nEnabled),
     // The error boundary's heading — TEXT position on shadcn (`<AlertTitle>`),
     // a `title=` prop on mantine's `<Alert>`.  Same key, two tokens.

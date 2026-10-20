@@ -296,6 +296,22 @@ describe("hono OIDC turnkey auth — codegen", () => {
     expect(index).not.toContain("auth_dev_stub_registered");
   });
 
+  // The playground preview boots `createApp` in a browser worker, where no IdP
+  // is reachable, so it registers the dev stub instead — which therefore has to
+  // exist under OIDC too.  What keeps that preview-only: nothing in the
+  // generated project's own module graph reaches it.
+  it("emits the dev stub for the preview, unreferenced by every generated module", async () => {
+    const files = await generateSystemFiles(OIDC);
+    const devStub = findFile(files, /auth\/dev-stub\.ts$/);
+    expect(devStub).toContain("export function registerDevStubVerifier()");
+    expect(devStub).toContain("PREVIEW-ONLY");
+    const importers = [...files]
+      .filter(([p]) => p.endsWith(".ts") && !p.endsWith("auth/dev-stub.ts"))
+      .filter(([, src]) => /from "\.{1,2}\/(auth\/)?dev-stub"/.test(src))
+      .map(([p]) => p);
+    expect(importers).toEqual([]);
+  });
+
   it("mounts the handshake routes and bypasses /auth in the middleware", async () => {
     const files = await generateSystemFiles(OIDC);
     const httpIndex = findFile(files, /http\/index\.ts$/);
