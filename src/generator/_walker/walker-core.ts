@@ -992,9 +992,15 @@ export interface OperationFormState extends FormStateBase {
    *  title; the page-shell falls back to the humanized op name. */
   modalTitle?: string;
   modalTitleExpr?: string;
-  /** The op-module template's Cancel button label, routed through the stable
-   *  `chrome.cancel` catalog key (the template can't reach a WalkContext). */
+  /** The op-module template's dismiss button label (markup text), routed
+   *  through the `chrome.*` catalog key `opDialogChrome` picks (the template
+   *  can't reach a WalkContext). */
   cancelLabel?: string;
+  /** The accessible name of the dialog's close icon, as a target-native VALUE
+   *  expression (a `t(…)` call or a quoted literal) for an attribute/prop slot
+   *  — never equal to the submit label (`opDialogChrome`).  Read only by the
+   *  packs whose dialog renders a close icon. */
+  closeLabelExpr?: string;
   /** True when this is the aggregate's primary operation (first
    *  public op) — `false` for the rest.  Platform-neutral emphasis
    *  token; each pack's template maps it to its button vocabulary. */
