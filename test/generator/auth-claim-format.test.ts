@@ -83,6 +83,8 @@ describe("an identifier claim reaches the principal only in its wire format", ()
     "python: the emitted helpers + required-claim loop decide accept / reject",
     async () => {
       const oidc = file(await generateSystemFiles(src("python")), /auth\/oidc\.py$/);
+      // `import re` is derived from the module text that spells `re.compile`.
+      expect(oidc).toMatch(/^import os\nimport re\nimport secrets$/m);
       // The emitted `_claim` … helpers block, the emitted required-claim loop and
       // the emitted `User(...)` kwargs, run as one function over a payload.
       const helpers = between(oidc, "def _claim(", "\ndef _token_from(");

@@ -642,10 +642,7 @@ function renderBuildUserKwargs(user: UserIR, auth: AuthIR): string {
 /** `_REQUIRED_CLAIMS` + the format helpers.  A required scalar claim that is
  *  absent or malformed rejects the token (→ 401); a required list is exempt
  *  (an IdP omits an empty list, read as `[]`). */
-function renderClaimChecks(
-  user: UserIR,
-  auth: AuthIR,
-): { defs: string; check: string; reImport: string } {
+function renderClaimChecks(user: UserIR, auth: AuthIR): { defs: string; check: string } {
   const shapes = claimShapes(user.fields, auth);
   const formatted = shapes.some((s) => s.format !== null);
   const required = shapes
@@ -690,7 +687,14 @@ _REQUIRED_CLAIMS: list[tuple[str, str | None]] = [${required.join(", ")}]${helpe
             log("debug", "auth_token_rejected", reason=f"claim {path} absent or malformed")
             return None
 `;
-  return { defs, check, reImport: formatted ? "import re\n" : "" };
+  return { defs, check };
+}
+
+/** `import re` exists iff the finished module spells `re.<name>`: derived from
+ *  the text that uses it, so the import and its usage cannot disagree. */
+function importReWhenUsed(src: string): string {
+  if (!/(^|[^\w.])re\.(compile|Pattern)\b/.test(src)) return src;
+  return src.replace(/^import os\n/m, (os) => `${os}import re\n`);
 }
 
 function renderOidcModule(user: UserIR, auth: AuthIR): string {
@@ -723,7 +727,7 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   const oidcIds = pyIdClaimImports(user);
   const oidcIdImport =
     oidcIds.length > 0 ? `from app.domain.ids import ${oidcIds.join(", ")}\n` : "";
-  return `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
+  const moduleText = `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
 claims onto User; the handshake router runs the authorization-code flow and
@@ -735,7 +739,7 @@ import base64
 import hashlib
 import json
 import os
-${claimChecks.reImport}import secrets
+import secrets
 import urllib.parse
 import urllib.request
 from typing import Any, cast
@@ -970,4 +974,5 @@ def _exchange_refresh(refresh_token: str) -> dict[str, Any] | None:
         }
     )
 `;
+  return importReWhenUsed(moduleText);
 }
