@@ -36,40 +36,6 @@ name: Migration evolution (runtime e2e)
 # catches a migration break arriving through a file this list does not name.
 # Heavier than tenancy per cell (three boots + two build trees), hence the cap.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/sql-pg.ts'
-      - 'src/generator/_persistence/**'
-      - 'src/generator/elixir/migrations-emit.ts'
-      # The Drizzle journal (`meta/_journal.json`) and its ordering key.  Drizzle
-      # is the only backend here whose migrator is a WATERMARK
-      # (`lastApplied.created_at < entry.when`) rather than an applied-set, so
-      # the journal is the one migration artifact whose ordering can silently
-      # skip a migration or re-run an applied one — F-012, which this gate's
-      # `journal-ordering` leg now covers.  Omitting this path meant the file
-      # carrying that defect could not trigger the gate that catches it.
-      - 'src/generator/typescript/emit/migrations.ts'
-      - 'test/e2e/migration-evolution.test.ts'
-      - 'test/e2e/migration-evolution-python.test.ts'
-      - 'test/e2e/migration-evolution-java.test.ts'
-      - 'test/e2e/migration-evolution-dotnet.test.ts'
-      - 'test/e2e/migration-evolution-elixir.test.ts'
-      - 'test/e2e/support/migration-evolution-harness.ts'
-      - 'test/e2e/fixtures/migration-evolution/**'
-      - 'package.json'
-      - '.github/workflows/migration-evolution-e2e.yml'
   # Per-PR, path-scoped: binding because `pr-gate` fails on any non-passing
   # check run present on the head SHA.  `ready_for_review` re-fires the leg
   # when a draft flips; `labeled` is deliberately absent (a label event would
@@ -190,6 +156,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

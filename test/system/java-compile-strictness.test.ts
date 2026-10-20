@@ -53,8 +53,8 @@ describe("the java compile gate runs javac at -Xlint:all -Werror", () => {
   it.each(LEGS)("$workflow re-runs when the init script changes", (leg) => {
     const wf = read(`.github/workflows/${leg.workflow}`);
     const pins = wf.split("\n").filter((l) => l.trim() === `- '${INIT_SCRIPT}'`);
-    // One per path-filtered trigger (`push:` and `pull_request:`).
-    expect(pins).toHaveLength(2);
+    // One per path-filtered trigger (`pull_request:`).
+    expect(pins).toHaveLength(1);
   });
 });
 
@@ -84,8 +84,8 @@ describe("the self-invoking java legs pass the same init script", () => {
   });
 
   it.each([
-    { workflow: "behavioral-e2e-java.yml", pins: 2 }, // push: + pull_request:
-    { workflow: "pairwise.yml", pins: 1 }, // one anchored path list
+    { workflow: "behavioral-e2e-java.yml", pins: 1 }, // pull_request:
+    { workflow: "pairwise.yml", pins: 1 }, // pull_request:
   ])("$workflow re-runs when the init script changes", ({ workflow, pins }) => {
     const wf = read(`.github/workflows/${workflow}`);
     expect(wf.split("\n").filter((l) => l.trim() === `- '${INIT_SCRIPT}'`)).toHaveLength(pins);
