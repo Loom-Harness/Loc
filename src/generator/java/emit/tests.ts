@@ -34,8 +34,9 @@ import { stubUserValue } from "./auth.js";
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → JUnit 5 test class (the xUnit/vitest analog).
 // Each block becomes a @Test method with @DisplayName carrying the source
-// name.  Explicit matchers lower to JUnit assertions; `expectThrows` to
-// assertThrows(DomainException.class, …); a bare boolean to assertTrue.
+// name.  Explicit matchers lower to JUnit assertions; a bare `toThrow()` to
+// an assertion over the domain-rejection family (`javaBareToThrow`); a bare
+// boolean to assertTrue.
 // Pure domain tests — no Spring context, they run under plain `mvn test`.
 // ---------------------------------------------------------------------------
 
@@ -400,6 +401,47 @@ export function renderExplicitMatcher(
   }
 }
 
+/** The exception classes a BARE `toThrow()` accepts on Java: every way the
+ *  in-process domain floor refuses a call.
+ *
+ *    DomainException     — a `precondition`, an aggregate / part invariant, and
+ *                          a value object's invariant (`ValueObjectInvariantException`
+ *                          extends it);
+ *    DisallowedException — an operation's `when` state gate (a SIBLING of
+ *                          `DomainException`, so the advice can answer it 409);
+ *    ForbiddenException  — a `requires` left in the operation body.
+ *
+ *  All three are emitted unconditionally into `domain.common`, which every test
+ *  class imports by wildcard.  Not `RuntimeException`: a NullPointerException
+ *  out of broken generated code must FAIL a negative test, not pass it. */
+const JAVA_DOMAIN_REJECTIONS = ["DomainException", "DisallowedException", "ForbiddenException"];
+
+/** The bare `expect(<expr>).toThrow()` assertion (claims D17).
+ *
+ *  A `create(...)` or value-object construction can only be refused by an
+ *  invariant, so it keeps the exact `assertThrows(DomainException.class, …)`.
+ *  Anything else, an operation call above all, may be refused by a `when` gate
+ *  or a `requires` too, and `assertThrows` takes ONE class: catch the common
+ *  base, then require the domain family, so any other runtime error still
+ *  fails with its own name in the message. */
+export function javaBareToThrow(
+  e: ExprIR,
+  rendered: string,
+  local: string,
+  indent: string,
+): string[] {
+  const invariantOnly =
+    (e.kind === "method-call" && e.member === "create") ||
+    (e.kind === "call" && e.callKind === "value-object-ctor");
+  if (invariantOnly) return [`${indent}assertThrows(DomainException.class, () -> ${rendered});`];
+  const isDomain = JAVA_DOMAIN_REJECTIONS.map((n) => `${local} instanceof ${n}`).join(" || ");
+  return [
+    `${indent}RuntimeException ${local} = assertThrows(RuntimeException.class, () -> ${rendered});`,
+    `${indent}assertTrue(${isDomain},`,
+    `${indent}    "expected the domain to reject this call, but it threw: " + ${local});`,
+  ];
+}
+
 function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -446,7 +488,7 @@ function renderTestStmt(
         )} + ${local}.getMessage());`,
       ];
     }
-    return [`        assertThrows(DomainException.class, () -> ${expr});`];
+    return javaBareToThrow(s.expr, expr, `__thrown${index}`, "        ");
   }
   if (s.kind === "let") {
     const expr =

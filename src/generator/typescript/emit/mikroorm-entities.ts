@@ -29,7 +29,7 @@ import {
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import { docFieldType } from "../repository-document-builder.js";
@@ -881,7 +881,7 @@ export function renderMikroEntities(
     if (wf.eventSourced || !wf.correlationField) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroWorkflowRowClass(wf),
-      snake(plural(wf.name)),
+      workflowStateTableName(wf.name),
       workflowStateColumns(wf, ctx),
     );
     schemaNames.push(schemaName);

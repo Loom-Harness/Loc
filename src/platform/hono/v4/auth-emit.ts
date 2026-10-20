@@ -1,4 +1,5 @@
-import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
+import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -71,26 +72,42 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
   // backend has auth — the frontend `auth: ui` guard probes `/auth/me`,
   // which works for both the OIDC verifier and the dev stub.
   out.set("auth/handshake.ts", renderHandshake(sys.user, oidc));
-  if (oidc) {
-    out.set("auth/oidc.ts", renderOidcVerifier(sys.user, oidc));
-  } else {
-    // The dev stub gets its own module for the same reason the OIDC verifier
-    // does: it is the identity every non-OIDC caller resolves to, so anything
-    // that boots this project WITHOUT running `index.ts` — the behavioural
-    // harness boots `createApp` directly — must be able to register the SAME
-    // one instead of hand-writing a copy.  It hand-wrote a copy, and the copy
-    // was a fixed `{ id, tenantId }` that ignored the declared `user { … }`
-    // shape, so the node leg's `/api/auth/me` recording was a principal no
-    // generated backend ever produces (#2548).  One exported registrar, one
-    // identity.
-    out.set("auth/dev-stub.ts", renderDevStubVerifier(sys.user));
-  }
+  if (oidc) out.set("auth/oidc.ts", renderOidcVerifier(sys.user, oidc));
+  // The dev stub gets its own module for the same reason the OIDC verifier
+  // does: anything that boots this project WITHOUT running `index.ts` — the
+  // behavioural harness and the playground preview boot `createApp` directly —
+  // must be able to register the SAME identity instead of hand-writing a copy
+  // (a hand-written `{ id, tenantId }` copy that ignored the declared
+  // `user { … }` shape is how a recorded `/api/auth/me` once carried a
+  // principal no generated backend produces).
+  //
+  // Emitted under `auth { oidc }` as well, for the playground preview alone:
+  // it runs this backend in a browser worker with no IdP reachable, so the
+  // OIDC verifier cannot verify anything there and the preview registers the
+  // stub instead.  `index.ts` registers ONLY the OIDC verifier in that case,
+  // so the stub is inert in every real run — the compose stack's bundled dev
+  // IdP is what local testing signs in with.
+  out.set("auth/dev-stub.ts", renderDevStubVerifier(sys.user, !!oidc));
 }
 
 /** The permissive dev-stub verifier: accepts every request as a built-in
  *  identity filling every field the `user { … }` block declares, with an
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
-function renderDevStubVerifier(user: UserIR): string {
+function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
+  const usage = oidc
+    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`index.ts\` registers
+ *  the OIDC verifier and never calls this, so a running server ignores
+ *  \`x-loom-dev-claims\`.  The Loom playground preview registers it instead,
+ *  because no identity provider is reachable from its browser worker.  Locally,
+ *  sign in through the compose stack's bundled dev IdP.`
+    : ` *  Dev-only: the Loom playground (or curl) can override the claims by sending a
+ *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
+ *  built-in identity is used, and a header that is present but does not decode
+ *  to a JSON object is refused with 400.
+ *
+ *  REPLACE for production by calling \`registerUserVerifier(...)\` with a real
+ *  JWT-decoding implementation, or declare an \`auth { oidc { … } }\` block to
+ *  get the generated OIDC verifier instead.`;
   return `// Auto-generated.
 ${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
@@ -99,14 +116,7 @@ import { registerUserVerifier } from "./verifier";
  *  identity carrying one value per field the system's \`user { … }\` block
  *  declares, so \`/auth/me\` answers the full declared shape out of the box.
  *
- *  Dev-only: the Loom playground (or curl) can override the claims by sending a
- *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
- *  built-in identity is used, and a header that is present but does not decode
- *  to a JSON object is refused with 400.
- *
- *  REPLACE for production by calling \`registerUserVerifier(...)\` with a real
- *  JWT-decoding implementation, or declare an \`auth { oidc { … } }\` block to
- *  get the generated OIDC verifier instead. */
+${usage} */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
     // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
@@ -646,28 +656,65 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
  *  \`OIDC_AUDIENCE\` in this service's environment — no regeneration needed,
  *  \`AUDIENCE\` above already reads it — or by declaring
  *  \`audience: env("OIDC_AUDIENCE")\` in the \`oidc { … }\` block. */`;
-  // One `field: claim(payload, "<path>") as <T>` line per user field.
+  // One `field: <read> as <T>` line per user field.
   //
   // `claim()` answers `undefined` for a claim the token does not carry, and a
-  // bare cast lets that `undefined` sit in a `T | null` slot.  Every gate reads
-  // the slot with `!== null` (`requires currentUser.agentId != null`), and
-  // `undefined !== null` — so a token WITHOUT the claim passed a gate that
-  // exists to refuse it (H-10: a customer token took an agent-only action, 204
-  // instead of 403).  An optional claim therefore folds absent onto `null`.  A
-  // REQUIRED scalar claim the token lacks is not a principal the model
-  // describes at all, so the verifier rejects it (→ 401) instead of inventing
-  // a value.  A required ARRAY claim stays out of that check: an IdP omits an
-  // empty list routinely, and the auth middleware already reads it as `[]`.
-  const toUserLines = user.fields.map((f) => {
+  // bare cast would let that `undefined` sit in a `T | null` slot that every
+  // gate reads with `!== null` — so an absent optional claim folds onto `null`.
+  // An identifier claim (`guid`, `X id`) is also checked against its wire
+  // format (`claimShapes`): a malformed optional one is `null` too, and a list
+  // drops its malformed elements.  A REQUIRED scalar claim that is absent or
+  // malformed does not describe a principal the model declares, so the verifier
+  // rejects the token (→ 401).  A required ARRAY claim stays out of that check:
+  // an IdP omits an empty list routinely, and the middleware reads it as `[]`.
+  const shapes = claimShapes(user.fields, auth);
+  const formatted = shapes.some((s) => s.format !== null);
+  const toUserLines = shapes.map(({ field: f, path, optional, list, format }) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
-    const read = `claim(payload, ${JSON.stringify(claimPathFor(f.name, auth))})`;
-    return f.optional
+    const raw = `claim(payload, ${JSON.stringify(path)})`;
+    if (format !== null && list) {
+      const read = `claimList(${raw}, ${JSON.stringify(format)})`;
+      return optional
+        ? `    ${f.name}: (${raw} == null ? null : ${read}) as ${t},`
+        : `    ${f.name}: ${read} as ${t},`;
+    }
+    const read = format !== null ? `claimAs(${raw}, ${JSON.stringify(format)})` : raw;
+    return optional
       ? `    ${f.name}: (${read} ?? null) as ${t},`
       : `    ${f.name}: ${read} as ${t},`;
   });
-  const requiredClaimPaths = user.fields
-    .filter((f) => !f.optional && f.type.kind !== "array")
-    .map((f) => JSON.stringify(claimPathFor(f.name, auth)));
+  const requiredClaims = shapes
+    .filter((s) => !s.optional && !s.list)
+    .map(
+      (s) =>
+        `[${JSON.stringify(s.path)}, ${s.format === null ? "null" : JSON.stringify(s.format)}]`,
+    );
+  const formatHelpers = formatted
+    ? `
+const CLAIM_FORMATS = {
+  uuid: /${UUID_PATTERN}/,
+} as const;
+type ClaimFormat = keyof typeof CLAIM_FORMATS;
+
+/** A claim value in its declared wire format (a UUID for a guid id), or null
+ *  when it is absent or does not match. */
+function claimAs(value: unknown, format: ClaimFormat): string | null {
+  return typeof value === "string" && CLAIM_FORMATS[format].test(value) ? value : null;
+}
+
+/** A list claim with its malformed elements dropped; not a list → empty. */
+function claimList(value: unknown, format: ClaimFormat): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((v) => claimAs(v, format)).filter((v): v is string => v !== null);
+}
+`
+    : "";
+  const requiredType = formatted
+    ? "readonly (readonly [string, ClaimFormat | null])[]"
+    : "readonly (readonly [string, null])[]";
+  const requiredCheck = formatted
+    ? "(format === null ? claim(payload, path) : claimAs(claim(payload, path), format)) == null"
+    : "claim(payload, path) == null";
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
 ${idsImport(user).join("\n")}import { requestLog } from "../obs/als";
@@ -744,17 +791,19 @@ function claim(payload: JWTPayload, path: string): unknown {
   }, payload);
 }
 
-/** The claim paths of every REQUIRED scalar field — a verified token missing
- *  one of these does not describe a principal, so it is rejected (→ 401). */
-const REQUIRED_CLAIMS: readonly string[] = [${requiredClaimPaths.join(", ")}];
+${formatHelpers}
+/** The claim path (and wire format, for an identifier claim) of every REQUIRED
+ *  scalar field — a verified token where one is absent or malformed does not
+ *  describe a principal, so it is rejected (→ 401). */
+const REQUIRED_CLAIMS: ${requiredType} = [${requiredClaims.join(", ")}];
 
 /** Project verified claims onto the typed claim shape, or null when a required
- *  claim is absent.  An absent OPTIONAL claim is \`null\`, never \`undefined\`:
- *  gates compare with \`!== null\`, which \`undefined\` would pass.  The auth
- *  middleware derives the request principal (incl. \`orgPath\` under tenancy)
- *  from this. */
+ *  claim is absent or malformed.  An absent OPTIONAL claim is \`null\`, never
+ *  \`undefined\`: gates compare with \`!== null\`, which \`undefined\` would
+ *  pass.  The auth middleware derives the request principal (incl. \`orgPath\`
+ *  under tenancy) from this. */
 function toUser(payload: JWTPayload): UserClaims | null {
-  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null;
+  if (REQUIRED_CLAIMS.some(([path, format]) => ${requiredCheck})) return null;
   return {
 ${toUserLines.join("\n")}
   };

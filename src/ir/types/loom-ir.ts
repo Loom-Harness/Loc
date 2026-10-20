@@ -1876,14 +1876,27 @@ export type WorkflowStmtIR =
       // repository `find` which would auto-expose a query endpoint.  This is
       // why the optional never becomes a standalone `repo-let` (which forbids
       // nullable returns) nor a public `find`.
+      //
+      // The second source form is a DECLARED optional find
+      // (`if let o = Orders.byCode(c)` over `find byCode(..): Order?`):
+      // `findMethod` names it, `retrievalArgs` carry its arguments, and
+      // `retrievalName` / `synthCriterion.name` stay empty.  The backends call
+      // the repository's own nullable find method and branch on presence —
+      // no retrieval is synthesised.
       kind: "if-let";
       var: string;
       repoName: string;
       aggName: string;
-      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`). */
+      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
+       *  empty for a declared-find source. */
       retrievalName: string;
+      /** The source call's arguments: the criterion's, or — when `findMethod`
+       *  is set — the declared find's. */
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
+      /** The declared optional find the source calls, when the source is
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+      findMethod?: string;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -2067,6 +2080,10 @@ export interface SqlStepIR {
   index: number;
   /** The raw Postgres statement, verbatim. */
   sql: string;
+  /** `sql before "…"` — emitted AHEAD of the generation's structural steps
+   *  (a dedupe that must precede a new `unique (…)` index) instead of after
+   *  them.  Absent/false = the default trailing position. */
+  before?: boolean;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }

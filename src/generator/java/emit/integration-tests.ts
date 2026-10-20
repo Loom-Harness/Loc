@@ -31,6 +31,7 @@ import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { collectJavaExprImports, type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
+  javaBareToThrow,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
@@ -95,6 +96,8 @@ function renderStmt(
   ctx: BoundedContextIR,
   imports: Set<string>,
   rctx: JavaRenderContext,
+  /** Position in the test body: mints a collision-free local per throw assertion. */
+  index = 0,
 ): string[] {
   const I = "        ";
   switch (s.kind) {
@@ -138,7 +141,7 @@ function renderStmt(
         renderCreateCall(s.expr, ctx, imports, rctx) ??
         renderOperationCall(s.expr, ctx, imports, rctx) ??
         renderJavaExpr(s.expr, rctx);
-      return [`${I}assertThrows(DomainException.class, () -> ${inner});`];
+      return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
     }
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
@@ -153,7 +156,7 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, imports: Set<string>): str
       .replace(/^([0-9])/, "_$1") || "test";
   // Locals are declared under their source name here (`var ${s.name}`).
   const rctx = testBodyRenderContext(t, (name) => name);
-  const body = t.statements.flatMap((s) => renderStmt(s, ctx, imports, rctx));
+  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, imports, rctx, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,

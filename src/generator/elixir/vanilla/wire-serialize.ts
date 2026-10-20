@@ -81,8 +81,12 @@ function derivedRenderable(
     case "literal":
     case "id":
       return true;
+    case "call":
+      // A value-object constructor renders as a plain map — no domain seam —
+      // so `derived atHome: bool = berth == Berth { … }` projects like any
+      // other comparison.  free / function / private-op calls need a seam.
+      return e.callKind === "value-object-ctor" && e.args.every((a) => rec(a));
     case "this":
-    case "call": // free / function / private-op / VO-ctor — needs a domain seam
     case "action-ref":
       return false;
     case "ref":

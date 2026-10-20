@@ -101,6 +101,7 @@ import {
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
+  validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
   validateTphFilterExpressibility,
@@ -209,6 +210,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
+    validateStorageTypeBinding(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
@@ -317,6 +319,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       // The cross-context-repository gate needs the sibling contexts, like
       // `validateDomainServices` above.
       [...allContexts(loom)],
+      [...loom.rootValueObjects, ...loom.rootEnums, ...loom.rootPayloads].map((d) => d.name),
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.

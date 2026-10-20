@@ -72,6 +72,7 @@ import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
@@ -120,9 +121,11 @@ import {
 //       * for non-transactional: instantiates repos on `db`, awaits
 //         each save in declaration order, then dispatches events
 //       * for transactional: wraps body+saves in
-//         `db.transaction(async (tx) => {...})`, dispatches events
-//         after the callback returns successfully (so rollbacks
-//         discard them)
+//         `db.transaction(async (tx) => {...})`; the repositories get a
+//         `deferredDispatcher` so aggregate events buffer instead of
+//         dispatching per save, and both they and the workflow's own
+//         events dispatch after the callback returns successfully (so
+//         rollbacks discard them)
 //
 // Repositories are constructed inline (`new XRepository(db, events)`)
 // rather than passed in — keeps the route function self-contained
@@ -595,7 +598,11 @@ export function buildWorkflowsFile(
     imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
   }
   if (usesDispatcher)
-    imports.push(`import type { DomainEventDispatcher } from "../domain/events";`);
+    imports.push(
+      /(?<!\.)\bdeferredDispatcher\(/.test(bodyStr)
+        ? `import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";`
+        : `import type { DomainEventDispatcher } from "../domain/events";`,
+    );
   if (usesEvents) imports.push(`import type * as Events from "../domain/events";`);
   // An event-sourced workflow's folded state may carry a money field, whose
   // typed default (`new Decimal(0)`) and arithmetic need decimal.js.
@@ -970,7 +977,7 @@ function emitWorkflowRoute(
   // constructs `new <Agg>Repository(...)` for them so the service is handed a
   // live handle even when the workflow body never reads that repo itself.
   const reposNeeded = mergeReadPortRepos(collectReposForWorkflow(wf), wf, ctx);
-  const hasEmit = wf.statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) {
     out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
   }
@@ -1064,9 +1071,21 @@ function emitWorkflowRoute(
         ? `, { isolationLevel: ${mikroIsolationLevel(wf.isolation)} }`
         : `, { isolationLevel: "${pgIsolationLevel(wf.isolation)}" }`
       : ``;
+    // Aggregate events (an operation's `emit`) drain at each repository
+    // `save()`, which here runs on the OUTER `tx` — its own
+    // `this.db.transaction` is only a savepoint, so a per-save dispatch would
+    // announce writes a later statement rolls back (banking-eval B-04).  Hand
+    // every repository a buffering dispatcher and flush it only once the
+    // workflow transaction has committed; a throw skips the flush, so a
+    // rollback discards the buffer.  Durable capture (`recordDurable`) is
+    // delegated straight through, so the outbox row still commits with `tx`.
+    const deferIt = reposNeeded.length > 0;
+    if (deferIt) out.push(`${bi}const __deferred = deferredDispatcher(events);`);
     out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
     for (const r of reposNeeded) {
-      out.push(`${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, events);`);
+      out.push(
+        `${bi}  const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
+      );
     }
     out.push(...stateLoad("tx", `${bi}  `));
     const stmtChunks = renderWorkflowStmtChunks(
@@ -1082,6 +1101,7 @@ function emitWorkflowRoute(
     out.push(...stateSave("tx", `${bi}  `));
     out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
     out.push(`${bi}}${txOpts});`);
+    if (deferIt) out.push(`${bi}await __deferred.flush();`);
   } else {
     for (const r of reposNeeded) {
       out.push(`${bi}const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(db, events);`);
@@ -1801,7 +1821,7 @@ function emitHandlerFn(
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
   const persisted = !!wf.correlationField;
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
   const noParams = new Map<string, string>();
   let thisName = "this";
@@ -2339,10 +2359,15 @@ export function honoWorkflowStmtTarget(
       // `if let o = Repo.find(<Criterion>) { … } else { … }` → run the shared
       // `findAllBy<Criterion>` retrieval with `limit: 1`, take the first row (or
       // `null`), and branch.  The `!== null` narrows `o` to non-null in the
-      // then-branch; each branch's dirty bindings save INSIDE that branch.
+      // then-branch; each branch's dirty bindings save INSIDE that branch.  A
+      // declared optional find (`findMethod`) already answers `Agg | null`, so
+      // it is awaited directly.
       const inner = `${indent}  `;
       const args = st.retrievalArgs.map(renderArg);
-      args.push("{ limit: 1 }");
+      const repoVar = lowerFirst(st.repoName);
+      const lookup = st.findMethod
+        ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+        : `(await ${repoVar}.run${upperFirst(st.retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
@@ -2350,7 +2375,7 @@ export function honoWorkflowStmtTarget(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
       const out = [
-        `${indent}const ${escapeTsIdent(st.var)} = (await ${lowerFirst(st.repoName)}.run${upperFirst(st.retrievalName)}(${args.join(", ")}))[0] ?? null;`,
+        `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
         `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
         ...thenLines,
         ...thenSaves,

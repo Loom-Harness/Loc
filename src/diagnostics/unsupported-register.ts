@@ -79,7 +79,9 @@ export interface UnsupportedEntry {
   site: string;
   /** One line: what the code refuses. */
   what: string;
-  /** Owning mission, where one exists.  A `gap` without one is unowned work. */
+  /** Owning work item, where one exists: a GitHub issue (`#NNNN`) or a legacy
+   *  `M-Tx.y` mission heading under `docs/new-plan/`.  A `gap` without one is
+   *  unowned work. */
   mission?: string;
   /** Classification confirmed against the emission site by a human. */
   verified?: boolean;
@@ -111,7 +113,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:392",
+    site: "src/ir/validate/checks/workflow-checks.ts:527",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
@@ -713,7 +715,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:221",
+    site: "src/ir/validate/checks/test-checks.ts:243",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -725,9 +727,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    code: "loom.param-default-unsupported",
+    kind: "scope",
+    site: "src/language/validators/callable-sites.ts:70",
+    what:
+      "a parameter default on a `domainService` operation, workflow `handle`, `commandHandler`, " +
+      "`queryHandler` or `function` — those lowerers pass `defaults: false`, so the default " +
+      "would be silently dropped and every generated signature would still require the " +
+      "argument.  Lifting it is a capability change on every target, not a fix at one site",
+    mission: "M-T5.42",
+    verified: true,
+  },
+  {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:404",
+    site: "src/ir/validate/checks/test-checks.ts:426",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,
@@ -767,7 +781,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.handler-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:145",
+    site: "src/ir/validate/checks/api-checks.ts:166",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -775,7 +789,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1365",
+    site: "src/ir/validate/checks/workflow-checks.ts:1502",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -799,7 +813,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1379",
+    site: "src/ir/validate/checks/workflow-checks.ts:1516",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
