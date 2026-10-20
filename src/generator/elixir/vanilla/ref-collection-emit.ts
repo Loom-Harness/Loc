@@ -121,7 +121,7 @@ export function hasLocalRefColls(agg: AggregateIR, pool: readonly { name: string
  *  name pascal-cased under the owner's context (`clm_others` →
  *  `App.Claims.ClmOthers`), the same naming the value-collection child schema
  *  uses for its `<owner>_<field>` table. */
-export function refRowModule(appModule: string, ctxModule: string, rc: RefCollField): string {
+function refRowModule(appModule: string, ctxModule: string, rc: RefCollField): string {
   return `${appModule}.${ctxModule}.${rc.assoc.joinTable.split("_").map(upperFirst).join("")}`;
 }
 
