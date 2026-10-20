@@ -328,3 +328,15 @@ Today `POST /<plural>` always takes the **field-derived** create input. A narrow
 **Why it was blocked (now cleared).** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
 
 **Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
+
+## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `done` ([#3106](https://github.com/Loom-Harness/Loc/pull/3106), L1-V2) · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](../leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
+
+Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
+
+**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
+
+**Verification.** The pinned case flips; one negative case per gate on the statement form.
+
+**Outcome.** The subject typing landed first, via the single typing pass (M-T5.47 cutover 3b, #3166) — the PR's own lowering-side resolver was dropped as a duplicate in its 2026-10-11 re-sync. #3106 wires the gates: `validateVariantMatch` (`structural-checks.ts`) runs the unknown / duplicate / non-exhaustive gates over every page / component / store action's `variant-match` statement, with one negative case per gate in `test/ir/variant-match-subject-type.test.ts`.
