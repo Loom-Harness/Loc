@@ -964,6 +964,25 @@ function openArchiveModal(mut: ReturnType<typeof useArchiveProduct>): void {
 ElevatedButton(onPressed: () => showDialog(context: context, builder: (dialogContext) => AlertDialog(title: Text(t('page.ProductDetail.modalTitle.umy5vy', 'Archive product')), content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ArchiveProductForm(id: id))))), child: Text(t('page.ProductDetail.button.v0v5o9', 'Archive…'))),
 ```
 
+The dialog's submit button names the operation, and no other control in the dialog shares its accessible name. Where the target renders a dismiss button beside it (the React, Svelte and Angular packs), that button says **Cancel**, or **Go back** when the operation is itself named `cancel`. Where the pack's dialog has a corner close icon (mantine, shadcn, shadcnVue, chakra v2, and the HEEx `.modal`), the icon is named **Close**, or **Close dialog** when the operation is itself named `close`. All four labels are catalogued chrome (`chrome.cancel`, `chrome.goBack`, `chrome.close`, `chrome.closeDialog`), derived by one rule (`opDialogChrome`).
+
+```ddd
+aggregate Appointment { … operation cancel(reason: string) when status == Requested { … } }
+```
+
+```tsx
+// react/mantine — the scaffolded Detail page's cancel dialog footer
+<Button variant="default" onClick={onClose}>{t("chrome.goBack", "Go back")}</Button>
+<Button type="submit" loading={mut.isPending} data-testid="appointments-op-cancel-submit">Cancel</Button>
+// … and an `operation close()` dialog's corner icon
+modals.open({ title: t("page.Detail.modalTitle.l0xxoj", "Close"),
+  closeButtonProps: { "aria-label": t("chrome.closeDialog", "Close dialog") }, … });
+```
+
+```heex
+<.modal id="order-op-close-modal" close_label={pgettext("chrome.closeDialog", "Close dialog")}>
+```
+
 The op-form spelling `OperationForm { of: Product, op: archive }` names no record, so it targets the page's `:id` route param — on a route without one it is rejected (`loom.op-form-needs-route-id`). A `Modal` has two shapes that do not combine everywhere: the **trigger** shape above, and the **state-controlled** shape `Modal { …children, open: <stateBool> }` (a children container, dialog title via `title:`). Putting an `OperationForm` inside the controlled shape is an error on React, Vue, Svelte and Flutter (`loom.modal-controlled-op-form-unsupported`); an extra positional next to the op form is `loom.page-primitive-extra-children#modal-op-form`. `WorkflowForm { runs: <wf> }` and `DestroyForm { of: <Aggregate>, then: navigate(Page) }` follow the create shape over a workflow start / the aggregate's canonical destroy ([page-metamodel.md §9](../page-metamodel.md), [13-workflows](13-workflows.md)). `DestroyForm` names the **aggregate**, never a loaded record — it deletes the record at the page's `:id` route param, confirms through the pack's dialog, and navigates to `then:` (default: the aggregate's list route). It needs a canonical `destroy { }` (`with crudish` gives one), and `of:` must name the aggregate TYPE — spelling `of: p` over a `QueryView` row binding, or passing the form a positional record, is `loom.destroy-form-of-unresolved`.
 
 ```ddd
