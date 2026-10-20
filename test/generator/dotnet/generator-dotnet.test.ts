@@ -1396,7 +1396,10 @@ describe(".NET generator", () => {
         SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
       );
       const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      expect(verifier).toContain("Levels: new System.Collections.Generic.List<int>()");
+      // D16: the claim is now DECODED; an absent one still folds to the empty list.
+      expect(verifier).toContain(
+        'Levels: ClaimList<int>(payload, "levels", AsInt) ?? new System.Collections.Generic.List<int>()',
+      );
       expect(verifier).not.toContain("Levels: default!");
       // The dev stub — the other principal-construction site — already agreed.
       const stub = files.get("Auth/DevStubUserVerifier.cs")!;

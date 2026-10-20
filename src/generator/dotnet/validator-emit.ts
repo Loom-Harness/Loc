@@ -600,8 +600,10 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   }
   if (e.isCollectionOp) {
     switch (e.member) {
+      // The `Count` property, not LINQ `Count()` (CA1829) — every collection
+      // on a command/request record is a `List<T>`.
       case "count":
-        return `(${recv}).Count()`;
+        return `(${recv}).Count`;
       case "all":
         return `(${recv}).All(${args[0] ?? "_ => true"})`;
       case "any":
