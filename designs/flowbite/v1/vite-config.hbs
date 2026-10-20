@@ -3,9 +3,13 @@ import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
+// A native run (`npm run dev` / `npm run preview`) serves on the deployable's
+// declared port, and PORT overrides it; the image passes its own `--port`.
+const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {};
+const port = Number(env.PORT ?? {{#if port}}{{port}}{{else}}3000{{/if}});
+
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
-{{#if apiProxyTarget}}  server: { proxy: { "/api": (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VITE_API_PROXY_TARGET ?? {{json apiProxyTarget}} } },
-  preview: { proxy: { "/api": (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VITE_API_PROXY_TARGET ?? {{json apiProxyTarget}} } },
-{{/if}}
+  server: { port, host: true{{#if apiProxyTarget}}, proxy: { "/api": env.VITE_API_PROXY_TARGET ?? {{json apiProxyTarget}} }{{/if}} },
+  preview: { port, host: true{{#if apiProxyTarget}}, proxy: { "/api": env.VITE_API_PROXY_TARGET ?? {{json apiProxyTarget}} }{{/if}} },
 });

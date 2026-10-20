@@ -40,7 +40,7 @@ export interface ProvLeaf {
 }
 
 /** Dotted source-side path for a member-access chain (e.g. `line.price`). */
-export function leafPath(e: ExprIR): string {
+function leafPath(e: ExprIR): string {
   if (e.kind === "ref") return e.name;
   if (e.kind === "this") return "this";
   if (e.kind === "member") return `${leafPath(e.receiver)}.${e.member}`;

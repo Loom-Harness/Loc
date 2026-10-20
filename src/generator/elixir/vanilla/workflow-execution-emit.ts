@@ -667,8 +667,18 @@ function lowerStatement(
       // head-or-nil, then `if` over the two branches.  Each branch ends in
       // `{:ok, _}` so the enclosing `{:ok, _} <-` clause threads through the
       // with-chain (a raised create/op rolls the transaction back).
-      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
-      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
+      // A declared optional find (`findMethod`) calls the context's per-find
+      // delegate, which answers `{:ok, row | nil}` — the same head-or-nil
+      // `case` reads it.
+      const lookup = st.findMethod
+        ? {
+            call: `${contextModule}.${snake(st.findMethod)}_${snake(st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
+            hit: "{:ok, hit}",
+          }
+        : {
+            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"].join(", ")})`,
+            hit: "{:ok, [hit | _]}",
+          };
       const v = escapeElixirIdent(snake(st.var));
       const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
         // A branch needs a `with`-chain when it holds a fallible statement that
@@ -765,8 +775,8 @@ function lowerStatement(
       };
       const lines = [
         `{:ok, _} <- (`,
-        `           ${v} = case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
-        `             {:ok, [hit | _]} -> hit`,
+        `           ${v} = case ${lookup.call} do`,
+        `             ${lookup.hit} -> hit`,
         `             _ -> nil`,
         `           end`,
         `           if ${v} != nil do`,

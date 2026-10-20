@@ -25,7 +25,12 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { renderCsExpr } from "../render-expr.js";
-import { renderCreateCall, renderExplicitMatcherToAwesome, renderTestExpr } from "./tests.js";
+import {
+  csBareToThrow,
+  renderCreateCall,
+  renderExplicitMatcherToAwesome,
+  renderTestExpr,
+} from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -84,7 +89,12 @@ const aggNamespace = (aggName: string, ns: string): string =>
  *  mutating ops persist via the repository; let-bound finds await a repository
  *  read (nullable → `!`); everything else defers to the shared expression /
  *  matcher renderers. */
-function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
+function renderStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  /** Position in the test body: mints a collision-free local per throw assertion. */
+  index = 0,
+): string[] {
   const I = "        ";
   switch (s.kind) {
     case "let": {
@@ -128,6 +138,8 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
       const inner = renderTestExpr(s.expr, ctx);
       const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
       const body = isInvocation ? `${inner};` : `var __ = ${inner};`;
+      const family = csBareToThrow(s.expr, body, `__thrown${index}`, I, ctx, true);
+      if (family) return [family];
       return [
         `${I}await Assert.ThrowsAsync<DomainException>(async () => { ${body} await Task.CompletedTask; });`,
       ];
@@ -154,7 +166,7 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, usedAggs: readonly Aggrega
       `        var ${repoVar(a.name)} = new ${a.name}Repository(db, events, NullLogger<${a.name}Repository>.Instance);`,
     );
   }
-  for (const s of t.statements) out.push(...renderStmt(s, ctx));
+  for (const [i, s] of t.statements.entries()) out.push(...renderStmt(s, ctx, i));
   out.push("    }");
   return out;
 }
