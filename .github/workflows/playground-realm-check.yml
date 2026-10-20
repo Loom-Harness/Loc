@@ -38,6 +38,11 @@ name: Playground worker-realm check
 # (Bundle → Boot → dispatch, real worker) remains the authority for those.
 
 on:
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '42 2 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -81,8 +86,6 @@ on:
       - 'src/generator/_type/**'
       - 'src/generator/_workflow/**'
       - '.github/workflows/playground-realm-check.yml'
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

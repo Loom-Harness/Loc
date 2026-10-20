@@ -17,26 +17,11 @@ name: Kubernetes/Helm validation
 #   - Manual dispatch.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/platform/**'
-      - 'examples/**'
-      - 'web/src/examples/**'
-      - 'package.json'
-      - '.github/workflows/k8s-build.yml'
-      - 'test/e2e/k8s-validate.test.ts'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '20 4 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:

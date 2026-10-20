@@ -1,15 +1,6 @@
 name: Langium generated files in sync
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/language/ddd.langium'
-      - 'src/language/generated/**'
-      - 'langium-config.json'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/langium-generated.yml'
   pull_request:
     paths:
       - 'src/language/ddd.langium'

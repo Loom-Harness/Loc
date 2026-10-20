@@ -1,20 +1,6 @@
 name: Tests + coverage
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'test/**'
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - 'vitest.config.ts'
-      - 'biome.json'
-      - 'biome.generated.json'
-      - 'designs/**'
-      - '.github/workflows/test.yml'
   # Deliberately UNFILTERED on pull requests: `tests passed` is a required
   # status check, and a required check that gets path-skipped never reports —
   # blocking the PR on "Expected" forever.  Running the fast suite on a

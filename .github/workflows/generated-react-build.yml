@@ -52,21 +52,6 @@ name: Generated React TSX build
 # The PR path is untouched — still 2 one-cell jobs, still ~5min.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/**'
-      - 'web/src/examples/**'
-      - 'vite/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'test/e2e/generated-react-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-react-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]

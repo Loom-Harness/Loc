@@ -25,18 +25,11 @@ name: Behavioral UI e2e (headless, no docker)
 # emitters, the corpus example, or the harness itself.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'bin/**'
-      - 'designs/mantine/**'
-      - 'web/src/testing/**'
-      - 'web/src/runtime/ddl.ts'
-      - 'web/src/examples/sales-system.ddd'
-      - 'test/behavioral/**'
-      - 'package.json'
-      - '.github/workflows/behavioral-ui-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '24 4 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:

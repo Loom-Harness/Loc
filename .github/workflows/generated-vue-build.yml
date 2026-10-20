@@ -20,23 +20,6 @@ name: Generated Vue build
 # test/e2e/generated-vue-build.test.ts (`<case>:<pack>`).
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/vuetify/**'
-      - 'designs/shadcnVue/**'
-      - 'examples/vue-showcase.ddd'
-      - 'web/src/examples/vue-store-showcase.ddd'
-      - 'vue/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'stacks/vue1/**'
-      - 'test/e2e/generated-vue-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-vue-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]

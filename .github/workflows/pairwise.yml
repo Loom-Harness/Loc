@@ -83,9 +83,9 @@ name: Pairwise combination corpus
 # Waiver registers: test/pairwise/waivers{,-compile,-schema}.ts — all ratchet.
 
 on:
-  push:
-    branches: [main]
-    paths: &pairwise_paths
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    paths:
       # Every phase a crossing walks (parse → macro expand → lower → enrich →
       # IR validate → compose), plus every emitter the cover reaches and the
       # harness itself.  Same path-coverage discipline as the corpus gates —
@@ -106,9 +106,6 @@ on:
       - 'test/e2e/support/java-werror.init.gradle'
       - 'package.json'
       - '.github/workflows/pairwise.yml'
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    paths: *pairwise_paths
   schedule:
     - cron: '0 3 * * *'      # 03:00 UTC nightly — an hour ahead of schemathesis
   workflow_dispatch:
@@ -202,12 +199,11 @@ jobs:
   compile:
     name: compile oracle (${{ matrix.backend }})
     # NOT on `merge_group` — see "A DISCOVERY INSTRUMENT IS NOT A MERGE GATE"
-    # in the header.  Nightly + push + label + dispatch, exactly as the TIERS
-    # block above has always described this leg.
+    # in the header.  Nightly + label + dispatch, exactly as the TIERS block
+    # above describes this leg.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'run-pairwise'))
     runs-on: ubuntu-latest
@@ -271,7 +267,6 @@ jobs:
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'run-pairwise'))
     runs-on: ubuntu-latest
