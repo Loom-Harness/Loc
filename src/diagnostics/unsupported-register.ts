@@ -79,7 +79,9 @@ export interface UnsupportedEntry {
   site: string;
   /** One line: what the code refuses. */
   what: string;
-  /** Owning mission, where one exists.  A `gap` without one is unowned work. */
+  /** Owning work item, where one exists: a GitHub issue (`#NNNN`) or a legacy
+   *  `M-Tx.y` mission heading under `docs/new-plan/`.  A `gap` without one is
+   *  unowned work. */
   mission?: string;
   /** Classification confirmed against the emission site by a human. */
   verified?: boolean;

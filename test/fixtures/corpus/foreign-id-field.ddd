@@ -1,0 +1,61 @@
+// An `X id` on a HOSTED declaration whose target aggregate lives in a sibling
+// context the deployable does NOT host (D18 of `eval-claims/FIX-PLAN.md`).
+//
+// A cross-context id reference is legal and resolves at lowering, so
+// `desk` below — hosting `Claims`, not `Policies` — names `PolId` from its
+// domain class, schema, repository, routes and event.  The deployable's ids
+// module declared only its hosted aggregates' brands (plus foreign
+// event / workflow / user-claim ids), so `PolId` was referenced and declared
+// nowhere: node TS2694 / TS2339, python mypy name-defined (an ImportError at
+// boot), .NET CS0246 ×52, javac "cannot find symbol".  The hosted declaration
+// surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.
+//
+// Every position kind the fix reads is exercised once: a field, an optional
+// field, a list field, an operation param, an event field and a find param.
+// `policies` is the control: it hosts `Pol`, so its brand was always declared.
+// The deployable is deliberately NOT named `claims`: on elixir a deployable
+// named like a context it hosts makes `alias Claims.Claims` shadow the app
+// module, so `Claims.GuardError` resolves to `Claims.Claims.GuardError` — a
+// separate, pre-existing defect this fixture does not gate.
+system Cover {
+  subdomain Ops {
+    context Policies {
+      aggregate Pol with crudish {
+        name: string
+      }
+      repository Pols for Pol { }
+    }
+    context Claims {
+      event Linked {
+        pol: Pol id
+      }
+      aggregate Clm with crudish {
+        pol: Pol id
+        others: Pol id[]
+        maybe: Pol id?
+        operation relink(p: Pol id) {
+          pol := p
+          emit Linked { pol: p }
+        }
+      }
+      repository Clms for Clm {
+        find byPol(p: Pol id): Clm[] where pol == p
+      }
+    }
+  }
+  storage primary { type: postgres }
+  resource polState { for: Policies, kind: state, use: primary }
+  resource clmState { for: Claims, kind: state, use: primary }
+  deployable policies {
+    platform: __PLATFORM__
+    contexts: [Policies]
+    dataSources: [polState]
+    port: 4000
+  }
+  deployable desk {
+    platform: __PLATFORM__
+    contexts: [Claims]
+    dataSources: [clmState]
+    port: 4001
+  }
+}

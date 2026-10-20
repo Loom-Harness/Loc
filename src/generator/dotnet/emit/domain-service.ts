@@ -68,12 +68,18 @@ function serviceReadPorts(svc: DomainServiceIR): ReadPort[] {
 function serviceRenderContext(
   reading: boolean,
   returnUnion: CsRenderContext["returnUnion"],
+  ctx: BoundedContextIR,
 ): CsRenderContext {
   const base: CsRenderContext = returnUnion
     ? { thisName: "this", returnUnion }
     : { thisName: "this" };
   if (!reading) return base;
-  return { ...base, repoReadHandle: portFieldName };
+  return {
+    ...base,
+    repoReadHandle: portFieldName,
+    retrievalParamNames: (name) =>
+      (ctx.retrievals ?? []).find((r) => r.name === name)?.params.map((p) => p.name) ?? [],
+  };
 }
 
 /** Emit `Domain/Services/<Name>.cs` per domain service in the context, plus
@@ -244,7 +250,7 @@ function renderOperation(
           members: unionMembers(op.returnType.variants, ctx) as UnionMember[],
         }
       : undefined;
-  const body = renderCsStatements(op.body, serviceRenderContext(opReads, returnUnion));
+  const body = renderCsStatements(op.body, serviceRenderContext(opReads, returnUnion, ctx));
   // Pure service → `public static`; reading service → instance method (the read
   // op also carries `async`).
   const modifiers = serviceIsReading ? (opReads ? "public async" : "public") : "public static";

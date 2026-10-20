@@ -653,11 +653,11 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     expect(
       unowned,
       "Gap(s) with no `mission`. Every gap is a commitment under the no-permanent-skips " +
-        "policy — assign it to a mission in docs/new-plan/, minting one if none fits.",
+        "policy — assign it to a GitHub issue (`#NNNN`), filing one if none fits.",
     ).toEqual([]);
   });
 
-  it("resolves every cited mission to exactly one heading in docs/new-plan/", () => {
+  it("resolves every cited legacy mission to exactly one heading in docs/new-plan/", () => {
     // A `mission` pointing at a missing OR duplicated id is worse than none: the
     // first is a dangling reference, the second sends two readers to different
     // work.  T6 carried three duplicate ids when this check was written (two
@@ -679,7 +679,17 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     };
     scan(planDir);
 
-    const cited = [...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : [])))];
+    // An issue reference (`#NNNN`) lives on GitHub, not in the tree, so only
+    // the legacy `M-Tx.y` ids resolve against headings; anything else is a typo.
+    const owners = [
+      ...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : []))),
+    ];
+    const malformed = owners.filter((m) => !/^(#\d+|M-T\d+\.\d+)$/.test(m));
+    expect(
+      malformed,
+      "Register `mission` must be an issue ref `#NNNN` or a legacy `M-Tx.y` id.",
+    ).toEqual([]);
+    const cited = owners.filter((m) => m.startsWith("M-T"));
     const missing = cited.filter((m) => !headings.has(m));
     const ambiguous = cited.filter((m) => (headings.get(m) ?? 0) > 1);
 

@@ -67,8 +67,10 @@ export function AuthConfigPanel({ ctx }: Props): JSX.Element {
         <Alert color="yellow" variant="light" title="Dev only">
           <Text size="xs">
             This is a sandbox convenience — the generated dev-stub verifier trusts this
-            header and accepts every request. A system with a real <Code>auth {"{"} oidc {"}"}</Code>{" "}
-            block runs the OIDC verifier instead, which ignores this header.
+            header and accepts every request. The preview runs it even for a system with an{" "}
+            <Code>auth {"{"} oidc {"}"}</Code> block, because no identity provider is reachable
+            here; the generated app itself runs the OIDC verifier, which ignores this header, and
+            its docker compose stack bundles a dev Keycloak to sign in with.
           </Text>
         </Alert>
       </Stack>

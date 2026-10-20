@@ -1964,14 +1964,34 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
 
 /** Vite config for the Feliz bundle.  `base` is set only for a sub-path
  *  embed (Phoenix `/app`) so built asset URLs carry the prefix; unset
- *  (root-served) keeps vite's default `/` → byte-identical to before. */
-const renderViteConfig = (basePath: string): string =>
-  `import { defineConfig } from "vite";
+ *  (root-served) keeps vite's default `/`.  A standalone deployable (one that
+ *  `targets:` a backend) also gets the native-run block: `npm run dev` serves
+ *  on its declared port (PORT overrides it) and proxies the bundle's relative
+ *  `/api` to the target backend's declared port; `vite preview` takes the port only
+ *  and an explicitly empty proxy (it otherwise inherits `server.proxy`), so a
+ *  backend-less preview stays a static host.  The image serves the built
+ *  bundle through nginx, which reads none of this. */
+const renderViteConfig = (
+  basePath: string,
+  native?: { port: number; apiTarget: string },
+): string => {
+  const head = native
+    ? `// A native run serves on the deployable's declared port, and PORT overrides it.
+const port = Number(process.env.PORT ?? ${native.port});
+const proxy = { "/api": process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(native.apiTarget)} };
 
-export default defineConfig({
+`
+    : "";
+  const serve = native
+    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true, proxy: {} },\n`
+    : "";
+  return `import { defineConfig } from "vite";
+
+${head}export default defineConfig({
 ${basePath ? `  base: "${basePath}/",\n` : ""}  build: { outDir: "dist" },
-});
+${serve}});
 `;
+};
 
 // The default daisyUI theme applied on <html data-theme="…">.  `corporate` is a
 // clean, flat, professional light theme; `business` is its dark sibling (wired
@@ -2182,7 +2202,13 @@ export function generateFelizForContexts(
     "package.json",
     PACKAGE_JSON(`${deployable.name}-feliz`, uiUsesDataGrid(ui), felizI18nEnabled(ui)),
   );
-  out.set("vite.config.js", renderViteConfig(basePath));
+  out.set(
+    "vite.config.js",
+    renderViteConfig(
+      basePath,
+      target ? { port: deployable.port, apiTarget: `http://localhost:${target.port}` } : undefined,
+    ),
+  );
   out.set("index.html", INDEX_HTML(theme, humanize(sys.name)));
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
