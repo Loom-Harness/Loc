@@ -111,7 +111,7 @@ describe.skipIf(!ENABLED)("corpus features are statically clean (Python/FastAPI)
 
   afterAll(() => {
     fs.rmSync(workRoot, { recursive: true, force: true });
-  });
+  }, 300_000);
 
   it.concurrent.each(pythonFeatures)(
     "%s — generated python project passes ruff + mypy --strict",
