@@ -801,6 +801,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never

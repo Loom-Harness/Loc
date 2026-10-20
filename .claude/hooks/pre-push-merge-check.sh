@@ -150,6 +150,44 @@ $(printf '%s' "$out" | tail -25)"
 timeout 20 git fetch origin main --quiet >/dev/null 2>&1 || true
 git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || exit 0
 
+# --- sync-only push gate ---------------------------------------------------
+# A push whose only new commits are merges of origin/main changes nothing a
+# reviewer reads, yet re-runs ~100 check runs on a ~20-runner pool. When dozens
+# of open PRs do it at once, the pool starves and nothing merges (#3591). The
+# merge queue already tests every entry on top of current main, so a sync is
+# needed only when the old head CONFLICTS with main, or when the PR's own
+# checks are red because of something main has since fixed — a deliberate
+# choice, made with `LOOM_ALLOW_SYNC=1` (in the environment or on the command).
+#
+# "Only merges of main" = every commit in `old..HEAD` that is not a merge is
+# already on origin/main. A merge of another PR's branch (a stack) brings
+# commits main does not have, so it is not a sync and passes.
+sync_only_gate() {
+  [ -n "${LOOM_ALLOW_SYNC:-}" ] && return 0
+  [[ "$command" =~ LOOM_ALLOW_SYNC=1 ]] && return 0
+  local old own
+  timeout 20 git fetch origin "$branch" --quiet >/dev/null 2>&1 || true
+  old="$(git rev-parse --verify --quiet "origin/$branch" 2>/dev/null)" || return 0
+  [ -n "$old" ] || return 0
+  [ "$old" = "$(git rev-parse HEAD 2>/dev/null)" ] && return 0
+  # A rewrite (rebase, amend) cannot be classified — allow.
+  git merge-base --is-ancestor "$old" HEAD 2>/dev/null || return 0
+  # Nothing merged at all → an ordinary push.
+  [ -n "$(git rev-list --merges "$old..HEAD" 2>/dev/null)" ] || return 0
+  own="$(git rev-list --no-merges "$old..HEAD" ^origin/main 2>/dev/null | head -1)"
+  [ -z "$own" ] || return 0
+  # The old head conflicted with main → the sync is required to enter the
+  # queue. A merge-tree error (old git) is "don't know" → allow.
+  git merge-tree --write-tree origin/main "$old" >/dev/null 2>&1 || return 0
+  deny "git push blocked: this push only merges origin/main into '${branch}' — it adds no commit of its own.
+The old head merges cleanly into main, and the merge queue re-tests every entry on top of current main, so the sync buys nothing and re-runs ~100 CI checks on a shared ~20-runner pool.
+Don't push it. Leave the branch as it is.
+If this PR's own checks are red because of something main has since FIXED, the sync is warranted — push it deliberately:
+    LOOM_ALLOW_SYNC=1 git push …
+Never copy a fix from another open PR into this one; wait for that PR to land (see .claude/skills/steward/SKILL.md)."
+}
+sync_only_gate
+
 # --- conflict dry-run ------------------------------------------------------
 # `git merge-tree --write-tree` (git >= 2.38): exit 0 = clean, 1 = conflicts,
 # >1 = usage/version error → fail open.
