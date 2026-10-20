@@ -42,7 +42,7 @@ describe("Hono: value-object + domain-service unit-test emission", () => {
     expect(vo, "expected domain/money.test.ts").toBeDefined();
     expect(vo).toContain('import { Money } from "./value-objects";');
     expect(vo).toContain('describe("Money"');
-    expect(vo).toContain(".toThrow()");
+    expect(vo).toContain("expectDomainRejection(() => { new Money(");
   });
 
   it("emits domain/pricing.test.ts importing the service from ./services", async () => {

@@ -34,7 +34,7 @@
 // no working C# today, so there is no generated API surface to keep compatible.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../util/naming.js";
 
 /** BCL type names this backend's emitted `using` set brings into scope, so a
@@ -293,4 +293,190 @@ export function csParamIdent(name: string, scope: CsMemberScope | undefined): st
   if (!scope?.members.has(name)) return escapeCsharpIdent(name);
   const lowered = lowerFirst(name);
   return escapeCsharpIdent(lowered !== name ? lowered : `${name}_`);
+}
+
+// ---------------------------------------------------------------------------
+// Root-namespace / domain-type collisions.
+//
+// The project's root namespace is the deployable's Pascal name (system mode)
+// or the context's name (legacy `generate dotnet`).  When a hosted context
+// declares a TYPE of that very name — `deployable pay` hosting `aggregate
+// Pay`, or `context Pay { aggregate Pay }` — every file under `namespace
+// Pay.…` resolves a bare `Pay` to the root NAMESPACE before it ever reaches
+// the `using Pay.Domain.Pays;` that imports the type (C# looks up the global
+// namespace's own members ahead of the compilation unit's using-imports, and a
+// `using Pay = …;` alias at that level is ambiguous rather than winning):
+//
+//     error CS0118: 'Pay' is a namespace but is used like a type
+//
+// A colliding model produces no buildable project, so there is nothing to keep
+// compatible: the root namespace takes an `App` suffix (repeated until it is
+// free) and the rest of the project — csproj, DLL, Dockerfile, test project —
+// follows it, since every one of them is spelled from the same value.  A model
+// without the collision keeps its namespace, byte-identical.
+// ---------------------------------------------------------------------------
+
+/** Every type name a hosted context declares into the project's `using` set —
+ *  the names a root namespace must not equal. */
+function declaredTypeNames(
+  contexts: ReadonlyArray<
+    Pick<
+      BoundedContextIR,
+      | "aggregates"
+      | "valueObjects"
+      | "enums"
+      | "events"
+      | "payloads"
+      | "domainServices"
+      | "projections"
+      | "siblingValueObjects"
+      | "siblingEnums"
+    >
+  >,
+): Set<string> {
+  const names = new Set<string>();
+  for (const ctx of contexts) {
+    for (const agg of ctx.aggregates) {
+      names.add(agg.name);
+      for (const part of agg.parts) names.add(part.name);
+    }
+    for (const decl of [
+      ...ctx.valueObjects,
+      ...ctx.enums,
+      ...ctx.events,
+      ...ctx.payloads,
+      ...ctx.domainServices,
+      ...ctx.projections,
+      ...(ctx.siblingValueObjects ?? []),
+      ...(ctx.siblingEnums ?? []),
+    ]) {
+      names.add(decl.name);
+    }
+  }
+  return names;
+}
+
+/** The project's root namespace: `base` unless a hosted type has that exact
+ *  name, in which case `base` + `App` (+ `App` …) — see the block above. */
+export function clashFreeRootNamespace(
+  base: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): string {
+  const taken = declaredTypeNames(contexts);
+  let ns = base;
+  while (taken.has(ns)) ns = `${ns}App`;
+  return ns;
+}
+
+/** A deployable's root namespace: its name with the first letter capitalised,
+ *  made clash-free against its hosted contexts.  The ONE spelling the
+ *  platform surface (`emitProject`, `debugLaunch`) and the adapter emitters
+ *  all key off, so the csproj, the DLL and every `namespace …;` agree. */
+export function dotnetRootNamespace(
+  deployableName: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): string {
+  return clashFreeRootNamespace(upperFirst(deployableName), contexts);
+}
+
+// ---------------------------------------------------------------------------
+// Domain types named like a generated LAYER namespace.
+//
+// Every project file lives under `<Root>.<Layer>…` (`Shop.Api`,
+// `Shop.Application.…`, `Shop.Domain.…`, `Shop.Infrastructure.…`, …).  A
+// hosted type spelled like one of those layers — `aggregate Application` —
+// is then unreachable by its simple name from every other file: lookup from
+// `namespace Shop.Infrastructure.Repositories` walks out through `Shop`, whose
+// MEMBER namespace `Application` wins before the compilation unit's
+// `using Shop.Domain.Applications;` is ever consulted (measured under
+// `dotnet build /warnaserror`, sdk:10.0):
+//
+//     error CS0118: 'Application' is a namespace but is used like a type
+//
+// Its id type has the sibling defect: `ApplicationId` is also
+// `System.ApplicationId`, so every file importing both `System` and
+// `<Root>.Domain.Ids` is CS0104-ambiguous.
+//
+// THE FIX: an alias declared INSIDE the file's namespace declaration
+// (`namespace Shop.Api; using Application = global::Shop.Domain.Applications.Application;`)
+// is looked up at that namespace's level — ahead of both the enclosing
+// `Shop` namespace's members and the compilation unit's wildcard usings — so
+// it repairs both shapes.  It is appended to the namespace line itself so no
+// generated line moves (sourcemaps and `#line` stay exact), and only on a
+// collision, so every other model is byte-identical.  A file whose namespace
+// declares the type, or has a member namespace of that name (CS0576), is
+// skipped.
+// ---------------------------------------------------------------------------
+
+/** `System` types spelled `<Noun>Id` — the id class of a same-named
+ *  aggregate (`aggregate Application` → `ApplicationId`) is CS0104-ambiguous
+ *  with them in every file that imports `System` and `<Root>.Domain.Ids`. */
+export const BCL_COLLIDING_ID_NAMES: ReadonlySet<string> = new Set(["ApplicationId"]);
+
+/** A `.cs` file's first namespace declaration: its name, and the offset just
+ *  past the `;` (file-scoped) or `{` (block-scoped) that opens it. */
+function namespaceDecl(src: string): { ns: string; insertAt: number } | undefined {
+  const m = /^namespace[ \t]+([\w.]+)[ \t]*(?:;|\r?\n?[ \t]*\{)/m.exec(src);
+  if (!m) return undefined;
+  return { ns: m[1], insertAt: m.index + m[0].length };
+}
+
+/** Alias every hosted type that collides with a generated layer namespace
+ *  (or, for an aggregate id, a `System` type) inside each `<root>.…`
+ *  namespace declaration of `out` — see the block above.  Returns the
+ *  rewritten files; empty without a collision. */
+export function layerClashAliases(
+  out: ReadonlyMap<string, string>,
+  root: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): Map<string, string> {
+  const rewritten = new Map<string, string>();
+  const files: { path: string; src: string; ns: string; insertAt: number }[] = [];
+  for (const [path, src] of out) {
+    if (!path.endsWith(".cs")) continue;
+    const decl = namespaceDecl(src);
+    if (decl && (decl.ns === root || decl.ns.startsWith(`${root}.`)))
+      files.push({ path, src, ...decl });
+  }
+  // Every namespace the project declares, with its ancestors.
+  const namespaces = new Set<string>();
+  for (const f of files) {
+    const segs = f.ns.split(".");
+    for (let i = 1; i <= segs.length; i++) namespaces.add(segs.slice(0, i).join("."));
+  }
+  const layers = new Set(
+    [...namespaces]
+      .filter((n) => n.startsWith(`${root}.`) && !n.slice(root.length + 1).includes("."))
+      .map((n) => n.slice(root.length + 1)),
+  );
+  const candidates = declaredTypeNames(contexts);
+  for (const ctx of contexts) {
+    for (const agg of ctx.aggregates) candidates.add(`${agg.name}Id`);
+  }
+  const clashing = [...candidates]
+    .filter((t) => layers.has(t) || BCL_COLLIDING_ID_NAMES.has(t))
+    .sort();
+  if (clashing.length === 0) return rewritten;
+
+  // Where each clashing type is declared — read off the output, so the alias
+  // follows whichever directory layout placed it.  A name declared in more
+  // than one namespace has no single target and is left alone.
+  const home = new Map<string, string>();
+  for (const t of clashing) {
+    const decl = new RegExp(`^(?:\\w+ )*(?:class|struct|record|interface|enum) ${t}\\b`, "m");
+    const homes = new Set(files.filter((f) => decl.test(f.src)).map((f) => f.ns));
+    if (homes.size === 1) home.set(t, [...homes][0]);
+  }
+
+  for (const f of files) {
+    const aliases = [...home]
+      .filter(
+        ([t, ns]) =>
+          f.ns !== ns && !namespaces.has(`${f.ns}.${t}`) && new RegExp(`\\b${t}\\b`).test(f.src),
+      )
+      .map(([t, ns]) => ` using ${t} = global::${ns}.${t};`);
+    if (aliases.length === 0) continue;
+    rewritten.set(f.path, f.src.slice(0, f.insertAt) + aliases.join("") + f.src.slice(f.insertAt));
+  }
+  return rewritten;
 }

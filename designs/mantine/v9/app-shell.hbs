@@ -1,12 +1,13 @@
 // Auto-generated.
 import { Routes, Route, Link as RouterLink, useLocation, {{#if anyLayoutUsesNavigate}}useNavigate, {{/if}}Outlet } from "{{routerPackage}}";
-import { AppShell, Burger, Group, Title, NavLink, Anchor, Alert, Button, Stack{{#if hasNamedLayouts}}, Text, Box, Card, Container, Grid, Image, Badge{{/if}} } from "@mantine/core";
+import { AppShell, Burger, Group, Title, NavLink, Anchor, Alert, Button, Loader, Stack{{#if hasNamedLayouts}}, Text, Box, Card, Container, Grid, Image, Badge{{/if}} } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import React from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
-{{/if}}
+{{/if}}{{#each lazyPages}}const {{specifier}} = React.lazy(() => import("{{from}}"));
+{{/each}}
 
 // App-level error boundary catches render-time crashes from any
 // page component.  Without it, an unhandled exception inside
@@ -49,6 +50,17 @@ class AppErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
+}
+
+// Route-level Suspense fallback: every routed page is a lazy chunk, so a
+// first visit renders the pack's loader in the content slot while the
+// chunk downloads, and the shell around it stays mounted.
+function RouteLoading() {
+  return (
+    <Group justify="center" p="xl" role="status" {{{routeLoadingAria}}} data-testid="route-loading">
+      <Loader />
+    </Group>
+  );
 }
 
 function NotFound() {
@@ -132,7 +144,9 @@ function AppShellLayout() {
       </AppShell.Navbar>
       <AppShell.Main id="main-content" style=\{{ minWidth: 0 }}>
         <AppErrorBoundary>
-          <Outlet />
+          <React.Suspense fallback={<RouteLoading />}>
+            <Outlet />
+          </React.Suspense>
         </AppErrorBoundary>
       </AppShell.Main>
     </AppShell>
@@ -151,7 +165,9 @@ function {{name}}Layout() {
 {{#if hasHeader}}      <header>{{{headerJsx}}}</header>
 {{/if}}      <main id="main-content">
         <AppErrorBoundary>
-          <Outlet />
+          <React.Suspense fallback={<RouteLoading />}>
+            <Outlet />
+          </React.Suspense>
         </AppErrorBoundary>
       </main>
 {{#if hasFooter}}      <footer>{{{footerJsx}}}</footer>
@@ -163,7 +179,8 @@ function {{name}}Layout() {
   return (
 {{#if hasRealtimeHandlers}}    <>
       <RealtimeHandlers />
-{{/if}}    <Routes>
+{{/if}}    <React.Suspense fallback={<RouteLoading />}>
+    <Routes>
 {{#each outOfShellRoutes}}      <Route path="{{path}}" element={{expr elementJsx}} />
 {{/each}}{{#each namedLayouts}}      <Route element={<{{name}}Layout />}>
 {{#each routes}}        <Route path="{{path}}" element={{expr elementJsx}} />
@@ -173,6 +190,7 @@ function {{name}}Layout() {
 {{/each}}        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+    </React.Suspense>
 {{#if hasRealtimeHandlers}}    </>
 {{/if}}  );
 }

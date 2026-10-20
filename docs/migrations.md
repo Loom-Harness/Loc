@@ -370,6 +370,29 @@ as the DDL (`renderBackfillSql` is shared, so the DML is bit-identical).
 migration "clear-legacy-notes" { sql "UPDATE sales.orders SET note = '' WHERE note IS NULL" }
 ```
 
+**`sql before "…"`** — the opt-in modifier that emits the step *ahead* of the
+generation's structural steps instead. It exists for the fix-up the new DDL
+would otherwise reject — the canonical case is a dedupe that must run before
+a new `unique (…)` index is created over a populated table. Same exactly-once
+ledger, same declaration order among the `before` steps, same file (Ecto:
+`execute/1` first in `change/0`). On a module's **Initial** generation there is
+nothing to precede — none of its tables exist yet — so `before` keeps the
+trailing position there, on every backend. `before` is a placement word, not a
+reserved keyword — it stays usable as a field, workflow or `let` name — and any
+other placement is rejected (`loom.migration-sql-placement`).
+
+```ddd
+aggregate Account { number: string  unique (number) }   // unique added this generation
+migration "dedupe-account-numbers" {
+  sql before "UPDATE banking.accounts SET number = number || '-' || left(id::text, 4) WHERE id IN (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY number ORDER BY opened_at) rn FROM banking.accounts) x WHERE rn > 1)"
+}
+```
+```sql
+UPDATE banking.accounts SET number = number || '-' || left(id::text, 4) WHERE id IN (…);
+--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_number_uq" ON "banking"."accounts" ("number");
+```
+
 Raw SQL is verbatim — **schema-qualify every relation** (`sales.orders`, not
 `orders`): the generated DDL is schema-qualified, and the migration runners'
 `search_path` does not include context schemas, so an unqualified name fails
@@ -397,6 +420,63 @@ migration "vendor-to-sponsor" { Vendor -> Sponsor }   // Vendor is TPH under Par
 ```sql
 UPDATE "parties" SET "kind" = 'Sponsor' WHERE "kind" = 'Vendor';
 ```
+
+### A unique index on a populated table — `loom.migration-unique-on-existing-table`
+
+A diff cannot see the data. Adding `unique (…)` to an aggregate whose table
+already exists in the baseline emits a `CREATE UNIQUE INDEX` that fails at boot
+if any stored rows collide — the migration rolls back (cleanly; every backend
+applies a generation in one transaction), the service does not come up, and
+every later generation queues behind the failing one. So `generate system`
+warns, at derivation time, beside the other phase-⑨ advisories:
+
+```text
+loom.migration-unique-on-existing-table warning: migration for module "Retail": adds unique index accounts_number_uq on existing table banking.accounts (number). Rows already stored may violate it — … dedupe them AHEAD of the index in this same generation (declaring one silences this warning):
+    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }
+1 warning(s) in derived migrations.
+```
+
+Declaring any `sql before` step for the module in the same generation is read
+as "handled" and silences it; a plain (trailing) `sql` step does not — it runs
+after the index. Not raised for a table created this generation (empty), a
+module's first generation, or a rebuild of a unique index the baseline already
+had over the same columns (the drop + add a column rename causes, or a full
+unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
+`WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
+live rows. A warning never changes the exit code.
+
+### Amending a generation that never applied
+
+Once a generation is emitted it is frozen: the snapshot's `lastVersion` has
+moved past it, and the source-side ledger records its version. If that
+generation then FAILS at boot (the unique-index case above), adding the fix to
+the `.ddd` and regenerating lands the fix in the NEXT generation — behind the
+one that fails, so it never runs. A failed generation was never recorded by
+the migrator — each backend applies a generation inside a transaction on
+Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the python runner's
+`__loom_migrations`), so a failure leaves no history row (verified live on the
+banking evaluation's node stack) — and it is therefore safe to **re-issue the same version with different
+content** — as long as no database has applied it. The recipe:
+
+1. Restore the output tree (at least `.loom/snapshots/` and each owning
+   backend's migrations directory) **and** the source-side ledger
+   `<source-dir>/.loom/<source>.migration-history.json` to the last generation
+   every database has applied — from VCS (commit both after each `generate`) or
+   a copy. Restoring the tree alone is refused by guard (e) above ("refusing to
+   re-issue migration version … already recorded in …migration-history.json"),
+   which is the guard doing its job: it cannot tell "never applied" from
+   "applied somewhere".
+2. Amend the `.ddd` (e.g. add the `sql before` dedupe).
+3. `ddd generate system` again — it re-emits the same version, now carrying the
+   fix, and the next boot applies it.
+
+`--allow-rebaseline` instead of step 1's ledger restore also works, but it
+discards the ledger's history wholesale; prefer restoring it. If any database
+DID apply the generation, do not re-issue it — add a new generation instead.
+The other way out — running the fix by hand
+(`docker compose exec db psql -U postgres -d <db> -c "UPDATE …"`) and
+restarting the service so the frozen generation re-runs — works, but leaves the
+fix outside the model.
 
 **Down migrations are no-op by decision** (D-MIG-NO-DOWN): operators roll
 forward; recovery is backup + roll-forward. And data steps live in the DSL,
