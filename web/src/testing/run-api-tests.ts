@@ -39,7 +39,7 @@ export interface RunApiTestsOpts {
   dispatch: (req: SerializedRequest) => Promise<DispatchResult>;
   /** Values exposed to the suite as `process.env` — the emitted `__authHeaders`
    *  reads `E2E_DEV_CLAIMS` (dev-stub principal) / `E2E_BEARER_TOKEN` (OIDC) from
-   *  here.  Empty by default (auth-less systems need nothing). */
+   *  here.  `E2E_DEV_IDP` defaults to `"off"` (see `loadApiTests`). */
   env?: Record<string, string | undefined>;
 }
 
@@ -67,7 +67,11 @@ export async function loadApiTests(opts: RunApiTestsOpts): Promise<TestCase[]> {
     process: { env: Record<string, string | undefined> },
   ) => void;
   runSuite(harness.describe, harness.it, harness.expect, fetchImpl, {
-    env: opts.env ?? {},
+    // The preview backend runs the dev stub, so a suite generated for an
+    // `auth { oidc }` system must not try to mint a token from the compose
+    // stack's dev IdP — its `fetch` here is the in-worker dispatch, which would
+    // route the token request to the app itself.  The caller can override.
+    env: { E2E_DEV_IDP: "off", ...opts.env },
   });
   return harness.tests;
 }

@@ -141,6 +141,10 @@ export function generateReactForContexts(
   // `vite dev` same-origin proxy target: the standalone backend's dev
   // URL, so a relative `/api/*` fetch reaches it without CORS.
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native `vite` run serves on this deployable's declared port.  Only a
+  // standalone frontend (one that `targets:` a backend) has a port of its
+  // own; a bundle embedded in a backend keeps the template default.
+  const devPort = target ? deployable.port : undefined;
   // Sub-path the bundle is served under (Phoenix `/app`).  `viteBase`
   // is the trailing-slashed form vite wants (`/app/`); `basename` is
   // the slashless router basename.  Unset for root-served hosts.
@@ -547,7 +551,7 @@ export function generateReactForContexts(
   out.set("tsconfig.node.json", renderShellFile("tsconfig-node", {}, pack));
   out.set(
     "vite.config.ts",
-    renderShellFile("vite-config", { base: viteBase, apiProxyTarget }, pack),
+    renderShellFile("vite-config", { base: viteBase, apiProxyTarget, port: devPort }, pack),
   );
   // `usesCodeBlock` also rides into the shell HTML — as the second module
   // entry (`/src/lib/highlight.ts`) Vite bundles and links the theme CSS for,

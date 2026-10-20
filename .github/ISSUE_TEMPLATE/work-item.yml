@@ -1,0 +1,38 @@
+name: Work item
+description: A unit of work an agent or human can claim — a feature, gap, debt drain, wave packet, or a legacy M-Tx.y mission.
+labels: ["triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One claimable unit. Bigger efforts: a parent issue with sub-issues. Legacy plan
+        missions: title `M-Tx.y: …` and link the section in `docs/new-plan/`.
+        Claim protocol: `docs/agent-runbook.md` §2.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What is true when this is done.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: The tests / gates that prove it. Scope ends here.
+    validations:
+      required: true
+  - type: textarea
+    id: touches
+    attributes:
+      label: Touches
+      description: Files / areas expected — what another session needs to see to avoid overlap.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and links
+      description: Design records, D-* decisions, related issues, blocked-by.
+    validations:
+      required: false

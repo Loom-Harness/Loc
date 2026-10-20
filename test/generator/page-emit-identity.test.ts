@@ -130,10 +130,10 @@ describe("D1 — React router imports the module the page emitter wrote", () => 
 
     // …and the imports that must resolve against them.  `./pages/dashboard`
     // was the shipped bug: TS2307, an app that does not compile.
-    expect(app).toContain('from "./pages/ops/dashboard"');
-    expect(app).toContain('from "./pages/ops/billing/invoices"');
-    expect(app).not.toContain('from "./pages/dashboard"');
-    expect(app).not.toContain('from "./pages/invoices"');
+    expect(app).toContain('import("./pages/ops/dashboard")');
+    expect(app).toContain('import("./pages/ops/billing/invoices")');
+    expect(app).not.toContain('import("./pages/dashboard")');
+    expect(app).not.toContain('import("./pages/invoices")');
   });
 
   it("names the imported component exactly as the page module exports it", async () => {
@@ -144,8 +144,10 @@ describe("D1 — React router imports the module the page emitter wrote", () => 
 
     expect(dash).toContain("export default function OpsDashboard(");
     expect(invoices).toContain("export default function OpsBillingInvoices(");
-    expect(app).toContain('import OpsDashboard from "./pages/ops/dashboard"');
-    expect(app).toContain('import OpsBillingInvoices from "./pages/ops/billing/invoices"');
+    expect(app).toContain('const OpsDashboard = React.lazy(() => import("./pages/ops/dashboard"))');
+    expect(app).toContain(
+      'const OpsBillingInvoices = React.lazy(() => import("./pages/ops/billing/invoices"))',
+    );
   });
 });
 
@@ -195,8 +197,8 @@ describe("D2 — the App shell imports where the conventional page really landed
     // Importing `./pages/audit` — the path a name-only reconstruction builds —
     // left the authored page a dead file with no tsc error anywhere: the
     // silent failure this pins.
-    expect(app).toContain('from "./pages/sales/orders/audit"');
-    expect(app).not.toContain('from "./pages/audit"');
+    expect(app).toContain('import("./pages/sales/orders/audit")');
+    expect(app).not.toContain('import("./pages/audit")');
   });
 });
 
@@ -329,8 +331,10 @@ describe("D6 — same-named pages across areas do not produce duplicate identifi
   it("React: distinct component identifiers", async () => {
     const files = await generateSystemFiles(DUPLICATE_NAME_ACROSS_AREAS(REACT));
     const app = files.get("web/src/App.tsx")!;
-    expect(app).toContain('import OpsDashboard from "./pages/ops/dashboard"');
-    expect(app).toContain('import FinanceDashboard from "./pages/finance/dashboard"');
+    expect(app).toContain('const OpsDashboard = React.lazy(() => import("./pages/ops/dashboard"))');
+    expect(app).toContain(
+      'const FinanceDashboard = React.lazy(() => import("./pages/finance/dashboard"))',
+    );
     const imports = app.split("\n").filter((l) => l.startsWith("import "));
     expect(new Set(imports).size).toBe(imports.length);
   });
@@ -395,6 +399,8 @@ describe("area-less pages keep their pre-existing identifiers", () => {
     `);
     expect(files.has("web/src/pages/dashboard.tsx")).toBe(true);
     expect(files.has("web/e2e/pages/dashboard.ts")).toBe(true);
-    expect(files.get("web/src/App.tsx")!).toContain('import Dashboard from "./pages/dashboard"');
+    expect(files.get("web/src/App.tsx")!).toContain(
+      'const Dashboard = React.lazy(() => import("./pages/dashboard"))',
+    );
   });
 });

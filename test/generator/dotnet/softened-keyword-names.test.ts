@@ -7,10 +7,11 @@
 //   - a value object's constructor parameter and assignment;
 //   - the `Create(...)` named arguments a workflow, a domain `test`, and a
 //     seed row emit.
-// A repository-port member whose parameter needed the prefix also carries a
-// targeted CA1716 suppression: the analyzer rejects a keyword-named parameter
-// on an interface member even when escaped, and `/warnaserror` makes that an
-// error.  A port member with ordinary parameter names carries none.
+// The analyzer rejects a keyword-named parameter on an interface member even
+// when escaped (CA1716, an error under `/warnaserror`); the API csproj carries
+// CA1716 in `NoWarn` — the same rule fires on a type named after a Visual
+// Basic keyword (`aggregate Module`) — so no port member carries a per-member
+// suppression.
 //
 // Verified end-to-end: the model compiles with `dotnet build /warnaserror`
 // (.NET 10) on both the EF Core and Dapper adapters.
@@ -71,8 +72,6 @@ async function file(platform: string, suffix: string): Promise<string> {
   return f.get(key!)!;
 }
 
-const SUPPRESS = `[global::System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords"`;
-
 describe.each([
   ["efcore", "dotnet"],
   ["dapper", "dotnet { persistence: dapper }"],
@@ -101,17 +100,12 @@ describe.each([
     expect(seed).toMatch(/Plugin\.Create\(system: "core", @enum: 1, @static: 3,/);
   });
 
-  it("suppresses CA1716 only on the port members with a keyword-named parameter", async () => {
+  it("CA1716 is a project-wide NoWarn, not a per-member suppression", async () => {
     const port = await file(platform, "Domain/Plugins/IPluginRepository.cs");
-    const lines = port.split("\n");
-    const lineAbove = (needle: string): string => {
-      const i = lines.findIndex((l) => l.includes(needle));
-      expect(i, needle).toBeGreaterThan(0);
-      return lines[i - 1]!;
-    };
-    expect(lineAbove("ByLevel(int @enum, int @static,")).toContain(SUPPRESS);
-    expect(lineAbove("RunFindAllByStaticAtLeastAsync(int @static,")).toContain(SUPPRESS);
-    expect(lineAbove("BySystem(string system,")).not.toContain("SuppressMessage");
-    expect(port.match(/SuppressMessage/g)).toHaveLength(2);
+    expect(port).toContain("ByLevel(int @enum, int @static,");
+    expect(port).toContain("RunFindAllByStaticAtLeastAsync(int @static,");
+    expect(port).not.toContain("SuppressMessage");
+    const csproj = await file(platform, "api/Api.csproj");
+    expect(csproj).toMatch(/<NoWarn>[^<]*\bCA1716\b[^<]*<\/NoWarn>/);
   });
 });

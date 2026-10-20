@@ -150,6 +150,12 @@ export interface PackManifest {
    *  field default degrades to the type-zero seed with no `usePrepare` import
    *  (the non-React frontends have no overlay yet). */
   seedsServerDefaults?: boolean;
+  /** Opt-in, Vue packs over a globally-registrable component library: each
+   *  emitted `.vue` file imports the library components its own template
+   *  renders (tags starting `tagPrefix`, imported by PascalCase name from
+   *  `from`), so the pack's plugin setup registers none and every page's
+   *  components ride its lazy route chunk.  See `vue/component-imports.ts`. */
+  componentImports?: { tagPrefix: string; from: string };
 }
 
 /** A single named-import declaration: `import { ...named } from "<from>"`. */

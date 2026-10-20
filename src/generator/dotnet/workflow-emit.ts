@@ -69,6 +69,7 @@ import {
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
+import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
@@ -1788,6 +1789,13 @@ export function csWorkflowStmtTarget(
   // namer per rendered body hands out a distinct name to every wrap — see
   // `MaskNamer` in dto-mapping.ts.
   const maskNames = maskNamer();
+  // The `Run<Name>Async` method's own `bypass` / `cancellationToken` names —
+  // each yields to a same-named retrieval param, so a call passing them by
+  // name must spell the yielded name.
+  const runOwnParams = (retrievalName: string) =>
+    csReadOwnParams(
+      (ctx.retrievals ?? []).find((r) => r.name === retrievalName)?.params.map((p) => p.name) ?? [],
+    );
   return {
     indentUnit: "    ",
     precondition: (st, indent) => {
@@ -1979,19 +1987,20 @@ export function csWorkflowStmtTarget(
       // names>)` — the DSL capability names, NOT EF filter names; the repository
       // adapter translates them (see `emit/repository.ts`).  `FilterBypass`
       // resolves via the handler file's `using <ns>.Domain.Common;` preamble.
+      const own = runOwnParams(st.retrievalName);
       const bypassArgs: string[] = [];
       if (st.bypassAll) {
-        bypassArgs.push("bypass: FilterBypass.BypassAll()");
+        bypassArgs.push(`${own.bypass}: FilterBypass.BypassAll()`);
       } else if ((st.bypassCaps?.length ?? 0) > 0) {
         const caps = st.bypassCaps ?? [];
         bypassArgs.push(
-          `bypass: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
+          `${own.bypass}: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
         );
       }
       // `cancellationToken` is passed NAMED: the run method has an optional
       // `page` param before it (and the optional `ignore*` params after), so a
       // positional token would bind to `page`.  Named, it skips the defaults.
-      const callArgs = [...args, ...bypassArgs, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, ...bypassArgs, `${own.ct}: cancellationToken`].join(", ");
       return [
         `${indent}var ${st.name} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
       ];
@@ -2021,7 +2030,9 @@ export function csWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("(null, 1)"); // page: limit 1, no offset — single result
       // Named `cancellationToken` — it now follows the optional `ignore*` params.
-      const callArgs = [...args, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, `${runOwnParams(st.retrievalName).ct}: cancellationToken`].join(
+        ", ",
+      );
       const hits = `__${st.var}Hits`;
       const inner = `${indent}    `;
       const saveLine = (sv: { repoName: string; name: string }): string => {
