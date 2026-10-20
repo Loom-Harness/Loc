@@ -42,7 +42,10 @@ function packChromeForUi(sys: EnrichedSystemIR, ui: UiIR): Record<string, string
     if (!design) continue;
     if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
     if (packFormatForBuiltin(design) === undefined) continue;
-    Object.assign(out, packChromeCatalog(loadPack(resolvePackDir(design)).manifest));
+    Object.assign(
+      out,
+      packChromeCatalog(loadPack(resolvePackDir(design, dep.designBaseDir)).manifest),
+    );
   }
   return out;
 }
