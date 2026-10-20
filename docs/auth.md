@@ -1156,6 +1156,60 @@ function toUser(payload: JWTPayload): UserClaims | null {
   `string`. Any other optional type (for example `Customer id?`) is always
   null there.
 
+## Local dev IdP (bundled Keycloak)
+
+Once a system declares an `auth { oidc { … } }` block, the backends verify real
+JWTs and the dev-stub header below is not emitted. So `generate system` bundles
+a dev Keycloak into the compose stack for **every** provider — hosted presets
+(`google`, `auth0`, `entra`, …) included — and repoints the backends at it by
+env. The declared issuer is what a deployment uses; compose is the local stack.
+
+```ddd
+auth {
+  provider: auth0
+  oidc { issuer: "https://shop.eu.auth0.com/"  clientId: env("OIDC_CLIENT_ID") }
+}
+```
+
+```yaml
+# generated — docker-compose.yml
+keycloak:
+  image: quay.io/keycloak/keycloak:26.0
+  command: ["start-dev", "--import-realm"]   # imports ./keycloak/realm.json
+api:
+  environment:
+    OIDC_ISSUER: "http://host.docker.internal:8081/realms/shop"
+    OIDC_CLIENT_ID: "shop-app"
+```
+
+```ts
+// generated (node) — auth/oidc.ts: the env wins, the declared issuer is the fallback
+const ISSUER = process.env.OIDC_ISSUER ?? "https://shop.eu.auth0.com/";
+```
+
+The realm seeds a `demo` / `demo` user carrying one value per declared `user`
+claim. To sign in to the real provider locally instead, set `OIDC_ISSUER` (and
+`OIDC_CLIENT_ID`) on the backend service.
+
+**The generated e2e suite mints its own token.** When a backend is
+`auth: required`, every test first asks the bundled realm for a token by
+password grant (the `demo` user) and sends it as the bearer, so
+`docker compose up -d` then `npx vitest run` in `e2e/` needs nothing exported:
+
+```ts
+// generated — e2e/Shop.e2e.test.ts
+const __DEV_IDP_TOKEN_URL = process.env.E2E_OIDC_TOKEN_URL ?? "http://localhost:8081/realms/shop/protocol/openid-connect/token";
+it("creates an order against api", async () => {
+  const base = ENDPOINTS.api;
+  await __ensureBearer();
+  // …
+});
+```
+
+It stands aside when you pick the principal yourself: `E2E_BEARER_TOKEN=<jwt>`
+wins, `E2E_DEV_CLAIMS` means a dev-stub target, and `E2E_DEV_IDP=off` disables
+it. `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` select another realm user.
+
 ## Dev-stub verifier (`x-loom-dev-claims`)
 
 Until you register a real verifier, every backend ships an **accept-all dev

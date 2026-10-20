@@ -502,6 +502,16 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "over-merge",
+    id: "O-routeLoading",
+    targets: [...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    menus: BOTH,
+    key: /^chrome\.routeLoading$/,
+    reason:
+      "APP_SHELL_CHROME: only the React shells render a route-level Suspense fallback " +
+      "(vue-router and Angular resolve a lazy route before rendering it; the rest have none)",
+  },
+  {
+    kind: "over-merge",
     id: "O-skipToContent",
     targets: ["flutter"],
     menus: BOTH,
