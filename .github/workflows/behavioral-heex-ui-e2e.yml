@@ -39,16 +39,11 @@ name: Behavioral UI e2e — HEEx / LiveView
 # LOOM_HEX_MIRROR=1 — see docs/tools.md).
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'bin/**'
-      - 'designs/coreComponents/**'
-      - 'designs/daisyui/**'
-      - 'test/behavioral/**'
-      - 'package.json'
-      - '.github/workflows/behavioral-heex-ui-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '13 3 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -167,6 +162,8 @@ jobs:
             hex-mix-heexui-otp${{ env.OTP_VERSION }}-ex${{ env.ELIXIR_VERSION }}-
             hex-mix-heexui-
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
