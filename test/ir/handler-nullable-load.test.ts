@@ -16,10 +16,9 @@
 // so.  This gate mirrors the refusal rather than inventing a 404-on-absent
 // semantics the author did not ask for.
 //
-// (`if let` is NOT the escape hatch here: over a NAMED declared find it is
-// broken in a workflow body too — `.RunAsync((null, 1))` against an
-// `IUnknownRepository` — a separate, pre-existing defect this gate does not
-// touch and does not make worse.)
+// (`if let o = Orders.byCode(c) { … } else { … }` is the null-handling form for
+// the same read: it binds the row only in the then-branch — pinned in
+// `if-let-declared-find.test.ts`.)
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";

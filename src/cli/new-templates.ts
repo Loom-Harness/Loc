@@ -81,11 +81,9 @@ const FORMAT_ORDER: readonly PackFormat[] = ["tsx", "vue", "svelte", "angular", 
 /** Every design pack `ddd new --design` accepts, DERIVED from the built-in
  *  pack registry (`src/util/builtin-formats.ts`) and grouped by format.
  *
- *  It used to be a hand-written list, and it drifted the way hand-written
- *  lists do: seven of the thirteen registered families, so `--design vuetify`
- *  worked while `--help` denied it existed and `--design primeng` was
- *  rejected outright though the pack ships.  Deriving it means adding a pack
- *  directory + its registry entry is the whole change. */
+ *  Derived, not listed, so `--help`, `--design` validation and the packs that
+ *  ship are one set: adding a pack directory + its registry entry is the
+ *  whole change, and no hand-written list can fall behind it. */
 export const DESIGN_PACKS: readonly DesignPack[] = (
   Object.keys(BUILTIN_PACK_LATEST) as DesignPack[]
 )
@@ -389,7 +387,7 @@ a \`requires <expr>\` gate, or the build fails with
   \`policy\` and handing it to the macro:
   \`aggregate X with crudish(requires: <Policy>)\`.
 
-To keep the older opt-in posture — only the members that declare a
+For the opt-in posture instead — only the members that declare a
 \`requires\` are gated, everything else serves any authenticated caller —
 say so explicitly:
 
@@ -434,13 +432,12 @@ export function renderLoomignore(): string {
  * FSL terms.  The companion FAQ lives at `docs/license-faq.md` in the Loom
  * repo.
  *
- * Scaffold-time only (M-FT.13, finding G9).  `ddd generate` used to inject
- * this into the output tree on EVERY run, which silently dropped a LICENSE
- * into a directory the user may already have licensed differently — and
- * re-created it after every delete.  `ddd new` owns the project's identity
- * files (main.ddd / README.md / .loomignore), so the licence belongs with
- * them; `ddd generate` writes only build output.  A user generating into a
- * tree they did not scaffold keeps whatever LICENSE they already have.
+ * Scaffold-time only.  `ddd new` owns the project's identity files
+ * (main.ddd / README.md / .loomignore), so the licence belongs with them;
+ * `ddd generate` writes only build output.  Writing it on every generate
+ * would drop a LICENSE into a tree the user may have licensed differently,
+ * and re-create it after every delete — so a user generating into a tree
+ * they did not scaffold keeps whatever LICENSE they already have.
  */
 export const GENERATED_OUTPUT_LICENSE = `MIT License
 

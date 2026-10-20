@@ -55,6 +55,8 @@ import {
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
+  contextAliasLine,
+  contextCallRef,
   denialOverrides,
   denialResponse,
   opHasWireDenial,
@@ -311,7 +313,7 @@ export function emitVanillaApiControllers(
 
 function renderController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   aggSnake: string,
   memberOps: readonly OperationIR[],
@@ -324,7 +326,10 @@ function renderController(
   readOnly = false,
 ): string {
   const aggPascal = upperFirst(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // The facade's call receiver — fully qualified when `alias <App>.<Ctx>` would
+  // shadow the app module (context named like the app).
+  const ctxModule = contextCallRef(appModule, ctxName);
 
   // A `mask unless` aggregate emits a redacting `serialize/1` (responses) plus an
   // unmasked `serialize_unmasked/1`; audit before/after snapshots must record the
@@ -931,8 +936,7 @@ ${cuBind}${updateCuBind}${versionBind}
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
   require Logger
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 
