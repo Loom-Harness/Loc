@@ -12,8 +12,9 @@ import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
 // (`checkExpectMatcher`) requires every `expect` to carry a matcher, so a
 // non-matcher reaching here is a compiler invariant violation, not user input.
 //
-// The same validator also gates a LOCATOR matcher's receiver
-// (`loom.locator-matcher-receiver`), which is what makes the throw below an
+// The IR validator gates a LOCATOR matcher's receiver
+// (`loom.locator-matcher-receiver`, `checkLocatorMatcherReceivers` in
+// `ir/validate/checks/test-checks.ts`), which is what makes the throw below an
 // invariant rather than a crash a user can trigger: `expect(<x>).toHaveText(…)`
 // on something that is not a page read used to validate clean and then die here
 // with a stack trace (audit 2026-09-03 F6).

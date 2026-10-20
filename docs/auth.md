@@ -1147,9 +1147,9 @@ operation take() { requires currentUser.agentId != null }
 
 ```ts
 // node — auth/oidc.ts
-const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];
+const REQUIRED_CLAIMS: readonly (readonly [string, null])[] = [["sub", null], ["realm_access.roles", null]];
 function toUser(payload: JWTPayload): UserClaims | null {
-  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null; // → 401
+  if (REQUIRED_CLAIMS.some(([path, format]) => claim(payload, path) == null)) return null; // → 401
   return {
     id: claim(payload, "sub") as string,
     // …
@@ -1160,13 +1160,30 @@ function toUser(payload: JWTPayload): UserClaims | null {
 
 - **Optional claim, absent** → `null` / `None` / `nil` on all five backends. A
   `!= null` gate denies (403). The token still verifies.
-- **Required scalar claim, absent** → node rejects the token (401). The other
-  backends map it to `""` (.NET, Java) or `None`/`nil` (Python, Elixir).
+- **Identifier claim, malformed** → treated as absent. A `guid` or `X id` claim
+  that is present but not a UUID (`"demo-agent"`) would otherwise be non-null
+  and pass a `!= null` gate. A list claim drops its malformed elements.
+- **Required scalar claim, absent or malformed** → the token is rejected (401)
+  on node, Python and Elixir, and for typed claims on .NET and Java. A required
+  **string** claim that is absent still maps to `""` on .NET and Java.
 - **Required array claim, absent** → the empty list. An IdP routinely omits an
   empty `permissions`, so this is not a reason to reject.
-- **Unread claims.** .NET and Java read optional claims only when the type is
-  `string`. Any other optional type (for example `Customer id?`) is always
-  null there.
+
+```ddd
+user { id: string  role: string  permissions: string[]  assignee: Ticket id? }
+// …
+operation assign() { requires currentUser.assignee != null }
+```
+
+```ts
+// node — auth/oidc.ts: `assignee: "not-a-uuid"` → null → 403
+assignee: (claimAs(claim(payload, "assignee"), "uuid") ?? null) as Ids.TicketId | null,
+```
+
+```python
+# python — app/auth/oidc.py
+assignee=cast(TicketId | None, _claim_as(_claim(payload, "assignee"), "uuid")),
+```
 
 ## Local dev IdP (bundled Keycloak)
 
@@ -1329,13 +1346,13 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 
 **Typed claims on the OIDC path.** A verified token's non-string claims —
 `X id`, `guid`, `int`, `long`, `bool`, `datetime`, `decimal`, and lists of
-them — reach `currentUser` on every backend. Node, Python and Elixir carry the
-claim's JSON value as-is; .NET and Java decode it into the declared type (an
-`X id` claim is built through the generated `XId` type; a number may arrive as
-a JSON number or a numeric string; a `datetime` as ISO-8601 or epoch seconds).
-An optional claim that is absent or can't be decoded is `null`. A **required**
-one rejects the token with 401 (the same rule node applies to an absent required
-claim). Value-object, enum, `money` and `json` claims are not decoded on
+them — reach `currentUser` on every backend. .NET and Java decode each into the
+declared type (an `X id` claim is built through the generated `XId` type; a
+number may arrive as a JSON number or a numeric string; a `datetime` as
+ISO-8601 or epoch seconds). Node, Python and Elixir carry the JSON value, except
+that an identifier claim (`guid`, or an `X id`) must be a UUID. An optional
+claim that is absent or can't be decoded is `null`. A **required** one rejects
+the token with 401. Value-object, enum, `money` and `json` claims are not decoded on
 .NET/Java; they keep the type default.
 
 ## Token audience (`aud`)

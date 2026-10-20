@@ -1,27 +1,33 @@
-// `StmtIR.variant-match.subjectType` — audit finding F56, CLOSED by the single
-// typing pass (M-T5.47 cutover 3b).
+// `StmtIR.variant-match.subjectType` — audit finding F56, closed by the single
+// typing pass (M-T5.47 cutover 3b); the gates wired by M-T5.43 V14.
 //
 // The field's own doc comment calls it "Resolved `or`-union TypeIR of the
 // subject — the variant set", and the four type-grounded `match` gates in
-// `variant-match-shape.ts` are written against exactly that promise.  It did
-// not hold: `lowerMatchStmt` filled it from `inferExprType`, whose catch-all
+// `variant-match-shape.ts` are written against exactly that promise.  It used
+// not to hold: `lowerMatchStmt` filled it from `inferExprType`, whose catch-all
 // was `{ kind: "primitive", name: "string" }`, so an api-handle operation call
-// — the ONLY subject shape Stage 2 `match await` is for — silently typed as
-// `string`, indistinguishable from a genuine string.
+// — the ONLY subject shape Stage 2 `match await` is for — typed as `string`,
+// and none of the gates could run on the statement form.
 //
 // The pass types an operation invoked through the api handle as its declared
-// return type, and lowering copies it, so the subject now carries the union.
-// What this unblocks — wiring `checkVariantMatchShape` to the three `ActionIR`
-// carriers (PageIR / ComponentIR / StoreIR) — is a follow-up, not this file.
+// return type and lowering copies it; `validateVariantMatch` (M-T5.43 V14) runs
+// the unknown / duplicate / non-exhaustive gates over every page / component /
+// store action's `variant-match` statement.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { StmtIR } from "../../src/ir/types/loom-ir.js";
+import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const SOURCE = `
+const CANONICAL_ARMS = `
+            Order o => { message := o.code }
+            Failed f => { message := f.reason }`;
+
+const source = (arms: string) => `
   error Failed { reason: string }
+  error Unrelated { why: string }
   system Shop {
     api SalesApi from Sales { httpStatus Failed -> 422 }
     subdomain Sales {
@@ -41,9 +47,7 @@ const SOURCE = `
         route: "/orders/:id"
         state { message: string = "" }
         action submit() {
-          match await Sales.Order.placeOrder() {
-            Order o => { message := o.code }
-            Failed f => { message := f.reason }
+          match await Sales.Order.placeOrder() {${arms}
           }
         }
         body: Stack { Button { "Place", onClick: submit } }
@@ -53,23 +57,56 @@ const SOURCE = `
     deployable web { platform: react targets: api ui: Web { Sales: api } port: 3001 }
   }`;
 
-async function subjectTypeOfFirstAction() {
-  const { model } = await parseString(SOURCE, { validate: false });
-  const loom = enrichLoomModel(lowerModel(model));
-  const page = loom.systems[0]!.uis[0]!.pages[0]!;
-  const stmt = page.actions[0]!.body[0] as Extract<StmtIR, { kind: "variant-match" }>;
-  expect(stmt.kind).toBe("variant-match");
-  return stmt.subjectType;
+async function lowered(arms: string) {
+  const { model } = await parseString(source(arms), { validate: false });
+  return enrichLoomModel(lowerModel(model));
 }
 
-describe("variant-match subjectType (F56)", () => {
-  it("is the resolved `or`-union for an awaited api-handle operation", async () => {
-    expect(await subjectTypeOfFirstAction()).toEqual({
+async function matchDiags(arms: string) {
+  return validateLoomModel(await lowered(arms))
+    .filter((d) => d.code?.startsWith("loom.match-"))
+    .map((d) => ({ code: d.code, severity: d.severity }));
+}
+
+describe("variant-match subjectType (F56, M-T5.43 V14)", () => {
+  it("is the awaited operation's resolved union, not the inferExprType string fallback", async () => {
+    const loom = await lowered(CANONICAL_ARMS);
+    const page = loom.systems[0]!.uis[0]!.pages[0]!;
+    const stmt = page.actions[0]!.body[0] as Extract<StmtIR, { kind: "variant-match" }>;
+    expect(stmt.kind).toBe("variant-match");
+    expect(stmt.subjectType).toEqual({
       kind: "union",
       variants: [
         { kind: "entity", name: "Order" },
         { kind: "entity", name: "Failed" },
       ],
     });
+  });
+
+  it("raises no match diagnostic on the canonical exhaustive statement", async () => {
+    expect(await matchDiags(CANONICAL_ARMS)).toEqual([]);
+  });
+
+  it("rejects an arm naming a type outside the union (loom.match-unknown-variant)", async () => {
+    expect(
+      await matchDiags(`${CANONICAL_ARMS}\n            Unrelated u => { message := u.why }`),
+    ).toEqual([{ code: "loom.match-unknown-variant", severity: "error" }]);
+  });
+
+  it("rejects a variant matched twice (loom.match-duplicate-variant)", async () => {
+    expect(
+      await matchDiags(`${CANONICAL_ARMS}\n            Order p => { message := p.code }`),
+    ).toEqual([{ code: "loom.match-duplicate-variant", severity: "error" }]);
+  });
+
+  it("warns on an uncovered variant with no else, and stands down with one", async () => {
+    expect(await matchDiags(`\n            Order o => { message := o.code }`)).toEqual([
+      { code: "loom.match-non-exhaustive", severity: "warning" },
+    ]);
+    expect(
+      await matchDiags(
+        `\n            Order o => { message := o.code }\n            else => { message := "x" }`,
+      ),
+    ).toEqual([]);
   });
 });
