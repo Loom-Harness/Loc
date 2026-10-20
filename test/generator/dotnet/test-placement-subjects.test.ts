@@ -38,7 +38,8 @@ describe("dotnet: value-object + domain-service unit tests", () => {
     expect(vo, "MoneyTests.cs").toBeDefined();
     expect(vo).toContain("using Api.Domain.ValueObjects;");
     expect(vo).toContain("public sealed class MoneyTests");
-    expect(vo).toContain("Assert.Throws<DomainException>");
+    // The VO invariant's own exception type: `Assert.Throws<T>` is exact-type.
+    expect(vo).toContain("Assert.Throws<ValueObjectInvariantException>");
   });
 
   it("emits a service test class importing Domain.Services", async () => {
