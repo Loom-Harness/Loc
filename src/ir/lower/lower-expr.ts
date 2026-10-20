@@ -973,7 +973,7 @@ function applySuffixToRecv(
     // (src/util/value-object-intrinsics.ts).  It lowers to the SAME
     // `binary ==` node a `vo == other` writes, so every backend renders it
     // through its one value-equality leaf (python `==` on the frozen
-    // dataclass, java `Objects.equals`, .NET record `==`, elixir struct `==`,
+    // dataclass, java `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`,
     // node `.equals(…)`) instead of each emitter meeting a `method-call` named
     // `equals` it has no idiom for — python rendered `x.equals(…)` (no such
     // attribute; mypy rejects it) and elixir's test emitter threw.  A value

@@ -79,7 +79,9 @@ export interface UnsupportedEntry {
   site: string;
   /** One line: what the code refuses. */
   what: string;
-  /** Owning mission, where one exists.  A `gap` without one is unowned work. */
+  /** Owning work item, where one exists: a GitHub issue (`#NNNN`) or a legacy
+   *  `M-Tx.y` mission heading under `docs/new-plan/`.  A `gap` without one is
+   *  unowned work. */
   mission?: string;
   /** Classification confirmed against the emission site by a human. */
   verified?: boolean;
@@ -111,7 +113,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-handle-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:392",
+    site: "src/ir/validate/checks/workflow-checks.ts:527",
     what:
       "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
       "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
@@ -775,7 +777,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1365",
+    site: "src/ir/validate/checks/workflow-checks.ts:1502",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,
@@ -799,7 +801,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1379",
+    site: "src/ir/validate/checks/workflow-checks.ts:1516",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "M-T5.36",
     verified: true,

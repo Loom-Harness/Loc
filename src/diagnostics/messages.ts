@@ -727,6 +727,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
+  "loom.migration-sql-placement": (p: { placement: unknown }) =>
+    `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>
@@ -2072,6 +2074,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** B-20b — a `unique (…)` index added to a table the baseline already has.
+   *  Rows may already violate it, which fails the migration at boot and
+   *  queues every later generation behind it.  Silenced by declaring a
+   *  `sql before` step for the module in the same generation. */
+  "loom.migration-unique-on-existing-table": (p: {
+    module: unknown;
+    table: unknown;
+    columns: unknown;
+    index: unknown;
+    partial: unknown;
+  }) =>
+    `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
+    `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -4639,6 +4654,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
+  "loom.workflow-unknown-name#projection-receiver": (p: {
+    name: unknown;
+    where: unknown;
+    kind: unknown;
+    projection: unknown;
+  }) =>
+    `workflow '${p.name}' ${p.where}: ${p.kind} reads projection '${p.projection}', but a workflow ` +
+    `can only load data through its own context's repositories — a projection is a read model ` +
+    `with no repository, so every backend would emit an unbound '${p.projection}' receiver. ` +
+    `Read the projection through its GET endpoint or a page instead.  To use that data inside ` +
+    `the workflow, keep a local replica aggregate (fed by a correlated ` +
+    `'create(e: <Event>) by …' starter) and read it with a let-bound repository call ` +
+    `('let r = <Replicas>.find(<Criterion>)').`,
   "loom.workflow-inline-repository-call": (p: {
     where: unknown;
     repoName: unknown;

@@ -1581,7 +1581,10 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
     // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
     // carries its own argument, and reaching for the route id instead both
     // dropped the filter and read an assign such a page never binds.
-    const singleArgs = qb.listArgs?.length ? qb.listArgs.join(", ") : "socket.assigns.id";
+    const singleArgs = [
+      ...(qb.listArgs?.length ? qb.listArgs : ["socket.assigns.id"]),
+      ...(qb.actorArgs ?? []),
+    ].join(", ");
     // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
     // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
     // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
@@ -1606,7 +1609,7 @@ ${nilArm}${okArm}
   // query instead of silently falling back to the repository defaults.  The
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
-  const listArgs = (qb.listArgs ?? []).join(", ");
+  const listArgs = [...(qb.listArgs ?? []), ...(qb.actorArgs ?? [])].join(", ");
   const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
