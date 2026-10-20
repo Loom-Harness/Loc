@@ -1,6 +1,5 @@
-// Shared case lists for the svelte build harness — imported by both
-// generated-svelte-build.test.ts (the opt-in build gate) and
-// svelte-build-matrix-sync.test.ts (the fast CI-matrix drift guard).
+// Case lists for the svelte build harness (generated-svelte-build.test.ts),
+// which CI runs as one job — this file is the only place the cases are listed.
 
 /** Single-file examples with a svelte deployable named `web`. */
 export const svelteBuildExamples = [
