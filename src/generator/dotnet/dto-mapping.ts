@@ -132,7 +132,7 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
 
 /** The C# `DateOnly` → wire-text half of a `date` field: ISO `yyyy-MM-dd`,
  *  culture-pinned so a non-Gregorian host calendar cannot respell it. */
-export function csCalendarDateWire(domainExpr: string): string {
+function csCalendarDateWire(domainExpr: string): string {
   return `${domainExpr}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
 }
 
