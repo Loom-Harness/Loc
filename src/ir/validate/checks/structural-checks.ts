@@ -28,6 +28,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { isMacroEmitted } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
@@ -1879,18 +1880,41 @@ export function validateLifecycleBodyDropped(
       const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
       const input = agg.createInput ?? buildCreateInput(agg);
       const missing = input.filter((c) => !declared.has(c.field.name));
-      // Only a missing REQUIRED field actually breaks a caller: it is the one
-      // the request body demands and the declared `create` never mentions, so a
-      // client written from the declaration gets a 422 naming a field the
-      // author does not believe exists.  A missing OPTIONAL field is merely
-      // accepted-but-undeclared, which is confusing rather than broken, so it is
-      // named in the message but does not on its own raise it — otherwise every
-      // aggregate with one nullable field would warn, and the signal would be
-      // spent before it said anything.
+      // A missing REQUIRED field breaks a caller: the request body demands it
+      // and the declared `create` never mentions it, so a client written from
+      // the declaration gets a 422 naming a field the author does not believe
+      // exists.  A missing OPTIONAL field is the opposite hazard: the author
+      // narrowed the list to KEEP it out of creation (typically a field only an
+      // operation should set — `approvedAmount: money?` set by `approve()`),
+      // and `POST /<plural>` still accepts it, so any client can create the row
+      // with the value already set, bypassing the operation's preconditions
+      // (claims eval D10: an approvedAmount of 99999 stored at creation).  Both
+      // warn — but only on a NARROWED list (the `params.length > 0` guard
+      // above), so an aggregate with nullable fields and an empty `create()` or
+      // a full list stays quiet.  The optional half is also limited to a
+      // create the AUTHOR wrote: a macro-synthesized one (`with crudish`) was
+      // not narrowed on purpose and has no parameter list to edit.
       const missingRequired = missing.filter((c) => c.requiredInput).map((c) => c.field.name);
+      const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
+      const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
+      if (
+        missingRequired.length === 0 &&
+        alsoAccepted.length > 0 &&
+        !isMacroEmitted(agg.canonicalCreate.origin)
+      ) {
+        diags.push({
+          severity: "warning",
+          code: "loom.create-params-not-wire",
+          message: diagMessage("loom.create-params-not-wire#optional", {
+            agg: agg.name,
+            missing: fmt(alsoAccepted),
+            verb: alsoAccepted.length === 1 ? "is" : "are",
+          }),
+          source: `${ctx.name}/aggregate ${agg.name}.create`,
+          origin: agg.origin,
+        });
+      }
       if (missingRequired.length > 0) {
-        const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
-        const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
         diags.push({
           severity: "warning",
           code: "loom.create-params-not-wire",
