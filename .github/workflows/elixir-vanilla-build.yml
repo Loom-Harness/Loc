@@ -180,6 +180,8 @@ jobs:
           done
           exit 1
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # `npm ci` runs the `prepare` lifecycle (langium:generate + build); the
       # toolchain compiles before any test step needs it.
       - name: Install Loom toolchain

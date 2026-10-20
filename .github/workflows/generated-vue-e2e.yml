@@ -135,6 +135,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate).
       - name: Install Loom toolchain
         run: npm ci

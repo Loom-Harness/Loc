@@ -152,6 +152,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install toolchain deps
         run: npm ci
       - name: Build toolchain
@@ -247,6 +249,8 @@ jobs:
       - name: Install uv (python leg only)
         if: matrix.backend == 'python'
         uses: astral-sh/setup-uv@v5
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install toolchain deps
         run: npm ci
       - name: Build toolchain
@@ -295,6 +299,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install toolchain deps
         run: npm ci
       - name: Build toolchain

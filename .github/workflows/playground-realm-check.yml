@@ -110,6 +110,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install toolchain deps
         run: npm ci
       - name: Build toolchain

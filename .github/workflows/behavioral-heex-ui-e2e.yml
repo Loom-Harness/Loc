@@ -167,6 +167,8 @@ jobs:
             hex-mix-heexui-otp${{ env.OTP_VERSION }}-ex${{ env.ELIXIR_VERSION }}-
             hex-mix-heexui-
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

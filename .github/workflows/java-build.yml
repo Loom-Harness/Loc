@@ -187,6 +187,8 @@ jobs:
           restore-keys: |
             gradle-
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Build the Loom toolchain.  `prepare` lifecycle runs
       # `langium:generate` which populates src/language/generated/.
       - name: Install Loom toolchain

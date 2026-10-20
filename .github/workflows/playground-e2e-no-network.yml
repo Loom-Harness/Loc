@@ -94,6 +94,10 @@ jobs:
             package-lock.json
             web/package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate) which
       # produces src/language/generated/ — the playground build imports that
       # path via toolchain re-exports.

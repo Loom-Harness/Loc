@@ -87,6 +87,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Build the Loom toolchain so `bin/cli.js generate system` works
       # (`prepare` lifecycle runs langium:generate).
       - name: Install Loom toolchain

@@ -133,6 +133,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install + build the toolchain
         run: npm ci
       - uses: subosito/flutter-action@v2

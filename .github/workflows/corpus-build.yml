@@ -119,6 +119,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -151,6 +153,8 @@ jobs:
           key: nuget-${{ hashFiles('src/generator/dotnet/templates/program.tpl.ts') }}
           restore-keys: |
             nuget-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -186,6 +190,8 @@ jobs:
           key: nuget-${{ hashFiles('src/generator/dotnet/templates/program.tpl.ts') }}
           restore-keys: |
             nuget-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -221,6 +227,8 @@ jobs:
           key: gradle-${{ hashFiles('src/generator/java/emit/program.ts') }}
           restore-keys: |
             gradle-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -254,6 +262,8 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           cache-dependency-glob: 'src/generator/python/pins.ts'
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain

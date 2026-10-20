@@ -125,6 +125,8 @@ jobs:
           restore-keys: |
             nuget-behavioral-
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
