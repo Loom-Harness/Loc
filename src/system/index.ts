@@ -47,7 +47,7 @@ import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
-import { renderE2EFile } from "./e2e-render.js";
+import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
@@ -318,6 +318,7 @@ export function generateSystemsFromLoom(
         slugOf: serviceSlug,
         emitted: out,
         dbImage: POSTGRES_IMAGE,
+        ...(bundlesKeycloak(sys) ? { devIdp: keycloakConfig(sys) } : {}),
       }),
     );
   }
@@ -506,7 +507,7 @@ function emitSystem(
   // E2E test scaffolding — emitted only when the system declares
   // `test e2e` blocks.  Lives at the system root so it can run against
   // the whole compose stack with one `vitest run e2e/`.
-  const e2eFile = renderE2EFile(sys, modulesByName);
+  const e2eFile = renderE2EFile(sys, modulesByName, devIdpTokenSource(sys));
   if (e2eFile) {
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
     out.set("e2e/package.json", E2E_PACKAGE_JSON);
@@ -923,7 +924,9 @@ function renderDockerCompose(sys: SystemIR): string {
   // .NET deployables sharing a DB race: the first to start creates
   // its tables, the second sees existing tables and creates nothing.
   // The init script runs once on first boot of an empty pgdata
-  // volume; on a fresh `up`, every deployable owns its own DB.
+  // volume; the `db-bootstrap` one-shot below re-applies the same
+  // (idempotent) script on every `up`, so a deployable added in a later
+  // generation gets its database on an existing volume too (B-26).
   lines.push("      - ./db-init:/docker-entrypoint-initdb.d:ro");
   lines.push("    healthcheck:");
   lines.push('      test: ["CMD", "pg_isready", "-U", "postgres"]');
@@ -931,6 +934,10 @@ function renderDockerCompose(sys: SystemIR): string {
   lines.push("      timeout: 5s");
   lines.push("      retries: 10");
   lines.push("");
+  if (hasDbBootstrap(sys)) {
+    lines.push(...renderDbBootstrapService().map((l) => `  ${l}`));
+    lines.push("");
+  }
   // Bundled dev IdP (D-AUTH-OIDC §4.2): a Keycloak with a pre-provisioned
   // realm + seeded demo user, so `docker compose up` logs in out of the
   // box.  Production repoints OIDC_ISSUER at a real IdP.
@@ -960,9 +967,9 @@ function renderDockerCompose(sys: SystemIR): string {
 
 // ---------------------------------------------------------------------------
 // Bundled dev Keycloak (D-AUTH-OIDC §4.2 — the zero-config quick-start).
-// Added when the system declares an OIDC `auth { … }` block whose provider is
-// self-hosted (keycloak / custom / a raw `oidc { issuer }`); hosted presets
-// (google / auth0 / …) use their own IdP and get no bundled service.
+// Added whenever the system declares an OIDC `auth { … }` block, hosted
+// presets (google / auth0 / …) included — see `bundlesDevKeycloak` for why the
+// local stack never depends on the real provider.
 // ---------------------------------------------------------------------------
 
 /** Host port the bundled Keycloak is published on.  Starts at 8081 (8080 is
@@ -999,6 +1006,24 @@ function keycloakConfig(sys: SystemIR): {
     clientId: `${realm}-app`,
     issuer: `http://host.docker.internal:${hostPort}/realms/${realm}`,
     hostPort,
+  };
+}
+
+/** Where the generated e2e suite mints its bearer token when the runner hands
+ *  it none: the bundled realm's token endpoint as the HOST sees it, plus the
+ *  realm's public client.  `undefined` when no backend requires auth or no
+ *  realm is bundled — the suite then emits no minting code at all.
+ *
+ *  `localhost`, not `host.docker.internal`: the suite runs on the host.  The
+ *  token's `iss` is still the `KC_HOSTNAME` URL the backends verify against,
+ *  because Keycloak stamps its configured hostname, not the request's. */
+function devIdpTokenSource(sys: SystemIR): DevIdpTokenSource | undefined {
+  if (!bundlesKeycloak(sys)) return undefined;
+  if (!sys.deployables.some((d) => d.auth?.required)) return undefined;
+  const { realm, clientId, hostPort } = keycloakConfig(sys);
+  return {
+    tokenUrl: `http://localhost:${hostPort}/realms/${realm}/protocol/openid-connect/token`,
+    clientId,
   };
 }
 
@@ -1472,14 +1497,77 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
  * deployable that needs one.  Postgres only runs the init dir on
  * the first boot of an empty data volume; this is exactly what we
  * want for dev compose. */
+/** The per-deployable databases the compose stack provisions — one per
+ *  backend whose platform owns a database. */
+function dbInitDatabases(sys: SystemIR): string[] {
+  return sys.deployables
+    .filter((d) => platformFor(d.platform).needsDb)
+    .map((d) => serviceSlug(d.name));
+}
+
+/** `db-init/00-create-databases.sql` — IDEMPOTENT by construction (B-26).
+ *
+ *  Postgres runs `docker-entrypoint-initdb.d` only when the data volume is
+ *  EMPTY, so a plain `CREATE DATABASE` list created exactly the databases of
+ *  the deployables that existed at the first `up`.  A deployable added in a
+ *  later generation then crash-looped on `database "<slug>" does not exist`
+ *  with nothing in the generate output to say why.  Each statement is now a
+ *  `SELECT 'CREATE DATABASE …' WHERE NOT EXISTS (…) \gexec`, so the same file
+ *  is safe to run on every `up` — which the compose `db-bootstrap` one-shot
+ *  does ({@link renderDbBootstrapService}) — and still runs unchanged on a
+ *  fresh volume (the entrypoint feeds it to `psql`, which executes `\gexec`). */
 function renderDbInit(sys: SystemIR): string {
-  const lines: string[] = ["-- Auto-generated."];
-  for (const d of sys.deployables) {
-    if (!platformFor(d.platform).needsDb) continue;
-    const slug = serviceSlug(d.name);
-    lines.push(`CREATE DATABASE ${slug};`);
+  const lines: string[] = [
+    "-- Auto-generated.",
+    "-- Idempotent: runs on a fresh volume (docker-entrypoint-initdb.d) AND on",
+    "-- every `docker compose up` (the db-bootstrap service), so a deployable",
+    "-- added in a later generation still gets its database.",
+  ];
+  for (const slug of dbInitDatabases(sys)) {
+    lines.push(
+      `SELECT 'CREATE DATABASE ${slug}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${slug}')\\gexec`,
+    );
   }
   return lines.join("\n") + "\n";
+}
+
+/** Compose service name of the database bootstrap one-shot. Hyphenated, so it
+ *  can never collide with a deployable's (underscored) service slug. */
+const DB_BOOTSTRAP_SERVICE = "db-bootstrap";
+
+/** True when the stack has any per-deployable database to provision. */
+function hasDbBootstrap(sys: SystemIR): boolean {
+  return dbInitDatabases(sys).length > 0;
+}
+
+/** The `db-bootstrap` one-shot (B-26): re-applies the idempotent
+ *  `db-init/00-create-databases.sql` on EVERY `up`, so an existing volume
+ *  gains the database of a deployable added since it was created.  Every
+ *  database-backed service waits on it with `service_completed_successfully`.
+ *
+ *  It connects over TCP (`-h db`) and waits for `pg_isready` there first:
+ *  during the image's first-boot init the server listens on the unix socket
+ *  only, which the `db` healthcheck can already see — so waiting on TCP is
+ *  what orders this after the initdb run instead of racing it. */
+function renderDbBootstrapService(): string[] {
+  return [
+    `${DB_BOOTSTRAP_SERVICE}:`,
+    `  image: ${POSTGRES_IMAGE}`,
+    "  depends_on:",
+    "    db:",
+    "      condition: service_healthy",
+    "  environment:",
+    "    PGHOST: db",
+    "    PGUSER: postgres",
+    "    PGPASSWORD: postgres",
+    "  volumes:",
+    "    - ./db-init:/db-init:ro",
+    "  entrypoint:",
+    "    - sh",
+    "    - -c",
+    "    - until pg_isready -q; do sleep 1; done; psql -v ON_ERROR_STOP=1 -d postgres -f /db-init/00-create-databases.sql",
+    '  restart: "no"',
+  ];
 }
 
 function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
@@ -1539,6 +1627,11 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     if (shape.dependsOnDb) {
       lines.push(`    db:`);
       lines.push(`      condition: service_healthy`);
+      // B-26: the service's own database may be new on this volume.
+      if (hasDbBootstrap(sys)) {
+        lines.push(`    ${DB_BOOTSTRAP_SERVICE}:`);
+        lines.push(`      condition: service_completed_successfully`);
+      }
     }
     if (oidc) {
       lines.push(`    keycloak:`);
@@ -1632,6 +1725,15 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     const kc = keycloakConfig(sys);
     lines.push(`    OIDC_ISSUER: ${JSON.stringify(kc.issuer)}`);
     lines.push(`    OIDC_CLIENT_ID: ${JSON.stringify(kc.clientId)}`);
+    // An `audience: env(...)` resolves to nothing unless the deploy env sets
+    // it, and an unset audience turns the `aud` check OFF on every backend —
+    // so without this line the dev stack verified tokens fail-open.  The realm
+    // mints the client id into `aud` for exactly this case (the audience
+    // mapper in `renderKeycloakRealm`); every backend reads `OIDC_AUDIENCE`
+    // ahead of the declared variable, so this one name covers any env name.
+    if (sys.auth?.oidc.audience?.kind === "env") {
+      lines.push(`    OIDC_AUDIENCE: ${JSON.stringify(kc.clientId)}`);
+    }
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );

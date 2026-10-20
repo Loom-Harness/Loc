@@ -13,7 +13,8 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
-import { claimPathFor, requiredClaimPaths } from "../_auth/claim-types.js";
+import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
+import { claimPathFor } from "../_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   devClaimFields,
@@ -424,7 +425,7 @@ ${indentElixir(authedTail, 4)}
   // OIDC verifier vs dev stub.  The OIDC path additionally needs the JWKS
   // discovery/verification helpers; the dev stub needs none.
   const verifierSection = auth
-    ? renderOidcVerifier(auth, webModule, user)
+    ? renderOidcVerifier(auth, webModule, user?.fields ?? [])
     : renderDevStubVerifier(user);
   const verifierDoc = auth
     ? "validates the inbound JWT via joken + joken_jwks against the issuer's JWKS"
@@ -665,7 +666,7 @@ function indentElixir(block: string, n: number): string {
 // compile-time env into the release).
 // ---------------------------------------------------------------------------
 
-function renderOidcVerifier(auth: AuthIR, webModule: string, user: UserIR | undefined): string {
+function renderOidcVerifier(auth: AuthIR, webModule: string, fields: readonly FieldIR[]): string {
   // Audience parity: the token's `aud` must CARRY the configured audience —
   // the other four backends validate it, and a verifier that skips the check
   // accepts tokens the rest of the system rejects.  The value check rides
@@ -682,24 +683,6 @@ function renderOidcVerifier(auth: AuthIR, webModule: string, user: UserIR | unde
   // `System.get_env("OIDC_AUDIENCE", "")`, i.e. unset is still the no-check
   // default, so nothing changes for a stack that sets nothing.
   const audiencePresence = ` and aud_present?(claims)`;
-  // REQUIRED user-claim presence (node's REQUIRED_CLAIMS): a verified token
-  // missing a required scalar `user { … }` claim does not describe a
-  // principal — reject it (→ 401) rather than build a user whose required
-  // field is nil.
-  const requiredPaths = requiredClaimPaths(user?.fields ?? [], auth);
-  const requiredUserClaims = requiredPaths.length > 0 ? ` and required_user_claims?(claims)` : "";
-  const requiredUserClaimsDef =
-    requiredPaths.length > 0
-      ? `
-  # The claim paths of every REQUIRED scalar \`user { … }\` field — a verified
-  # token missing one of these does not describe a principal (→ 401).
-  @required_user_claims ${"["}${requiredPaths.map((p) => JSON.stringify(p)).join(", ")}${"]"}
-
-  defp required_user_claims?(claims) do
-    Enum.all?(@required_user_claims, &(get_claim(claims, &1) != nil))
-  end
-`
-      : "";
   const audPresentDef = `
   # Enforce aud PRESENCE only when an audience is actually configured — an
   # empty runtime \`audience()\` disables the aud check (the escape hatch the
@@ -760,11 +743,12 @@ ${audienceFn}
   # required-claim presence the other backends do — a token missing iss / exp
   # (or aud when an audience is configured) is rejected, not silently accepted.
   defp require_claims(claims) do
-    if is_binary(Map.get(claims, "iss")) and is_integer(Map.get(claims, "exp"))${audiencePresence}${requiredUserClaims},
-      do: :ok,
-      else: :error
+    if is_binary(Map.get(claims, "iss")) and is_integer(Map.get(claims, "exp"))${audiencePresence} and
+         user_claims_present?(claims),
+       do: :ok,
+       else: :error
   end
-${audPresentDef}${requiredUserClaimsDef}
+${audPresentDef}${renderUserClaimChecks(fields, auth)}
   # Reads a dotted claim path off the (string-keyed) claims map; nil when any
   # segment is missing.  Only the OIDC build_user maps via paths, so this lives
   # in the OIDC section (the dev stub reads flat claim keys directly).
@@ -986,12 +970,73 @@ function elixirStubValueForType(t: TypeIR): string {
   }
 }
 
+/** `user_claims_present?/1` + the identifier-claim decoders.  Every REQUIRED
+ *  scalar user claim must be present — and, for an identifier claim
+ *  (`claimShapes`), well-formed — or the token is rejected (→ 401); a required
+ *  list is exempt (an IdP omits an empty list, read as `[]`). */
+function renderUserClaimChecks(fields: readonly FieldIR[], auth: AuthIR): string {
+  const shapes = claimShapes(fields, auth);
+  const requiredShapes = shapes.filter((s) => !s.optional && !s.list);
+  const required = requiredShapes.map(
+    (s) => `{${elixirString(s.path)}, ${s.format === null ? "nil" : `:${s.format}`}}`,
+  );
+  const formattedClause = requiredShapes.some((s) => s.format !== null)
+    ? `
+      {path, format} -> not is_nil(claim_as(get_claim(claims, path), format))`
+    : "";
+  const formats = new Set(shapes.flatMap((s) => (s.format === null ? [] : [s.format])));
+  const uuidClause = formats.has("uuid")
+    ? `
+  defp claim_as(value, :uuid) when is_binary(value) do
+    if Regex.match?(${elixirRegex(UUID_PATTERN)}, value), do: value, else: nil
+  end
+`
+    : "";
+  const listClauses = shapes.some((s) => s.format !== null && s.list)
+    ? `
+  # A list claim with its malformed elements dropped; not a list → empty.
+  defp claim_list(values, format) when is_list(values),
+    do: values |> Enum.map(&claim_as(&1, format)) |> Enum.reject(&is_nil/1)
+
+  defp claim_list(_values, _format), do: []
+`
+    : "";
+  const decoders =
+    formats.size > 0
+      ? `
+  # An identifier claim in its declared wire format (a UUID for a guid id), or
+  # nil when it is absent or malformed.  A malformed value must not reach the
+  # principal: it is non-nil, so a not-nil gate would admit it.${uuidClause}
+  defp claim_as(_value, _format), do: nil
+${listClauses}`
+      : "";
+  return `
+  # Every REQUIRED scalar user claim (with its wire format for an identifier
+  # claim): a verified token where one is absent or malformed does not describe
+  # a principal the model declares.
+  @required_user_claims [${required.join(", ")}]
+
+  defp user_claims_present?(claims) do
+    Enum.all?(@required_user_claims, fn
+      {path, nil} -> not is_nil(get_claim(claims, path))${formattedClause}
+    end)
+  end
+${decoders}`;
+}
+
+/** An anchored Elixir regex literal for a `^…$` pattern: `\A` / `\z`, because
+ *  `$` also matches before a trailing newline. */
+function elixirRegex(pattern: string): string {
+  return `~r/\\A${pattern.replace(/^\^/, "").replace(/\$$/, "")}\\z/`;
+}
+
 function renderBuildUser(user: UserIR | undefined, auth: AuthIR | undefined): string {
   if (!user || user.fields.length === 0) {
     // No user block declared — emit a minimal passthrough map.
     return `    %{id: claims["sub"], permissions: claims["permissions"] || []}\n`;
   }
 
+  const shapes = auth ? claimShapes(user.fields, auth) : [];
   const fieldLines = user.fields.map((f: FieldIR) => {
     const key = snake(f.name);
     const isArray =
@@ -1004,6 +1049,15 @@ function renderBuildUser(user: UserIR | undefined, auth: AuthIR | undefined): st
     // string; the dev-stub key is the field's own `ID`, funnelled for one
     // spelling.
     const read = auth ? `get_claim(claims, ${elixirString(path)})` : `claims[${elixirString(key)}]`;
+    // OIDC only: an identifier claim is decoded, so a malformed value is nil
+    // (a list drops it) — the dev stub's claims are the built-in identity.
+    const format = auth ? (shapes.find((s) => s.field === f)?.format ?? null) : null;
+    if (format !== null && isArray) {
+      const decoded = `claim_list(${read}, :${format})`;
+      const optional = f.optional || f.type.kind === "optional";
+      return `      ${key}: ${optional ? `if(is_nil(${read}), do: nil, else: ${decoded})` : decoded}`;
+    }
+    if (format !== null) return `      ${key}: claim_as(${read}, :${format})`;
     const rhs = isArray ? `${read} || []` : read;
     return `      ${key}: ${rhs}`;
   });

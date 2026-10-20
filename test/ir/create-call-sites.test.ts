@@ -194,3 +194,94 @@ describe("Agg.create({…}) call sites", () => {
     expect(diags.map((d) => `${d.code} @ ${d.source}`)).toEqual([]);
   });
 });
+
+// A `factory-let` NESTED in an `if let` branch / a `for` body (claims eval D5).
+// The workflow arm of this gate only ran on a body's TOP-LEVEL statements, so
+// the eval's `fileClaim` — which builds `Claim` inside `if let terms = … { }` —
+// validated clean and node emitted `Claim.create(…)` against a class with no
+// factory (TS2551).  `Claim` is non-constructible because its invariant reads
+// the `managed` field `reportedAt`.
+describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () => {
+  const CLAIM = `
+      aggregate Rep {
+        pid: string
+        active: bool
+        operation off() { active := false }
+      }
+      repository Reps for Rep {}
+      criterion ForPid(p: string) of Rep = pid == p
+      aggregate Claim {
+        lossDate: datetime
+        reportedAt: datetime managed
+        description: string
+        invariant description.length >= 10
+        invariant lossDate <= reportedAt
+        operation touch() { description := description }
+      }
+      repository Claims for Claim {}`;
+
+  it("refuses it inside an `if let` branch", async () => {
+    const diags = await diagsFor(`${CLAIM}
+      workflow fileClaim {
+        create(pid: string, lossDate: datetime, description: string) {
+          if let r = Reps.find(ForPid(pid)) {
+            let c = Claim.create({ lossDate: lossDate, description: description })
+          } else {
+            precondition false message "unknown"
+          }
+        }
+      }`);
+    const hits = diags.filter((d) => d.code === "loom.create-call-not-constructible");
+    expect(hits.map((d) => d.source)).toEqual(["C/fileClaim"]);
+  });
+
+  it("refuses it inside a `for` body, one level further down", async () => {
+    const diags = await diagsFor(`${CLAIM}
+      retrieval Active of Rep { where: active }
+      workflow fileAll {
+        create(lossDate: datetime, description: string) {
+          let rs = Reps.run(Active)
+          for r in rs {
+            if let x = Reps.find(ForPid(r.pid)) {
+              let c = Claim.create({ lossDate: lossDate, description: description })
+            }
+          }
+        }
+      }`);
+    expect(diags.map((d) => d.code)).toContain("loom.create-call-not-constructible");
+  });
+
+  it("names ONLY the invariant that blocks construction", async () => {
+    const diags = await diagsFor(`${CLAIM}
+      workflow fileClaim {
+        create(lossDate: datetime, description: string) {
+          let c = Claim.create({ lossDate: lossDate, description: description })
+        }
+      }`);
+    const hit = diags.find((d) => d.code === "loom.create-call-not-constructible");
+    expect(hit?.message).toContain("`lossDate <= reportedAt`");
+    // `description.length >= 10` reads only create input — it never blocked.
+    expect(hit?.message).not.toContain("description.length");
+  });
+
+  it("still checks the field contract of a nested call on a constructible aggregate", async () => {
+    const diags = await diagsFor(`
+      aggregate Rep {
+        pid: string
+        active: bool
+        operation off() { active := false }
+      }
+      repository Reps for Rep {}
+      criterion ForPid(p: string) of Rep = pid == p
+      aggregate Note { text: string  owner: string  operation touch() { text := text } }
+      repository Notes for Note {}
+      workflow jot {
+        create(pid: string) {
+          if let r = Reps.find(ForPid(pid)) {
+            let n = Note.create({ text: "x" })
+          }
+        }
+      }`);
+    expect(diags.map((d) => d.code)).toContain("loom.workflow-create-missing-field");
+  });
+});

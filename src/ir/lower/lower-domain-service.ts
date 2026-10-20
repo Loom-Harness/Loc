@@ -54,7 +54,9 @@ function lowerDomainServiceOperation(
   // one.  Kept at today's behaviour deliberately — turning it on is a
   // capability change on eleven targets, not a refactor — and named here
   // rather than left as an unexplained difference between two copies of the
-  // same loop.
+  // same loop.  A declared default is refused at the AST layer
+  // (`loom.param-default-unsupported`, `validators/callable-sites.ts`), so
+  // nothing reaching here is silently discarded.
   const bound = lowerCallableParams(
     op.params,
     { ...env, locals: new Map() },

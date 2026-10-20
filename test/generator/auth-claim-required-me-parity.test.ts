@@ -65,12 +65,20 @@ function file(files: Map<string, string>, pattern: RegExp): string {
 
 const REQUIRED = ["sub", "role", "team", "homeAgent"];
 
+/** The claim paths named by a generated required-claims list (each entry is a
+ *  bare path or a `(path, format)` pair — the format is another gate's concern). */
+function requiredPaths(source: string, decl: RegExp): string[] {
+  const body = decl.exec(source)?.[1];
+  if (body === undefined) throw new Error(`no required-claims list matched ${decl}`);
+  return [...body.matchAll(/"([A-Za-z.]+)"/g)]
+    .map((m) => m[1] as string)
+    .filter((s) => s !== "uuid");
+}
+
 describe("auth parity: /auth/me id claims are bare; a required string claim is required", () => {
-  it("node: the reference shape — REQUIRED_CLAIMS names every required scalar claim", async () => {
+  it("node: REQUIRED_CLAIMS names every required scalar claim", async () => {
     const v = file(await generateSystemFiles(src("node")), /auth\/oidc\.ts$/);
-    expect(v).toContain(
-      `const REQUIRED_CLAIMS: readonly string[] = [${REQUIRED.map((p) => JSON.stringify(p)).join(", ")}];`,
-    );
+    expect(requiredPaths(v, /const REQUIRED_CLAIMS[^\n]*= \[(.*)\];/)).toEqual(REQUIRED);
   });
 
   it("dotnet: a missing required string claim rejects; /auth/me unwraps id claims", async () => {
@@ -109,23 +117,16 @@ describe("auth parity: /auth/me id claims are bare; a required string claim is r
 
   it("python: the verifier rejects a token missing a required claim", async () => {
     const v = file(await generateSystemFiles(src("python")), /app\/auth\/oidc\.py$/);
-    expect(v).toContain(
-      `_REQUIRED_CLAIMS: list[str] = [${REQUIRED.map((p) => JSON.stringify(p)).join(", ")}]`,
-    );
+    expect(requiredPaths(v, /_REQUIRED_CLAIMS[^\n]*= \[(.*)\]/)).toEqual(REQUIRED);
     expect(v).toMatch(
-      /for path in _REQUIRED_CLAIMS:\n\s+if _claim\(payload, path\) is None:\n[^\n]*\n\s+return None\n\s+return User\(/,
+      /for path, fmt in _REQUIRED_CLAIMS:[\s\S]*?return None\n[\s\S]*?return User\(/,
     );
   });
 
   it("elixir: require_claims rejects a token missing a required user claim", async () => {
     const v = file(await generateSystemFiles(src("elixir")), /_web\/auth\.ex$/);
-    expect(v).toContain(
-      `@required_user_claims [${REQUIRED.map((p) => JSON.stringify(p)).join(", ")}]`,
-    );
-    expect(v).toMatch(
-      /defp require_claims\(claims\) do\n\s+if [^\n]*and required_user_claims\?\(claims\),/,
-    );
-    expect(v).toContain("Enum.all?(@required_user_claims, &(get_claim(claims, &1) != nil))");
+    expect(requiredPaths(v, /@required_user_claims \[(.*)\]/)).toEqual(REQUIRED);
+    expect(v).toMatch(/defp require_claims\(claims\) do\n[\s\S]*?user_claims_present\?\(claims\)/);
   });
 
   it("the bundled realm seeds every required non-sub claim on the demo user", async () => {
