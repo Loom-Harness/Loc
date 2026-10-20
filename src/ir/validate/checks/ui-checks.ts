@@ -356,6 +356,26 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
       for (const store of ui.stores) {
         checkFrontendCollectionOps(store, `store '${store.name}'`, diags);
         checkMarkupInCollectionLambda(store, `store '${store.name}'`, diags);
+        // A store action body is an action body like a page's: a bare call
+        // that resolves to no sibling action, ui function or view effect is an
+        // unresolved reference (`loom.unresolved-action-ref`), not a backend
+        // op — every store emitter renders only those three.
+        checkActionBodies(
+          store.actions,
+          {
+            aggByName,
+            projectionNames,
+            readableProjections,
+            handles,
+            functionNames,
+            componentActionParams,
+            exemptLambdas: new Set(),
+            scope: new Set(store.state.map((s) => s.name)),
+            where: `store '${store.name}'`,
+            actionsByName: new Map(store.actions.map((a) => [a.name, a])),
+          },
+          diags,
+        );
       }
       // A `toast(<expr>)` outside the v1 message subset CRASHES every realtime
       // renderer (target-agnostic — the three switches are arm-for-arm equal).
