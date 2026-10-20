@@ -234,7 +234,10 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 -> 60: the leg runs uv sync + ruff + mypy --strict over every corpus feature and
+    # sat at ~43 min before workflow-create-result joined the corpus; two runs of that fixture
+    # were cancelled at the 45-min cap mid-mypy.
+    timeout-minutes: 60
     name: corpus × python (FastAPI)
     steps:
       - uses: actions/checkout@v6
