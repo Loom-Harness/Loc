@@ -98,6 +98,10 @@ export function renderProgram(
   ctx: BoundedContextIR,
   ns: string,
   options?: {
+    /** The deployable's declared port: a `dotnet run` with no URL configured
+     *  listens there.  Absent (the per-context legacy mode) leaves Kestrel's
+     *  own default. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
@@ -817,7 +821,18 @@ using OpenTelemetry.Trace;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
-
+${
+  options?.nativePort !== undefined
+    ? `
+// A native \`dotnet run\` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:${options.nativePort}");
+}
+`
+    : ""
+}
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot
@@ -1561,8 +1576,16 @@ export function renderCsproj(
          is the wire field (and the column) on all five, so the generator may
          not rename it and refusing it would reject a valid model for a C#
          naming guideline.  The rule fires on the property, the request /
-         response record parameters and the command — every surface of it. -->
-    <NoWarn>CA1707;CA1711;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
+         response record parameters and the command — every surface of it.
+         CA1716: "identifiers should not match keywords" — of ANY .NET
+         language, so Visual Basic's too.  The same bargain for TYPE and
+         parameter names: \`aggregate Module\`, \`aggregate Case\` (a legal-case
+         model), \`aggregate Step\`, \`entity Event\` are domain vocabulary
+         that compiles clean on the other four backends, and the C# type name
+         is the wire / table name the generator may not rewrite.  It also
+         rejects a keyword-named parameter of an interface member even when
+         verbatim-escaped (\`@static\` in \`find byLevel(static: int)\`). -->
+    <NoWarn>CA1707;CA1711;CA1716;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->
