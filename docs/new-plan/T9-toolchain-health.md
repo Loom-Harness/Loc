@@ -778,11 +778,6 @@ Any `queryHandler H(…): Agg paged` whose body is not exactly `let r = Repo.run
 
 `workflow Tracker eventSourced { create(c: string) { emit … } apply(…) { … } }`: a command-only create, no `on`, no id-typed state field. `loom.workflow-correlation-required` returns early when there are no event consumers, so nothing refuses it. **node and python generate it**; .NET (`esCorrIdClass`), Java (`esWorkflowCorrIdClass`) and Elixir (a raw `TypeError … reading 'replace'`, not a census throw site) crash. Parity gap: port the node/python shape, or refuse target-neutrally if the instance-id stream key is not meant to exist.
 
-## M-T9.80 — Resource operations in positions with no resource mapping — `open` · **S** · P2
-
-*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
-
-A resource op where the emitter has no resource class: in a workflow `function` (.NET `renderCall`), a projection fold assignment (Java `renderCall`), or a raw verb on a `kind: api` resource bound to an in-system api (Elixir `renderCall`). Each passes `loom.resource-op-outside-workflow` / `loom.projection-fold-impure`.
 
 ## M-T9.81 — Frontend page- and store-action vocabulary (Feliz / Flutter, plus the shared JS walker) — `open` · **M** · P1
 

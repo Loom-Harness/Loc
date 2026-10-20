@@ -19,6 +19,7 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import {
+  API_CLIENT_CLASS,
   collectJavaExprImports,
   type JavaRenderContext,
   renderJavaExpr,
@@ -531,7 +532,6 @@ export function renderJavaDispatcher(
     );
   }
   if (methods.length === 0) return null;
-
   // Injected collaborators: every aggregate repo the handler bodies touch +
   // one saga-state repo per subscribed correlation workflow.
   const subscribedWfs = [
@@ -635,12 +635,14 @@ export function renderJavaDispatcher(
     imports.add(`${dctx.basePkg}.domain.common.ForbiddenException`);
   }
   // A resource verb renders as `<Class>.<resource><Verb>(…)` on the client
-  // class in the resources package.
+  // class in the resources package; the typed in-system api client lives there too.
   const res = dctx.resources;
   if (
     res &&
     res.pkg !== dctx.pkg &&
-    [...res.classes.values()].some((cls) => methods.some((m) => m.includes(`${cls}.`)))
+    [...new Set([...res.classes.values(), API_CLIENT_CLASS])].some((cls) =>
+      methods.some((m) => m.includes(`${cls}.`)),
+    )
   ) {
     imports.add(`${res.pkg}.*`);
   }
@@ -1055,6 +1057,7 @@ function esMergedBranchLines(
   reserved: ReadonlySet<string>,
   schema: string | undefined,
   construct: string,
+  resourceClasses: Map<string, string> | undefined,
   /** Source-map — this branch's own `OpFragment`, pushed here so
    *  the merged handler (create + on) records TWO fragments, one per branch.
    *  This branch's lines get re-indented TWICE before landing in the final
@@ -1070,7 +1073,11 @@ function esMergedBranchLines(
   const streamType = wf.name;
   const hasEmit = bodyHasEmit(resolved.statements);
   const branchCtx = withLetLocals(
-    withEventParam({ thisName: "state" }, branchParam, branchLocal),
+    withEventParam(
+      { thisName: "state", ...resourcesOf(resourceClasses) },
+      branchParam,
+      branchLocal,
+    ),
     workflowBoundNames([resolved.statements]),
     new Set([...reserved, methodParam, branchLocal]),
   );
@@ -1180,6 +1187,7 @@ function renderEsMergedHandler(
     reserved,
     schema,
     construct,
+    resourceClasses,
     opFragments,
   );
   const onBranch = esMergedBranchLines(
@@ -1193,6 +1201,7 @@ function renderEsMergedHandler(
     reserved,
     schema,
     construct,
+    resourceClasses,
     opFragments,
   );
   const usesState = createBranch.usesState || onBranch.usesState;
