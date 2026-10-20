@@ -570,6 +570,29 @@ error NU1301:   The remote certificate is invalid because of errors in the certi
 
 which reads like a network outage rather than a missing trust anchor.
 
+To run the **whole** `test:dotnet` gate (vitest drives `generate` + `dotnet
+build` + `dotnet test`) with no host SDK, mount the repo and the host Node
+into the same image.  Mount the checkout that owns `node_modules` (a worktree
+under `.claude/worktrees/` resolves it from the parent), and pass the proxy
+through by name:
+
+```bash
+docker run --rm --network host -v /home/user/Loc:/home/user/Loc -w <worktree> \
+  -v /opt/node22:/opt/node22:ro -v /root/.ccr:/root/.ccr:ro \
+  -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY -e NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt \
+  -e LOOM_DOTNET_BUILD=1 -e PATH=/opt/node22/bin:/usr/share/dotnet:/usr/bin:/bin \
+  mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
+  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
+   && update-ca-certificates >/dev/null \
+   && npx vitest run test/e2e/generated-dotnet-build.test.ts'
+```
+
+The emitted xUnit project is its own csproj (`Tests/<Ns>.Tests/`), which the
+root `dotnet build` never compiles (`<Compile Remove="Tests/**" />`), and a
+`dotnet test` at the project root runs zero tests and exits 0.  Build and run
+it by path: `dotnet test Tests/<Ns>.Tests/<Ns>.Tests.csproj`.  The gate does
+exactly that and fails on zero tests run.
+
 ### Running `mix` on the HOST — for the suites that can't use a container
 
 The table above is about *compiling* an emitted project, where a
