@@ -7,7 +7,7 @@
 
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { Aggregate, Area, Expression, Page, Ui, Workflow } from "../../api/index.js";
-import { area, boolLit, callExpr, cloneExpr, page, stringLit } from "../../api/index.js";
+import { area, boolLit, callExpr, page, stringLit } from "../../api/index.js";
 import {
   filterFindsForAggregate,
   filterStateFields,
@@ -23,6 +23,7 @@ import {
   scalarColumnsForAggregate,
 } from "./_body-builders.js";
 import { dashboardFieldsFor, summableFields } from "./_dashboard-shared.js";
+import { cloneGateInliningPolicies } from "./_policy-inline.js";
 
 /** The ui's first api handle (`api <name>: <Api>`), or `undefined` when the ui
  *  serves no api — the receiver root the scaffolded aggregate queries reach
@@ -110,7 +111,7 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
     page({
       name: "List",
       route: `/${pluralSnake}`,
-      requires: listGate ? cloneExpr(listGate) : undefined,
+      requires: listGate ? cloneGateInliningPolicies(listGate, agg) : undefined,
       // The full Breadcrumbs/Toolbar/QueryView/Table tree, emitted directly as
       // unfoldable source (no IR-phase sentinel expansion).  The find-filter
       // inputs bind to page state named by `filterStateFields`.
@@ -225,7 +226,10 @@ export function pagesForWorkflowInstances(wf: Workflow): Page[] {
   // Sound because a workflow header gate is `currentUser`-only by validation
   // (`loom.workflow-gate-not-current-user`), which is precisely the subset a
   // page gate can evaluate client-side.
-  const gate = (): Expression | undefined => (wf.gate ? cloneExpr(wf.gate) : undefined);
+  // A named `policy` reference in the header is inlined at the copy: the page
+  // lives outside the context, so it could not resolve the name (D9).
+  const gate = (): Expression | undefined =>
+    wf.gate ? cloneGateInliningPolicies(wf.gate, wf) : undefined;
   return [
     page({
       name: `${upperFirst(wfName)}InstancesList`,
