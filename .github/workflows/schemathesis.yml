@@ -178,6 +178,8 @@ jobs:
           elixir-version: '1.18'
           otp-version: '27'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install toolchain deps
         run: npm ci
 

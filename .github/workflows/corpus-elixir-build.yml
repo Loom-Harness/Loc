@@ -216,6 +216,8 @@ jobs:
             [ "$ok" = 1 ] || exit 1
           done
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

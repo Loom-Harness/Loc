@@ -199,6 +199,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
@@ -307,6 +309,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
@@ -408,6 +412,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
@@ -465,6 +471,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

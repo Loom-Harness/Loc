@@ -96,6 +96,8 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
           kubeconform -v
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
