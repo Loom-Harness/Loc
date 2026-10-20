@@ -12,7 +12,7 @@ import type { AggPool } from "../../ir/util/inheritance.js";
 import { upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
-import { csLocalNamer } from "./local-names.js";
+import { csLocalNamer, csReadOwnParams } from "./local-names.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
@@ -101,7 +101,10 @@ export function buildFindBodies(
       name: find.name,
       ignoreClause: ignoreFiltersClause(agg, ctx.aggregates, find),
       filterClause: filterClauseFor(find, agg, ctx),
-      projectionClause: projectionClauseFor(find.returnType),
+      projectionClause: projectionClauseFor(
+        find.returnType,
+        csReadOwnParams(find.params.map((p) => p.name)).ct,
+      ),
     };
   });
 }
@@ -223,9 +226,9 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
   return `.Where(${x} => ${conditions.join(" && ")})`;
 }
 
-function projectionClauseFor(t: TypeIR): string {
-  if (t.kind === "array") return `.ToListAsync(cancellationToken)`;
-  if (t.kind === "optional") return `.FirstOrDefaultAsync(cancellationToken)`;
+function projectionClauseFor(t: TypeIR, ct: string): string {
+  if (t.kind === "array") return `.ToListAsync(${ct})`;
+  if (t.kind === "optional") return `.FirstOrDefaultAsync(${ct})`;
   // A NON-optional single find has no absent representation, so an empty result
   // set is the domain not-found rung — the `?? throw` idiom this backend already
   // uses for the same situation in a workflow body, landing on the
@@ -240,5 +243,5 @@ function projectionClauseFor(t: TypeIR): string {
   // collections) and to the corpus (no case reads a single find that misses).
   // `"not_found"` is the canonical find-miss detail token on every backend
   // (RS-27 scopes the by-id sentence out of a find).
-  return `.FirstOrDefaultAsync(cancellationToken) ?? throw new AggregateNotFoundException("not_found")`;
+  return `.FirstOrDefaultAsync(${ct}) ?? throw new AggregateNotFoundException("not_found")`;
 }

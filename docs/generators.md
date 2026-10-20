@@ -488,14 +488,14 @@ web_app/
 │                                    # @mantine/* (core, hooks, form, notifications, dates, modals),
 │                                    # mantine-form-zod-resolver
 ├── tsconfig.json + tsconfig.node.json
-├── vite.config.ts                   # @vitejs/plugin-react, dev/preview both bind 0.0.0.0:3000
+├── vite.config.ts                   # @vitejs/plugin-react, dev/preview bind 0.0.0.0:<port:> (PORT overrides; the image passes --port 3000)
 ├── index.html
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime: vite preview
 ├── .dockerignore                    # excludes e2e/, dist/, playwright-report/, test-results/
 ├── certs/.gitkeep
 ├── src/
 │   ├── main.tsx                     # MantineProvider + QueryClientProvider + Router + Notifications + ModalsProvider
-│   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id
+│   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id — each page a React.lazy chunk behind a Suspense (pack loader fallback)
 │   ├── api/
 │   │   ├── client.ts                # fetch wrapper, ApiError
 │   │   ├── config.ts                # API_BASE_URL = /api (relative, same-origin); window.__LOOM_API_BASE__ or VITE_API_BASE_URL override
@@ -677,6 +677,25 @@ component.
 | Contained-part subtable | `<plural>-detail-<containment>` |
 | Contained-part row | `<plural>-detail-<containment>-row-<id>` |
 | Contained-part row cell | `<plural>-detail-<containment>-row-<id>-<field>` |
+| Route-level loading fallback (shell) | `route-loading` (`role="status"`) |
+
+### Route-level code splitting
+
+Every routed page is its own chunk; only the shell (layouts, sidebar,
+NotFound, error boundary) is in the entry bundle.  `App.tsx` binds each page
+as `const OrderList = React.lazy(() => import("./pages/orders/list"))` and
+wraps each layout's `<Outlet />` — plus the whole `<Routes>`, for `layout:
+none` pages — in `<React.Suspense fallback={<RouteLoading />}>`, where
+`RouteLoading` renders the pack's own loader (`Loader` / `CircularProgress` /
+`Spinner` / `Loader2`) with `data-testid="route-loading"`.  The generated
+smoke spec waits for that fallback to clear before asserting the page did not
+crash; the page objects already wait on each page's root testid.  Vue
+(`component: () => import(…)`) and Angular (`loadComponent`) split the same
+way — on vuetify each `.vue` file also imports the components its template
+renders (`import { VBtn, VCard } from "vuetify/components"`, derived from the
+emitted markup) rather than `createVuetify` registering the whole library, so
+those components ride the page's chunk; SvelteKit splits per `+page.svelte` on its own.  Pinned by
+`test/generator/_frontend/lazy-route-pages.test.ts`.
 
 ### Page-object classes
 
@@ -782,7 +801,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 
 | Concern | Emission |
 |---|---|
-| Routing | SvelteKit file routing — `/orders/:id` → `src/routes/(app)/orders/[id]/+page.svelte`; route groups `(app)` (chrome) / `(bare)` (`layout: none`) carry the layout selectors.  A named `layout <Name>` lowers to its own route group `(<name>)/+layout.svelte`, rendering the header/sidebar/footer slots around `{@render children()}`; pages selecting it via `layout: <Name>` route into that group (`src/generator/svelte/layouts-emitter.ts`). |
+| Routing | SvelteKit file routing — `/orders/:id` → `src/routes/(app)/orders/[id]/+page.svelte` (one chunk per route, by SvelteKit's own splitting); route groups `(app)` (chrome) / `(bare)` (`layout: none`) carry the layout selectors.  A named `layout <Name>` lowers to its own route group `(<name>)/+layout.svelte`, rendering the header/sidebar/footer slots around `{@render children()}`; pages selecting it via `layout: <Name>` route into that group (`src/generator/svelte/layouts-emitter.ts`). |
 | Data | `@tanstack/svelte-query` v6 factories with the React hook names (`useAllCustomers`, …) — `createQuery(() => opts)` returns a runes-reactive object with the `.data`/`.isPending`/`.mutate` surface.  Zod schemas are byte-identical with the react modules (shared `src/generator/_frontend/zod-schemas.ts`). |
 | State | `let x = $state<T>(init)`; walker `:=` writes lower to plain assignments; page `title:` becomes a `$effect`.  Money page-state imports `decimal.js` so `Decimal` initial values compile (matches the react fix). |
 | Forms | Hand-rolled runes + zod helper (`src/lib/forms.svelte.ts`): `createForm(schema, defaults)` → `values` (deep-reactive bind targets), `errors` (dotted-path map), `submit`, `applyServerErrors` (RFC 7807 422 decode).  Field templates bind `form.values.<path>`. |
@@ -812,8 +831,8 @@ web_app/
 ├── src/
 │   ├── main.ts             # createApp + router + VueQueryPlugin (+ vuetify instance / globals.css)
 │   ├── App.vue             # app chrome + <router-view/> + onErrorCaptured boundary
-│   ├── router.ts           # createRouter(createWebHistory) route table + NotFound catch-all
-│   ├── theme.ts            # createVuetify tokens (vuetify) / `export {}` stub (shadcnVue — CSS vars)
+│   ├── router.ts           # createRouter(createWebHistory) route table (each page `component: () => import(…)`, its own chunk) + NotFound catch-all
+│   ├── theme.ts            # createVuetify tokens, no global component registration (vuetify) / `export {}` stub (shadcnVue — CSS vars)
 │   ├── lib/form.ts         # useLoomForm — vee-validate useForm over the shared zod schema (local toTypedSchema) + per-field error map
 │   ├── lib/format.ts       # formatting FUNCTIONS (the React packs' format components, fn-style)
 │   ├── lib/toast.ts        # channels only: reactive pushToast() queue the app-shell host renders
@@ -892,7 +911,7 @@ suite gate this).
 
 | Concern | Emission |
 |---|---|
-| Pages | Each `page` becomes a standalone `@Component` under `src/app/pages/<slug>.component.ts` with an inline `template`.  The route table (`src/app/app.routes.ts`) maps `/orders/:id` → the component via `provideRouter`; a wildcard `**` mounts `NotFound`.  The app shell (`app.component.ts`) derives the sidebar from the page set. |
+| Pages | Each `page` becomes a standalone `@Component` under `src/app/pages/<slug>.component.ts` with an inline `template`.  The route table (`src/app/app.routes.ts`) maps `/orders/:id` → the component via `provideRouter`, lazily (`loadComponent: () => import(…)`, one chunk per page); a wildcard `**` mounts `NotFound`.  The app shell (`app.component.ts`) derives the sidebar from the page set. |
 | State / derived | `state { x: T = init }` → `readonly x = signal(init)` (read `x()`, write `x.set(…)`); the `:=` walker write lowers to `.set(…)`.  `derived n = expr` → `readonly n = computed(() => …)` (signal reads `this.`-prefixed in the class-field initialiser). |
 | Events | Angular `(click)` binds a **statement**, not a function value (and forbids arrow functions) — the `renderEventHandler` seam inlines the lambda body (`(click)='count.set(count() + 1)'`). `Button(to:)` routes through `renderNavigateExpr` → `router.navigateByUrl(<to>)`. |
 | Data | **TanStack Angular Query**: per aggregate `src/api/<agg>.ts` ships an `@Injectable` `HttpClient` service (the raw requests) + factories the page-shell hoists as component fields — `useAll<Agg>s` / `use<Agg>ById` return `injectQuery` results (cached, keyed `["<tag>"]` / `["<one>", id]`; byId is `enabled: !!id` so it stays idle until the route param resolves), and `useCreate<Agg>` / `use<Op><Agg>` return `injectMutation` results whose `onSuccess` calls `queryClient.invalidateQueries` on exactly the affected keys.  Signals are *called* (`handle.data()` / `handle.isPending()`); the `renderQueryDataAccess` seam defaults a collection read to `[]` (`(handle.data() ?? [])`).  The `QueryClient` is provided once in `app.config.ts` (`provideTanStackQuery`).  byId reads bind the route param from the `ActivatedRoute` snapshot. |
