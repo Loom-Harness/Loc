@@ -785,12 +785,6 @@ Any `queryHandler H(…): Agg paged` whose body is not exactly `let r = Repo.run
 
 One-off crashes with no shared root: JPA's optional / entity-part reference collection (`Tag id[]?`) and VO-array projection state; Java `group by` on a `json` column; a Java part builder-call inside an aggregate test; a folded projection with no `keyed by` whose handlers use `on(e) by …` (shared `migrations-builder.ts` `TypeError`, so every backend); MikroORM's VO-in-VO collection column; MikroORM `filter this.refs.contains(<id>)`; node's zod row for a `duration` select; HEEx `match await` on an aggregate this deployable doesn't serve; and HEEx store-action / component `handle_event` name collisions. Found while compile-checking #3133 (a COMPILE failure, not a throw site): a query-time projection named `Count` emits `OrderJpaRepository.count()`, which clashes with Spring Data's `CrudRepository.count()` (`javac: count() in OrderJpaRepository clashes with count() in CrudRepository`). `ddd parse` is clean. Add the inherited `CrudRepository` / `JpaRepository` method names to the Java reserved-surface check, or rename the emitted method.
 
-## M-T9.83 — A misconfigured custom design pack crashes generate with no diagnostic — `open` · **S** · P2
-
-*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
-
-`design: "<path>"` on a deployable is accepted with only the `loom.design-pack-custom-unchecked` warning, and every way the pack can be malformed then crashes generate with a descriptive but uncoded `Error`. The cases: no `pack.json`, no `emits`, an `emits` entry naming a missing `.hbs`, an unknown `stack`, a required primitive missing, an empty / `<`-carrying / brace-unbalanced chrome message, an undeclared chrome role used by a template, an ICU hole passed by a HEEx pack template, and a `shellFiles` key not in `emits` (`_packs/loader-fs.ts`, `loader.ts`, `pack-chrome.ts`, `shell-emits.ts`). Load and check the pack in phase ⑦ and raise a `loom.design-pack-invalid` error naming the defect. **Side bug, same mission:** a relative `design:` path resolves against the process working directory, not the `.ddd` file's directory (`resolvePackDir` is called without `referenceDir`, e.g. `react/index.ts:168`).
-
 ## M-T9.84 — Imports derived from use: the shared `ref(sym)` seam, the census ratchet, the python pilot — `in-flight` · **L** · P1
 
 *Minted 2026-10-04 from the September merge review: ten-plus PRs fixed one "names a symbol it never imports / imports one it never uses" instance each (#3028, #3060, #2939, #2881, #2925, #2786, #2991, #2741, #2671, #2869, #3029). Design: [`missions/M-T9.84-derived-imports.md`](missions/M-T9.84-derived-imports.md).*
@@ -814,6 +808,7 @@ M-T9.84's slices for `src/generator/dotnet`. 26 census sites at minting, plus th
 ## M-T9.88 — Imports derived from use: Elixir — `open` · **S** · P3
 
 M-T9.84's slices for `src/generator/elixir`. 2 census sites at minting. The emitters mostly spell fully-qualified module names, which need no `alias`. Close by migrating the two sites and pinning the census at zero. Oracle: `npm run test:elixir-corpus`.
+
 ## M-T9.89 — Widen `ir-walk-census` to independent `if (x.kind === …)` statements — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*
