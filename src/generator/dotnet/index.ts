@@ -34,8 +34,8 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -533,9 +533,14 @@ function emitProjectFromContexts(
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
-    // EF-repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // applying the EF migrations, wiring the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(ctx, ns);
+    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+    // the repos, and persisting→reading.
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system?.deployable.persistence === "dapper",
+    );
     if (integrationTests) {
       out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
@@ -600,7 +605,7 @@ function emitProjectFromContexts(
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(merged.workflows),
+      ...hostedContextIdTypeSources([merged]),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -1151,6 +1156,7 @@ function emitProjectFromContexts(
     );
   }
   emitProject(merged, ns, out, {
+    nativePort: system?.deployable.port,
     timers: hasTimers ? ownedTimers : [],
     hasChannels,
     hasChannelConsumers,
@@ -1926,6 +1932,8 @@ function emitProject(
   ns: string,
   out: Map<string, string>,
   options?: {
+    /** The deployable's declared port — what a bare `dotnet run` listens on. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
@@ -2033,6 +2041,7 @@ function emitProject(
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
+      nativePort: options?.nativePort,
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
