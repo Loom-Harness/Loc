@@ -6,13 +6,13 @@
   "entries": {
     "bundle:react/mantine": {
       "kind": "bundle",
-      "baseline": 350025,
-      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+      "baseline": 370806,
+      "measuredOn": "2026-10-20 nightly (ubuntu-latest, node 22, vite build, gzip -9 js+css); raised from 350025 (+5.9%) for route-level code splitting, which sums per-chunk overhead across the split route chunks"
     },
     "bundle:vue/vuetify": {
       "kind": "bundle",
-      "baseline": 382972,
-      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+      "baseline": 304814,
+      "measuredOn": "2026-10-20 nightly (ubuntu-latest, node 22, vite build, gzip -9 js+css); lowered from 382972 (-20.4%) after vuetify components are imported per SFC instead of registering the whole library"
     },
     "bundle:svelte/flowbite": {
       "kind": "bundle",
