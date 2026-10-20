@@ -37,7 +37,7 @@ export function effectiveGate(gate: ExprIR | undefined): ExprIR | undefined {
  *  membership test against the empty allow-set — opaque to the checker, the
  *  same device as the document repository's `__denied?/1`
  *  (`capability-filter.ts`). */
-export const ELIXIR_ALWAYS_DENY = "Enum.member?([], :default_deny)";
+const ELIXIR_ALWAYS_DENY = "Enum.member?([], :default_deny)";
 
 /** Render a gate CONDITION for an `if not (…)` guard — `render` for an
  *  author-written gate, {@link ELIXIR_ALWAYS_DENY} for the synthesised deny. */
