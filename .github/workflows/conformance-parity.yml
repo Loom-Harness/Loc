@@ -20,30 +20,6 @@ name: Conformance parity (per-PR)
 # it a reasonable non-required gate to start.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/**'
-      - 'src/platform/**'
-      - 'examples/showcase.ddd'
-      - 'docker/**'
-      - 'test/e2e/e2e.test.ts'
-      - 'test/_helpers/openapi-normalize.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/conformance-parity.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -98,6 +74,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate)
       # which produces src/language/generated/.
       - name: Install Loom toolchain

@@ -43,7 +43,7 @@ npm run test:react-e2e    # LOOM_REACT_E2E=1 — RUNTIME e2e: vite build + `vite
 npm run test:vue-e2e      # LOOM_VUE_E2E=1 (pack via LOOM_VUE_E2E_PACK)
 npm run test:svelte-e2e   # LOOM_SVELTE_E2E=1
 npm run test:angular-e2e  # LOOM_ANGULAR_E2E=1 (pack via LOOM_ANGULAR_E2E_PACK)
-npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects
+npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects, then builds + runs each emitted xUnit `Tests/` project (fails on zero tests run)
 npm run test:java         # LOOM_JAVA_BUILD=1 — `gradle testClasses bootJar` against generated Spring Boot projects (JDK 25 + Gradle 9.1+)
                           # CI runs it with javac at -Xlint:all -Werror: copy test/e2e/support/java-werror.init.gradle into
                           # ~/.gradle/init.d/ to reproduce (remove it after — init.d applies to every Gradle build), or pass
