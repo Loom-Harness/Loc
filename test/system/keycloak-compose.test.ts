@@ -1,8 +1,8 @@
 // Bundled dev Keycloak (D-AUTH-OIDC §4.2 — the zero-config quick-start).
-// When a system declares a self-hosted OIDC `auth { … }` block, the generated
-// docker-compose.yml adds a Keycloak service with a pre-provisioned realm +
-// seeded demo user, and points the `auth: required` backend at it.  A hosted
-// preset (e.g. google) uses its own IdP and gets no bundled service.
+// When a system declares an OIDC `auth { … }` block — any provider, hosted
+// presets included — the generated docker-compose.yml adds a Keycloak service
+// with a pre-provisioned realm + seeded demo user, and points the
+// `auth: required` backend at it.
 
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
@@ -319,12 +319,18 @@ system FieldOps {
     expect(minted, "the realm mints a claim the verifier does not read").toContain(read![1]!);
   });
 
-  it("does not bundle Keycloak for a hosted provider (google)", async () => {
+  // A hosted preset's real IdP is not something `docker compose up` can sign
+  // in to on a developer's laptop, and with an `auth { oidc }` block the
+  // backends no longer accept the dev-claims header — so the local stack gets
+  // the same bundled realm, and the backend is repointed at it by env.
+  it("bundles Keycloak for a hosted provider (google) too", async () => {
     const files = await filesFor(
       system(`auth { provider: google  oidc { clientId: env("OIDC_CLIENT_ID") } }`),
     );
-    expect(files.get("docker-compose.yml")!).not.toContain("keycloak:");
-    expect(files.has("keycloak/realm.json")).toBe(false);
+    const compose = files.get("docker-compose.yml")!;
+    expect(compose).toContain("keycloak:");
+    expect(compose).toContain('OIDC_ISSUER: "http://host.docker.internal:8081/realms/helpdesk"');
+    expect(files.has("keycloak/realm.json")).toBe(true);
   });
 
   it("does not bundle Keycloak without an auth block", async () => {
@@ -527,5 +533,35 @@ describe("bundled dev Keycloak realm — usable under denyByDefault (D8)", () =>
     );
     expect(aud).toHaveLength(1);
     expect(aud[0]!.config["included.client.audience"]).toBe(client.clientId);
+  });
+});
+
+// `audience: env(...)` with nothing setting the variable leaves `aud`
+// unchecked on every backend.  The dev stack sets it to the client id the
+// realm's audience mapper mints, so the check is on and passes.
+describe("bundled Keycloak audience under audience: env(...)", () => {
+  it("compose sets OIDC_AUDIENCE to the client id the realm mints into aud", async () => {
+    const files = await filesFor(
+      system(
+        `auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: env("OIDC_AUDIENCE") } }`,
+      ),
+    );
+    expect(files.get("docker-compose.yml")!).toContain('OIDC_AUDIENCE: "helpdesk-app"');
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      clients: { protocolMappers?: { config: Record<string, string> }[] }[];
+    };
+    const minted = (realm.clients[0]!.protocolMappers ?? []).map(
+      (m) => m.config["included.client.audience"],
+    );
+    expect(minted).toContain("helpdesk-app");
+  });
+
+  it("a literal audience is left to the declared value", async () => {
+    const files = await filesFor(
+      system(
+        `auth { provider: keycloak  oidc { issuer: env("OIDC_ISSUER")  clientId: env("OIDC_CLIENT_ID")  audience: "helpdesk-api" } }`,
+      ),
+    );
+    expect(files.get("docker-compose.yml")!).not.toContain("OIDC_AUDIENCE:");
   });
 });

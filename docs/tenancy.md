@@ -198,7 +198,7 @@ drops `tenantOwned`'s filter — bypasses it.
 ### The bundled dev Keycloak's demo tenant
 
 Because the self-scope matches only a uuid claim, the demo user of the bundled
-dev Keycloak (an `auth { oidc … }` block with a self-hosted provider) is seeded
+dev Keycloak (bundled for any `auth { oidc … }` block, whatever the provider) is seeded
 with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
 (`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
 matched no registry row ever (eval-closure #26). A matching first-boot registry
