@@ -8,27 +8,20 @@ name: Generated React TSX build
 #
 # Matrix policy (configured by the `configure` job below):
 #
-#   - `pull_request` events    →  8-cell slice: showcase.ddd against
-#                                  every pack@version.  showcase is
-#                                  the feature-comprehensive
-#                                  conformance fixture (#401) and
-#                                  exercises the broadest generator
-#                                  surface.  Misses per-example drift
-#                                  (storybook-mantine / -shadcn,
-#                                  loom-landing, banking, …) — caught
-#                                  one merge later by:
+#   - `pull_request` and       →  slice: showcase.ddd and
+#     `merge_group`                subform-showcase.ddd × two
+#                                  representative packs (see the
+#                                  `configure` job for why those).  The
+#                                  queue runs the slice too: what it exists
+#                                  to catch is two PRs green apart and red
+#                                  together, and pack drift from an
+#                                  unrelated PR is rare and cheap to fix.
 #
-#   - `push: main` /            →  full Cartesian, BATCHED PER EXAMPLE.
-#     `merge_group` /               Heavy, but it's the regression safety
-#     `workflow_dispatch`           net.  The keying is "anything that is
-#                                   not a plain pull_request runs full",
-#                                   so the merge queue gets the full sweep
-#                                   on the rebased candidate — the pre-land
-#                                   half of the tiering in docs/ci-gating.md.
-#                                   `workflow_dispatch` runs full too
-#                                   so a maintainer can force the
-#                                   sweep on a branch if a PR-time
-#                                   slim cell smelled suspicious.
+#   - nightly `schedule` /      →  full Cartesian, BATCHED PER EXAMPLE —
+#     `workflow_dispatch`          the regression net for per-example and
+#                                  per-pack drift.  `workflow_dispatch`
+#                                  forces it on a branch when a slim cell
+#                                  smelled suspicious.
 #
 # Sharding shape — why the full sweep is 18 jobs, not 144.  Every job
 # pays ~4min of fixed cost (checkout + `npm ci` + `npm run build`) before
@@ -70,7 +63,7 @@ on:
       - '.github/workflows/generated-react-build.yml'
       # A change confined to a non-React backend cannot alter the React
       # bundle — skip this gate per-PR when only that code changed.  The
-      # push:main trigger above keeps the broad `src/**` net post-merge.
+      # nightly sweep keeps the broad net on main.
       - '!src/generator/java/**'
       - '!src/generator/dotnet/**'
       - '!src/generator/python/**'
@@ -84,6 +77,10 @@ on:
       - '!src/platform/hono.ts'
   workflow_dispatch:
   merge_group:
+  # The full example × pack sweep runs nightly on main; PRs and the merge
+  # queue run the slice (see the header).
+  schedule:
+    - cron: '43 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -106,15 +103,15 @@ jobs:
     steps:
       - id: set
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
             # Slim PR slice — 4 one-cell jobs.  showcase.ddd (the
             # feature-comprehensive cross-generator conformance fixture,
             # #401) × two representative packs: one Mantine (the React
             # baseline) and one shadcn (the Tailwind/Radix family).  This
             # catches nearly all pack-template / generator drift; the
             # remaining packs (mui, chakra, older versions) and per-example
-            # drift are deferred to the push:main sweep below.  Full sweep
-            # is one merge later — or force it with workflow_dispatch.
+            # drift are deferred to the nightly sweep below — or force it
+            # with workflow_dispatch.
             #
             # `subform-showcase.ddd` is the second PR-slice example, promoted
             # out of the sweep for the same reason Vue promoted its `scaffold`
@@ -129,7 +126,7 @@ jobs:
             MATRIX=$(jq -cn --argjson ex "$EXAMPLES" --argjson packs "$PACKS" \
               '{include: [$ex[] as $e | $packs[] as $p | {case: "\($e):\($p)", label: "\($e) × \($p)"}]}')
           else
-            # Full sweep — push:main, merge_group, workflow_dispatch: every
+            # Full sweep — nightly schedule, workflow_dispatch: every
             # example × every pack, BATCHED one job per example.  A bare
             # `<ddd>` case (no `:pack` suffix) means "run all packs for this
             # example" in the harness, so the pack set lives in exactly one
