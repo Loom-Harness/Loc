@@ -506,18 +506,6 @@ const STANDING_UI_BODY_VOCAB = {
     "unreachable — `loom.ui-body-statement-kind` (return/precondition/requires on every non-LiveView frontend), `loom.if-stmt-page-body-unsupported` (`if` anywhere in a ui body, every frontend) and phase-③ scope resolution (`emit` has no aggregate to emit from in ui scope) refuse every kind this switch omits",
 } as const;
 
-/** Handed to the `parity-auditor` skill: a shape a DIFFERENT backend emits
- *  today, so the refusal is not a language limit — it is one target behind.
- *
- *  DEFERRED, not standing: there IS scheduled work here, and its absence is
- *  the thing the date exists to surface.  Full rows in
- *  `docs/new-plan/waves/handoffs/wave-cr1-f.md`. */
-const PARITY_ELIXIR_REACTOR_STMTS = {
-  deferred:
-    "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable on four kinds — `repo-delete` / `resource-call` / `domain-service-call` / `if-let` in a workflow reactor body each print `0 error(s), 0 warning(s)` and then abort `ddd generate system` with `dispatch-emit: unsupported reactor statement kind '<k>'`, while `platform: node` emits all four. Not a language limit and not a diagnostic — one backend behind. Do NOT re-waive as `standing`",
-  reviewUntil: "2026-12-31",
-} as const;
-
 /** A shallow, ONE-LEVEL child-list builder (an `exprChildren`-shaped function)
  *  feeding a caller's own recursion — structurally the same concept as
  *  `walk.ts`'s `walkExprChildren`, and a genuine migration candidate.
@@ -688,7 +676,7 @@ const WAIVERS: Record<string, Waiver> = {
   // dispatcher (the CR1-e shape) found it did not, twice over — see the entry.
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
     standing:
-      "unreachable ONLY AFTER CR1-f closed two holes in the gates this reason cites. (a) `loom.applier-emits` / `loom.applier-impure-call` / `loom.applier-guard` (structural-checks.ts rule 4) iterated `ap.statements` TOP-LEVEL, so `apply(e) { if c { emit X {…} } }` reported `0 error(s), 0 warning(s)` while its top-level twin was refused — now a `walkStmtsDeep`. (b) The Elixir `if` gate listed operations / functions / domainService operations and NOT appliers, so an `if` in an applier crashed this very arm (`Error: elixir vanilla fold: unsupported applier statement 'if' … the event-sourcing discipline validator should have rejected this`) on a model `ddd parse` called clean, while node/java/python/dotnet all emitted it — appliers now flag with kind `event-sourced`, which refuses ANY `if`, matching this switch's real vocabulary. Both pinned, with top-level controls, by test/ir/applier-discipline-nested.test.ts",
+      "unreachable: `validateApplierBodies` (src/ir/validate/checks/body-stmt-vocabulary.ts) holds every applier — aggregate AND workflow — to `APPLIER_STMT_KINDS` (assign / add / remove / let / if), walking branches deep; `emit` / a call / a guard keep their own `loom.applier-*` codes and everything else (`return`, a bare expression) is `loom.applier-stmt-invalid`.  The one kind left that this switch omits, `if`, is refused in every elixir-hosted applier by the Elixir `if` gate (kind `event-sourced`).  Measured per kind by test/system/body-statement-census.test.ts; the nested-branch controls are test/ir/applier-discipline-nested.test.ts",
   },
   // The throw is CAUGHT: `renderTest` rescues `UnsupportedTestShapeError` and
   // degrades the case to `@tag :skip`, so this is not a codegen abort at all.
@@ -697,14 +685,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/elixir/vanilla/tests-emit.ts#vtExpr": {
     standing:
       "not a codegen abort at all — the typed `UnsupportedTestShapeError` this arm raises is CAUGHT by `renderTest` (same file, ~line 219) and degrades the case to `@tag :skip`; only a NON-`UnsupportedTestShapeError` propagates, which is the deliberate emitter-bug signal",
-  },
-
-  // -- PARITY DEBT: reachable, and another backend emits it -----------------
-  "src/generator/elixir/dispatch-emit.ts#renderStmt": PARITY_ELIXIR_REACTOR_STMTS,
-  "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": {
-    deferred:
-      "parity (CR1-f hand-off, `parity-auditor`): MEASURED reachable — a `let` binding in an event-sourced workflow's `apply(...)` fold prints `0 error(s), 0 warning(s)` and then aborts with `python es-workflow applier: unexpected statement kind 'let'`, while elixir / java / .NET all emit it (node crashes identically at src/platform/hono/v4/workflow-eventsourced-builder.ts, whose waiver is the in-flight bucket's, not this one's). Two backends behind, not a language limit",
-    reviewUntil: "2026-12-31",
   },
 
   // -- MISFILED: the default arm does not throw ----------------------------
