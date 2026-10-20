@@ -81,3 +81,51 @@ describe("loom.create-params-not-wire names a remedy that parses", () => {
     expect(errors).toEqual([]);
   });
 });
+
+// Claims eval D10: a narrowed list that omits only OPTIONAL fields used to be
+// silent, though `POST /<plural>` still accepts them — an `approved: money?`
+// meant to be set only by `approve()` was stored at creation (99999).
+const OPT = (field: string, create: string) => `system F7 {
+  subdomain S { context C {
+    aggregate Claim {
+      title: string
+      ${field}
+      derived display: string = title
+      ${create}
+      operation approve(m: money) { approved := m }
+    }
+    repository Claims for Claim { }
+  } }
+  storage p { type: postgres }  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 }
+}`;
+
+const notWire = (ws: string[]) => ws.filter((x) => x.includes("parameter list is not the"));
+
+describe("loom.create-params-not-wire on an omitted OPTIONAL field", () => {
+  it("fires, names the field and the `managed` remedy", async () => {
+    const { errors, warnings } = await check(OPT("approved: money?", "create(title: string) { }"));
+    expect(errors).toEqual([]);
+    const w = notWire(warnings);
+    expect(w, warnings.join("\n")).toHaveLength(1);
+    expect(w[0]).toContain("optional `approved` is not declared");
+    expect(w[0]).toContain("mark it `managed`");
+  });
+
+  it("is quiet once the field is `managed`", async () => {
+    const { warnings } = await check(OPT("approved: money? managed", "create(title: string) { }"));
+    expect(notWire(warnings)).toEqual([]);
+  });
+
+  it("is quiet once the field is listed", async () => {
+    const { warnings } = await check(
+      OPT("approved: money?", "create(title: string, approved: money?) { }"),
+    );
+    expect(notWire(warnings)).toEqual([]);
+  });
+
+  it("is quiet on the empty `create()` — the documented no-narrowing form", async () => {
+    const { warnings } = await check(OPT("approved: money?", "create() { }"));
+    expect(notWire(warnings)).toEqual([]);
+  });
+});
