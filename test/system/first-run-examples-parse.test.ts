@@ -120,7 +120,7 @@ const EXPECTED_INVALID: Record<string, string> = {
   "docs/api-toolkit.md:153": "loom.bare-aggregate-in-type",
   // A fail-closed register repro the single typing pass now refuses upstream
   // (page `state` is typed, so `xs.reverse()` on an `int[]` is an unknown member).
-  "docs/new-plan/missions/M-T9.77-fail-closed-register.md:857": "loom.unknown-member",
+  "docs/new-plan/missions/M-T9.77-fail-closed-register.md:786": "loom.unknown-member",
 };
 
 /** Every `.md` under `docs/`, plus the README.  `old/` is the frozen design

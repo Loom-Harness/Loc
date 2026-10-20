@@ -161,80 +161,9 @@ system PQH {
 
 </details>
 
-## M-T9.78 — Event-sourced workflow with no id-typed correlation field crashes .NET / Java / Elixir
+## M-T9.78 — Event-sourced workflow with no id-typed correlation field — **closed** (refused, `loom.workflow-correlation-required`)
 
-### `src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass`
-
-An `eventSourced` workflow with only a command-triggered create (no `on`/event-create) and no id-typed state field has no correlation field and no diagnostic, yet the ES emitter unconditionally requires an id-typed correlation field.
-
-Crash: `Error: dotnet es-workflow: correlation field of 'Tracker' must be id-typed`
-
-<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
-
-```ddd
-system ES {
-  subdomain D {
-    context Sales {
-      aggregate Order with crudish { code: string }
-      repository Orders for Order { }
-      event Recorded { code: string, count: int }
-      workflow Tracker eventSourced {
-        code: string
-        archivedCount: int
-        create(c: string) {
-          emit Recorded { code: c, count: 1 }
-        }
-        apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
-      }
-    }
-  }
-  api A from D
-  storage pg { type: postgres }
-  resource salesState { for: Sales, kind: state, use: pg }
-  deployable d {
-    platform: dotnet
-    contexts: [Sales]
-    dataSources: [salesState]
-    serves: A
-    port: 4000
-  }
-}
-```
-
-</details>
-
-### `src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass`
-
-An eventSourced workflow with only a command-triggered create and no id-typed state field validates clean, has no correlationField, and renderEsWorkflowFoldClass is still emitted for it.
-
-Crash: `Error: java es-workflow: correlation field of 'Tally' must be id-typed`
-
-<details><summary>repro (<code>ddd parse</code>: 0 errors)</summary>
-
-```ddd
-system W {
-  subdomain F {
-    context F {
-      aggregate Order with crudish { status: string }
-      repository Orders for Order { }
-      event Bumped { amount: int }
-      workflow Tally eventSourced {
-        total: int
-        create(n: int) {
-          emit Bumped { amount: n }
-        }
-        apply(b: Bumped) { total := total + b.amount }
-      }
-    }
-  }
-  api FApi from F
-  storage pg { type: postgres }
-  resource st { for: F, kind: state, use: pg }
-  deployable d { platform: java contexts: [F] serves: FApi dataSources: [st] port: 4000 }
-}
-```
-
-</details>
+Both sites (`src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass`, `src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass`) and the Elixir `TypeError` are closed by refusing the shape in phase ⑦: an `eventSourced` workflow must declare exactly one id-shaped state field, with or without event consumers, because that field is its event stream's key. Zero id-shaped fields is `loom.workflow-correlation-required`, two or more `loom.correlation-field-ambiguous`. Both census entries are now `guardedBy`. Not rendered, because node and python had no sound shape to port: they emitted a plain command route that dropped the declared state and `apply` blocks, with no stream, no generated instance id and nothing to read back. The repro is the `loom.workflow-correlation-required` fixture in `test/system/diagnostic-firing-census.test.ts`.
 
 ## M-T9.79 — Statement vocabulary of event-sourced / workflow bodies (`create`, `apply`, `function`, `on`)
 

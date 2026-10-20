@@ -353,7 +353,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.vanilla-op-call-position",
   "loom.version-field-collision",
   "loom.workflow-applier-on-non-event-sourced",
-  "loom.workflow-correlation-required",
   "loom.workflow-create-missing-field",
   "loom.workflow-create-unknown-field",
   "loom.workflow-currentuser-find",
