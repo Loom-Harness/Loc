@@ -771,7 +771,14 @@ const REGISTERED: Ratchet[] = [
     // the fix (spelling the facade fully qualified) is not observable on the
     // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
     // as base + each side's delta (see the #3024 note above).
-    max: 22,
+    //
+    // 22 -> 23 (claims eval D18, PR #3250; re-derived on merge as main's 22 + this PR's one): a reviewed RAISE of one.
+    // `foreign-id-field` is the same shape for a hosted `X id` FIELD whose
+    // target aggregate lives in a non-hosted sibling context — a missing
+    // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
+    // javac cannot find symbol) the corpus compile tier reads directly; its
+    // CRUD routes are the ones `core-domain` already boots.
+    max: 23,
   },
 ];
 

@@ -101,6 +101,13 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
+  // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
+  // `label`, so enrichment merges it into the concrete's wire shape and the
+  // record's walk does not — identical to the eight inheritance/TPH rows
+  // above, and the same root cause the `loom.create-params-not-wire` warning
+  // reports on that aggregate.  Drains with the A2 class fix, not separately.
+  "vo-cross-context.ddd Billing.Shipper": "missing-in-record",
   // The same A2 row, witnessed by a NEW fixture (the TPH-concrete projection
   // source): `AutoClaim`/`PropertyClaim` inherit `reference`/`status` from the
   // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.

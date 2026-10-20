@@ -44,7 +44,7 @@
             "development": { "buildTarget": "app:build:development" }
           },
           "defaultConfiguration": "development",
-          "options": { "port": 3000, "host": "0.0.0.0" }
+          "options": { "port": {{#if port}}{{port}}{{else}}3000{{/if}}, "host": "0.0.0.0"{{#if proxyConfig}}, "proxyConfig": {{json proxyConfig}}{{/if}} }
         }
       }
     }
