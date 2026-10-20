@@ -418,7 +418,10 @@ describe("react generator", () => {
       expect(app).toBeDefined();
       // Layout route extracted; Outlet is the slot.
       expect(app).toMatch(/function AppShellLayout\(\)/);
-      expect(app).toMatch(/<AppErrorBoundary>\s*<Outlet \/>\s*<\/AppErrorBoundary>/);
+      // The outlet's lazy page renders behind a Suspense inside the boundary.
+      expect(app).toMatch(
+        /<AppErrorBoundary>\s*<React\.Suspense fallback=\{<RouteLoading \/>\}>\s*<Outlet \/>\s*<\/React\.Suspense>\s*<\/AppErrorBoundary>/,
+      );
       // The `layout: none` page mounts as a sibling of the
       // <Route element={<AppShellLayout />}> wrapper — not nested
       // inside it.
@@ -652,8 +655,12 @@ describe("react generator", () => {
       const { files } = generateSystems(model);
       const app = files.get("web_app/src/App.tsx")!;
       // Index + per-workflow imports.
-      expect(app).toMatch(/import WorkflowsIndex from "\.\/pages\/workflows\/index"/);
-      expect(app).toMatch(/import PlaceOrderWorkflowPage from "\.\/pages\/workflows\/place_order"/);
+      expect(app).toMatch(
+        /const WorkflowsIndex = React\.lazy\(\(\) => import\("\.\/pages\/workflows\/index"\)\)/,
+      );
+      expect(app).toMatch(
+        /const PlaceOrderWorkflowPage = React\.lazy\(\(\) => import\("\.\/pages\/workflows\/place_order"\)\)/,
+      );
       // Routes — index + per-workflow.
       expect(app).toMatch(/<Route path="\/workflows" element=\{<WorkflowsIndex \/>\} \/>/);
       expect(app).toMatch(

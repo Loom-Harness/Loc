@@ -31,6 +31,7 @@ import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { ImportSpec, LoadedPack } from "../../_packs/loader.js";
+import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
 import type { ApiHookUse } from "../../_walker/walker-core.js";
@@ -532,6 +533,11 @@ export function renderVuePage(input: VuePageShellInput): string {
         title: state.modalTitle || humanize(state.op.name),
         titleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(state.op.name)),
         submitLabel: humanize(state.op.name),
+        // The close icon's accessible name (shadcnVue's DialogContent) — never
+        // equal to the submit label (`opDialogChrome`).
+        closeLabelExpr:
+          state.closeLabelExpr ??
+          JSON.stringify(chromeMessage(opDialogChrome(humanize(state.op.name)).close)),
         ns,
         fieldsHtml: fields,
       }),
@@ -1357,6 +1363,11 @@ export function renderVueComponentFile(
         title: st.modalTitle || humanize(st.op.name),
         titleExpr: st.modalTitleExpr ?? JSON.stringify(humanize(st.op.name)),
         submitLabel: humanize(st.op.name),
+        // The close icon's accessible name (shadcnVue's DialogContent) — never
+        // equal to the submit label (`opDialogChrome`).
+        closeLabelExpr:
+          st.closeLabelExpr ??
+          JSON.stringify(chromeMessage(opDialogChrome(humanize(st.op.name)).close)),
         ns: st.testidNamespace,
         fieldsHtml: fields,
       }),
