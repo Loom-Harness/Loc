@@ -1238,6 +1238,19 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
 > principal it never meant to be. An absent or empty header still means the
 > built-in identity.
 
+**Under `auth { oidc }` the stub is preview-only.** The Hono backend still
+emits `auth/dev-stub.ts`, but its `index.ts` registers only the OIDC verifier,
+so a running app ignores the header. The playground preview registers the stub
+instead, because no identity provider is reachable from its browser worker —
+that is the one place an OIDC system honours `x-loom-dev-claims` (a malformed
+header there answers 401, not 400, since the OIDC middleware does not know the
+stub).
+
+```ts
+// generated (node, auth { oidc }) — index.ts
+registerOidcVerifier();          // auth/dev-stub.ts is never imported here
+```
+
 With no header the stub returns its **built-in identity**: one value per field
 the `user { … }` block declares — `"admin"` for a `string`, the all-zero uuid
 for a `guid`, `0` for a number, `false` for a `bool`, the epoch for a
@@ -1280,6 +1293,17 @@ The seed widens with the aggregate's id value type (`int`/`long` → zero,
 > token. This asymmetry is dev-stub-only, it is not surfaced by any `loom.*`
 > diagnostic, and it is why a permission-gated fixture cannot be driven from
 > the behavioural harness on four of the five backends.
+
+**Typed claims on the OIDC path.** A verified token's non-string claims —
+`X id`, `guid`, `int`, `long`, `bool`, `datetime`, `decimal`, and lists of
+them — reach `currentUser` on every backend. Node, Python and Elixir carry the
+claim's JSON value as-is; .NET and Java decode it into the declared type (an
+`X id` claim is built through the generated `XId` type; a number may arrive as
+a JSON number or a numeric string; a `datetime` as ISO-8601 or epoch seconds).
+An optional claim that is absent or can't be decoded is `null`. A **required**
+one rejects the token with 401 (the same rule node applies to an absent required
+claim). Value-object, enum, `money` and `json` claims are not decoded on
+.NET/Java; they keep the type default.
 
 ## Token audience (`aud`)
 
