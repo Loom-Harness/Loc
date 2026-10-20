@@ -35,6 +35,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   installGeneratedProject,
+  installGeneratedProjectAsync,
   NPM_INSTALL_ATTEMPTS,
   NPM_INSTALL_RETRY_DELAY_MS,
 } from "./npm-install.js";
@@ -242,6 +243,40 @@ describe.skipIf(!onPosix)("installGeneratedProject", () => {
 // 49 migrated sites did.  This is the waiver-free half: every generated-project
 // install in test/e2e/ goes through the helper, so the next one inherits both
 // the diagnosis and the retry by default rather than by remembering to.
+// The async twin shares the attempt logic (a generator both drivers run), so
+// these pin that it drives it the same way: one retry, bounded, the diagnosis
+// kept, and the `ci` fallback inside one attempt.
+describe.skipIf(!onPosix)("installGeneratedProjectAsync", () => {
+  it("retries a transient failure exactly once and goes green", async () => {
+    stubNpm("transient");
+    await installGeneratedProjectAsync(mkTmp("loom-proj-"), { retryDelayMs: FAST_RETRY });
+    expect(invocations()).toHaveLength(2);
+  });
+
+  it("stops after exactly two attempts and re-prints npm's own error text", async () => {
+    stubNpm("always");
+    const failure = installGeneratedProjectAsync(mkTmp("loom-proj-"), {
+      retryDelayMs: FAST_RETRY,
+    });
+    await expect(failure).rejects.toThrow("npm error code ETARGET");
+    await expect(failure).rejects.toThrow(/after 2 attempts/);
+    expect(invocations()).toHaveLength(2);
+  });
+
+  it("falls back from `npm ci` to `npm install` inside ONE attempt", async () => {
+    stubNpm("ci-only");
+    await installGeneratedProjectAsync(mkTmp("loom-proj-"), {
+      ciFirst: ["--prefer-offline", "--no-audit", "--no-fund"],
+      flags: [],
+      retryDelayMs: FAST_RETRY,
+    });
+    const seen = invocations();
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain("ci --loglevel=error --prefer-offline");
+    expect(seen[1]).toBe("install --loglevel=error");
+  });
+});
+
 describe("no e2e suite installs a generated project behind the helper's back", () => {
   it("has no raw `npm install` / `npm ci` invocation left in test/e2e/", () => {
     const dir = path.join(import.meta.dirname, "..");
