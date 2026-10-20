@@ -32,21 +32,11 @@ name: Generated Vue e2e
 # then a `vite build` + Playwright run per pack — 2 jobs.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/vue-showcase.ddd'
-      - 'vue/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'stacks/**'
-      - 'test/e2e/generated-vue-e2e.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-vue-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '25 3 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]

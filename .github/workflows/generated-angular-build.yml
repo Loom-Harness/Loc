@@ -31,22 +31,6 @@ name: Generated Angular build
 # Case names are the `name`s in test/e2e/generated-angular-build.test.ts.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/angularMaterial/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'angular/**'
-      - 'stacks/ng1/**'
-      - 'test/e2e/generated-angular-build.test.ts'
-      - 'test/e2e/support/npm-install.ts'
-      - 'test/e2e/support/parallel.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-angular-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]

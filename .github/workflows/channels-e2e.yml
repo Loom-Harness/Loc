@@ -55,36 +55,6 @@ name: Channels (broker runtime e2e)
 # block carrying the generation path would instead fire all 18 cells on every
 # `src/ir/**` push.  `push: main` stays as the post-merge regression net.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      # The Hono backend + every PlatformSurface: `src/platform/hono/v4/emit.ts`
-      # owns the channel-transport wiring (bindings -> http/channels.ts -> the
-      # boot-time publish tee + consumer loop) and `composeService` provisions
-      # the broker sidecar, yet neither could trigger this gate before M-T6.23
-      # slice 2 — which changed exactly that file.
-      - 'src/platform/**'
-      - 'src/generator/_channels/**'
-      - 'src/generator/typescript/emit/channels.ts'
-      - 'src/generator/python/channels-builder.ts'
-      - 'src/generator/dotnet/emit/channels.ts'
-      - 'src/generator/java/emit/channels.ts'
-      - 'src/generator/elixir/channels-emit.ts'
-      - 'test/e2e/channels-e2e*.test.ts'
-      - 'test/fixtures/corpus/channels-broker.ddd'
-      - 'package.json'
-      - '.github/workflows/channels-e2e.yml'
   workflow_dispatch:
   # The merge queue runs every cell against the rebased candidate; `merge_group`
   # is not `pull_request`, so the label guard on each job short-circuits true.

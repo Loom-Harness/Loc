@@ -55,63 +55,6 @@ name: Tenancy isolation (runtime e2e)
 # `if:` cannot read `matrix`, and because test/system/draft-gate.test.ts and
 # merge-queue-readiness.test.ts read each job's guard literally.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/python/index.ts'
-      - 'src/generator/java/emit/auth.ts'
-      - 'src/generator/dotnet/emit/efcore.ts'
-      - 'src/generator/dotnet/auth-emit.ts'
-      - 'src/generator/elixir/vanilla/api-emit.ts'
-      - 'src/generator/elixir/vanilla/openapi-emit.ts'
-      - 'src/platform/hono/**'
-      # The MikroORM adapter's own emitter: it owns the hierarchical subtree
-      # predicate (a `raw()` FilterQuery key) that the `node-mikroorm` cell
-      # boots.  Missing from this list, a mikroorm-emitter-only change skipped
-      # the whole workflow.
-      - 'src/generator/typescript/emit/mikroorm.ts'
-      # Same argument, .NET side: the Dapper adapter splices the subtree
-      # predicate into every SELECT as a raw SQL string with four hand-bound
-      # parameters, which the `dotnet-dapper` cell boots.
-      - 'src/generator/dotnet/emit/dapper.ts'
-      - 'test/e2e/tenancy-isolation.test.ts'
-      - 'test/e2e/tenancy-isolation-python.test.ts'
-      - 'test/e2e/tenancy-isolation-java.test.ts'
-      - 'test/e2e/tenancy-isolation-dotnet.test.ts'
-      - 'test/e2e/tenancy-isolation-elixir.test.ts'
-      - 'test/e2e/tenancy-hierarchy.test.ts'
-      - 'test/e2e/tenancy-hierarchy-python.test.ts'
-      - 'test/e2e/tenancy-hierarchy-java.test.ts'
-      - 'test/e2e/tenancy-hierarchy-dotnet.test.ts'
-      - 'test/e2e/tenancy-hierarchy-elixir.test.ts'
-      - 'test/e2e/tenancy-hierarchy-mikroorm.test.ts'
-      - 'test/e2e/tenancy-hierarchy-dapper.test.ts'
-      - 'test/e2e/tenancy-subtree-explain.test.ts'
-      # The organizationContext switch-gate leg (M-T3.6 items 3+5): its own
-      # test file + fixture, and the auth-layer emitters that host the gate
-      # which the lines above do not already reach (python/elixir auth, and
-      # the neutral log catalog the deny is logged through).
-      - 'test/e2e/tenancy-org-context.test.ts'
-      - 'test/fixtures/corpus/org-context.ddd'
-      - 'src/generator/python/auth-emit.ts'
-      - 'src/generator/elixir/auth-emit.ts'
-      - 'src/generator/_obs/log-events.ts'
-      - 'test/e2e/support/tenancy-isolation-harness.ts'
-      - 'test/fixtures/corpus/tenancy-owned.ddd'
-      - 'test/fixtures/corpus/tenancy-hierarchy.ddd'
-      - 'package.json'
-      - '.github/workflows/tenancy-e2e.yml'
   workflow_dispatch:
   merge_group:
   # Per-PR, path-scoped, for the `flat` job; the other job runs on a PR only

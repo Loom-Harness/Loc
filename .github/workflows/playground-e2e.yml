@@ -11,38 +11,19 @@ name: Playground e2e
 # CI runners have internet access so the network-gated steps don't
 # self-skip the way they do in local sandboxes.
 #
-# Triggers: every direct push to main (i.e. after merge) + a daily
-# scheduled run + manual dispatch.  The per-PR trigger was removed
-# because these specs are network-gated (esm.sh / jsdelivr / npm) and
-# flaky enough that gating every PR on them cost more than it caught.
-# Branch-protection (configured separately in repo settings) decides
-# whether the post-merge run is a required check.
+# Triggers: a daily scheduled run on main + manual dispatch + the
+# `run-e2e` label.  It gates neither PRs nor the merge queue because
+# these specs are network-gated (esm.sh / jsdelivr / npm) and a CDN
+# outage would eject entries nobody here can fix.
 #
 # The network-free half of the suite IS gated per-PR, by the sibling
 # `playground-e2e-no-network.yml` (workspace / history / builder /
 # requirements / editor specs — everything that stops at Generate).  A
 # spec added there must not grow a Bundle/Boot step; one added here is
 # free to.
-#
-# To re-enable per-PR gating of the FULL suite, add back a
-# `pull_request:` block with the same `paths:` filter as `push:` below.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'web/**'
-      - 'src/**'
-      - 'designs/**'
-      - 'vite/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/playground-e2e.yml'
-  # Daily run at 06:00 UTC so the network-gated suite still gets
-  # exercised against main even on days with no merges.
+  # Daily run at 06:00 UTC against main.
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
@@ -52,16 +33,11 @@ on:
   pull_request:
     types: [labeled]
 
-# Cancel superseded *push* runs (a newer merge is what ultimately gets
-# gated, so killing the older in-flight push saves CI minutes).  But key
-# the group by event so a scheduled / manually-dispatched run gets its
-# OWN lane: those share `refs/heads/main` with push runs, and on a busy
-# day every merge was cancelling the nightly before it could produce a
-# pass/fail signal.  Only push runs auto-cancel; schedule + dispatch
-# always run to completion.
+# Keyed by event so a labeled PR run never shares a lane with the nightly;
+# nothing auto-cancels, so a scheduled run always produces a verdict.
 concurrency:
   group: playground-e2e-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 jobs:
   e2e:
