@@ -704,6 +704,9 @@ function opMayRaiseGuard(
 ): boolean {
   if (!op || seen.has(op.name)) return false;
   seen.add(op.name);
+  // A `when` state gate raises `GuardError :disallowed` from the pure op core
+  // (claims D17), so an op carrying one can reject without any precondition.
+  if (op.when !== undefined) return true;
   let found = false;
   for (const top of op.statements) {
     walkStmtsDeep(top, (s) => {
