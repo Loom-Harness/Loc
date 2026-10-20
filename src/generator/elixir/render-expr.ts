@@ -34,6 +34,7 @@ import {
   renderExprWith,
   type UnaryExpr,
 } from "../_expr/target.js";
+import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Phoenix LiveView / Elixir backend.
@@ -589,15 +590,13 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     // `validate_length/3` has no `:codepoints` option.
     return elixirCodePointLength(recv);
   }
-  // Value-object SUB-field read (`this.money.amount`) — issue #1660.  A value
-  // object has THREE inconsistent runtime shapes on vanilla: a single VO field is
-  // a STRING-keyed jsonb map, a VO collection element is an ATOM-keyed child
-  // struct, and a freshly-built VO ctor is an ATOM-keyed map.  Struct-dot
-  // (`.amount`) crashes with `KeyError` on the string-keyed map; bracket
-  // (`["amount"]`) crashes on the struct.  Read via a key-type-agnostic fallback
-  // — atom key first, string key second — which is correct for all three (and
-  // fail-softs a nil optional VO to nil).  This is the elixir sibling of the
-  // typed-VO handling the other backends get for free.
+  // Value-object SUB-field read (`this.money.amount`).  A single VO column
+  // loads ATOM-keyed (`Loom.ValueObject`, value-object-type-emit.ts) and a
+  // freshly-built VO ctor is an ATOM-keyed map, but a VO collection element is
+  // a child struct and a VO inside a document embed stays a STRING-keyed map.
+  // Struct-dot (`.amount`) crashes with `KeyError` on the string-keyed map.
+  // Read via a key-type-agnostic fallback — atom key first, string key
+  // second — which is correct for every shape.
   if (e.receiverType.kind === "valueobject") {
     const k = snake(e.member);
     const read = `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
@@ -1433,6 +1432,24 @@ function renderBinary(
   if (ectoQuery) {
     const nullAware = renderEctoNullableComparison(l, r, e);
     if (nullAware !== null) return nullAware;
+  }
+  // VALUE equality on value objects.  One value object reaches here in several
+  // runtime shapes — a column value (canonical atom-keyed map), a constructor
+  // map, a collection element (an Ecto struct carrying an id, parent FK and
+  // ordinal), a document embed (string-keyed) — and two equal decimals may
+  // differ in scale, so native `==` answered false for equal values.
+  // `Loom.ValueObject.equal?/2` compares them field by field
+  // (value-object-type-emit.ts); it is nil-safe, so an optional operand needs
+  // no separate arm.  This is also where `<vo>.equals(other)` lands — the
+  // lowerer turns it into this same `binary ==` node.  Inside an Ecto query a
+  // function call is not a query expression, so the native operator stays.
+  if (
+    !inFilter &&
+    (e.op === "==" || e.op === "!=") &&
+    (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
+  ) {
+    const eq = renderValueObjectEquality(e.op, l, r);
+    return e.op === "==" ? eq : `(${eq})`;
   }
   // money / decimal operands cannot use the native `+`/`*`/`>` operators in
   // Elixir — both are `Decimal` structs.  Arithmetic dispatches through

@@ -574,6 +574,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
   "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
+  // Banking-eval B-04 — the committed and the rolled-back transactional
+  // workflow are driven through their command routes (`notLifted`, as above).
+  "corpus/transactional-workflow-event-rollback": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitTwice.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -854,6 +860,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.

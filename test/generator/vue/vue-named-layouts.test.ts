@@ -71,13 +71,13 @@ describe("named layouts — Vue", () => {
     expect(router).toContain('import MarketingLayout from "./layouts/Marketing.vue";');
     expect(router).toContain('import DefaultLayout from "./layouts/DefaultLayout.vue";');
     // Kiosk (layout: none) mounts top-level, no wrapper.
-    expect(router).toContain('{ path: "/kiosk", component: Kiosk },');
+    expect(router).toContain('{ path: "/kiosk", component: () => import("./pages/kiosk.vue") },');
     // Landing nests under MarketingLayout; Dash under DefaultLayout.
     expect(router).toMatch(
-      /component: MarketingLayout,\s*children: \[\s*\{ path: "\/", component: Landing \}/,
+      /component: MarketingLayout,\s*children: \[\s*\{ path: "\/", component: \(\) => import\("\.\/pages\/landing\.vue"\) \}/,
     );
     expect(router).toMatch(
-      /component: DefaultLayout,\s*children: \[\s*\{ path: "\/dash", component: Dash \}/,
+      /component: DefaultLayout,\s*children: \[\s*\{ path: "\/dash", component: \(\) => import\("\.\/pages\/dash\.vue"\) \}/,
     );
     // The catch-all stays inside the default chrome.
     expect(router).toContain('{ path: "/:pathMatch(.*)*", component: NotFound },');
@@ -115,6 +115,6 @@ describe("named layouts — Vue", () => {
     // Router is flat (pages mount directly, no children: arrays).
     const router = files.get("src/router.ts")!;
     expect(router).not.toContain("children:");
-    expect(router).toContain('{ path: "/dash", component: Dash },');
+    expect(router).toContain('{ path: "/dash", component: () => import("./pages/dash.vue") },');
   });
 });

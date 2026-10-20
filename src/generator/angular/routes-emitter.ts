@@ -2,10 +2,13 @@
 // Angular route-table emitter (angular-frontend-plan.md).
 //
 // Hand-renders `src/app/app.routes.ts` — the standalone `Routes` array
-// `provideRouter` consumes: one entry per declared ui page (importing its
-// component), a synthetic Home when no page owns the index route, and a
-// wildcard NotFound.  Lazy `loadComponent` + route-param input binding are
-// a later batch.
+// `provideRouter` consumes: one entry per declared ui page, a synthetic Home
+// when no page owns the index route, and a wildcard NotFound.
+//
+// Every declared page is a LAZY route (`loadComponent: () => import(...)`), so
+// the builder splits each page into its own chunk and the initial bundle holds
+// only the shell.  The synthetic Home and NotFound are a few lines of shell
+// chrome and stay eager.  Route-param input binding is not emitted.
 // ---------------------------------------------------------------------------
 
 export interface AngularRouteDesc {
@@ -28,15 +31,14 @@ export function renderAngularRoutes(
   includeHome: boolean,
 ): string {
   const lines: string[] = ["// Auto-generated.", 'import type { Routes } from "@angular/router";'];
-  for (const p of pages) {
-    lines.push(`import { ${p.component} } from "./pages/${p.slug}.component";`);
-  }
   if (includeHome) lines.push('import { HomeComponent } from "./home.component";');
   lines.push('import { NotFoundComponent } from "./not-found.component";', "");
   lines.push("export const routes: Routes = [");
   if (includeHome) lines.push('  { path: "", component: HomeComponent },');
   for (const p of pages) {
-    lines.push(`  { path: ${JSON.stringify(routePath(p.route))}, component: ${p.component} },`);
+    lines.push(
+      `  { path: ${JSON.stringify(routePath(p.route))}, loadComponent: () => import("./pages/${p.slug}.component").then((m) => m.${p.component}) },`,
+    );
   }
   lines.push('  { path: "**", component: NotFoundComponent },', "];", "");
   return lines.join("\n");

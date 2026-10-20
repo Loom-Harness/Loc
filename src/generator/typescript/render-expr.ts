@@ -604,7 +604,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // VALUE equality on value objects.  A VO is a class instance here, so `===`
   // compares REFERENCES — `berth == Berth { … }` was always false, while every
   // other backend compares by value (python dataclass `==`, java
-  // `Objects.equals`, .NET record `==`, elixir struct `==`).  Route it through
+  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
   // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
   // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
   // same `binary ==` node.  A nullable operand keeps the native comparison
