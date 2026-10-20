@@ -19,7 +19,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
-import { csLocalNamer } from "../local-names.js";
+import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -81,13 +81,11 @@ export function renderRepositoryInterface(
       ? ["int page", "int pageSize", "string sort", "string dir"]
       : [];
     return [
-      keywordParamSuppression(f.params),
       `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
     ];
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
   const retrievalLines = retrievals.map((r) => [
-    keywordParamSuppression(r.params),
     `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
   ]);
   return (
@@ -274,7 +272,8 @@ export function renderRepositoryImpl(
     // §11) — installed on the IQueryable BEFORE `.Where(...)`, so the bypassed
     // capability filter(s) never compose into this read.
     const ignore = body?.ignoreClause ?? "";
-    const projection = body?.projectionClause ?? ".ToListAsync(cancellationToken)";
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = body?.projectionClause ?? `.ToListAsync(${ct})`;
     const usesUser = findUsesCurrentUser(f);
     // The method's own locals yield (`__`-prefixed) to a same-named find param
     // (CS0136) — only on a collision, so every other model is byte-identical.
@@ -301,10 +300,10 @@ export function renderRepositoryImpl(
         "    {",
         `        var ${L("offset")} = (page - 1) * pageSize;`,
         `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
-        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
+        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(${ct});`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
         `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
-        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(cancellationToken);`,
+        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(${ct});`,
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },
           { name: "find", valueExpr: `"${f.name}"` },
@@ -361,26 +360,26 @@ export function renderRepositoryImpl(
   const allBypassNames = hasNonBypassableFilter(agg) ? bypassableFilterNames(agg, pool) : null;
   // `q` is the method's IQueryable local (`__q` unless a retrieval param takes
   // that name — see csLocalNamer).
-  const bypassAllLines = (q: string): string[] =>
+  const bypassAllLines = (q: string, bypass: string): string[] =>
     allBypassNames === null
-      ? [`        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters();`]
+      ? [`        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters();`]
       : allBypassNames.length > 0
         ? [
-            `        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
+            `        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
               .map((n) => JSON.stringify(n))
               .join(", ")}]);`,
           ]
         : [];
-  const bypassBody = (q: string): string[] => [
-    ...bypassAllLines(q),
+  const bypassBody = (q: string, bypass: string): string[] => [
+    ...bypassAllLines(q, bypass),
     ...(bypassPairs.length > 0
       ? [
-          `        ${bypassAllLines(q).length > 0 ? "else if" : "if"} (bypass.Capabilities is { Count: > 0 })`,
+          `        ${bypassAllLines(q, bypass).length > 0 ? "else if" : "if"} (${bypass}.Capabilities is { Count: > 0 })`,
           "        {",
           `            var __ignore = new (string Capability, string Filter)[] { ${bypassPairs
             .map((p) => `(${JSON.stringify(p.cap)}, ${JSON.stringify(p.filter)})`)
             .join(", ")} }`,
-          "                .Where(m => bypass.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();",
+          `                .Where(m => ${bypass}.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();`,
           `            if (__ignore.Length > 0) ${q} = ${q}.IgnoreQueryFilters(__ignore);`,
           "        }",
         ]
@@ -395,6 +394,7 @@ export function renderRepositoryImpl(
       r.params.map((p) => p.name),
       ["__q", "result"],
     );
+    const own = csReadOwnParams(r.params.map((p) => p.name));
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -403,8 +403,8 @@ export function renderRepositoryImpl(
       // domain `bypass` (capability names) is translated to EF filter names
       // adapter-side, above.
       `        var ${L("__q")} = _db.${setName}.AsQueryable();`,
-      ...bypassBody(L("__q")),
-      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(page).ToListAsync(cancellationToken);`,
+      ...bypassBody(L("__q"), own.bypass),
+      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
@@ -866,10 +866,11 @@ export function renderDocumentRepositoryImpl(
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects
     // equivalents.
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
     // `result` yields to a same-named find param (CS0136).
     const result = csLocalNamer(f.params.map((p) => p.name))("result");
@@ -891,7 +892,7 @@ export function renderDocumentRepositoryImpl(
     // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
     // every filter whatever a find bypasses.  A deny sentinel is never
     // bypassable (deny wins over `ignoring *`).
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -1186,15 +1187,16 @@ export function renderEventSourcedRepositoryImpl(
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
     // `result` yields to a same-named find param (CS0136).
     const result = csLocalNamer(f.params.map((p) => p.name))("result");
     const rowsExpr = findRowsExpr(f.returnType, result);
-    const loadAll = "var __all = await _LoadAllAsync(cancellationToken);";
+    const loadAll = `var __all = await _LoadAllAsync(${ct});`;
     // `find … paged` over an event-log carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -1443,19 +1445,6 @@ function findRowsExpr(returnType: TypeIR, result = "result"): string {
   return returnType.kind === "optional" ? `${result} == null ? 0 : 1` : "1";
 }
 
-/** CA1716 (an error under `/warnaserror`) rejects a parameter of an
- *  INTERFACE member spelled like a language keyword, even escaped — `@static`
- *  is still the parameter `static` to a caller in another .NET language.  The
- *  `.ddd` author chose the name (`find byLevel(static: int)`), and renaming it
- *  would break the implementation's body and every named-argument caller, so
- *  the port member carries a targeted suppression instead — only when one of
- *  its parameters needed the verbatim prefix. */
-function keywordParamSuppression(params: ParamIR[]): string | null {
-  return params.some((p) => escapeCsharpIdent(p.name) !== p.name)
-    ? `    [global::System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Parameter name is the .ddd source's own spelling.")]`
-    : null;
-}
-
 function renderParamsWithCt(
   params: ParamIR[],
   usesUser: boolean = false,
@@ -1468,9 +1457,10 @@ function renderParamsWithCt(
   ]
     .filter(Boolean)
     .join(", ");
+  const { ct } = csReadOwnParams(params.map((p) => p.name));
   return head.length > 0
-    ? `${head}, CancellationToken cancellationToken = default`
-    : "CancellationToken cancellationToken = default";
+    ? `${head}, CancellationToken ${ct} = default`
+    : `CancellationToken ${ct} = default`;
 }
 
 /** Retrieval params + an optional call-site `page` argument
@@ -1478,9 +1468,10 @@ function renderParamsWithCt(
  *  never part of the retrieval declaration (retrieval.md) — it rides on
  *  the run method. */
 export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
+  const own = csReadOwnParams(params.map((p) => p.name));
   const head = [
     ...params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
-    "(int? offset, int? limit)? page = null",
+    `(int? offset, int? limit)? ${own.page} = null`,
   ].join(", ");
   // The `bypass` param carries an inline read's `ignoring` clause
   // (named-filter-bypass.md §11) from the call site to the shared retrieval
@@ -1489,5 +1480,6 @@ export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
   // (audit S7); the adapter translates it.  `cancellationToken` MUST stay last
   // (CA1068, an error under `/warnaserror`), so `bypass` sits before it; call
   // sites pass `cancellationToken` NAMED (it follows the optional `page`).
-  return `${head}, FilterBypass bypass = default, CancellationToken cancellationToken = default`;
+  // All three yield to a same-named retrieval param — see `csReadOwnParams`.
+  return `${head}, FilterBypass ${own.bypass} = default, CancellationToken ${own.ct} = default`;
 }

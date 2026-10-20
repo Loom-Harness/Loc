@@ -69,6 +69,18 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *  the python wire-model emitter returns the key. */
 const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
 
+/** The backends that compile a hosted `X id[]` whose target aggregate lives in a
+ *  sibling context the deployable does NOT host (claims eval D18's list position).
+ *
+ *  `vanilla` (elixir) is absent, and this is the NAME of that exclusion: the
+ *  schema emits `many_to_many :others, <App>.<HostCtx>.Pol, join_through: …` —
+ *  an Ecto association to a schema module that exists in no context of this
+ *  deployable, so `mix compile --warnings-as-errors` fails with "invalid
+ *  association … associated schema … does not exist".  The join-table migration
+ *  itself is fine (no FK).  The elixir key returns the day its id-list emitter
+ *  stops modelling a NON-hosted target as an Ecto association. */
+const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
+
 /** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
  *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
  *  (`stamp_at_time` / `stamp_who`) while every response DTO declares it NESTED,
@@ -315,6 +327,16 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
   {
+    id: "foreign-id-field",
+    title: "an `X id` on a hosted declaration whose aggregate lives in a sibling context the deployable does NOT host",
+    doc: "language",
+    backends: FOREIGN_ID_LIST,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the id's target aggregate.
+    deployables: ["policies", "desk"],
+    note: "D18 of eval-claims/FIX-PLAN.md — `pol: Pol id` (field / optional / list / op param / event field / find param) on a deployable hosting only `Claims`: the ids module declared hosted aggregates' brands plus foreign event / workflow / claim ids, so `PolId` was referenced and declared nowhere (node TS2694, python name-defined, .NET CS0246 x52, javac cannot find symbol).  The hosted declaration surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+  },
+  {
     id: "auth-id-claim-foreign",
     title: "id-typed user claim naming an aggregate the deployable does NOT host",
     doc: "auth",
@@ -430,6 +452,15 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Minted by M-T6.69 (completeness-audit F1; the deep fuzz leg's seeds 45/70/115 all shrink to it).  The .NET aggregate class names a value object only in TYPE position (`public Amount Price`, `new Amount(…)`), so a member called `Amount` hides nothing — but the gate counted value objects and events among the types a member could hide, and refused the model on dotnet while the other four accepted it.  All five backends must now compile it.",
+    },
+    {
+    id: "context-named-like-app",
+    title:
+      "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",
+    doc: "language",
+    backends: ALL,
+    deployables: ["claims"],
+    note: "Minted by the claims developer-persona eval (wave 2).  Every elixir controller opened with `alias Claims.Claims`, which rebinds `Claims` itself, so the same file's `rescue guard_error in Claims.GuardError` resolved to `Claims.Claims.GuardError` and `mix compile --warnings-as-errors` failed — while `generate system` reported `0 error(s), 0 warning(s)`.  Repaired, not refused: when the context name equals the app module the controller drops the facade alias and calls `Claims.Claims.<fn>` fully qualified (`contextCallRef` in `src/generator/elixir/vanilla/denial.ts`), so every non-clashing model stays byte-identical.  Both controller emitters (relational + event-sourced) are exercised.  The row is ALL because the other four backends have no alias semantics here and must keep compiling the same names.",
   },
   {
     id: "vo-field-default",
@@ -461,7 +492,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a value object referenced ACROSS a context boundary (`Billing.Receipt.shipTo` → `valueobject Addr` in sibling context `Directory`) — the flattening must produce the same leaf columns from the sibling pool as from the local one",
     doc: "language",
     backends: ALL,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): a type shared between two contexts is the ordinary DDD move and the README's own Quick Example shape, and `BoundedContextIR.siblingValueObjects` exists to serve it — so every emitter that materialises a referenced VO has two lookup paths to keep in step, `ctx.valueObjects` for a local declaration and the sibling pool for a foreign one.  The call site comes from the aggregate's wire shape (which spans contexts); the definition must come from the pool.  The evaluation's F-008 is what a context-local lookup costs: the consuming context emits ONE column under the UNFLATTENED name while the owning context flattens, so migration and ORM disagree on column name AND type, observable only against a live database.  All five backends resolve through the pool and gate here: the flattened `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` columns on node/dotnet/java/python (python's `mypy --strict` reads the hydrate site; its two bind sites are untyped dict literals the compile tier cannot see), and elixir's sibling-context `serialize_addr/1` + nested `serialize_geo/1`, which only `mix compile --warnings-as-errors` catches missing — grade a backend here by compiling it, not by reading its schema.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): a type shared between two contexts is the ordinary DDD move and the README's own Quick Example shape, and `BoundedContextIR.siblingValueObjects` exists to serve it — so every emitter that materialises a referenced VO has two lookup paths to keep in step, `ctx.valueObjects` for a local declaration and the sibling pool for a foreign one.  The call site comes from the aggregate's wire shape (which spans contexts); the definition must come from the pool.  The evaluation's F-008 is what a context-local lookup costs: the consuming context emits ONE column under the UNFLATTENED name while the owning context flattens, so migration and ORM disagree on column name AND type, observable only against a live database.  All five backends resolve through the pool and gate here: the flattened `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` columns on node/dotnet/java/python (python's `mypy --strict` reads the hydrate site; its two bind sites are untyped dict literals the compile tier cannot see), and elixir's sibling-context `serialize_addr/1` + nested `serialize_geo/1`, which only `mix compile --warnings-as-errors` catches missing — grade a backend here by compiling it, not by reading its schema.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.  It also carries the CROSSING of two axes the fixture-shape audit measured only separately: `Shipper extends Party` is a TPH concrete whose OWN required field (`ship: Addr`) resolves from the SIBLING pool.  `inheritance.ddd` has a VO on an inheriting aggregate's own field but declares it in the SAME context, so its lookup never leaves `ctx.valueObjects`; this file had the sibling pool but no `extends`, so the TPH column path was never on it; and NO corpus fixture crossed them.  The crossing is load-bearing because a TPH concrete's own fields become nullable columns on the shared base table and the emitter narrows them back on read — it must narrow the FLATTENED leaves the pool produces, not the field name.  Proved two-armed by swapping `py-columns.ts`'s two `findValueObjectInScope` calls back to a bare `ctx.valueObjects.find` (a no-op for a local VO, since own names shadow): THIS cell goes red with `PartyRow` has no attribute `ship` (mypy `attr-defined`) while `inheritance` stays GREEN, so the crossing and not either axis alone is what this gates.",
   },
   {
     id: "nested-valueobject",

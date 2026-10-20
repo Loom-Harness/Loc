@@ -31,3 +31,28 @@ export function csLocalNamer(
     return n;
   };
 }
+
+/** The C# names of the parameters a repository read method appends after the
+ *  `.ddd` declaration's own: the call-site `page` window and the domain
+ *  `bypass` (retrievals), and the trailing `cancellationToken` (every read).
+ *
+ *  A `.ddd` read param may be spelled like one of them (`find byToken(
+ *  cancellationToken: string)`), which C# rejects as a duplicate parameter
+ *  (CS0100).  The method's own parameter is the one that yields
+ *  (`__`-prefixed), by the same rule as `csLocalNamer`: the declared param is
+ *  the public surface (the query record, the Spec ctor, the Dapper `@<name>`
+ *  placeholder), while these three are .NET plumbing no `.ddd` source names.
+ *  Unlike `page`/`pageSize`/`sort`/`dir` on a paged read
+ *  (`loom.paged-param-reserved`), none of them is a wire key, so a rename is
+ *  honest and nothing is refused.  Every caller that passes one of them by
+ *  name — a workflow's `Repo.run(...)`, a domain service's criterion read —
+ *  resolves the names through this function, so the interface, both adapters
+ *  and the call sites agree. */
+export function csReadOwnParams(paramNames: Iterable<string>): {
+  page: string;
+  bypass: string;
+  ct: string;
+} {
+  const own = csLocalNamer(paramNames);
+  return { page: own("page"), bypass: own("bypass"), ct: own("cancellationToken") };
+}
