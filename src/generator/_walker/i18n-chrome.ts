@@ -89,10 +89,53 @@ export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  // The op dialog's dismiss label when the operation itself is named "Cancel",
+  // and its close icon's name ("Close dialog" when the operation is named
+  // "Close") — see `opDialogChrome`.
+  [chromeKey("goBack")]: "Go back",
+  [chromeKey("close")]: "Close",
+  [chromeKey("closeDialog")]: "Close dialog",
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",
 };
+
+/** The chrome names an operation dialog's two dismissing controls carry, given
+ *  the label of its SUBMIT button (the humanized operation name, or the
+ *  authored dialog title where a target labels its submit with that).
+ *
+ *  Rule: the submit button names the action, and no other control in the dialog
+ *  shares its accessible name — two controls announced identically with
+ *  opposite effects is both a usability and an accessibility defect.  So each
+ *  dismissing control takes the first of its candidates whose English differs
+ *  from every name already taken in the dialog:
+ *
+ *    - the dismiss BUTTON: "Cancel", else "Go back" (`operation cancel(…)`);
+ *    - the CLOSE icon (the corner ×, on the packs whose dialog has one):
+ *      "Close", else "Close dialog" (`operation close(…)`).
+ *
+ *  The two candidate lists are disjoint, so the button and the icon never
+ *  collide with each other either.  Compared case- and whitespace-
+ *  insensitively, the way an accessible-name match is. */
+export interface OpDialogChrome {
+  readonly dismiss: "cancel" | "goBack";
+  readonly close: "close" | "closeDialog";
+}
+
+const DISMISS_CANDIDATES = ["cancel", "goBack"] as const;
+const CLOSE_CANDIDATES = ["close", "closeDialog"] as const;
+
+export function opDialogChrome(submitLabel: string): OpDialogChrome {
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  const taken = new Set([norm(submitLabel)]);
+  const pick = <T extends string>(candidates: readonly [T, T]): T => {
+    const name = candidates.find((c) => !taken.has(norm(chromeMessage(c)))) ?? candidates[1];
+    taken.add(norm(chromeMessage(name)));
+    return name;
+  };
+  const dismiss = pick(DISMISS_CANDIDATES);
+  return { dismiss, close: pick(CLOSE_CANDIDATES) };
+}
 
 /** The source-language text for a chrome key, for an emitter building the
  *  `t(key, default)` binding.  Throws on an unknown name rather than emitting a
@@ -219,7 +262,7 @@ export const APP_SHELL_CHROME: Record<string, string> = {
 export const FORM_CHROME: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
   // The destroy button's label, its `window.confirm` prompt, and the op
-  // dialog's Cancel — all built in the EMITTER from model data, so neither the
+  // dialog's dismiss label and close-icon name (`opDialogChrome`) — all built in the EMITTER from model data, so neither the
   // content-hash extraction pass nor the pack-chrome `.hbs` slice ever saw
   // them.  They sit here rather than in `CHROME_BY_PRIMITIVE` for the same
   // reason `selectPlaceholder` does: `DestroyForm`/`Modal` are form primitives,
@@ -227,6 +270,9 @@ export const FORM_CHROME: Record<string, string> = {
   [chromeKey("deleteEntity")]: "Delete {entity}",
   [chromeKey("deleteConfirm")]: "Delete this {entity}?",
   [chromeKey("cancel")]: "Cancel",
+  [chromeKey("goBack")]: "Go back",
+  [chromeKey("close")]: "Close",
+  [chromeKey("closeDialog")]: "Close dialog",
   // The accessible reason on a `when`-gated operation trigger while its
   // `GET /{id}/can_<op>` probe answers `{ allowed: false }`.
   [chromeKey("opNotAllowed")]: "Not available in the current state",

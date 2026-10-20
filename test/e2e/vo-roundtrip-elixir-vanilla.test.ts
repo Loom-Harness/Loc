@@ -93,13 +93,35 @@ function isListening(raw: string): boolean {
 // vanilla — a relational child table, atom-keyed structs, preload-dependent —
 // so it belongs in its own gate, not entangled with this jsonb regression.)
 // `crudish` gives the create/show routes the round-trip drives.
+//
+// The `derived` fields are the value-object EQUALITY half: each compares a
+// value the request body cast, or the row loaded, against one built in domain
+// code.  Those were three different Elixir terms for one value (string- vs
+// atom-keyed map, `"Gold"` vs `:Gold`, a float or string vs `%Decimal{}`), and
+// a collection element is a child struct — so every comparison was false
+// until the column type (`Loom.ValueObject`) gave them one canonical shape and
+// VO `==` went through `Loom.ValueObject.equal?/2`.  `Tag` carries an enum and
+// an invariant, so its validating constructor runs over the canonical value.
 const FIXTURE_DDD = `system VoRoundTrip {
   subdomain Sales {
     context Sales {
+      enum Grade { Gold, Silver }
       valueobject Money { amount: int  currency: string }
+      valueobject Tag {
+        label: string
+        grade: Grade
+        weight: decimal
+        invariant weight >= 0
+      }
       aggregate Invoice with crudish {
         ref: string
         total: Money
+        tag: Tag
+        lines: Money[]
+        derived totalIsFortyTwo: bool = total == Money { amount: 4200, currency: "USD" }
+        derived tagIsGoldHeavy: bool = tag == Tag { label: "vip", grade: Gold, weight: 1.5 }
+        derived tagIsGold: bool = tag.grade == Gold
+        derived hasFortyTwoLine: bool = lines.any(l => l == Money { amount: 4200, currency: "USD" })
       }
       repository Invoices for Invoice { }
     }
@@ -252,6 +274,11 @@ describe.skipIf(!ENABLED)(
         const createBody = {
           ref: "INV-1",
           total: { amount: 4200, currency: "USD" },
+          tag: { label: "vip", grade: "Gold", weight: 1.5 },
+          lines: [
+            { amount: 7, currency: "EUR" },
+            { amount: 4200, currency: "USD" },
+          ],
         };
         const createRes = await fetch(`${base}/invoices`, {
           method: "POST",
@@ -281,15 +308,24 @@ describe.skipIf(!ENABLED)(
         const shown = JSON.parse(showText) as {
           ref: string;
           total: { amount: number; currency: string } | null;
-        };
+          tag: { label: string; grade: string; weight: number } | null;
+        } & Record<string, unknown>;
 
         // 9. The VO subfields survived serialisation of a DB-loaded row.
         expect(shown.ref).toBe("INV-1");
         expect(shown.total, `total dropped on reload: ${showText}`).toBeTruthy();
         expect(shown.total!.amount).toBe(4200);
         expect(shown.total!.currency).toBe("USD");
+        expect(shown.tag?.grade).toBe("Gold");
 
-        // 10. SIGTERM the whole process group.
+        // 10. Value-object equality: each value loaded from the row equals the
+        //     same value built in domain code (the create response carries only
+        //     the id, so the GET is where the derived fields are read).
+        for (const field of ["totalIsFortyTwo", "tagIsGoldHeavy", "tagIsGold", "hasFortyTwoLine"]) {
+          expect(shown[field], `${field} — ${showText}`).toBe(true);
+        }
+
+        // 11. SIGTERM the whole process group.
         try {
           process.kill(-mixChild.pid!, "SIGTERM");
         } catch {
