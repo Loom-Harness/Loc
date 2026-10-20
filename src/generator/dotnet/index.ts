@@ -34,8 +34,8 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -111,6 +111,7 @@ import {
 } from "./emit/audit-history.js";
 import { renderDotnetChannels } from "./emit/channels.js";
 import {
+  dapperUniqueIndexesByTable,
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
   renderDapperRepository,
@@ -537,9 +538,14 @@ function emitProjectFromContexts(
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
-    // EF-repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // applying the EF migrations, wiring the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(ctx, ns);
+    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+    // the repos, and persisting→reading.
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system?.deployable.persistence === "dapper",
+    );
     if (integrationTests) {
       out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
@@ -604,7 +610,7 @@ function emitProjectFromContexts(
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(merged.workflows),
+      ...hostedContextIdTypeSources([merged]),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -822,6 +828,12 @@ function emitProjectFromContexts(
         (system?.migrations ?? [])
           .flatMap((m) => m.next.tables)
           .find((t) => t.name === "provenance_records"),
+        // `unique (…)` → DB unique index, read off the same snapshot (the
+        // shared `uniqueIndexesFor` derivation) so the Dapper bootstrap enforces
+        // exactly the index EF's migration creates and the 23505 → 409 mapping
+        // in DomainExceptionFilter fires.  Empty when another deployable owns
+        // this module's migrations — that owner's migration creates the index.
+        dapperUniqueIndexesByTable((system?.migrations ?? []).flatMap((m) => m.next.tables)),
       ),
     );
     // Workflow / saga / event-store / projection port adapters + the reused

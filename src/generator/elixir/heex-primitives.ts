@@ -13,7 +13,12 @@
 // ---------------------------------------------------------------------------
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  exprUsesCurrentUser,
+} from "../../ir/types/loom-ir.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { elixirString, humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
@@ -1085,6 +1090,72 @@ function contextReadFn(
   }
 }
 
+/** The LiveView socket's principal — what `LiveAuth` assigns on mount. */
+const SOCKET_ACTOR = "Map.get(socket.assigns, :current_user)";
+
+/** The defaults of the paged `list/5` (`page`, `page_size`, `sort`, `dir`) and
+ *  a paged find's trailing paging params, in order — filled in front of the
+ *  actor when the page's call passed fewer, so the actor never lands in a
+ *  paging slot. */
+const PAGED_READ_DEFAULTS = ["1", "20", '"id"', '"asc"'];
+
+/** The trailing arguments that thread the request principal into a LiveView
+ *  read, or `undefined` when the read takes none.
+ *
+ *  A principal-scoped read (a tenancy / `currentUser` capability filter on the
+ *  aggregate, or a `currentUser` in the read's own `where`) pins its query to
+ *  `current_user && current_user.<claim>`; the controller threads the actor
+ *  from `conn.assigns`, and a read called WITHOUT one binds `nil` and answers
+ *  no rows (fail-closed).  The LiveView must thread the socket's actor the same
+ *  way, through the same parameter its context function declares:
+ *
+ *  the list (`list_<agg>s`) / by-id (`get_<agg>`) / find delegates take it
+ *  POSITIONALLY after their own args (paging defaults filled first when the
+ *  page passed fewer). */
+function readActorArgs(
+  aggName: string,
+  isSingle: boolean,
+  ctx: WalkContext,
+  detected: DetectedApiCall | null,
+  ofArgNode: ExprIR | undefined,
+): string[] | undefined {
+  const bc = ctx.bcByAggregate.get(aggName);
+  const agg = bc?.aggregates.find((a) => a.name === aggName);
+  if (!agg) return undefined;
+  const principal = aggregateUsesPrincipalContextFilter(agg);
+  const argCount = queryCallArgs(ofArgNode, ctx)?.length ?? 0;
+  const operation =
+    detected?.kind === "aggregate" && detected.aggregateName === aggName
+      ? detected.operation
+      : isSingle
+        ? "byId"
+        : "all";
+  const target = resolveAggregateRead(operation, findsOfAggregate(aggName, bc));
+  switch (target.kind) {
+    case "by-id":
+      return principal ? [SOCKET_ACTOR] : undefined;
+    case "find-all": {
+      if (!principal) return undefined;
+      const all = bc?.repositories
+        .find((r) => r.aggregateName === aggName)
+        ?.finds.find((f) => f.name === "all");
+      const paged = !!all && !!pagedReturn(all.returnType);
+      return paged ? [...PAGED_READ_DEFAULTS.slice(argCount), SOCKET_ACTOR] : [SOCKET_ACTOR];
+    }
+    case "find": {
+      const f = target.find;
+      const actor = principal || exprUsesCurrentUser(f.filter);
+      if (!actor) return undefined;
+      const fill = pagedReturn(f.returnType)
+        ? PAGED_READ_DEFAULTS.slice(Math.max(0, argCount - f.params.length))
+        : [];
+      return [...fill, SOCKET_ACTOR];
+    }
+    default:
+      return undefined;
+  }
+}
+
 export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let ofExpr = "";
   let ofArgNode: ExprIR | undefined;
@@ -1265,6 +1336,8 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // (This subsumes the earlier `retrieval` slot, which derived the same
       // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
+      // The request principal, when the read's repository function takes one.
+      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofArgNode),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });

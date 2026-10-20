@@ -3511,11 +3511,13 @@ export function isSortItem(item: unknown): item is SortItem {
 export interface SqlStep extends langium.AstNode {
     readonly $container: Migration;
     readonly $type: 'SqlStep';
+    placement?: string;
     sql: string;
 }
 
 export const SqlStep = {
     $type: 'SqlStep',
+    placement: 'placement',
     sql: 'sql'
 } as const;
 
@@ -7403,6 +7405,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         SqlStep: {
             name: SqlStep.$type,
             properties: {
+                placement: {
+                    name: SqlStep.placement,
+                    optional: true
+                },
                 sql: {
                     name: SqlStep.sql
                 }

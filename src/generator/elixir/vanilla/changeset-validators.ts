@@ -1,4 +1,4 @@
-import type { StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import type { EnumIR, StmtIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   type SingleFieldPattern,
   singleFieldConstraints,
@@ -204,10 +204,14 @@ export function voHasConstraints(vo: ValueObjectIR): boolean {
   return voConstraintLines(vo).length > 0;
 }
 
-/** Schemaless Ecto type atom for a value-object field — used in the VO module's
+/** Schemaless Ecto type for a value-object field — used in the VO module's
  *  `@types` cast map.  Mirrors `schema-emit.ts:mapTypeToEcto` but flattens to
- *  cast-compatible types (an enum has no schema here, so it casts as a string). */
-export function voEctoType(t: TypeIR): string {
+ *  cast-compatible types.  An enum found in `enums` is an initialized
+ *  `Ecto.Enum` — it casts the wire's `"Port"` and the canonical column value's
+ *  `:Port` (value-object-type-emit.ts) alike; a `:string` refused the atom, so
+ *  every value loaded or built with an enum field read as invalid.  An enum
+ *  not in `enums` casts as a string. */
+export function voEctoType(t: TypeIR, enums: ReadonlyMap<string, EnumIR> = new Map()): string {
   switch (t.kind) {
     case "primitive":
       switch (t.name) {
@@ -232,14 +236,18 @@ export function voEctoType(t: TypeIR): string {
       }
     case "id":
       return ":binary_id";
-    case "enum":
-      return ":string";
+    case "enum": {
+      const en = enums.get(t.name);
+      return en
+        ? `Ecto.ParameterizedType.init(Ecto.Enum, values: [${en.values.map((v) => `:${v}`).join(", ")}])`
+        : ":string";
+    }
     case "valueobject":
       return ":map";
     case "array":
-      return `{:array, ${voEctoType(t.element)}}`;
+      return `{:array, ${voEctoType(t.element, enums)}}`;
     case "optional":
-      return voEctoType(t.inner);
+      return voEctoType(t.inner, enums);
     default:
       return ":string";
   }

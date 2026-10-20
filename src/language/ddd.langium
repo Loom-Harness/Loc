@@ -87,9 +87,17 @@ MigrationStepDecl:
 // One raw one-shot SQL statement (M-T2.3), applied through the migration
 // chain exactly once (the builder records `<block>#<index>` in the snapshot's
 // `appliedDataMigrations` ledger).  Postgres-flavoured — every backend
-// applies Postgres (Ecto wraps it in `execute/1`).
+// applies Postgres (Ecto wraps it in `execute/1`).  By default the step runs
+// AFTER the generation's structural DDL; the opt-in `before` placement
+// (`sql before "…"`) emits it AHEAD of them — the dedupe that must precede a
+// new `unique (…)` index, or any fix-up the new DDL would otherwise reject.
+// `placement` is a bare ID, NOT a `'before'` keyword: Langium keywords are
+// lexed globally, so a keyword would reserve `before` in every name position
+// that is not soft-keyword-aware (workflow / let / param names — the corpus
+// uses all of them).  The validator admits only `before`
+// (`loom.migration-sql-placement`).
 SqlStep:
-    'sql' sql=STRING;
+    'sql' (placement=ID)? sql=STRING;
 
 // A column step, left-factored on the shared `Agg.field` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
