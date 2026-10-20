@@ -1,4 +1,5 @@
-import { claimPathFor, claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
+import { claimShapes, UUID_PATTERN } from "../../../generator/_auth/claim-decode.js";
+import { claimsReferenceIds } from "../../../generator/_auth/claim-types.js";
 import {
   DEV_CLAIMS_HEADER,
   MALFORMED_DEV_CLAIMS_DETAIL,
@@ -727,28 +728,65 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR): string {
  *  \`OIDC_AUDIENCE\` in this service's environment — no regeneration needed,
  *  \`AUDIENCE\` above already reads it — or by declaring
  *  \`audience: env("OIDC_AUDIENCE")\` in the \`oidc { … }\` block. */`;
-  // One `field: claim(payload, "<path>") as <T>` line per user field.
+  // One `field: <read> as <T>` line per user field.
   //
   // `claim()` answers `undefined` for a claim the token does not carry, and a
-  // bare cast lets that `undefined` sit in a `T | null` slot.  Every gate reads
-  // the slot with `!== null` (`requires currentUser.agentId != null`), and
-  // `undefined !== null` — so a token WITHOUT the claim passed a gate that
-  // exists to refuse it (H-10: a customer token took an agent-only action, 204
-  // instead of 403).  An optional claim therefore folds absent onto `null`.  A
-  // REQUIRED scalar claim the token lacks is not a principal the model
-  // describes at all, so the verifier rejects it (→ 401) instead of inventing
-  // a value.  A required ARRAY claim stays out of that check: an IdP omits an
-  // empty list routinely, and the auth middleware already reads it as `[]`.
-  const toUserLines = user.fields.map((f) => {
+  // bare cast would let that `undefined` sit in a `T | null` slot that every
+  // gate reads with `!== null` — so an absent optional claim folds onto `null`.
+  // An identifier claim (`guid`, `X id`) is also checked against its wire
+  // format (`claimShapes`): a malformed optional one is `null` too, and a list
+  // drops its malformed elements.  A REQUIRED scalar claim that is absent or
+  // malformed does not describe a principal the model declares, so the verifier
+  // rejects the token (→ 401).  A required ARRAY claim stays out of that check:
+  // an IdP omits an empty list routinely, and the middleware reads it as `[]`.
+  const shapes = claimShapes(user.fields, auth);
+  const formatted = shapes.some((s) => s.format !== null);
+  const toUserLines = shapes.map(({ field: f, path, optional, list, format }) => {
     const t = f.optional ? renderTsType({ kind: "optional", inner: f.type }) : renderTsType(f.type);
-    const read = `claim(payload, ${JSON.stringify(claimPathFor(f.name, auth))})`;
-    return f.optional
+    const raw = `claim(payload, ${JSON.stringify(path)})`;
+    if (format !== null && list) {
+      const read = `claimList(${raw}, ${JSON.stringify(format)})`;
+      return optional
+        ? `    ${f.name}: (${raw} == null ? null : ${read}) as ${t},`
+        : `    ${f.name}: ${read} as ${t},`;
+    }
+    const read = format !== null ? `claimAs(${raw}, ${JSON.stringify(format)})` : raw;
+    return optional
       ? `    ${f.name}: (${read} ?? null) as ${t},`
       : `    ${f.name}: ${read} as ${t},`;
   });
-  const requiredClaimPaths = user.fields
-    .filter((f) => !f.optional && f.type.kind !== "array")
-    .map((f) => JSON.stringify(claimPathFor(f.name, auth)));
+  const requiredClaims = shapes
+    .filter((s) => !s.optional && !s.list)
+    .map(
+      (s) =>
+        `[${JSON.stringify(s.path)}, ${s.format === null ? "null" : JSON.stringify(s.format)}]`,
+    );
+  const formatHelpers = formatted
+    ? `
+const CLAIM_FORMATS = {
+  uuid: /${UUID_PATTERN}/,
+} as const;
+type ClaimFormat = keyof typeof CLAIM_FORMATS;
+
+/** A claim value in its declared wire format (a UUID for a guid id), or null
+ *  when it is absent or does not match. */
+function claimAs(value: unknown, format: ClaimFormat): string | null {
+  return typeof value === "string" && CLAIM_FORMATS[format].test(value) ? value : null;
+}
+
+/** A list claim with its malformed elements dropped; not a list → empty. */
+function claimList(value: unknown, format: ClaimFormat): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((v) => claimAs(v, format)).filter((v): v is string => v !== null);
+}
+`
+    : "";
+  const requiredType = formatted
+    ? "readonly (readonly [string, ClaimFormat | null])[]"
+    : "readonly (readonly [string, null])[]";
+  const requiredCheck = formatted
+    ? "(format === null ? claim(payload, path) : claimAs(claim(payload, path), format)) == null"
+    : "claim(payload, path) == null";
   return `// Auto-generated.
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
 ${idsImport(user).join("\n")}import { requestLog } from "../obs/als";
@@ -825,17 +863,19 @@ function claim(payload: JWTPayload, path: string): unknown {
   }, payload);
 }
 
-/** The claim paths of every REQUIRED scalar field — a verified token missing
- *  one of these does not describe a principal, so it is rejected (→ 401). */
-const REQUIRED_CLAIMS: readonly string[] = [${requiredClaimPaths.join(", ")}];
+${formatHelpers}
+/** The claim path (and wire format, for an identifier claim) of every REQUIRED
+ *  scalar field — a verified token where one is absent or malformed does not
+ *  describe a principal, so it is rejected (→ 401). */
+const REQUIRED_CLAIMS: ${requiredType} = [${requiredClaims.join(", ")}];
 
 /** Project verified claims onto the typed claim shape, or null when a required
- *  claim is absent.  An absent OPTIONAL claim is \`null\`, never \`undefined\`:
- *  gates compare with \`!== null\`, which \`undefined\` would pass.  The auth
- *  middleware derives the request principal (incl. \`orgPath\` under tenancy)
- *  from this. */
+ *  claim is absent or malformed.  An absent OPTIONAL claim is \`null\`, never
+ *  \`undefined\`: gates compare with \`!== null\`, which \`undefined\` would
+ *  pass.  The auth middleware derives the request principal (incl. \`orgPath\`
+ *  under tenancy) from this. */
 function toUser(payload: JWTPayload): UserClaims | null {
-  if (REQUIRED_CLAIMS.some((path) => claim(payload, path) == null)) return null;
+  if (REQUIRED_CLAIMS.some(([path, format]) => ${requiredCheck})) return null;
   return {
 ${toUserLines.join("\n")}
   };
