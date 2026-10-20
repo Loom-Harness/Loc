@@ -368,7 +368,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe('this.Name.Split(",").ToList()');
   });
 
-  it("renders collection-op `count` as `.Count()`", () => {
+  it("renders collection-op `count` as the `.Count` property (CA1829)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -378,7 +378,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: { kind: "array", element: STRING },
         isCollectionOp: true,
       }),
-    ).toBe("(this.Items).Count()");
+    ).toBe("(this.Items).Count");
   });
 
   it("renders collection-op `where(λ)` as `.Where(λ).ToList()`", () => {

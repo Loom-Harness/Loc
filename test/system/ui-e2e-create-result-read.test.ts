@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
+import { lowerModel } from "../../src/ir/lower/lower.js";
+import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
+
+/** `loom.locator-matcher-receiver` messages — an IR-phase gate since M-T5.42
+ *  V15 (it used to be re-derived from syntax in `validators/match.ts`). */
+async function locatorErrors(source: string): Promise<string[]> {
+  const { model } = await parseString(source, { validate: false });
+  return validateLoomModel(enrichLoomModel(lowerModel(model)))
+    .filter((d) => d.code === "loom.locator-matcher-receiver")
+    .map((d) => d.message);
+}
 
 // ---------------------------------------------------------------------------
 // A `let` bound to `ui.<aggregate>.create({…})` names a row that exists — the
@@ -85,15 +97,37 @@ describe("ui e2e — a create result is a readable row", () => {
   it("refuses a locator matcher whose receiver can never be a locator", async () => {
     // `id` is the page object's own property, not a rendered cell — the shape
     // that still had no locator to reach after the create-result fix.
-    const { errors } = await parseString(src(`    expect(ord.id).toHaveText("x")`));
-    const hit = errors.filter((e) => e.includes("asserts against a DOM element"));
+    const hit = await locatorErrors(src(`    expect(ord.id).toHaveText("x")`));
     expect(hit).toHaveLength(1);
     expect(hit[0]).toContain("toHaveText");
     expect(hit[0]).toContain("ord.id");
   });
 
   it("refuses a locator matcher on a plain value", async () => {
-    const { errors } = await parseString(src(`    expect("Draft").toHaveText("Draft")`));
-    expect(errors.filter((e) => e.includes("asserts against a DOM element"))).toHaveLength(1);
+    expect(await locatorErrors(src(`    expect("Draft").toHaveText("Draft")`))).toHaveLength(1);
+  });
+
+  it("accepts a field read on a create-result row, negated or not", async () => {
+    expect(
+      await locatorErrors(
+        src(
+          `    expect(ord.status).toHaveText("Draft")\n    expect(ord.status).not.toHaveText("x")`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("refuses a locator matcher in a unit test, where no row is on screen", async () => {
+    const unit = `
+system S {
+  subdomain D { context C {
+    valueobject Tag { label: string }
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+    test "agg" for Thing { expect("x").toHaveText("x") }
+    test "vo" for Tag { expect("y").toBeVisible() }
+  } }
+}`;
+    expect(await locatorErrors(unit)).toHaveLength(2);
   });
 });
