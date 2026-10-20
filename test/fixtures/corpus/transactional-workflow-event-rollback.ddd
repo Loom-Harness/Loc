@@ -1,0 +1,119 @@
+// shape: an aggregate event raised inside a `transactional` workflow whose
+// LATER save fails — the event must not outlive the rollback (banking-eval
+// B-04).
+//
+// The defect: each repository `save()` dispatched its drained events when ITS
+// OWN write returned, which inside a transactional workflow is only a savepoint
+// on the outer transaction.  The banking repro — debit an Acct, then insert a
+// Transfer under `unique (reference)` — committed ONE debit but THREE
+// `Debited`-reactor Audit rows for 1×204 + 2×409 on a booted node stack.  The
+// fix buffers a transactional workflow's aggregate events and dispatches them
+// only after the commit, dropping them on rollback.
+//
+// Why `debitTwice` and not the unique-reference repro: the behavioural tier's
+// PGlite database is synthesised from the drizzle schema, which carries no
+// unique index (that lives in the emitted migration), so a duplicate reference
+// would not fail there.  An optimistic-concurrency conflict needs nothing but
+// the `version` column: two handles on the same row, both debited, so the
+// SECOND save is stale and 409s after the first save has already drained
+// `Debited`.
+//
+// Pre-fix, on that tier's single-connection PGlite, the run does not even
+// miscount — the reactor queries the connection the open transaction holds and
+// the request hangs — so either way the e2e below cannot go green without the
+// fix.
+system TransactionalWorkflowEventRollback {
+  subdomain Bank {
+    context Ledger {
+      event Debited { acct: Acct id, amount: int }
+
+      aggregate Acct with crudish {
+        name: string
+        balance: int
+
+        operation debit(amount: int) {
+          precondition balance >= amount
+          balance := balance - amount
+          emit Debited { acct: id, amount: amount }
+        }
+      }
+      repository Accts for Acct { }
+
+      aggregate Audit { note: string }
+      repository Audits for Audit { }
+
+      // The consumer whose side effect must not survive a rollback.
+      workflow onDebit {
+        a: Acct id
+        create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
+      }
+
+      // Commits: its `Debited` reaches the reactor once, after the commit.
+      workflow debitOnce transactional {
+        create(src: Acct id) {
+          let s = Accts.getById(src)
+          s.debit(10)
+        }
+      }
+
+      // Always rolls back: the second handle's save is stale (409), after the
+      // first handle's save has already drained its `Debited`.
+      workflow debitTwice transactional {
+        create(src: Acct id) {
+          let first = Accts.getById(src)
+          let second = Accts.getById(src)
+          first.debit(10)
+          second.debit(10)
+        }
+      }
+    }
+  }
+
+  api LedgerApi from Bank
+  storage pg { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: LedgerApi
+    port: 4000
+  }
+
+  test e2e "a rolled-back transactional workflow announces none of its aggregate events" against d {
+    let a = api.accts.create({ name: "a", balance: 100 })
+
+    // The committed run: one debit, one `Debited`, one Audit.
+    api.debitOnce.run({ src: a.id })
+    let once = api.accts.getById(a)
+    expect(once.balance).toBe(90)
+    let afterOnce = api.audits.all()
+    expect(afterOnce.total).toBe(1)
+
+    // The rolled-back run: neither debit survives, and neither `Debited` may
+    // reach the reactor.
+    expect(api.debitTwice.run({ src: a.id })).toThrow(409)
+    let twice = api.accts.getById(a)
+    expect(twice.balance).toBe(90)
+    let afterTwice = api.audits.all()
+    expect(afterTwice.total).toBe(1)
+    let audit = api.audits.getById(afterTwice.items.first().id)
+    expect(audit.note).toBe("debited")
+
+    // Contrast: the same operation over its own route — a save that OWNS its
+    // commit — dispatches right after it, so the reactor writes a second row.
+    api.accts.debit(a, { amount: 5 })
+    let direct = api.audits.all()
+    expect(direct.total).toBe(2)
+
+    // The rest of the crudish surface, so every derived route has a caller.
+    api.accts.update(a, { name: "renamed", balance: 85 })
+    let accts = api.accts.all()
+    expect(accts.total).toBe(1)
+    expect(accts.items.first().name).toBe("renamed")
+    api.accts.destroy(a)
+    let gone = api.accts.all()
+    expect(gone.total).toBe(0)
+  }
+}
