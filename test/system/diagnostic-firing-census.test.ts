@@ -502,6 +502,22 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // An event-sourced workflow with only a command-triggered create and no
+  // id-shaped state field: its event stream has no key, so it is refused even
+  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
+  // need the key's id class).
+  "loom.workflow-correlation-required": `
+system EsNoKey {
+  subdomain S { context C {
+    event Recorded { code: string, count: int }
+    workflow Tracker eventSourced {
+      code: string
+      archivedCount: int
+      create(c: string) { emit Recorded { code: c, count: 1 } }
+      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+    }
+  } }
+}`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
   // branch text ("items") is dropped.  The warning says so where it happens.
