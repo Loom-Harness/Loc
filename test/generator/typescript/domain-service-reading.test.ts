@@ -80,7 +80,7 @@ describe("typescript generator — domainService reading tier", () => {
     expect(wf).toBeDefined();
     // The workflow constructs the read-port repo even though its own body never
     // reads it directly, and supplies it ahead of the user args, await-wrapped.
-    expect(wf).toContain("const accounts = new AccountRepository(tx, events);");
+    expect(wf).toContain("const accounts = new AccountRepository(tx, __deferred);");
     expect(wf).toContain("(await Registration.isEmailAvailable(accounts, holder))");
     // The service namespace is imported into the workflow file.
     expect(wf).toContain('import { Registration } from "../domain/services";');
