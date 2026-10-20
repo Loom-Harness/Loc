@@ -492,6 +492,70 @@ ${opts.e2eTest}
 }
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
+  // disjunct: the system principal it runs as can never pass it.
+  "loom.reactor-gate-unsatisfiable": `
+system ReactorGate {
+  user { id: guid  permissions: string[] }
+  subdomain D {
+    permissions { close }
+    context Ord {
+      aggregate Order with crudish {
+        code: string
+        done: bool
+        operation finish() {
+          requires currentUser.permissions.contains(permissions.close)
+          done := true
+        }
+      }
+      repository Orders for Order { }
+      event Shipped { order: Order id, at: datetime }
+      workflow closeOrder {
+        orderRef: Order id
+        create(e: Shipped) by e.order {
+          let o = Orders.getById(e.order)
+          o.finish()
+        }
+      }
+    }
+  }
+}`,
+  // Ruling D1 — a timer tick has no tenant, so a tenant-scoped read from its
+  // reactor must say `ignoring tenantOwned`.
+  "loom.timer-tenant-read": `
+system TimerTenant {
+  user { id: guid  tenantId: string }
+  tenancy by user.tenantId of Organization
+  subdomain Ops {
+    context Jobs {
+      aggregate Sweep crossTenant { runId: string }
+      event SweepTick { sweep: Sweep id, at: datetime }
+      aggregate Job with tenantOwned, crudish {
+        code: string
+        done: bool
+        operation close() { done := true }
+      }
+      repository Jobs for Job {
+        find byCode(c: string): Job where this.code == c
+      }
+      workflow sweepRun {
+        sweep: Sweep id
+        create(t: SweepTick) by t.sweep {
+          let j = Jobs.byCode("x")
+          j.close()
+        }
+      }
+      aggregate Organization with crudish { name: string }
+    }
+  }
+  timerSource nightly { for: SweepTick, cron: "0 3 * * *" }
+}`,
+  // `isSystem` / `causedBy` are the system principal's built-in slots.
+  "loom.user-reserved-field": `
+system Reserved {
+  user { id: guid  isSystem: bool }
+  subdomain S { context C { aggregate A with crudish { name: string } } }
+}`,
   // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
   // domain code, where every backend renders the hole as its bare value — the
   // branch text ("items") is dropped.  The warning says so where it happens.
@@ -3651,6 +3715,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (B-20b): a unique index added to a table the
+  // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
+  // file drives the warning, its `sql before` silencing, and the rebuild /
+  // new-table / first-generation exemptions.
+  "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // B-20: the AST validator rejects any `sql <placement>` other than `before`.
+  "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

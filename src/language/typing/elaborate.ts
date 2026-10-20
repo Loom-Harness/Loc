@@ -29,6 +29,7 @@ import {
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
+  PRINCIPAL_IS_SYSTEM,
   PRINCIPAL_ORG_CONTEXT_PATH,
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
@@ -1442,6 +1443,8 @@ export class Elaborator {
         ) {
           return Ty.prim("string");
         }
+        // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
+        if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);
         return f ? this.resolveType(f.type, scope) : Ty.unknown("unresolved-member");
       }

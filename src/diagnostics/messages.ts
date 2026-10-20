@@ -727,6 +727,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
+  "loom.migration-sql-placement": (p: { placement: unknown }) =>
+    `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>
@@ -2072,6 +2074,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** B-20b — a `unique (…)` index added to a table the baseline already has.
+   *  Rows may already violate it, which fails the migration at boot and
+   *  queues every later generation behind it.  Silenced by declaring a
+   *  `sql before` step for the module in the same generation. */
+  "loom.migration-unique-on-existing-table": (p: {
+    module: unknown;
+    table: unknown;
+    columns: unknown;
+    index: unknown;
+    partial: unknown;
+  }) =>
+    `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
+    `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -3539,6 +3554,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `not served at all.`,
   "loom.user-duplicate-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}' more than once.`,
+  // src/ir/validate/checks/reactor-principal-checks.ts (ruling D1)
+  "loom.reactor-gate-unsatisfiable": (p: {
+    reactor: unknown;
+    event: unknown;
+    where: unknown;
+    gate: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs as the system principal (no request user: every claim is empty, ` +
+    `\`currentUser.isSystem\` is true), but ${p.where} is gated by \`requires ${p.gate}\`, which reads ` +
+    `\`currentUser\` and never admits the system principal — so every '${p.event}' this reactor ` +
+    `handles will be refused with 403.  If the reactor is allowed to do this, say so in the gate: ` +
+    `\`requires currentUser.isSystem || ${p.gate}\`; otherwise call an ungated operation, or move the ` +
+    `check onto the command that emits '${p.event}'.`,
+  "loom.timer-tenant-read": (p: {
+    reactor: unknown;
+    timer: unknown;
+    agg: unknown;
+    read: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
+    `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
+    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
+    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+  "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
+    `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
+    `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
+    `event reactor records for audit).  Rename the claim.`,
   "loom.auth-no-user-block": (p: { name: unknown; sysName: unknown }) =>
     `deployable '${p.name}' has 'auth: required' but system '${p.sysName}' declares no 'user { ... }' block. ` +
     `Add a system-level user block describing the JWT claim shape (e.g. 'user { id: string, role: string }').`,

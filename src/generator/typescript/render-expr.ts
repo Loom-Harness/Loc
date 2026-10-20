@@ -1,6 +1,7 @@
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
@@ -305,6 +306,10 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
 }
 
 function renderMember(recv: string, e: MemberExpr): string {
+  // `currentUser.isSystem` (ruling D1) — the slot is OPTIONAL on `User` (a
+  // request principal never carries it), so compare rather than read it bare:
+  // the expression stays a real `boolean` wherever it lands.
+  if (isPrincipalIsSystem(e)) return `(${recv}.isSystem === true)`;
   // Arrays expose collection ops without parentheses too — `lines.count`
   // should compile to `.length`.
   if (e.receiverType.kind === "array" && e.member === "count") return `${recv}.length`;
@@ -601,7 +606,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // VALUE equality on value objects.  A VO is a class instance here, so `===`
   // compares REFERENCES — `berth == Berth { … }` was always false, while every
   // other backend compares by value (python dataclass `==`, java
-  // `Objects.equals`, .NET record `==`, elixir struct `==`).  Route it through
+  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
   // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
   // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
   // same `binary ==` node.  A nullable operand keeps the native comparison

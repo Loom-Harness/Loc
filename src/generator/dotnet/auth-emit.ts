@@ -122,46 +122,225 @@ function csEnvOverridable(envVar: string, v: AuthValueIR | undefined): string {
   return `Environment.GetEnvironmentVariable(${JSON.stringify(envVar)}) ?? ${csAuthValue(v)}`;
 }
 
-/** The IdP claim path projected onto a given user field — explicit
- *  `claims:` mapping wins; `id` defaults to `sub`, others read their name. */
-/** The User-constructor argument expression reading a field from the
- *  verified token payload.  string / string[] are mapped; other field
- *  types fall back to a type-appropriate default (a documented .NET OIDC
- *  limitation — use string / string[] claims). */
-function csClaimRead(f: FieldIR, auth: AuthIR): string {
+/** A typed claim decoder: the C# value type a JSON claim element decodes to,
+ *  and a `Func<JsonElement, T?>` expression producing it (null when the
+ *  element is the wrong shape / unparseable). */
+interface CsClaimDecoder {
+  readonly csType: string;
+  readonly decode: string;
+}
+
+/** The C# element decoder per scalar claim type (see CS_TYPED_CLAIM_HELPERS). */
+const CS_SCALAR_DECODERS: Readonly<Partial<Record<string, string>>> = {
+  guid: "AsGuid",
+  int: "AsInt",
+  long: "AsLong",
+  bool: "AsBool",
+  datetime: "AsDateTime",
+  decimal: "AsDecimal",
+  string: "AsString",
+};
+
+/** The decoder for a non-string claim type, or `undefined` when the type has
+ *  no claim decoding (value objects, enums, money, json keep the type
+ *  default).  An `X id` claim decodes its id's VALUE type and is then
+ *  constructed through the emitted strong-id struct — the same value
+ *  node/python/elixir carry as the raw claim. */
+function csClaimDecoder(t: TypeIR): CsClaimDecoder | undefined {
+  if (t.kind === "primitive" && t.name !== "string") {
+    const helper = CS_SCALAR_DECODERS[t.name];
+    return helper ? { csType: renderCsType(t), decode: helper } : undefined;
+  }
+  if (t.kind === "id") {
+    const helper = CS_SCALAR_DECODERS[t.valueType];
+    const cls = renderCsType(t);
+    return helper
+      ? { csType: cls, decode: `e => ${helper}(e) is { } v ? new ${cls}(v) : null` }
+      : undefined;
+  }
+  return undefined;
+}
+
+/** One User-constructor argument reading a field from the verified token
+ *  payload, plus the guard statements that must run before the constructor:
+ *  a REQUIRED typed claim that is absent or undecodable rejects the token
+ *  (→ 401) — it does not describe a principal (node's `REQUIRED_CLAIMS`). */
+interface CsClaimRead {
+  readonly pre: readonly string[];
+  readonly arg: string;
+  /** True when the read uses the typed decoder helpers. */
+  readonly typed: boolean;
+}
+
+function csClaimRead(f: FieldIR, auth: AuthIR): CsClaimRead {
   const param = upperFirst(f.name);
-  const path = JSON.stringify(claimPathFor(f.name, auth));
+  const rawPath = claimPathFor(f.name, auth);
+  const path = JSON.stringify(rawPath);
   // An optional field's `type` carries the `optional` wrapper, so the string
   // test below must see the inner type — read off the bare `f.type`, every
   // optional `string?` claim fell through to `default!` and was null for
   // every token, the claim never read.
   const optional = f.optional || f.type.kind === "optional";
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  const plain = (arg: string): CsClaimRead => ({ pre: [], arg: `${param}: ${arg}`, typed: false });
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
-    return `${param}: ClaimStringList(payload, ${path})`;
+    return plain(`ClaimStringList(payload, ${path})`);
   }
   if (t.kind === "primitive" && t.name === "string") {
-    return optional
-      ? `${param}: ClaimString(payload, ${path})`
-      : `${param}: ClaimString(payload, ${path}) ?? string.Empty`;
+    return plain(
+      optional ? `ClaimString(payload, ${path})` : `ClaimString(payload, ${path}) ?? string.Empty`,
+    );
+  }
+  // D16: every other declared claim type used to be `default!` — an id /
+  // guid / int / bool / datetime claim was null (or zero) for EVERY token, so
+  // `requires assignedTo == currentUser.agentId` was always false on .NET
+  // while node/python/elixir read the claim.  Decode it instead.
+  const elem = t.kind === "array" ? t.element : undefined;
+  const dec = csClaimDecoder(elem ?? t);
+  if (dec && elem) {
+    // An absent list claim is the EMPTY SET when declared required (a null
+    // `List<T>` on a non-nullable property made `.Contains(…)` throw → 500),
+    // null when declared optional.  Undecodable elements are dropped.
+    const read = `ClaimList<${dec.csType}>(payload, ${path}, ${dec.decode})`;
+    const list = `new System.Collections.Generic.List<${dec.csType}>()`;
+    return { pre: [], arg: `${param}: ${optional ? read : `${read} ?? ${list}`}`, typed: true };
+  }
+  if (dec) {
+    const read = `ClaimAs<${dec.csType}>(payload, ${path}, ${dec.decode})`;
+    // An absent OPTIONAL claim is null — never the type default: the zero id
+    // is non-null, and `requires currentUser.x != null` would pass for every
+    // token.
+    if (optional) return { pre: [], arg: `${param}: ${read}`, typed: true };
+    const local = `claim${param}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [`if (${read} is not { } ${local})`, `{`, `    return Rejected(${reason});`, `}`],
+      arg: `${param}: ${local}`,
+      typed: true,
+    };
   }
   // A declared NON-OPTIONAL array claim absent from the token is the EMPTY
-  // SET, not `null`.  Only `string[]` has a real reader (ClaimStringList,
-  // which already yields an empty list for a missing claim); every other
-  // element type fell through to `default!` — a NULL `List<T>` on a
-  // non-nullable record property.  Everything that consumes such a claim
-  // calls a method on it (`mask unless currentUser.levels.contains(…)` →
-  // `.Contains(…)`, likewise a `requires` gate or a policy), so the read
-  // threw NullReferenceException and answered **500** instead of redacting:
-  // the fail-OPEN-shaped crash of the one feature whose failure is a data
-  // leak.  Mirrors Java's `stubValue(t)` → `List.of()` fallback and the
-  // dev stub's own empty-list literal on this side, so both .NET
-  // principal-construction sites now agree.
+  // SET, not `null`: a NULL `List<T>` on a non-nullable record property made
+  // every consumer (`mask unless currentUser.levels.contains(…)` →
+  // `.Contains(…)`, a `requires` gate, a policy) throw and answer 500 instead
+  // of redacting.  An element type with no decoder keeps the empty list.
   if (!optional && t.kind === "array") {
-    return `${param}: ${stubCsharpValueForType(t)}`;
+    return plain(stubCsharpValueForType(t));
   }
-  return `${param}: default!`;
+  return plain("default!");
 }
+
+/** The typed claim-decoding helpers (D16) — emitted only when a declared
+ *  claim needs them.  Lenient on wire shape: a numeric claim may arrive as a
+ *  JSON number or a numeric string, a datetime as an ISO-8601 string or a JWT
+ *  NumericDate (epoch seconds). */
+const CS_TYPED_CLAIM_HELPERS = `
+    /// <summary>The claim element at a dotted path, or null when absent / JSON null.</summary>
+    private static JsonElement? Claim(JsonElement payload, string path)
+    {
+        JsonElement current = payload;
+        foreach (string segment in path.Split('.'))
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
+            {
+                return null;
+            }
+        }
+        return current.ValueKind == JsonValueKind.Null ? null : current;
+    }
+
+    private static T? ClaimAs<T>(JsonElement payload, string path, Func<JsonElement, T?> decode)
+        where T : struct
+        => Claim(payload, path) is { } element ? decode(element) : null;
+
+    private static List<T>? ClaimList<T>(JsonElement payload, string path, Func<JsonElement, T?> decode)
+        where T : struct
+    {
+        if (Claim(payload, path) is not { } element)
+        {
+            return null;
+        }
+        var values = new List<T>();
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in element.EnumerateArray())
+            {
+                if (decode(item) is { } value)
+                {
+                    values.Add(value);
+                }
+            }
+        }
+        return values;
+    }
+
+    private static string? AsString(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.String => e.GetString(),
+        JsonValueKind.Number => e.GetRawText(),
+        _ => null,
+    };
+
+    private static Guid? AsGuid(JsonElement e)
+        => e.ValueKind == JsonValueKind.String && Guid.TryParse(e.GetString(), out Guid v) ? v : null;
+
+    private static int? AsInt(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out int n))
+        {
+            return n;
+        }
+        return e.ValueKind == JsonValueKind.String
+            && int.TryParse(e.GetString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int s)
+            ? s
+            : null;
+    }
+
+    private static long? AsLong(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out long n))
+        {
+            return n;
+        }
+        return e.ValueKind == JsonValueKind.String
+            && long.TryParse(e.GetString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long s)
+            ? s
+            : null;
+    }
+
+    private static decimal? AsDecimal(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Number && e.TryGetDecimal(out decimal n))
+        {
+            return n;
+        }
+        return e.ValueKind == JsonValueKind.String
+            && decimal.TryParse(e.GetString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out decimal s)
+            ? s
+            : null;
+    }
+
+    private static bool? AsBool(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.String when bool.TryParse(e.GetString(), out bool s) => s,
+        _ => null,
+    };
+
+    private static DateTime? AsDateTime(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out long seconds))
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
+        }
+        return e.ValueKind == JsonValueKind.String
+            && DateTime.TryParse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime s)
+            ? s
+            : null;
+    }
+`;
 
 function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   // Deploy env overrides the declared value — see csEnvOverridable (the
@@ -180,7 +359,17 @@ function renderOidcVerifier(user: UserIR, auth: AuthIR, ns: string): string {
   const checksDoc = auth.oidc.audience
     ? "checks iss / aud / exp"
     : "checks iss / exp, and aud only when\n/// the OIDC_AUDIENCE env var is set (the model declares no `audience:`)";
-  const args = user.fields.map((f) => csClaimRead(f, auth)).join(",\n            ");
+  const reads = user.fields.map((f) => csClaimRead(f, auth));
+  const args = reads.map((r) => r.arg).join(",\n            ");
+  const guards = reads
+    .flatMap((r) => r.pre)
+    .map((l) => `        ${l}\n`)
+    .join("");
+  const typedHelpers = reads.some((r) => r.typed) ? CS_TYPED_CLAIM_HELPERS : "";
+  // A decoded `X id` claim constructs the strong id, which lives in
+  // `<ns>.Domain.Ids` (as the dev stub's `idsUsing`).  Gated so an id-free
+  // claim shape keeps its byte-for-byte output.
+  const idsUsing = claimsReferenceIds(user.fields) ? `using ${ns}.Domain.Ids;\n` : "";
   // Every reject path answers 401 (never 500) by swallowing the exception —
   // so each one says WHY at debug, or a misconfigured issuer / audience is
   // invisible in the log stream.
@@ -197,7 +386,7 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
-
+${idsUsing}
 namespace ${ns}.Auth;
 
 /// <summary>Generated OIDC verifier.  Validates the bearer
@@ -311,7 +500,7 @@ public sealed class OidcUserVerifier : IUserVerifier
             return null;
         }
 
-        return new User(
+${guards}        return new User(
             ${args});
     }
 
@@ -369,7 +558,7 @@ public sealed class OidcUserVerifier : IUserVerifier
         }
         return values;
     }
-}
+${typedHelpers}}
 `;
 }
 
@@ -786,6 +975,67 @@ function stubCsharpValueForType(t: TypeIR): string {
   }
 }
 
+/** The system principal's members on the `User` record (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL): `IsSystem` / `CausedBy`
+ *  (init-only, default false / null, and skipped by the serializer at their
+ *  defaults — so a request principal's `/auth/me` body is unchanged), plus the
+ *  `SystemPrincipal(origin)` factory an event reactor binds `currentUser` to.
+ *  Every claim is EMPTY — never the dev stub's `"admin"` — so a claims gate
+ *  cannot pass by accident; the tenancy claim and the materialized path are the
+ *  dispatching principal's (the event was raised inside its request), and
+ *  `CausedBy` is its id (or its own `CausedBy` when it is itself a reactor). */
+function renderSystemPrincipalMembers(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  readsRegistry: boolean,
+  orgContext: boolean,
+): string {
+  const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const args = user.fields
+    .map((f) =>
+      f.name === tenantClaim
+        ? `origin is null ? ${systemCsharpValueFor(f)} : origin.${upperFirst(f.name)}`
+        : systemCsharpValueFor(f),
+    )
+    .join(", ");
+  const causedBy = idField
+    ? `origin is null ? null : origin.IsSystem ? origin.CausedBy : origin.${upperFirst(idField.name)}.ToString()`
+    : "origin?.CausedBy";
+  const inits = [
+    "IsSystem = true",
+    `CausedBy = ${causedBy}`,
+    ...(tenantClaim && readsRegistry ? ["OrgPath = origin?.OrgPath ?? string.Empty"] : []),
+    ...(tenantClaim && orgContext ? ["OrgContextPath = origin?.OrgPath ?? string.Empty"] : []),
+  ];
+  return `
+    /// <summary><c>currentUser.isSystem</c> — true only on the system principal
+    /// an event reactor runs as (<see cref="SystemPrincipal"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsSystem { get; init; }
+
+    /// <summary>The originating user's id on the system principal — audit and
+    /// logs only, never read by a gate.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CausedBy { get; init; }
+
+    /// <summary>The principal an event reactor runs as: no claims,
+    /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
+    /// against it normally — one that admits it says
+    /// <c>currentUser.isSystem || …</c>.</summary>
+    public static User SystemPrincipal(User? origin) => new User(${args})
+    {
+        ${inits.join(",\n        ")},
+    };
+`;
+}
+
+/** The EMPTY value of one claim on the system principal. */
+function systemCsharpValueFor(f: { type: TypeIR; optional: boolean }): string {
+  if (f.optional) return "null";
+  if (f.type.kind === "primitive" && f.type.name === "string") return "string.Empty";
+  return stubCsharpValueForType(f.type);
+}
+
 function renderUserRecord(
   user: UserIR,
   ns: string,
@@ -844,11 +1094,14 @@ function renderUserRecord(
         get => _orgContextPath ?? OrgPath;
         set => _orgContextPath = value;
     }`;
+  const systemMembers = renderSystemPrincipalMembers(user, orgPathClaim, readsRegistry, orgContext);
   const orgPathMember = !orgPathClaim
-    ? ";"
+    ? `
+{${systemMembers}
+}`
     : readsRegistry
       ? `
-{
+{${systemMembers}
     private string? _orgPath;
 
     /// <summary>The caller's tenant materialized path
@@ -870,7 +1123,7 @@ ${rootOrgProp}${orgContext ? orgContextProp : ""}
     /// (<c>currentUser.orgPath</c>) — derived per-request from the tenancy
     /// claim (multi-tenancy).</summary>
     public string OrgPath => $"{${upperFirst(orgPathClaim)}}";
-${rootOrgProp}
+${rootOrgProp}${systemMembers}
 }`;
   return `// Auto-generated.
 using ${ns}.Domain.Enums;

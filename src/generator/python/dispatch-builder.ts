@@ -15,6 +15,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
@@ -456,6 +457,7 @@ export function buildPyDispatchFile(
     refersTo("insert") ? "from sqlalchemy.dialects.postgresql import insert" : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
+    refersTo("system_principal") ? "from app.auth.user import system_principal" : null,
     hasChannels
       ? hasOutbox && durableBroker
         ? "from app.channels import publish_event, publish_event_from_relay"
@@ -464,7 +466,10 @@ export function buildPyDispatchFile(
     hasOutbox ? "from app.db.engine import engine" : null,
     ...repoAggs.map((n) => `from app.db.repositories.${snake(n)}_repository import ${n}Repository`),
     schemaRows.length > 0 ? `from app.db.schema import ${schemaRows.join(", ")}` : null,
-    refersTo("DomainError") ? "from app.domain.errors import DomainError" : null,
+    (() => {
+      const errs = ["DomainError", "ForbiddenError"].filter(refersTo);
+      return errs.length > 0 ? `from app.domain.errors import ${errs.join(", ")}` : null;
+    })(),
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
@@ -757,6 +762,18 @@ export function zeroFor(
   return '""';
 }
 
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `app.auth.user.system_principal()`, carrying the dispatching
+ *  request's tenant and recording its user as `caused_by`.  Bound only when the
+ *  body — or an operation it calls, hoisted gate included — reads
+ *  `currentUser`. */
+function bindSystemPrincipal(
+  statements: WorkflowStmtIR[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  return reactorNeedsPrincipal(statements, ctx) ? ["    current_user = system_principal()"] : [];
+}
+
 function handlerFn(
   fn: string,
   wf: WorkflowIR,
@@ -767,7 +784,10 @@ function handlerFn(
   hasOutbox: boolean,
   construct: string,
   /** The hosting context — a value-object state field allocates its leaf
-   *  columns (`allocateKwargs`). */
+   *  columns (`allocateKwargs`), and the op-call arm looks each called
+   *  operation up in it to render the operation's hoisted `requires` gate and
+   *  thread the principal (without it a reactor called a gated operation with
+   *  the gate silently DROPPED — fail-open). */
   ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
@@ -782,6 +802,7 @@ function handlerFn(
       saves,
       hasOutbox,
       construct,
+      ctx,
       opFragments,
     );
   }
@@ -794,6 +815,7 @@ function handlerFn(
     `async def ${fn}(`,
     `    session: AsyncSession, events: "InProcessDispatcher", ${param}: ${sub.event}`,
     ") -> None:",
+    ...bindSystemPrincipal(statements, ctx),
   ];
   const persisted = !!wf.correlationField;
   // Persisted handlers render `this.<stateField>` against the tracked row.
@@ -842,7 +864,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -888,6 +910,7 @@ function esHandlerFn(
   saves: { name: string; aggName: string; repoName: string }[],
   hasOutbox: boolean,
   construct: string,
+  ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string {
@@ -903,7 +926,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -919,6 +942,7 @@ function esHandlerFn(
     `async def ${fn}(`,
     `    session: AsyncSession, events: "InProcessDispatcher", ${param}: ${sub.event}`,
     ") -> None:",
+    ...bindSystemPrincipal(statements, ctx),
     `    __key = str(${keyExpr})`,
   ];
   // `__events` is needed by an `on` reactor's empty-stream check (always), a

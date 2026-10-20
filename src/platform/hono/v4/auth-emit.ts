@@ -71,26 +71,42 @@ export function emitAuthFiles(sys: SystemIR, out: Map<string, string>): void {
   // backend has auth — the frontend `auth: ui` guard probes `/auth/me`,
   // which works for both the OIDC verifier and the dev stub.
   out.set("auth/handshake.ts", renderHandshake(sys.user, oidc));
-  if (oidc) {
-    out.set("auth/oidc.ts", renderOidcVerifier(sys.user, oidc));
-  } else {
-    // The dev stub gets its own module for the same reason the OIDC verifier
-    // does: it is the identity every non-OIDC caller resolves to, so anything
-    // that boots this project WITHOUT running `index.ts` — the behavioural
-    // harness boots `createApp` directly — must be able to register the SAME
-    // one instead of hand-writing a copy.  It hand-wrote a copy, and the copy
-    // was a fixed `{ id, tenantId }` that ignored the declared `user { … }`
-    // shape, so the node leg's `/api/auth/me` recording was a principal no
-    // generated backend ever produces (#2548).  One exported registrar, one
-    // identity.
-    out.set("auth/dev-stub.ts", renderDevStubVerifier(sys.user));
-  }
+  if (oidc) out.set("auth/oidc.ts", renderOidcVerifier(sys.user, oidc));
+  // The dev stub gets its own module for the same reason the OIDC verifier
+  // does: anything that boots this project WITHOUT running `index.ts` — the
+  // behavioural harness and the playground preview boot `createApp` directly —
+  // must be able to register the SAME identity instead of hand-writing a copy
+  // (a hand-written `{ id, tenantId }` copy that ignored the declared
+  // `user { … }` shape is how a recorded `/api/auth/me` once carried a
+  // principal no generated backend produces).
+  //
+  // Emitted under `auth { oidc }` as well, for the playground preview alone:
+  // it runs this backend in a browser worker with no IdP reachable, so the
+  // OIDC verifier cannot verify anything there and the preview registers the
+  // stub instead.  `index.ts` registers ONLY the OIDC verifier in that case,
+  // so the stub is inert in every real run — the compose stack's bundled dev
+  // IdP is what local testing signs in with.
+  out.set("auth/dev-stub.ts", renderDevStubVerifier(sys.user, !!oidc));
 }
 
 /** The permissive dev-stub verifier: accepts every request as a built-in
  *  identity filling every field the `user { … }` block declares, with an
  *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
-function renderDevStubVerifier(user: UserIR): string {
+function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
+  const usage = oidc
+    ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`index.ts\` registers
+ *  the OIDC verifier and never calls this, so a running server ignores
+ *  \`x-loom-dev-claims\`.  The Loom playground preview registers it instead,
+ *  because no identity provider is reachable from its browser worker.  Locally,
+ *  sign in through the compose stack's bundled dev IdP.`
+    : ` *  Dev-only: the Loom playground (or curl) can override the claims by sending a
+ *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
+ *  built-in identity is used, and a header that is present but does not decode
+ *  to a JSON object is refused with 400.
+ *
+ *  REPLACE for production by calling \`registerUserVerifier(...)\` with a real
+ *  JWT-decoding implementation, or declare an \`auth { oidc { … } }\` block to
+ *  get the generated OIDC verifier instead.`;
   return `// Auto-generated.
 ${idsImport(user).join("\n")}import type { UserClaims } from "./user-types";
 import { registerUserVerifier } from "./verifier";
@@ -99,14 +115,7 @@ import { registerUserVerifier } from "./verifier";
  *  identity carrying one value per field the system's \`user { … }\` block
  *  declares, so \`/auth/me\` answers the full declared shape out of the box.
  *
- *  Dev-only: the Loom playground (or curl) can override the claims by sending a
- *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
- *  built-in identity is used, and a header that is present but does not decode
- *  to a JSON object is refused with 400.
- *
- *  REPLACE for production by calling \`registerUserVerifier(...)\` with a real
- *  JWT-decoding implementation, or declare an \`auth { oidc { … } }\` block to
- *  get the generated OIDC verifier instead. */
+${usage} */
 export function registerDevStubVerifier(): void {
   registerUserVerifier((req) => {
     // ANNOTATED on purpose.  Without \`: UserClaims\` this literal is checked
@@ -209,9 +218,21 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
   // `orgPath` (multi-tenancy) when the system declares tenancy.  The
   // split keeps the verifier free of the derived member (it can't know the
   // path from the token) while every domain-code `import { User }` sees it.
+  // The system principal's two built-in slots (ruling D1): OPTIONAL, so a
+  // request principal is built and serialized exactly as before (`/auth/me`
+  // is unchanged) — only `systemPrincipal()` (auth/middleware.ts) sets them.
+  const systemSlots = [
+    "  /** `currentUser.isSystem` — true only on the system principal an event",
+    "   *  reactor runs as; absent (false) on every request principal. */",
+    "  isSystem?: boolean;",
+    "  /** The originating user's id on the system principal — audit and logs",
+    "   *  only, never read by a gate. */",
+    "  causedBy?: string | null;",
+  ];
   const userDecl = orgPathClaim
     ? [
         "export interface User extends UserClaims {",
+        ...systemSlots,
         "  /** The caller's tenant materialized path (`currentUser.orgPath`) —",
         "   *  derived per-request from the tenancy claim, memoized on this",
         "   *  request-scoped principal (multi-tenancy). */",
@@ -231,7 +252,7 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
           : []),
         "}",
       ]
-    : ["export type User = UserClaims;"];
+    : ["export interface User extends UserClaims {", ...systemSlots, "}"];
   return (
     lines(
       "// Auto-generated.",
@@ -584,7 +605,67 @@ export function requireCurrentUser(): User {
   }
   return user as User;
 }
-`;
+${renderSystemPrincipal(user, orgPathClaim, orgContext)}`;
+}
+
+/** `systemPrincipal()` — the principal an event reactor runs as (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim is EMPTY (so
+ *  a claims gate cannot pass by accident — the dev stub's `"admin"` strings
+ *  are deliberately not reused), `isSystem` is true, the tenant claim and the
+ *  materialized path are the triggering event's (read off the dispatching
+ *  request's principal — the event was raised inside it), and `causedBy` is
+ *  that request's user id (or its own `causedBy` when the dispatcher is itself
+ *  a reactor).  With no dispatching principal (a timer tick) the tenant is
+ *  empty, which matches no tenant-owned row. */
+function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = false): string {
+  const idField = actorIdField(user);
+  const entries = user.fields.map((f) => {
+    const v =
+      f.name === tenantClaim
+        ? `(origin?.${f.name} ?? "") as UserClaims["${f.name}"]`
+        : systemValueFor(f);
+    return `    ${snakeToCamel(f.name)}: ${v},`;
+  });
+  const tenantSlots = tenantClaim
+    ? [
+        "    orgPath,",
+        "    rootOrg: rootOrgOf(orgPath),",
+        ...(orgContext ? ["    orgContextPath: orgPath,"] : []),
+      ]
+    : [];
+  const causedBy = idField
+    ? `origin ? (origin.isSystem ? (origin.causedBy ?? null) : String(origin.${idField})) : null`
+    : "origin?.causedBy ?? null";
+  return lines(
+    "",
+    "/** The system principal an event reactor runs as: no claims, `isSystem`,",
+    " *  the dispatching principal's tenant, `causedBy` for audit.  Gates are",
+    " *  evaluated against it normally — a gate that admits it says",
+    " *  `currentUser.isSystem || …`. */",
+    "export function systemPrincipal(): User {",
+    "  const origin = (requestContext()?.currentUser ?? null) as User | null;",
+    ...(tenantClaim ? ['  const orgPath = origin?.orgPath ?? "";'] : []),
+    "  return {",
+    ...entries,
+    ...tenantSlots,
+    "    isSystem: true,",
+    `    causedBy: ${causedBy},`,
+    "  };",
+    "}",
+  );
+}
+
+/** The EMPTY value of one claim on the system principal: the zero of its
+ *  type, never a value a gate would read as a grant. */
+function systemValueFor(f: FieldIR): string {
+  if (f.optional) return "null";
+  const t = f.type;
+  if (t.kind === "primitive" && t.name === "string") return `""`;
+  // An id claim is a branded string: the empty id, cast to the claim's own
+  // type — `middleware.ts` has no `Ids` import, and the dev stub's zero GUID
+  // would be a real-looking id rather than "no claim".
+  if (t.kind === "id") return `"" as UserClaims["${snakeToCamel(f.name)}"]`;
+  return stubValueForType(t);
 }
 
 // ---------------------------------------------------------------------------
