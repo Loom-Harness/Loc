@@ -15,6 +15,7 @@ import { useOrderById } from "../../api/order";
 function openAddLineModal(mut: ReturnType<typeof useAddLineOrder>): void {
   modals.open({
     title: t("page.Detail.modalTitle.uhabr2", "Add Line"),
+    closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <AddLineForm mut={mut} onClose={() => modals.closeAll()} />,
   });
 }
@@ -71,6 +72,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
 function openConfirmModal(mut: ReturnType<typeof useConfirmOrder>): void {
   modals.open({
     title: t("page.Detail.modalTitle.8tbqwf", "Confirm"),
+    closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <ConfirmForm mut={mut} onClose={() => modals.closeAll()} />,
   });
 }
@@ -111,6 +113,7 @@ function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>
 function openUpdateModal(mut: ReturnType<typeof useUpdateOrder>): void {
   modals.open({
     title: t("page.Detail.modalTitle.uk4kus", "Update"),
+    closeButtonProps: { "aria-label": t("chrome.close", "Close") },
     children: <UpdateForm mut={mut} onClose={() => modals.closeAll()} />,
   });
 }
