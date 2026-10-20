@@ -1098,7 +1098,9 @@ export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
   // `this`, then the type after each segment.  The head resolves lexically
   // (param, let, …) before the enclosing record's members — except under an
   // EXPLICIT `this.`, the whole point of which is to skip a same-named
-  // parameter (`operation rename(name: string) { this.name := name }`).
+  // parameter (`operation rename(name: string) { this.name := name }`) — and
+  // except a bare head naming a member of the enclosing aggregate, which the
+  // pass types as that member (M-T5.42 V4, `lvalueSteps`).
   const steps = typingFor(lv).lvalueStepsAt(lv) ?? [];
   const segs = [lv.head, ...lv.tail];
   for (let i = 0; i < segs.length; i++) {

@@ -71,9 +71,12 @@ export async function startMockIssuer() {
     email: "agent@example.com",
     permissions: ["close"],
     // The optional claim `take()` is gated on (`auth-oidc.ddd`).  The
-    // unauthorized token below OMITS it — absent, not null — which is the H-10
-    // shape: an absent optional claim must read as null and be refused.
+    // unauthorized token below OMITS it — absent, not null: an absent optional
+    // claim must read as null and be refused.
     agentId: "agent-1",
+    // The optional `Ticket id?` claim `assign()` is gated on — a UUID here; the
+    // unauthorized token below carries a MALFORMED one, which must read as null.
+    assignee: "00000000-0000-0000-0000-0000000000a1",
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setSubject("00000000-0000-0000-0000-000000000000")
@@ -96,6 +99,9 @@ export async function startMockIssuer() {
     realm_access: { roles: "visitor" },
     email: "visitor@example.com",
     permissions: [],
+    // Present but NOT a UUID: an identifier claim in the wrong format is null on
+    // every backend, so `assign()`'s `!= null` gate refuses this principal.
+    assignee: "not-a-uuid",
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setSubject("00000000-0000-0000-0000-0000000000ff")

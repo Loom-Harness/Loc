@@ -1487,19 +1487,7 @@ export function renderCsproj(
   const cronosRef = withCronTimers
     ? `\n    <!-- Hangfire — durable cron timerSource scheduler (Postgres storage) -->\n    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />\n    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />\n    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />`
     : "";
-  // MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
-  // moderate BouncyCastle advisory present on every published version; the
-  // generated code only uses the SMTP send path.  Suppress the two audit
-  // entries so `dotnet build /warnaserror` (NU1902) passes with MailKit present.
-  const mailkitAuditSuppress =
-    "MailKit" in resourceNugetDeps
-      ? `\n  <ItemGroup>
-    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
-  </ItemGroup>`
-      : "";
+  const mailkitAuditSuppress = nugetAuditSuppressItemGroup(resourceNugetDeps);
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
@@ -1616,7 +1604,32 @@ ${persistenceRefs}
 `;
 }
 
-export function renderTestCsproj(ns: string): string {
+/** The `<NuGetAuditSuppress>` item group a csproj needs for the resource
+ *  packages it restores, or `""` when it needs none.
+ *
+ *  MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
+ *  moderate BouncyCastle advisory present on every published version; the
+ *  generated code only uses the SMTP send path.  Suppressing the two audit
+ *  entries keeps `dotnet build /warnaserror` (NU1902) green with MailKit present.
+ *
+ *  Both the API csproj and the xUnit csproj carry it: NuGet audits a project's
+ *  whole transitive graph, MailKit reaches the test project through its
+ *  `ProjectReference`, and an audit suppression is a per-project item that a
+ *  reference does not carry across. */
+export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, string>): string {
+  if (!("MailKit" in resourceNugetDeps)) return "";
+  return `\n  <ItemGroup>
+    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
+         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
+  </ItemGroup>`;
+}
+
+export function renderTestCsproj(
+  ns: string,
+  resourceNugetDeps: Record<string, string> = {},
+): string {
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -1640,7 +1653,7 @@ export function renderTestCsproj(ns: string): string {
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../${ns}.csproj" />
-  </ItemGroup>
+  </ItemGroup>${nugetAuditSuppressItemGroup(resourceNugetDeps)}
 </Project>
 `;
 }

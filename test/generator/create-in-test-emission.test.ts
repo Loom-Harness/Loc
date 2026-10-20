@@ -66,7 +66,7 @@ function createLine(src: string, marker: RegExp): string {
 }
 
 describe("domain test-block aggregate create — backend emission", () => {
-  it(".NET renders a named-arg Create(...) with only the inputs the test named", async () => {
+  it(".NET renders a named-arg Create(...) — the named inputs plus `null` for an omitted plain optional", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const tests = findFile(files, /ProjectTests\.cs$/i);
     const line = createLine(tests, /Project\.Create\(/);
@@ -75,11 +75,12 @@ describe("domain test-block aggregate create — backend emission", () => {
     // Provided inputs ride through.
     expect(line).toMatch(/name:\s*"demo"/);
     expect(line).toMatch(/budget:\s*0\.0m/);
-    // The OMITTED optional is simply absent.  It used to be filled with an
-    // explicit `description: null`, which the factory's `= null` default now
-    // supplies — and filling omissions in general is what made the
-    // construction assertions vacuous (see defaulted-create-emission.test.ts).
-    expect(line).not.toMatch(/description:/);
+    // A PLAIN optional has no factory default (`csFactoryDefault` in
+    // emit/entity.ts): it is a required `string? description` parameter, so
+    // leaving it out is CS7036.  Omitting it means null, so the test passes
+    // that.  Inputs the factory DOES default stay omitted, which keeps the
+    // construction assertions honest (see defaulted-create-emission.test.ts).
+    expect(line).toMatch(/description:\s*null/);
   });
 
   it("TS renders the object-literal create with the provided inputs", async () => {

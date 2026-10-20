@@ -68,3 +68,27 @@ describe("a11y — icon-only Button accessible name (loom.a11y-icon-only-no-name
     expect(iconOnly(warnings)).toBe(false);
   });
 });
+
+// M-T5.42, V8 — the button emitter resolves `icon:` through the builtin
+// registry (`src/util/builtin-icons.ts`) and renders NO glyph on a miss.
+describe("Button icon name (loom.button-icon-unknown)", () => {
+  const unknownIcon = (msgs: string[]) => msgs.some((m) => /names no builtin icon/.test(m));
+
+  it("warns on an icon name the builtin registry lacks", async () => {
+    const { warnings } = await parse(sys(`Button { "Delete", icon: "trash" }`));
+    expect(unknownIcon(warnings)).toBe(true);
+    expect(warnings.find((m) => /names no builtin icon/.test(m))).toContain("arrow-right, check");
+  });
+
+  it("accepts a builtin icon name", async () => {
+    const { warnings } = await parse(sys(`Button { "Done", icon: "check" }`));
+    expect(unknownIcon(warnings)).toBe(false);
+  });
+
+  it("does not flag an unknown name when iconSvg: supplies the glyph", async () => {
+    const { warnings } = await parse(
+      sys(`Button { "Delete", icon: "trash", iconSvg: "<svg></svg>" }`),
+    );
+    expect(unknownIcon(warnings)).toBe(false);
+  });
+});

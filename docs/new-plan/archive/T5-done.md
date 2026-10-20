@@ -348,3 +348,15 @@ The diagnostic is honest (it prints the whole list, so nothing is hidden), and t
 **Until it lands,** `datetime` is the honest answer and the docs should say so: `docs/language-reference/04-type-system.md` gains one line naming `date` as a known omission with this mission id, which is the difference between a gap and a silence.
 
 Sources: dev-experience run 2026-09-27 (`F-110`); `src/language/ddd.langium:2048`; `src/util/intrinsics.ts`; `docs/new-plan/archive/T1-done.md` § M-T1.11 (the i18n `{at, date}` format spec that already exists).
+
+## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `done` ([#3106](https://github.com/Loom-Harness/Loc/pull/3106), L1-V2) · **M** · P2
+
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](../leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
+
+Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
+
+**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
+
+**Verification.** The pinned case flips; one negative case per gate on the statement form.
+
+**Outcome.** The subject typing landed first, via the single typing pass (M-T5.47 cutover 3b, #3166) — the PR's own lowering-side resolver was dropped as a duplicate in its 2026-10-11 re-sync. #3106 wires the gates: `validateVariantMatch` (`structural-checks.ts`) runs the unknown / duplicate / non-exhaustive gates over every page / component / store action's `variant-match` statement, with one negative case per gate in `test/ir/variant-match-subject-type.test.ts`.

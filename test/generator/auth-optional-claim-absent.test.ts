@@ -67,11 +67,9 @@ describe("an absent optional OIDC claim is null on every backend (H-10)", () => 
     const oidc = file(await generateSystemFiles(src("node")), /auth\/oidc\.ts$/);
     expect(oidc).toContain('agentId: (claim(payload, "agentId") ?? null) as string | null,');
     expect(oidc).toContain(
-      'customerId: (claim(payload, "customerId") ?? null) as Ids.TicketId | null,',
+      'customerId: (claimAs(claim(payload, "customerId"), "uuid") ?? null) as Ids.TicketId | null,',
     );
-    expect(oidc).toContain(
-      'const REQUIRED_CLAIMS: readonly string[] = ["sub", "realm_access.roles"];',
-    );
+    expect(oidc).toContain('= [["sub", null], ["realm_access.roles", null]];');
   });
 
   it("java: an optional string claim is READ (null when absent); an unmapped optional is null, not the zero id", async () => {
