@@ -52,12 +52,38 @@
     {
       "seq": 5,
       "method": "POST",
-      "path": "/api/tickets/{id}/update",
+      "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
       "seq": 6,
+      "method": "POST",
+      "path": "/api/tickets/{id}/assign",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/tickets/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "open": true,
+        "subject": "SSO broken",
+        "version": 5
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/tickets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 200,
@@ -65,11 +91,11 @@
         "id": "<volatile:key>",
         "open": true,
         "subject": "SSO fixed",
-        "version": 4
+        "version": 6
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -79,7 +105,7 @@
             "id": "<volatile:key>",
             "open": true,
             "subject": "SSO fixed",
-            "version": 4
+            "version": 6
           }
         ],
         "page": 1,
@@ -89,14 +115,14 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "DELETE",
       "path": "/api/tickets/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "GET",
       "path": "/api/tickets/{id}",
       "status": 404,
@@ -109,7 +135,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "GET",
       "path": "/api/tickets",
       "status": 200,
@@ -122,7 +148,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 14,
       "method": "PATCH",
       "path": "/api/tickets",
       "status": 405,
@@ -135,7 +161,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -148,7 +174,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
       "method": "POST",
       "path": "/api/tickets",
       "status": 400,
@@ -161,7 +187,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 401,
@@ -174,7 +200,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 18,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 404,
@@ -284,6 +310,39 @@
       "seq": 24,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/tickets/{id}/assign",
+      "status": 401,
+      "body": {
+        "detail": "no valid credentials for POST /api/tickets/{id}/assign",
+        "instance": "/api/tickets/{id}/assign",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/tickets/{id}/assign",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/assign",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/tickets/{id}/assign",
       "status": 204,
       "body": ""
     }
