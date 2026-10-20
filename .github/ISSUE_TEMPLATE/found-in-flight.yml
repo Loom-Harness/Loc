@@ -1,0 +1,56 @@
+name: Found while working
+description: A bug, gap or debt hit while doing other work. File it in two minutes and move on — don't root-cause it.
+title: "[found] "
+labels: ["found-in-flight"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open issues for the `loom.*` code / error text / file first — if it is
+        already filed, comment your repro there instead. Include only what you already
+        have; investigating belongs to whoever picks this up (`docs/agent-runbook.md` §5).
+  - type: input
+    id: found-while
+    attributes:
+      label: Found while
+      description: The issue / PR / session you were working on.
+      placeholder: "#3301 (session https://claude.ai/code/session_…)"
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where it shows
+      multiple: true
+      options: [language / validator, IR / lowering, node, dotnet, elixir, python, java, react, vue, svelte, angular, feliz, flutter, system / compose / migrations, CLI / tooling, CI / tests, playground, docs]
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: The smallest `.ddd` snippet or command you already have.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+      description: Generated output, error, crash or `loom.*` code.
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: Expected
+      description: One line.
+    validations:
+      required: true
+  - type: input
+    id: suspect
+    attributes:
+      label: Suspect file:line
+      description: Only if you saw it. Leave empty rather than guess.
+    validations:
+      required: false

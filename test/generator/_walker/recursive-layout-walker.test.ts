@@ -75,7 +75,9 @@ describe("recursive layout walker", () => {
       }
     `);
     const appTsx = files.get("web/src/App.tsx")!;
-    expect(appTsx).toMatch(/import Welcome from "\.\/pages\/welcome";/);
+    expect(appTsx).toMatch(
+      /const Welcome = React\.lazy\(\(\) => import\("\.\/pages\/welcome"\)\);/,
+    );
     expect(appTsx).toMatch(/path="\/"\s+element=\{<Welcome \/>\}/);
   });
 

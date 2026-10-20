@@ -28,6 +28,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { isMacroEmitted } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
@@ -945,6 +946,41 @@ export function validateVariantMatch(loom: EnrichedLoomModel, diags: LoomDiagnos
   forEachModelExpr(loom, ({ expr, source }) => {
     visit(source)(expr);
   });
+
+  // The STATEMENT form (`match await <api>.<Agg>.<op>(…) { … }` in a page /
+  // component / store action).  `variant-match` is frontend-only, so the three
+  // `ActionIR` carriers are its whole surface.  Its `subjectType` is now the
+  // awaited operation's declared return type (the single typing pass,
+  // M-T5.47 cutover 3b; gates wired by M-T5.43 V14), so the unknown / duplicate / non-exhaustive
+  // gates run on it exactly as on the expression form.  A NON-union subject is
+  // deliberately not reported here: every such statement subject is already
+  // refused by the shape gate `loom.async-effect-subject-unsupported`
+  // (store-checks.ts) or is an op returning a single type, and reporting
+  // `loom.match-non-union-subject` too would name two blockers for one line.
+  for (const sys of loom.systems) {
+    for (const ui of sys.uis) {
+      const hosts = [
+        ...ui.pages.map((h) => ({ where: `page '${h.name}'`, actions: h.actions })),
+        ...ui.components.map((h) => ({ where: `component '${h.name}'`, actions: h.actions })),
+        ...ui.stores.map((h) => ({ where: `store '${h.name}'`, actions: h.actions })),
+      ];
+      for (const host of hosts) {
+        for (const action of host.actions) {
+          const source = `${ui.name}/${host.where} action '${action.name}'`;
+          for (const top of action.body) {
+            walkStmtsDeep(top, (s) => {
+              if (s.kind !== "variant-match" || s.subjectType?.kind !== "union") return;
+              checkVariantMatchShape(
+                { subjectType: s.subjectType, arms: s.arms, hasElse: s.elseBody !== undefined },
+                source,
+                diags,
+              );
+            });
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Flag every expression in a function body — the expression form walks the
@@ -1879,18 +1915,41 @@ export function validateLifecycleBodyDropped(
       const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
       const input = agg.createInput ?? buildCreateInput(agg);
       const missing = input.filter((c) => !declared.has(c.field.name));
-      // Only a missing REQUIRED field actually breaks a caller: it is the one
-      // the request body demands and the declared `create` never mentions, so a
-      // client written from the declaration gets a 422 naming a field the
-      // author does not believe exists.  A missing OPTIONAL field is merely
-      // accepted-but-undeclared, which is confusing rather than broken, so it is
-      // named in the message but does not on its own raise it — otherwise every
-      // aggregate with one nullable field would warn, and the signal would be
-      // spent before it said anything.
+      // A missing REQUIRED field breaks a caller: the request body demands it
+      // and the declared `create` never mentions it, so a client written from
+      // the declaration gets a 422 naming a field the author does not believe
+      // exists.  A missing OPTIONAL field is the opposite hazard: the author
+      // narrowed the list to KEEP it out of creation (typically a field only an
+      // operation should set — `approvedAmount: money?` set by `approve()`),
+      // and `POST /<plural>` still accepts it, so any client can create the row
+      // with the value already set, bypassing the operation's preconditions
+      // (claims eval D10: an approvedAmount of 99999 stored at creation).  Both
+      // warn — but only on a NARROWED list (the `params.length > 0` guard
+      // above), so an aggregate with nullable fields and an empty `create()` or
+      // a full list stays quiet.  The optional half is also limited to a
+      // create the AUTHOR wrote: a macro-synthesized one (`with crudish`) was
+      // not narrowed on purpose and has no parameter list to edit.
       const missingRequired = missing.filter((c) => c.requiredInput).map((c) => c.field.name);
+      const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
+      const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
+      if (
+        missingRequired.length === 0 &&
+        alsoAccepted.length > 0 &&
+        !isMacroEmitted(agg.canonicalCreate.origin)
+      ) {
+        diags.push({
+          severity: "warning",
+          code: "loom.create-params-not-wire",
+          message: diagMessage("loom.create-params-not-wire#optional", {
+            agg: agg.name,
+            missing: fmt(alsoAccepted),
+            verb: alsoAccepted.length === 1 ? "is" : "are",
+          }),
+          source: `${ctx.name}/aggregate ${agg.name}.create`,
+          origin: agg.origin,
+        });
+      }
       if (missingRequired.length > 0) {
-        const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
-        const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
         diags.push({
           severity: "warning",
           code: "loom.create-params-not-wire",

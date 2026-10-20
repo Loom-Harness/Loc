@@ -34,14 +34,16 @@ describe("scaffold Home yields to a user page routed at `/` (F2)", () => {
   it("vue: one root route, the declared page", async () => {
     const router = (await generateSystemFiles(source("vue", WELCOME))).get("web/src/router.ts")!;
     expect(router.match(/path: "\/",/g)).toHaveLength(1);
-    expect(router).toContain('{ path: "/", component: Welcome }');
+    expect(router).toContain('{ path: "/", component: () => import("./pages/welcome.vue") }');
   });
 
   it("angular: one root route, the declared page", async () => {
     const files = await generateSystemFiles(source("angular", WELCOME));
     const routes = files.get("web/src/app/app.routes.ts")!;
     expect(routes.match(/path: "",/g)).toHaveLength(1);
-    expect(routes).toContain('{ path: "", component: WelcomeComponent }');
+    expect(routes).toContain(
+      '{ path: "", loadComponent: () => import("./pages/welcome.component").then((m) => m.WelcomeComponent) }',
+    );
     expect(files.has("web/src/app/pages/home.component.ts")).toBe(false);
   });
 

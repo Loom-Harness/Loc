@@ -312,16 +312,16 @@ On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double du
 
 `target := Expr` is scalar assignment; `target += Expr` / `target -= Expr` are collection append / remove (`add` / `remove` in the IR). The target is an `LValue` — a bare field name or a dotted path (`draft.zip`), optionally rooted with an explicit `this.` (`this.name`, `this.draft.zip`). Assigning to a `derived` member is an error (`Cannot assign to derived property …`). A numeric/decimal literal flowing into a `money` target is elaborated to the precise money constructor at lowering (`subtotal := 0.50` → `money("0.50")`).
 
-**`this.` is a disambiguator, not decoration.** Without it the head is resolved as a free name first, so a parameter named after the field it fills wins — and the assignment is then *type-checked against the parameter*, not against the member being written:
+**An assignment always writes the member.** Every backend emits `name := …` as a write to the aggregate's own field (`this._name = …`), so a bare head that names a member is type-checked against that member — even when a parameter or `let` of the same name shadows it on the right-hand side:
 
 ```ddd
 operation rename(name: int) {
   this.name := name   // error: Cannot assign 'int' to 'string'
-  name := name        // accepted — the head resolves to the int parameter
+  name := name        // error: Cannot assign 'int' to 'string' — the head is the field
 }
 ```
 
-Both spellings *emit* the same write (`this._name = name`), so the bare form on a mismatched pair emits an assignment its own target language rejects. Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
+(Before M-T5.42 the bare form resolved its head to the int parameter, validated clean, and emitted an assignment its own target language rejected.) Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
 
 ```ddd
 aggregate Order {
@@ -705,7 +705,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — a single-aggregate workflow `handle` lifted out, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load has no null-handling vocabulary (`loom.handler-load-nullable-unsupported` — use `getById`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — a single-aggregate workflow `handle` lifted out, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
 
 ```ddd
 context Accounts {
@@ -842,3 +842,19 @@ this-write. Move the rule to the aggregate operation that owns the state.
 The table states **today's** surface exactly: no capability was added or removed when it landed, and emission is byte-identical across all eleven targets. A row that gains a modifier is an emitter obligation on every target, so widening one is a change to make deliberately, not a table edit.
 
 The two callable-*shaped* declarations that are deliberately **not** rows: `criterion` (it carries `of <T>` / `as <alias>` and is inlined at its call sites) and `component` (it returns markup, not a value). The ui-level `function` is a separate rule that is `extern` by construction — the `extern from "<path>"` clause *is* its body — so it has no modifier surface to police.
+
+### Parameter defaults
+
+`param: T = <expr>` parses at every callable site (one shared `Parameter` rule), but only an aggregate `operation` / `create` / `destroy` and a workflow `create` lower the default so the generated signature carries it. A `domainService` operation, a workflow `handle`, a `commandHandler` / `queryHandler` and a `function` drop it — so a caller omitting the argument would reach a signature that still requires it. A default there is **`loom.param-default-unsupported`**:
+
+```ddd
+domainService Pricing {
+  operation quote(base: int = 3): int { return base }
+}
+```
+
+```
+error: Parameter 'base' declares a default, but a domain-service operation does not
+support parameter defaults: the default would be dropped and every generated signature
+would still require the argument. Remove '= …' and pass the value at each call site.
+```

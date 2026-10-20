@@ -30,8 +30,9 @@ versioning works.
 
 - **Needs DB** — the system orchestrator (`src/system/index.ts`)
   reads this flag to decide whether to emit a per-deployable
-  `CREATE DATABASE` line in `db-init/00-create-databases.sql` and
-  wire a `depends_on: db` healthcheck in `docker-compose.yml`.
+  (idempotent) `CREATE DATABASE` line in `db-init/00-create-databases.sql` and
+  wire a `depends_on: db` healthcheck plus the `db-bootstrap` one-shot
+  (`service_completed_successfully`) in `docker-compose.yml`.
 - **Mounts UI** — whether the deployable validator allows a `ui:`
   binding on this platform.  `react` / `vue` / `svelte` / `angular` /
   `flutter` / `static` always mount; `dotnet`, `java` and `python` are
