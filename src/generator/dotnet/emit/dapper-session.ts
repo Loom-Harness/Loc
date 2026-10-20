@@ -44,8 +44,8 @@ export function dapperAmbientTxClassFq(ns: string): string {
  *  Fully qualified: the repositories live in `Infrastructure.Repositories`, and
  *  a `using` of the persistence namespace would also import its `Events` /
  *  `Workflows` / `Projections` sub-namespaces as bare names. */
-export function dapperOpenConn(ns: string, connName = "conn"): string {
-  return `await using var __lease = await ${persistenceNs(ns)}.DapperConnectionLease.OpenAsync(_db, cancellationToken); var ${connName} = __lease.Connection;`;
+export function dapperOpenConn(ns: string, connName = "conn", ct = "cancellationToken"): string {
+  return `await using var __lease = await ${persistenceNs(ns)}.DapperConnectionLease.OpenAsync(_db, ${ct}); var ${connName} = __lease.Connection;`;
 }
 
 /** Begins the repository's own write transaction — or, enlisted, hands back the

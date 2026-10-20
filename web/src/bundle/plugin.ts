@@ -83,10 +83,11 @@ export interface TsconfigAliasEntry {
 // the registrar at entry top-level runs it at module-evaluation time, i.e.
 // before the worker reaches `createApp` — the same order `index.ts` uses.
 //
-// An `auth { oidc }` system emits `auth/oidc.ts` instead and gets no
-// registration here: its verifier validates tokens against the IdP's JWKS, and
-// no IdP is reachable from the preview worker. That system still fails to boot,
-// deliberately and unchanged by this function.
+// An `auth { oidc }` system emits the dev stub too, and is registered here the
+// same way: its OIDC verifier validates tokens against the IdP's JWKS, and no
+// IdP is reachable from the preview worker.  This is the ONLY place the stub is
+// registered for such a system — its generated `index.ts` registers the OIDC
+// verifier, so the header is honoured in the preview and nowhere else.
 export function makeEntryStdin(
   entryPath: string,
   schemaPath: string,
@@ -119,7 +120,7 @@ export function schemaPathFor(entryPath: string): string {
 
 // The deployable's `auth/dev-stub.ts` — same replacement rule as
 // `schemaPathFor` — or `undefined` when the emitter produced none (an auth-less
-// deployable, or an `auth { oidc }` one, which emits `auth/oidc.ts` instead).
+// deployable).
 //
 // The presence check lives HERE, with the derivation, because the two disagree
 // on spelling: the virtual fs is keyed by ABSOLUTE path ("/" + path, see the

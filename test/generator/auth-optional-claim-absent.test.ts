@@ -78,13 +78,19 @@ describe("an absent optional OIDC claim is null on every backend (H-10)", () => 
     const v = file(await generateSystemFiles(src("java")), /auth\/OidcUserVerifier\.java$/);
     expect(v).toContain('claimString(payload, "agentId")');
     expect(v).not.toContain("UUID(0L, 0L)");
-    expect(v).toMatch(/claimString\(payload, "agentId"\),\n\s+null\n/);
+    // D16: the optional id claim is DECODED (null when absent), not hard-wired null.
+    expect(v).toContain(
+      'claimString(payload, "agentId"),\n                claimAs(payload, "customerId", v -> mapOrNull(asUuid(v), TicketId::new))\n',
+    );
   });
 
   it('dotnet: an optional string claim is READ; a JSON-null claim is null, not ""', async () => {
     const v = file(await generateSystemFiles(src("dotnet")), /Auth\/OidcUserVerifier\.cs$/);
     expect(v).toContain('AgentId: ClaimString(payload, "agentId"),');
-    expect(v).toContain("CustomerId: default!");
+    // D16: the optional id claim is DECODED (null when absent), not `default!`.
+    expect(v).toContain(
+      'CustomerId: ClaimAs<TicketId>(payload, "customerId", e => AsGuid(e) is { } v ? new TicketId(v) : null)',
+    );
     expect(v).toContain("if (current.ValueKind == JsonValueKind.Null) return null;");
   });
 

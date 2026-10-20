@@ -1,0 +1,324 @@
+{
+  "case": "handler-aggregate-ops",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/orders/{id}/status",
+      "status": 200,
+      "body": "open"
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/orders/{id}/view",
+      "status": 200,
+      "body": {
+        "code": "A-1",
+        "discount": 0,
+        "discountReason": "none",
+        "id": "<volatile:key>",
+        "status": "open",
+        "version": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/orders/{id}/discounts",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "A-1",
+        "discount": 15,
+        "discountReason": "loyalty",
+        "id": "<volatile:key>",
+        "status": "open",
+        "version": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/orders/{id}/discounts",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "A-1",
+        "discount": 20,
+        "discountReason": "again",
+        "id": "<volatile:key>",
+        "status": "open",
+        "version": 3
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancellations",
+      "status": 200,
+      "body": "<uuid>"
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/orders/{id}/status",
+      "status": 200,
+      "body": "cancelled"
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "A-1",
+        "discount": 20,
+        "discountReason": "again",
+        "id": "<volatile:key>",
+        "status": "cancelled",
+        "version": 4
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/orders/{id}/removal",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/orders/{id}/status",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/status",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/orders/{id}/status",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/status",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/orders/{id}/view",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/view",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancellations",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/cancellations",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/orders/{id}/apply_discount",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "code": "B-1",
+        "discount": 3,
+        "discountReason": "derived",
+        "id": "<volatile:key>",
+        "status": "open",
+        "version": 2
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancel",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/orders/{id}/status",
+      "status": 200,
+      "body": "cancelled"
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/orders/{id}/view",
+      "status": 200,
+      "body": {
+        "code": "B-2",
+        "discount": 3,
+        "discountReason": "derived",
+        "id": "<volatile:key>",
+        "status": "reopened",
+        "version": 4
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "B-2",
+            "discount": 3,
+            "discountReason": "derived",
+            "id": "<volatile:key>",
+            "status": "reopened",
+            "version": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/orders/{id}/view",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/view",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/orders",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
