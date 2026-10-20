@@ -183,6 +183,45 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 404,
+      "body": {
+        "detail": "Appointment {id} not found",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 404,
+      "body": {
+        "detail": "Appointment {id} not found",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
     }
   ]
 }
