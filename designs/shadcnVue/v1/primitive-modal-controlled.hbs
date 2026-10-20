@@ -1,5 +1,5 @@
 <Dialog v-model:open="{{opened}}">
-{{indent}}<DialogContent{{{testidAttr}}}>{{#if hasTitle}}
+{{indent}}<DialogContent :close-label='{{{closeLabelExpr}}}'{{{testidAttr}}}>{{#if hasTitle}}
 {{indent}}  <DialogHeader><DialogTitle>{{{title}}}</DialogTitle></DialogHeader>{{/if}}
 {{indent}}  {{{childrenJsx}}}
 {{indent}}</DialogContent>

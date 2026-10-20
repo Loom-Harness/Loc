@@ -1,5 +1,7 @@
 # Loom — the global implementation plan
 
+> **Frozen for new work (2026-10-18).** Work state now lives in GitHub issues — new sessions follow [`../agent-runbook.md`](../agent-runbook.md). Sessions already working a mission from this plan finish it under the old protocol. Open missions here can still be picked up by filing an issue for one; this file is not updated with their status.
+
 *One roadmap, divided into feature tracks and agent-pickable missions. Created 2026-07-13 from a full re-classification of the design corpus (118 proposals, 71 plans, the DEBT backlog, the parity registers, the audits); it supersedes every earlier status table. The archived corpus under [`../old/`](../old/) is the design record — missions link into it; nothing was deleted.*
 
 *Execution plan (**2026-09-02**): [`improvement-waves-2026-09.md`](improvement-waves-2026-09.md) — the quality/stability wave plan for the next agent fleets: the 2026-08-30 gap-ledger residue re-counted against the 29 merges since it was cut (after the Wave 1 ledger reconciliation: one open P0, the W1b `F2-ADP-3` gate handoff — the three P0s first listed were drained by #2668 itself), the in-flight PR fence, and five waves, one PR per wave to spare the shared CI pool (land the ready queue → close the P0/P1 residue by tree-fenced packet → class-level seams with byte-identical gates → runtime-value verification → process). Statuses stay in the track files; it forks nothing.*
