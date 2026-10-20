@@ -7,11 +7,10 @@ name: Generated Svelte build
 # generated-react-build.yml — catches generator/pack drift invisible
 # to the IR-level tests.
 #
-# Matrix policy: the svelte example set is small (seven examples × two
-# packs), so every event runs the full Cartesian — no PR slice needed
-# yet.  The list MUST match `svelteBuildExamples` ×
-# `sveltePacks` in test/e2e/generated-svelte-build.test.ts (pinned by
-# the matrix-sync guard there).
+# One job runs every {example × pack} case, PARALLELISM (the runner's
+# cores) at a time; the case list is `svelteBuildExamples` × `sveltePacks`
+# in test/e2e/svelte-build-cases.ts, so adding a case needs no workflow
+# edit.
 
 on:
   push:
@@ -23,6 +22,9 @@ on:
       - 'sveltekit/**'
       - 'stacks/**'
       - 'test/e2e/generated-svelte-build.test.ts'
+      - 'test/e2e/svelte-build-cases.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'test/e2e/fixtures/svelte-build/**'
       - 'web/src/examples/svelte-*.ddd'
       - 'package.json'
@@ -39,6 +41,9 @@ on:
       - 'sveltekit/**'
       - 'stacks/**'
       - 'test/e2e/generated-svelte-build.test.ts'
+      - 'test/e2e/svelte-build-cases.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'test/e2e/fixtures/svelte-build/**'
       - 'web/src/examples/svelte-*.ddd'
       - 'package.json'
@@ -67,19 +72,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  matrix:
+  build:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        example: ['examples/svelte-shop.ddd', 'test/e2e/fixtures/svelte-build/auth-ui.ddd', 'web/src/examples/svelte-store-showcase.ddd', 'web/src/examples/svelte-file-upload.ddd', 'web/src/examples/svelte-data-grid.ddd', 'test/e2e/fixtures/svelte-build/optional-fields.ddd', 'test/e2e/fixtures/svelte-build/two-op-picker.ddd']
-        pack: ['shadcnSvelte@v1', 'flowbite@v1']
-    timeout-minutes: 10
-    name: ${{ matrix.example }} × ${{ matrix.pack }}
+    timeout-minutes: 30
+    name: svelte build (every example × pack)
     steps:
       - uses: actions/checkout@v6
 
@@ -89,18 +89,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      # Root install runs the `prepare` lifecycle which calls
-      # `langium:generate` to produce src/language/generated/.
+      # Root install runs the `prepare` lifecycle (langium:generate + build).
       - name: Install Loom toolchain
         run: npm ci
 
-      - name: Build toolchain
-        run: npm run build
-
-      - name: Run svelte-build shard
-        env:
-          LOOM_SVELTE_BUILD_CASE: ${{ matrix.example }}:${{ matrix.pack }}
-        run: npx vitest run test/e2e/generated-svelte-build.test.ts
+      - name: svelte-check + vite build every case
+        run: npm run test:svelte-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
@@ -119,7 +113,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [matrix]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

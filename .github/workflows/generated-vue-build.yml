@@ -6,18 +6,19 @@ name: Generated Vue build
 # drift invisible to the IR-level tests (vue-frontend-plan.md
 # Slice 9).
 #
-# Matrix policy:
-#   - pull_request    → 6 cells: the showcase, store and grid cases ×
-#                       both packs.  `grid` is in the PR slice because the
-#                       DataGrid's markup lands in a HOISTED SIBLING SFC
-#                       (src/components/<Name>.vue) that no other case
-#                       type-checks at all.
-#   - push: main /    → full 12-cell Cartesian
-#     workflow_dispatch  ({minimal, scaffold, showcase, store, file, grid}
-#                        × packs).
+# One job runs the selected cases, PARALLELISM (the runner's cores) at a
+# time.  Case policy:
+#   - pull_request    → the scaffold, showcase, store and grid cases × both
+#                       packs.  `scaffold` is the only case that type-checks a
+#                       SCAFFOLDED FORM (the 2026-09-10 e-shop audit measured
+#                       `vue-tsc` red on every form-binding shape a real model
+#                       carries), and `grid`'s DataGrid markup lands in a
+#                       HOISTED SIBLING SFC (src/components/<Name>.vue) no other
+#                       case type-checks.  `minimal`/`file` drift is caught by
+#                       the full sweep one merge later.
+#   - everything else → every case × every pack.
 #
-# Cell names MUST match the case labels in
-# test/e2e/generated-vue-build.test.ts (`<case>:<pack>`).
+# Case names are the `name`s in test/e2e/generated-vue-build.test.ts.
 
 on:
   push:
@@ -33,6 +34,8 @@ on:
       - 'docker/**'
       - 'stacks/vue1/**'
       - 'test/e2e/generated-vue-build.test.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
       - 'langium-config.json'
@@ -51,6 +54,8 @@ on:
       - 'docker/**'
       - 'stacks/vue1/**'
       - 'test/e2e/generated-vue-build.test.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
       - 'langium-config.json'
@@ -77,44 +82,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  configure:
+  build:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - id: set
-        run: |
-          PACKS='["vuetify@v3","shadcnVue@v1"]'
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Slim PR slice: the most representative cases × both packs.
-            # `minimal`/`file` drift is caught by the push:main sweep below
-            # one merge later.
-            #
-            # `scaffold` is in the PR slice, not the sweep: it is the only case
-            # that type-checks a SCAFFOLDED FORM, and the 2026-09-10 e-shop
-            # audit measured `vue-tsc` red on every form-binding shape a real
-            # model carries (optional value object, `money`, optional scalar) —
-            # 31 errors, all scaffold-emitted, none of them in this corpus. That
-            # is a `npm run build` failure on the generated app, so deferring it
-            # to post-merge is what let it ship.
-            CASES='["scaffold","showcase","store","grid"]'
-          else
-            CASES='["minimal","scaffold","showcase","store","file","grid"]'
-          fi
-          echo "matrix={\"case\":$CASES,\"pack\":$PACKS}" >> "$GITHUB_OUTPUT"
-
-  matrix:
-    needs: configure
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    timeout-minutes: 10
-    name: ${{ matrix.case }} × ${{ matrix.pack }}
+    timeout-minutes: 30
+    name: vue build (selected cases × packs)
     steps:
       - uses: actions/checkout@v6
 
@@ -124,16 +99,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      # Root install runs the `prepare` lifecycle (langium:generate + build).
       - name: Install Loom toolchain
         run: npm ci
 
-      - name: Build toolchain
-        run: npm run build
-
-      - name: Run vue-build shard
+      - name: vue-tsc + vite build every selected case
         env:
-          LOOM_VUE_BUILD_CASE: ${{ matrix.case }}:${{ matrix.pack }}
-        run: npx vitest run test/e2e/generated-vue-build.test.ts
+          # Empty selects every case (see the header for the PR slice).
+          LOOM_VUE_BUILD_CASE: ${{ github.event_name == 'pull_request' && 'scaffold,showcase,store,grid' || '' }}
+        run: npm run test:vue-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
@@ -152,7 +126,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [configure, matrix]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed
