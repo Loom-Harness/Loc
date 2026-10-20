@@ -40,15 +40,26 @@ export function checkUnions(model: Model, accept: ValidationAcceptor): void {
 }
 
 /** An inline `A or B` union is a transport shape (like a generic carrier) — it
- *  may only appear as a repository find's return type or a payload field, not
+ *  may only appear as a repository find's or an operation's return type, not
  *  as a stored property / parameter elsewhere.  This keeps the `union` TypeIR
  *  out of the storage-side emitters (drizzle columns, migrations) that don't
  *  render it.  A *named* union (`payload Foo = A | B`) is referenced by name
- *  (an `entity` marker) and so is unaffected. */
+ *  (an `entity` marker) and so is unaffected.
+ *
+ *  A payload FIELD is refused too: the tagged wire is emitted for a union at
+ *  the top of a return, and no backend renders one NESTED inside a record —
+ *  an `error` payload's union field, or a workflow `create` payload's, reached
+ *  every backend's wire-DTO emitter with nothing to render it as. */
 function checkUnionPosition(t: TypeRef, accept: ValidationAcceptor): void {
   const container = t.$container;
   if (isFindDecl(container)) return;
-  if (isProperty(container) && isPayloadDecl(container.$container)) return;
+  if (isProperty(container) && isPayloadDecl(container.$container)) {
+    accept("error", diagMessage("loom.union-position#payload-field"), {
+      node: t,
+      code: "loom.union-position",
+    });
+    return;
+  }
   // An operation's `or`-union return type (exception-less.md): a designed-in
   // outcome (`operation place(): OrderId or NotFound`), not a stored value.
   if (isOperation(container)) return;
