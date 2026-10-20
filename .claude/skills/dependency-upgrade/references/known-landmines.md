@@ -201,8 +201,9 @@ Format: symptom → cause → fix → where it's pinned / who found it.
   at the base version in `renderCsproj` / `efcore-persistence.ts`, so it flows to
   Tests. Landed in the 2026-07-18 refresh. Re-check the pin whenever the EF Core
   base version moves.
-- **Found by:** the 2026-07-18 .NET currency refresh (the emitted Tests project is
-  not CI-gated, so this stayed latent).
+- **Found by:** the 2026-07-18 .NET currency refresh, at a time when no gate built
+  the emitted Tests project.  `test:dotnet` (`dotnet-build.yml`) now builds it under
+  `/warnaserror` and runs it, so a recurrence fails there.
 
 ---
 

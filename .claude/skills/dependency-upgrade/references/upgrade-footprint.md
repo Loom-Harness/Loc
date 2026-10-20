@@ -170,14 +170,14 @@ the bump can land green then break `main`. Force those via the local gate +
 | toolchain typescript / vitest | A | root package.json | `test.yml` | n/a |
 | React/Vue/Svelte/Angular stack dep | B | `stacks/<id>/*.hbs` | `generated-{react,vue,svelte,angular}-build.yml` (path-filtered) | `generated-*-e2e.yml` — **path-filtered ✗** |
 | design-pack lib | B | `designs/<pack>/.../package-json.hbs` | same generated-build matrix | same |
-| hono / drizzle / TS-backend dep | B | `hono/v5/pins.ts` (the only registered lane) | `hono-build.yml` (path-filtered) | `hono-obs-e2e.yml` — **push:main only ✗**, `conformance-parity` path-filtered |
-| EF Core / .NET TFM | B | `dotnet/emit/program.ts` | `dotnet-build.yml` | `dotnet-obs-e2e.yml` — **push:main only ✗** |
-| Spring Boot / JDK / Flyway | B | `java/emit/program.ts` | `java-build.yml` | `java-obs-e2e.yml` — **push:main only ✗** |
-| fastapi / sqlalchemy / py version | B | `python/pins.ts` | `python-build.yml` | `python-obs-e2e.yml` — **push:main only ✗** |
-| phoenix / ecto / OTP | B | `elixir/shell/project.ts` | `elixir-vanilla-build.yml` | `elixir-vanilla-obs-e2e.yml` — **push:main only ✗** |
+| hono / drizzle / TS-backend dep | B | `hono/v5/pins.ts` (the only registered lane) | `hono-build.yml` (path-filtered) | `hono-obs-e2e.yml` — path-filtered per-PR + nightly ✗, `conformance-parity` path-filtered |
+| EF Core / .NET TFM | B | `dotnet/emit/program.ts` | `dotnet-build.yml` | `dotnet-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
+| Spring Boot / JDK / Flyway | B | `java/emit/program.ts` | `java-build.yml` | `java-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
+| fastapi / sqlalchemy / py version | B | `python/pins.ts` | `python-build.yml` | `python-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
+| phoenix / ecto / OTP | B | `elixir/shell/project.ts` | `elixir-vanilla-build.yml` | `elixir-vanilla-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
 | **Postgres image** | B (boot path) | `src/system/index.ts` | none directly | `conformance-parity` (path-filtered `src/system/**`,`docker/**` — ✗ on a tag-only diff), `k8s-e2e` (**nightly / `e2e-k8s` label ✗**) |
 | Node/Python/Elixir/JDK base image | B (boot path) | `docker/` + backend `renderDockerfile` | the per-backend build job (path-filtered) | the obs-e2e / conformance leg — ✗ |
 
 The pattern is unmistakable: **every compose-boot gate is path-filtered or
-push:main-only**. That is the structural reason a narrow diff is the dangerous
+nightly**. That is the structural reason a narrow diff is the dangerous
 diff, and why Step 4 forces the boot gate by hand.

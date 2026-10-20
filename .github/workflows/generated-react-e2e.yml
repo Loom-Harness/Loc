@@ -34,21 +34,11 @@ name: Generated React e2e
 # then a `vite build` + Playwright run per pack — 2 jobs.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/showcase.ddd'
-      - 'api/**'
-      - 'vite/**'
-      - 'docker/**'
-      - 'stacks/**'
-      - 'test/e2e/generated-react-e2e.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-react-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '3 1 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -137,6 +127,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate).
       - name: Install Loom toolchain
         run: npm ci

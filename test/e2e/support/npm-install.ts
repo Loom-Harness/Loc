@@ -58,6 +58,7 @@
 // ---------------------------------------------------------------------------
 
 import { spawnSync } from "node:child_process";
+import { shResult } from "./parallel.js";
 
 /** Total install attempts per call: 1 initial + 1 retry.  Deliberately not a loop. */
 export const NPM_INSTALL_ATTEMPTS = 2;
@@ -167,7 +168,19 @@ function runNpm(
   return { ok: true, status: "exit 0", output };
 }
 
-function attemptInstall(cwd: string, opts: NpmInstallOpts): AttemptResult {
+/** The outcome of one `npm` run. */
+type NpmRun = { ok: boolean; status: string; output: string };
+
+/**
+ * One install attempt, as a generator that YIELDS the `npm` argument lists it
+ * needs run and receives each result back — so the synchronous and the async
+ * entry points share the `ci`-then-`install` logic and differ only in how they
+ * run npm.
+ */
+function* attemptInstall(
+  cwd: string,
+  opts: NpmInstallOpts,
+): Generator<readonly string[], AttemptResult, NpmRun> {
   const flags = opts.flags ?? NO_AUDIT_NO_FUND;
   assertNotSilenced(flags, cwd);
   const loglevel = "--loglevel=error";
@@ -175,7 +188,7 @@ function attemptInstall(cwd: string, opts: NpmInstallOpts): AttemptResult {
   if (opts.ciFirst) {
     const ciFlags = opts.ciFirst === true ? NO_AUDIT_NO_FUND : opts.ciFirst;
     assertNotSilenced(ciFlags, cwd);
-    const ci = runNpm(["ci", loglevel, ...ciFlags], cwd, opts);
+    const ci = yield ["ci", loglevel, ...ciFlags];
     if (ci.ok)
       return {
         ok: true,
@@ -187,7 +200,7 @@ function attemptInstall(cwd: string, opts: NpmInstallOpts): AttemptResult {
     // package.json), which is a routine state for a freshly generated tree —
     // the `|| npm install` fallback is the whole reason the caller asked for
     // `ci` first.  The fallback's own failure is what gets reported.
-    const install = runNpm(["install", loglevel, ...flags], cwd, opts);
+    const install = yield ["install", loglevel, ...flags];
     return {
       ok: install.ok,
       command: `npm ci ${ciFlags.join(" ")} || npm install ${flags.join(" ")}`,
@@ -196,13 +209,48 @@ function attemptInstall(cwd: string, opts: NpmInstallOpts): AttemptResult {
     };
   }
 
-  const install = runNpm(["install", loglevel, ...flags], cwd, opts);
+  const install = yield ["install", loglevel, ...flags];
   return {
     ok: install.ok,
     command: `npm install ${flags.join(" ")}`.trim(),
     status: install.status,
     output: install.output,
   };
+}
+
+/** Drive one attempt to completion, running npm synchronously. */
+function attemptInstallSync(cwd: string, opts: NpmInstallOpts): AttemptResult {
+  const steps = attemptInstall(cwd, opts);
+  let step = steps.next();
+  while (!step.done) step = steps.next(runNpm(step.value, cwd, opts));
+  return step.value;
+}
+
+/** Drive one attempt to completion, running npm without blocking the event loop. */
+async function attemptInstallAsync(cwd: string, opts: NpmInstallOpts): Promise<AttemptResult> {
+  const steps = attemptInstall(cwd, opts);
+  let step = steps.next();
+  while (!step.done) step = steps.next(await runNpmAsync(step.value, cwd, opts));
+  return step.value;
+}
+
+/** {@link runNpm}, without blocking the event loop. */
+async function runNpmAsync(
+  args: readonly string[],
+  cwd: string,
+  opts: NpmInstallOpts,
+): Promise<NpmRun> {
+  const res = await shResult(["npm", ...args].join(" "), {
+    cwd,
+    timeout: opts.timeout,
+    env: opts.env ? { ...process.env, ...opts.env } : process.env,
+  });
+  const output = truncate(res.output);
+  if (res.timedOut) return { ok: false, status: "timed out (SIGKILL)", output };
+  if (res.status !== 0) {
+    return { ok: false, status: res.status === null ? "killed" : `exit ${res.status}`, output };
+  }
+  return { ok: true, status: "exit 0", output };
 }
 
 /** Block the calling thread — this helper is synchronous, like the `execSync` it replaces. */
@@ -224,23 +272,58 @@ function sleepSync(ms: number): void {
 export function installGeneratedProject(cwd: string, opts: NpmInstallOpts = {}): void {
   const attempts: AttemptResult[] = [];
   for (let i = 1; i <= NPM_INSTALL_ATTEMPTS; i++) {
-    const attempt = attemptInstall(cwd, opts);
+    const attempt = attemptInstallSync(cwd, opts);
+    attempts.push(attempt);
+    if (attempt.ok) return;
+    if (i < NPM_INSTALL_ATTEMPTS) sleepSync(announceRetry(cwd, opts, attempt, i));
+  }
+  throw installFailure(cwd, attempts);
+}
+
+/**
+ * {@link installGeneratedProject} without blocking the event loop — for a
+ * harness that installs several generated projects concurrently.  Same
+ * capture, same single retry, same thrown diagnosis.
+ */
+export async function installGeneratedProjectAsync(
+  cwd: string,
+  opts: NpmInstallOpts = {},
+): Promise<void> {
+  const attempts: AttemptResult[] = [];
+  for (let i = 1; i <= NPM_INSTALL_ATTEMPTS; i++) {
+    const attempt = await attemptInstallAsync(cwd, opts);
     attempts.push(attempt);
     if (attempt.ok) return;
     if (i < NPM_INSTALL_ATTEMPTS) {
-      const wait = opts.retryDelayMs ?? NPM_INSTALL_RETRY_DELAY_MS;
-      console.error(
-        `loom-retry: \`${attempt.command}\` failed in ${cwd} (${attempt.status}), ` +
-          `attempt ${i + 1} of ${NPM_INSTALL_ATTEMPTS} after ${Math.round(wait / 1000)}s\n${attempt.output}`,
-      );
-      sleepSync(wait);
+      const wait = announceRetry(cwd, opts, attempt, i);
+      await new Promise((resume) => setTimeout(resume, wait));
     }
   }
+  throw installFailure(cwd, attempts);
+}
+
+/** Print a failed first attempt's output before the retry; returns the pause. */
+function announceRetry(
+  cwd: string,
+  opts: NpmInstallOpts,
+  attempt: AttemptResult,
+  i: number,
+): number {
+  const wait = opts.retryDelayMs ?? NPM_INSTALL_RETRY_DELAY_MS;
+  console.error(
+    `loom-retry: \`${attempt.command}\` failed in ${cwd} (${attempt.status}), ` +
+      `attempt ${i + 1} of ${NPM_INSTALL_ATTEMPTS} after ${Math.round(wait / 1000)}s\n${attempt.output}`,
+  );
+  return wait;
+}
+
+/** The error thrown once every attempt has failed. */
+function installFailure(cwd: string, attempts: readonly AttemptResult[]): Error {
   const last = attempts[attempts.length - 1];
   const detail = attempts
     .map((a, i) => `--- attempt ${i + 1} of ${NPM_INSTALL_ATTEMPTS} (${a.status}) ---\n${a.output}`)
     .join("\n");
-  throw new Error(
+  return new Error(
     `\`${last.command}\` failed in ${cwd} after ${NPM_INSTALL_ATTEMPTS} attempts (${last.status}).\n${detail}`,
   );
 }
