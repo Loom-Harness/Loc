@@ -85,6 +85,7 @@ on:
       - 'test/fixtures/corpus/**'
       - 'test/e2e/corpus-elixir-build.test.ts'
       - 'test/e2e/support/hex-mirror.ts'
+      - 'test/e2e/support/mix-workspace.ts'
       - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -136,6 +137,7 @@ on:
       - 'test/fixtures/corpus/**'
       - 'test/e2e/corpus-elixir-build.test.ts'
       - 'test/e2e/support/hex-mirror.ts'
+      - 'test/e2e/support/mix-workspace.ts'
       - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
@@ -177,7 +179,7 @@ jobs:
       # the single source of truth — so a version bump cannot drift.
       - name: Pre-pull the hexpm/elixir + postgres images (retries)
         run: |
-          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/corpus-elixir-build.test.ts | head -1)
+          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/support/mix-workspace.ts | head -1)
           PG=$(grep -ohE 'postgres:[0-9]+-alpine' test/e2e/corpus-elixir-build.test.ts | head -1)
           for img in "$IMG" "$PG"; do
             echo "pre-pulling $img"

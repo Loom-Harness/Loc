@@ -1,14 +1,14 @@
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { corpusProjectDirs, materializeCorpusFixture } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
-import { type HexMirror, startHexMirror } from "./support/hex-mirror.js";
-import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
+import { startHexMirror } from "./support/hex-mirror.js";
+import { mixDepsGet } from "./support/mix-retry.js";
+import { MixWorkspace, SEED_FROM_TEMPLATE } from "./support/mix-workspace.js";
 import { limiter, PARALLELISM, ShError, sh, shResult } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
@@ -45,10 +45,6 @@ const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_ELIXIR_BUILD === "1";
 const CASES = process.env.LOOM_CORPUS_ELIXIR_CASE?.split(",").filter(Boolean);
-
-// Same image the single-fixture vanilla gate pins
-// (test/e2e/generated-elixir-vanilla-build.test.ts) — keep the two in lockstep.
-const IMAGE = "hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim";
 
 // Features that GENERATE on elixir but don't yet compile under `mix compile
 // --warnings-as-errors` — real Elixir generator gaps this compile tier would
@@ -109,25 +105,8 @@ if (ENABLED) {
   }
 }
 
-// A hex PACKAGE cache shared by every container this file starts.
-//
-// `docker run --rm` throws away the container's `~/.hex`, so each project
-// re-downloads the entire dependency closure from scratch.  That was invisible
-// while a feature meant exactly one project; a multi-deployable feature doubles
-// it, and behind the loopback hex mirror the second `deps.get` reliably dies
-// with `Request failed (:timeout)` fetching a tarball the first run had already
-// pulled.  Mounting one host dir at `/root/.hex` makes the second project a
-// cache hit — correctness behind the mirror, and a straight speed-up on CI's
-// direct hex.pm access.  Same shape as the NuGet cache mount in
-// `api-call-e2e.test.ts`.
-const HEX_CACHE = path.join(os.tmpdir(), "loom-corpus-elixir-hex");
-
-// The Hex/rebar archives, mounted at `/root/.mix` so `mix local.hex
-// --if-missing` fetches them once per run rather than once per container.
-const MIX_HOME = path.join(os.tmpdir(), "loom-corpus-elixir-mix");
-
-/** Every project, template and copy this run writes, removed in afterAll. */
-const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "loom-corpus-elixir-"));
+/** Projects, dependency templates and caches (support/mix-workspace.ts). */
+const mix = new MixWorkspace("loom-corpus-elixir");
 
 // The migrations the compile below compiles are APPLIED too.  `mix compile`
 // type-checks `priv/repo/migrations/*.exs` as code but never runs them, so a
@@ -184,69 +163,6 @@ function dbName(featureId: string, dir: string): string {
     .slice(0, 63);
 }
 
-// ── Dependencies are built once per dependency set ──────────────────────────
-//
-// Every generated project fetches and compiles the same Phoenix/Ecto/OTel
-// closure, and that build — twice, prod then test — was nearly all of a
-// feature's minute; the feature's own `lib/` compiles in seconds.  So the
-// projects are grouped by their exact `deps` block, each group's closure is
-// fetched and compiled ONCE into a template (`deps/`, `mix.lock`, and every
-// dependency under `_build/{prod,test}/lib`), and each project starts from a
-// copy of it.  Mix then finds every dependency fetched, locked and built, and
-// compiles only the project itself.  The verdict is unchanged: the copy holds
-// no project code, and `mix compile --warnings-as-errors` / `mix test` still
-// build the project from source.
-
-/** Built templates, keyed by the hash of the `deps` block they were built for. */
-const templates = new Map<string, Promise<string>>();
-
-/** The hash of a project's `defp deps do … end` block — its dependency set. */
-function depsSignature(projDir: string): string {
-  const mix = fs.readFileSync(path.join(projDir, "mix.exs"), "utf8");
-  const block = mix.match(/defp deps do[\s\S]*?\n {2}end/)?.[0];
-  if (!block) throw new Error(`${projDir}/mix.exs: no \`defp deps do … end\` block`);
-  return createHash("sha256").update(block).digest("hex").slice(0, 16);
-}
-
-/** `docker run` prefix shared by every container: network, hex + mix caches. */
-function dockerRun(mirror: HexMirror | undefined, mounts: string, env: string): string {
-  const dockerArgs = mirror ? `${mirror.dockerArgs.join(" ")} ` : "--network host ";
-  return (
-    `docker run --rm ${dockerArgs}${mounts} -v ${HEX_CACHE}:/root/.hex ` +
-    `-v ${MIX_HOME}:/root/.mix -w /app ${env}${IMAGE}`
-  );
-}
-
-/** The template for a project's dependency set, built on first use. */
-function template(projDir: string, mirror: HexMirror | undefined): Promise<string> {
-  const sig = depsSignature(projDir);
-  let built = templates.get(sig);
-  if (!built) {
-    built = (async () => {
-      const dir = path.join(workRoot, "deps", sig);
-      fs.mkdirSync(dir, { recursive: true });
-      // The project's mix.exs and config: dependency compilation reads the
-      // config (Application.compile_env), so the template is built under a
-      // real one rather than none.
-      fs.copyFileSync(path.join(projDir, "mix.exs"), path.join(dir, "mix.exs"));
-      fs.cpSync(path.join(projDir, "config"), path.join(dir, "config"), { recursive: true });
-      const shellPrefix = mirror?.shellPrefix ?? "";
-      await sh(
-        `${dockerRun(mirror, `-v ${dir}:/app`, "")} bash -c '${shellPrefix}` +
-          `${mixLocalInstall({ ifMissing: true })} && ${mixDepsGet()} && ` +
-          `MIX_ENV=prod mix deps.compile && MIX_ENV=test mix deps.compile'`,
-        { timeout: 1_200_000 },
-      );
-      return dir;
-    })();
-    templates.set(sig, built);
-  }
-  return built;
-}
-
-/** Shell snippet that seeds `/app` from the template mounted at `/tpl`. */
-const SEED_FROM_TEMPLATE = "cp -a /tpl/deps /tpl/_build /tpl/mix.lock /app/";
-
 // `mix compile --warnings-as-errors`, then `mix ecto.create && mix ecto.migrate`
 // against the sidecar, inside the elixir image, starting from the template.
 // `mix deps.get --only prod` still runs: with the template's lock and deps in
@@ -255,23 +171,19 @@ const SEED_FROM_TEMPLATE = "cp -a /tpl/deps /tpl/_build /tpl/mix.lock /app/";
 // loopback mirror so this gate also runs behind a TLS-fingerprinting egress
 // proxy.  Host networking either way, so the container reaches the sidecar's
 // published port on 127.0.0.1 (the mirror's args already carry it).
-async function runMixCompileAndMigrate(
-  projDir: string,
-  tpl: string,
-  db: string,
-  mirror: HexMirror | undefined,
-): Promise<void> {
-  const shellPrefix = mirror?.shellPrefix ?? "";
+async function runMixCompileAndMigrate(projDir: string, db: string): Promise<void> {
   // prod's config/runtime.exs raises without these two; the secret is never
   // used (no endpoint starts under ecto.migrate) but must be ≥ 64 bytes.
   const env =
     `-e MIX_ENV=prod -e DATABASE_URL=ecto://postgres:postgres@127.0.0.1:${pgPort}/${db} ` +
     `-e SECRET_KEY_BASE=${"x".repeat(64)} `;
   await sh(
-    `${dockerRun(mirror, `-v ${projDir}:/app -v ${tpl}:/tpl:ro`, env)} ` +
-      `bash -c '${shellPrefix}${mixLocalInstall({ ifMissing: true })} && ${SEED_FROM_TEMPLATE} && ` +
-      `${mixDepsGet("--only prod")} && mix compile --warnings-as-errors && ` +
-      `mix ecto.create && mix ecto.migrate'`,
+    mix.dockerRun(
+      await mix.seededMounts(projDir),
+      env,
+      `${SEED_FROM_TEMPLATE} && ${mixDepsGet("--only prod")} && ` +
+        "mix compile --warnings-as-errors && mix ecto.create && mix ecto.migrate",
+    ),
     { timeout: 600_000 },
   );
 }
@@ -327,33 +239,18 @@ function pointTestRepoAtSidecar(projDir: string): void {
 // `<app>_test<partition>`).  Returns the failure output, or undefined when the
 // suite passed — the caller owns the verdict, because a waived feature is
 // EXPECTED to fail.
-async function runMixTest(
-  projDir: string,
-  partition: string,
-  mirror: HexMirror | undefined,
-): Promise<string | undefined> {
-  const shellPrefix = mirror?.shellPrefix ?? "";
+async function runMixTest(projDir: string, partition: string): Promise<string | undefined> {
   pointTestRepoAtSidecar(projDir);
-  const env = `-e MIX_ENV=test -e MIX_TEST_PARTITION=${partition} `;
-  const cmd =
-    `${dockerRun(mirror, `-v ${projDir}:/app`, env)} ` +
-    `bash -c '${shellPrefix}${mixLocalInstall({ ifMissing: true })} && ` +
-    `${mixDepsGet()} && mix ecto.create && mix ecto.migrate && ` +
-    `mix test --warnings-as-errors'`;
+  const cmd = mix.dockerRun(
+    `-v ${projDir}:/app`,
+    `-e MIX_ENV=test -e MIX_TEST_PARTITION=${partition} `,
+    `${mixDepsGet()} && mix ecto.create && mix ecto.migrate && mix test --warnings-as-errors`,
+  );
   const result = await shResult(cmd, { timeout: 600_000 });
   // A docker/exec TIMEOUT is not a verdict on the suite — throw it, so a hung
   // run never reads as "the waived suite still fails".
   if (result.timedOut) throw new ShError(cmd, result);
   return result.status === 0 ? undefined : result.output;
-}
-
-/** Remove a project's root-owned build output from inside a container. */
-async function removeBuildOutput(outDir: string): Promise<void> {
-  // The containers run as root and leave root-owned `deps/` + `_build/` in the
-  // mounted dir; a non-root CI runner cannot delete them, and a hundred
-  // dependency copies would fill its disk.  Best-effort: the verdict is
-  // already decided.
-  await shResult(`docker run --rm -v ${outDir}:/out ${IMAGE} rm -rf /out`, { timeout: 120_000 });
 }
 
 const limit = limiter(PARALLELISM);
@@ -363,24 +260,22 @@ describe.skipIf(!ENABLED)(
   () => {
     // Behind a TLS-fingerprinting proxy (LOOM_HEX_MIRROR=1) start one loopback
     // hex mirror for the whole suite; a no-op (undefined) with direct access.
-    let mirror: HexMirror | undefined;
     beforeAll(async () => {
-      mirror = await startHexMirror();
-      fs.mkdirSync(HEX_CACHE, { recursive: true });
-      fs.mkdirSync(MIX_HOME, { recursive: true });
+      mix.mirror = await startHexMirror();
       startPostgres();
     }, 360_000);
     afterAll(async () => {
-      mirror?.stop();
+      mix.mirror?.stop();
       execSync(`docker rm -f ${PG_NAME}`, { stdio: "ignore" });
-      await removeBuildOutput(workRoot);
+      await mix.remove(mix.root);
+      fs.rmSync(mix.root, { recursive: true, force: true });
     }, 300_000);
 
     it.concurrent.each(elixirFeatures)(
       "%s — generated elixir project compiles, its migrations apply, its ExUnit suite passes",
       (featureId) =>
         limit(async () => {
-          const outDir = fs.mkdtempSync(path.join(workRoot, `${featureId}-`));
+          const outDir = fs.mkdtempSync(path.join(mix.root, `${featureId}-`));
           try {
             const src = materializeCorpusFixture(featureId, "vanilla", outDir);
             await sh(`node ${cli} generate system ${src} -o ${outDir}`, {
@@ -396,10 +291,9 @@ describe.skipIf(!ENABLED)(
                 fs.existsSync(path.join(proj, "mix.exs")),
                 `${featureId}: elixir project '${dir}' emitted`,
               ).toBe(true);
-              const tpl = await template(proj, mirror);
-              await runMixCompileAndMigrate(proj, tpl, dbName(featureId, dir), mirror);
+              await runMixCompileAndMigrate(proj, dbName(featureId, dir));
               if (hasExUnitTests(proj)) {
-                const failure = await runMixTest(proj, testPartition(featureId, dir), mirror);
+                const failure = await runMixTest(proj, testPartition(featureId, dir));
                 if (failure !== undefined) failingSuites.push(`${dir}\n${failure}`);
               }
             }
@@ -416,7 +310,7 @@ describe.skipIf(!ENABLED)(
               ).toBeGreaterThan(0);
             }
           } finally {
-            await removeBuildOutput(outDir);
+            await mix.remove(outDir);
           }
         }),
       3_600_000,
