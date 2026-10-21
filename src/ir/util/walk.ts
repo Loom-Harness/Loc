@@ -327,6 +327,25 @@ export function walkWorkflowStmtsDeep(s: WorkflowStmtIR, visit: (s: WorkflowStmt
   walkWorkflowStmtChildren(s, { workflowStmt: (c) => walkWorkflowStmtsDeep(c, visit) });
 }
 
+/** Every `emit` statement anywhere in a workflow body — top level, `for-each`
+ *  bodies, and both `if-let` branches — in source order.
+ *
+ *  The one answer to "does this workflow emit, and which events?".  A
+ *  top-level-only `statements.some((st) => st.kind === "emit")` missed an
+ *  `emit` nested in an `if let … { }` / `else` branch, so the emitter rendered
+ *  the push onto a `workflowEvents` list it never declared nor dispatched
+ *  (claims-eval D4). */
+export function workflowEmits(
+  statements: readonly WorkflowStmtIR[],
+): Extract<WorkflowStmtIR, { kind: "emit" }>[] {
+  const out: Extract<WorkflowStmtIR, { kind: "emit" }>[] = [];
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (st) => {
+      if (st.kind === "emit") out.push(st);
+    });
+  return out;
+}
+
 /** Visit `s` and every operation-body statement nested inside it — the
  *  `variant-match` arm / else bodies AND the statement blocks of any
  *  block-bodied lambda reachable from its expressions.

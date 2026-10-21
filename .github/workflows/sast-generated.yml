@@ -61,6 +61,8 @@ jobs:
       - name: Install semgrep
         run: python -m pip install semgrep==1.178.0
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

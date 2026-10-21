@@ -120,6 +120,8 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
  *      vocabulary these two bodies render through has no null-handling arm, so
  *      the binding lowers to an UNGUARDED dereference — TS18047 on node,
  *      CS8602 on .NET, in the generated project rather than here.
+ *    - `loom.iflet-bad-source` — an `if let` source must be `Repo.find(<Criterion>)`
+ *      or a declared optional find, the two forms every backend renders.
  *    - `loom.handler-param-reserved-id` — a handler parameter may not be named
  *      `id`: in Loom's expression scope a bare `id` always means "the current
  *      entity's id", so a body reference to an `id` param silently resolves to
@@ -140,6 +142,23 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
       // workflow body refuses the same load for the same reason; refuse it here
       // rather than emit a generated project that does not compile.
       forEachStmtDeep(h.statements, (s) => {
+        // An `if let` source the lowerer recognised as neither a criterion
+        // find nor a declared optional find has no repository read to render —
+        // every backend would emit a call on an empty receiver.
+        if (s.kind === "if-let" && !s.synthCriterion.name && !s.findMethod) {
+          diags.push({
+            severity: "error",
+            code: "loom.iflet-bad-source",
+            message: diagMessage("loom.iflet-bad-source#handler", {
+              kind,
+              name: h.name,
+              var: s.var,
+            }),
+            source: `${ctx.name}/${h.name}`,
+            origin: ctx.origin,
+          });
+          return;
+        }
         if (s.kind !== "repo-let" || s.method === "getById") return;
         if (s.returnType.kind !== "optional") return;
         diags.push({

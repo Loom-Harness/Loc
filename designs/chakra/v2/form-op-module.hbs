@@ -14,7 +14,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>{{{modalTitle}}}</ModalHeader>
-          <ModalCloseButton />
+          <ModalCloseButton aria-label={ {{{closeLabelExpr}}} } />
           <form
             data-testid="{{slug}}-op-{{opName}}-form"
             onSubmit={handleSubmit(async (vals) => {

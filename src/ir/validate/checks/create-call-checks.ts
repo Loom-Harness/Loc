@@ -60,7 +60,11 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { buildCreateInput, isConstructible } from "../../enrich/wire-projection.js";
+import {
+  buildCreateInput,
+  constructionBlockingInvariants,
+  isConstructible,
+} from "../../enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LoomModel } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { forEachModelExpr } from "../../util/model-exprs.js";
@@ -123,7 +127,7 @@ export function validateCreateCallSites(loom: LoomModel, diags: LoomDiagnostic[]
       if (!isConstructible(agg)) {
         // Name the invariant that blocks it — that is the line the author has
         // to change, and the one the emitted `tsc` error cannot point at.
-        const blocking = agg.invariants.map((inv) => inv.source).filter((s) => s.length > 0);
+        const blocking = constructionBlockingInvariants(agg);
         const key = `nc|${agg.name}|${source}`;
         if (seen.has(key)) return;
         seen.add(key);

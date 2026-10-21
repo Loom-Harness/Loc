@@ -27,6 +27,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
@@ -512,16 +513,6 @@ export function collectLiveLetNames(
   return live;
 }
 
-function collectEmits(sts: WorkflowStmtIR[]): { eventName: string }[] {
-  return sts.flatMap((st) =>
-    st.kind === "emit"
-      ? [{ eventName: st.eventName }]
-      : st.kind === "for-each"
-        ? collectEmits(st.body)
-        : [],
-  );
-}
-
 /** Postgres `isolation_level` execution-option string for a DSL level. */
 function pyIsolationLevel(level: import("../../ir/types/loom-ir.js").IsolationLevel): string {
   switch (level) {
@@ -703,7 +694,7 @@ function workflowRoute(
       `        ${snake(r.repoName)} = ${repoClassRef(r.aggName)}(session, ${dispatcherExpr})`,
     );
   }
-  const hasEmit = collectEmits(wf.statements).length > 0;
+  const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) out.push(`        workflow_events: list[${DOMAIN_EVENT}] = []`);
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -1046,9 +1037,18 @@ export function pyWorkflowStmtTarget(
       );
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
+      // A declared optional find (`findMethod`) already answers the row or
+      // `None`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${i}${v} = await ${snake(st.repoName)}.${snake(st.findMethod)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+          ]
+        : [
+            `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
+            `${i}${v} = ${hits}[0] if ${hits} else None`,
+          ];
       const out = [
-        `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
-        `${i}${v} = ${hits}[0] if ${hits} else None`,
+        ...lookup,
         `${i}if ${v} is not None:`,
         ...(thenAll.length > 0 ? thenAll : [`${inner}pass`]),
       ];

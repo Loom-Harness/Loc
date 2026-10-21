@@ -11,19 +11,11 @@ name: Behavioral UI e2e — Vue (headless, no docker)
 # path filters are per-workflow.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'bin/**'
-      - 'designs/vuetify/**'
-      - 'vue/**'
-      - 'stacks/**'
-      - 'web/src/runtime/ddl.ts'
-      - 'test/behavioral/**'
-      - 'test/e2e/fixtures/vue-fullstack/**'
-      - 'package.json'
-      - '.github/workflows/behavioral-ui-vue-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '35 1 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -76,6 +68,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
