@@ -75,12 +75,15 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
  *    one tracked entity, so `debitTwice` never conflicts and the double debit
  *    commits (M-T6.90).  The key returns with that fix.
- *  - elixir (`vanilla`): FAILS — the stale save inside the workflow answers
- *    500, not 409 (M-T6.92).
+ *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
+ *    the workflow's `Repo.transaction` rolled back but answered 500: the
+ *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
+ *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
+ *    Same 409 `detail` waiver (M-T6.91).
  *  - java (per #3142, not re-booted): the inverse defect — its workflow route never publishes a
  *    workflow-raised event at all, so `audits.total` reads 0 and the e2e
  *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
-const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python"];
+const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
 
 /** The backends that import the regex machinery into EVERY file they lift a
  *  `.matches(<regex>)` value-object invariant into.
@@ -164,6 +167,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  {
+    id: "implicit-find-filter",
+    title:
+      "a clause-less find (`find byReference(reference: string): WorkOrder?`) filters by the fields its parameters name — single, multi-parameter, paged",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
+  },
   {
     id: "envelope",
     title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
@@ -257,7 +268,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "an aggregate event raised inside a `transactional` workflow whose later save fails — the event must not outlive the rollback",
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
-    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
+    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
   },
   {
     id: "workflow-create-state",
@@ -461,6 +472,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by eval-closure item 6 / ruling D2 — the python twin of `java-reserved-words` (M-T6.36).  `generate system` answered `0 error(s)` and the python project did not even PARSE: `def __init__(self, *, def: str, …)`, `def: Mapped[str]`, `class ThingResponse: def: str`, `aggregate.def`, `def class(self)`.  Fixed by ONE funnel (`pythonIdent` / `pythonWireIdent` in `src/util/naming.ts` → `def_`) at every identifier position, with the two outward names kept: the DB column via `mapped_column(\"def\", …)` and the wire key via a pydantic `Field(alias=\"def\")` / `Query(alias=\"def\")`.  The e2e block reads every key back off the wire, so a moved alias fails the behavioural leg, not only the compile tier.  `assertInvariants` is the second collision in the same item: .NET emitted a private `AssertInvariants()` next to the member's `AssertInvariants` property (CS0102), and the python aggregate's backing field `self._assert_invariants` overwrote its `_assert_invariants()` method (a runtime TypeError on the first invariant check) — both helpers now step aside only when a member takes their name, so every other model is byte-identical.  The names are python-reserved and NOT Postgres-reserved (`reserved-words.ddd` owns SQL quoting); the row is ALL so the other four backends keep compiling the same names.",
   },
   {
+    id: "target-reserved-words",
+    title:
+      "every word any target reserves (the TS / C# / Java / Python / Elixir / F# / Dart keyword tables in `src/util/target-identifiers.ts`) that the `.ddd` grammar admits, as a field, an enum value, an operation AND its parameter, plus value objects named after .NET BCL / UI-primitive / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, …)",
+    doc: "language",
+    backends: ALL,
+    note: "The adversarial gate of the generated-identifier legality class: a Loom-legal name that is fatal in a target.  A census proving every emitter routes every user-derived identifier through `escapeTargetIdent` is infeasible (thousands of interpolation sites), so this fixture names things after EVERY table entry at once and rides every backend's compile leg.  `target-identifiers.test.ts` fails when a table entry the grammar admits is missing from this file, so the table and the fixture cannot drift apart.",
+  },
+  {
     id: "dotnet-bcl-type-collision",
     title:
       "a domain type whose name is also a BCL type the .NET `using` set brings into scope (`aggregate Task` vs `System.Threading.Tasks.Task`, `aggregate Queue` vs `System.Collections.Generic.Queue`)",
@@ -469,6 +488,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "member-named-like-vo",
+    title:
+      "a member named after a VALUE OBJECT (`amount: decimal` beside `valueobject Amount`) — refused on .NET alone by an over-firing `loom.dotnet-name-collision`",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by M-T6.69 (completeness-audit F1; the deep fuzz leg's seeds 45/70/115 all shrink to it).  The .NET aggregate class names a value object only in TYPE position (`public Amount Price`, `new Amount(…)`), so a member called `Amount` hides nothing — but the gate counted value objects and events among the types a member could hide, and refused the model on dotnet while the other four accepted it.  All five backends must now compile it.",
+    },
+    {
     id: "context-named-like-app",
     title:
       "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",
@@ -669,6 +696,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "stdlib",
     backends: ALL,
     note: "minted by the 2026-08-23 numeric-types audit (F7 / M-T6.44): the validator admits every one of these, but the TS and Elixir binary renderers gated money/decimal dispatch on `leftType` ALONE — node emitted native `*` on a decimal.js Decimal (TS2363, uncompilable), elixir emitted native arithmetic on a %Decimal{} (runtime ArithmeticError) and native `<` (Erlang TERM ordering: number < map is ALWAYS true, silently).  No corpus fixture had a right-hand money/decimal operand, so no compile gate could reach the arms.  The `test` block is the runtime value proof on every backend's unit tier; no `test e2e` — the derived decimal values sit inside the un-ruled F11/M-T5.22 cross-backend arithmetic divergence, so a wire golden here would pre-empt that owner ruling (literals are binary-exact so the unit assertions agree everywhere regardless)",
+  },
+  {
+    id: "money-nullable",
+    title:
+      "a NULLABLE `money?` in every comparison position — `== null` / `!= null`, bare money vs `money?` both ways, a guarded ordering over a stored field and a parameter, `money?` vs `money?` — null and present paths, `10` vs `10.00`",
+    doc: "language",
+    backends: ALL,
+    note: "minted by #3227 (follow-up to the banking eval #3137): money is an object on node / java / elixir and each compared it through a method with no null story — node `subtotal.eq(null)` threw a DecimalError (500 on the read), java `fee.compareTo(null)` NPE'd on every call, elixir `Decimal.compare(_, nil)` raised and a nullable left fell to struct `==` (10 ≠ 10.00) and Erlang term order (`setFee(-5)` accepted).  .NET and python were already right and ride as regression pins.  The `test` block is the in-memory proof (the scale difference survives only before storage); the `test e2e` block is the wire proof and carries this fixture's golden",
   },
   {
     id: "absent-optional",

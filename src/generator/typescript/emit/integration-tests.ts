@@ -26,10 +26,9 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsExpr } from "../render-expr.js";
-import { renderCreateInput, renderExplicitMatcher } from "./tests.js";
+import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -202,13 +201,9 @@ export function renderContextIntegrationTest(
   const usedAggs = ctx.aggregates.filter(
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
-  const usesIds = /\bIds\./.test(bodyStr);
-  // A body that constructs a value object (`let a = Berth { … }`) names its
-  // class — import it, narrowed by the same body scan, as the unit-test
-  // emitter does; without it the file fails `tsc` with TS2304.
-  const voNames = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter(refs);
+  // Value objects, enums, `Ids` and `Decimal` the body constructs or names —
+  // the same body-derived set the aggregate-level unit tests import.
+  const value = testBodyValueImports(bodyStr, ctx, "../domain");
   // A context that runs workflows wires the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read) — when the deployable emits one;
@@ -219,6 +214,7 @@ export function renderContextIntegrationTest(
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
+  lines.push(...value.decimal);
   lines.push(`import { Pool } from "pg";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(`import { migrate } from "drizzle-orm/node-postgres/migrator";`);
@@ -228,16 +224,13 @@ export function renderContextIntegrationTest(
   } else {
     lines.push(`import { NoopDomainEventDispatcher } from "../domain/events";`);
   }
-  if (usesIds) lines.push(`import * as Ids from "../domain/ids";`);
-  if (voNames.length > 0) {
-    lines.push(`import { ${voNames.join(", ")} } from "../domain/value-objects";`);
-  }
   for (const a of usedAggs) {
     lines.push(`import { ${a.name} } from "../domain/${lowerFirst(a.name)}";`);
     lines.push(
       `import { ${a.name}Repository } from "../db/repositories/${lowerFirst(a.name)}-repository";`,
     );
   }
+  lines.push(...value.domain);
   lines.push("");
   lines.push(
     `let repos: { ${usedAggs.map((a) => `${lowerFirst(a.name)}: ${a.name}Repository`).join("; ")} };`,

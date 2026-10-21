@@ -12,6 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -503,11 +504,8 @@ function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string>
     if (find.filter) {
       collectColumnRefs(find.filter, out);
     } else {
-      for (const p of find.params) {
-        const matched = agg.fields.find(
-          (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-        );
-        if (matched) out.add(matched.name);
+      for (const { field: matched } of implicitFindMatches(find, agg)) {
+        out.add(matched.name);
       }
     }
   }

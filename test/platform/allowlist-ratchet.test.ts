@@ -778,7 +778,13 @@ const REGISTERED: Ratchet[] = [
     // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
     // javac cannot find symbol) the corpus compile tier reads directly; its
     // CRUD routes are the ones `core-domain` already boots.
-    max: 23,
+    //
+    // 23 -> 24 (2026-10-19; re-derived on merge as main's 23 + this PR's one): `target-reserved-words`, the all-targets
+    // identifier-legality fixture.  Like `dotnet-bcl-type-collision` it is not
+    // a tier gap: its defect IS a compile failure, which the five corpus
+    // compile legs read directly, and the escape is invisible on the wire by
+    // ruling D-TARGET-RESERVED-NAMES.
+    max: 24,
   },
 ];
 

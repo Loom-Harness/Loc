@@ -1,0 +1,114 @@
+// Eval-closure follow-ups on the python backend (Wave B5), each a shape the
+// rest of this corpus never combined:
+//
+// - #15a  an aggregate with TWO `contains` collections (plus a nested one):
+//         `save` diff-syncs each in one function scope, so a shared loop
+//         variable rebound from `Line` to `Photo` failed mypy --strict.
+// - B-A3a a persisted workflow whose state holds value objects (flat, nested,
+//         optional): the row flattens them to leaf columns, so the handler's
+//         `state.total = Money(…)` / the instance route's `row.total` named no
+//         column (mypy attr-defined) and allocation wrote `total=""`.
+// - B-A1  a declared `find all() where <pred>` on the document, embedded and
+//         event-sourced shapes — `all()` used to drop the predicate.
+system PyEvalFollowups {
+  user { id: string  role: string }
+
+  subdomain Ops {
+    context Ops {
+      valueobject Geo { lat: decimal  lng: decimal }
+      valueobject Money { amount: decimal  currency: string }
+      valueobject Addr { line1: string  line2: string?  geo: Geo }
+
+      aggregate WorkOrder with crudish {
+        code: string
+        contains lines: Line[]
+        contains photos: Photo[]
+        entity Line {
+          qty: int
+          contains notes: Note[]
+        }
+        entity Photo { url: string }
+        entity Note { text: string }
+      }
+      repository WorkOrders for WorkOrder { }
+
+      aggregate Folder shape: document with crudish {
+        title: string
+        ownerUserId: string
+      }
+      repository Folders for Folder {
+        find all(): Folder[] where ownerUserId == currentUser.id
+        find byTitle(t: string): Folder[] where title == t
+      }
+
+      aggregate Memo shape: embedded with crudish {
+        title: string
+        archived: bool
+      }
+      repository Memos for Memo {
+        find all(): Memo[] where archived == false
+        find byTitle(t: string): Memo[] where title == t
+      }
+
+      event Opened { account: Account id, owner: string }
+      event Deposited { account: Account id, amount: int }
+
+      aggregate Account persistedAs: eventLog {
+        owner: string
+        balance: int
+
+        create open(owner: string) {
+          emit Opened { account: id, owner: owner }
+        }
+
+        operation deposit(amount: int) {
+          precondition amount > 0
+          emit Deposited { account: id, amount: amount }
+        }
+
+        apply(e: Opened) {
+          owner := e.owner
+          balance := 0
+        }
+
+        apply(e: Deposited) {
+          balance := balance + e.amount
+        }
+      }
+      repository Accounts for Account {
+        find all(): Account[] where balance > 0
+        find byOwner(owner: string): Account? where this.owner == owner
+      }
+
+      event OrderPlaced { order: WorkOrder id, at: datetime }
+      channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }
+
+      workflow Billing {
+        orderId: WorkOrder id
+        total: Money
+        ship: Addr
+        alt: Money?
+        create(p: OrderPlaced) by p.order {
+          total := Money { amount: 1.5, currency: "EUR" }
+          ship := Addr { line1: "a", line2: "b", geo: Geo { lat: 1.0, lng: 2.0 } }
+          alt := Money { amount: total.amount, currency: ship.line1 }
+        }
+      }
+    }
+  }
+
+  api OpsApi from Ops
+
+  storage pg { type: postgres }
+  resource opsState { for: Ops, kind: state, use: pg }
+  resource opsLog { for: Ops, kind: eventLog, use: pg }
+
+  deployable api {
+    platform: python
+    contexts: [Ops]
+    dataSources: [opsState, opsLog]
+    serves: OpsApi
+    port: 8000
+    auth: required
+  }
+}
