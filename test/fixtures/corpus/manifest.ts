@@ -695,6 +695,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "minted by the 2026-08-23 numeric-types audit (F7 / M-T6.44): the validator admits every one of these, but the TS and Elixir binary renderers gated money/decimal dispatch on `leftType` ALONE — node emitted native `*` on a decimal.js Decimal (TS2363, uncompilable), elixir emitted native arithmetic on a %Decimal{} (runtime ArithmeticError) and native `<` (Erlang TERM ordering: number < map is ALWAYS true, silently).  No corpus fixture had a right-hand money/decimal operand, so no compile gate could reach the arms.  The `test` block is the runtime value proof on every backend's unit tier; no `test e2e` — the derived decimal values sit inside the un-ruled F11/M-T5.22 cross-backend arithmetic divergence, so a wire golden here would pre-empt that owner ruling (literals are binary-exact so the unit assertions agree everywhere regardless)",
   },
   {
+    id: "money-nullable",
+    title:
+      "a NULLABLE `money?` in every comparison position — `== null` / `!= null`, bare money vs `money?` both ways, a guarded ordering over a stored field and a parameter, `money?` vs `money?` — null and present paths, `10` vs `10.00`",
+    doc: "language",
+    backends: ALL,
+    note: "minted by #3227 (follow-up to the banking eval #3137): money is an object on node / java / elixir and each compared it through a method with no null story — node `subtotal.eq(null)` threw a DecimalError (500 on the read), java `fee.compareTo(null)` NPE'd on every call, elixir `Decimal.compare(_, nil)` raised and a nullable left fell to struct `==` (10 ≠ 10.00) and Erlang term order (`setFee(-5)` accepted).  .NET and python were already right and ride as regression pins.  The `test` block is the in-memory proof (the scale difference survives only before storage); the `test e2e` block is the wire proof and carries this fixture's golden",
+  },
+  {
     id: "absent-optional",
     title:
       "a null-guard rule over an OPTIONAL field (`estimate == null || estimate >= 0`) + a create body that OMITS the field",
