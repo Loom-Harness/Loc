@@ -6,13 +6,13 @@
   "entries": {
     "bundle:react/mantine": {
       "kind": "bundle",
-      "baseline": 350025,
-      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+      "baseline": 370806,
+      "measuredOn": "2026-10-20 nightly (ubuntu-latest, node 22, vite build, gzip -9 js+css); raised from 350025 (+5.9%) for route-level code splitting, which sums per-chunk overhead across the split route chunks"
     },
     "bundle:vue/vuetify": {
       "kind": "bundle",
-      "baseline": 382972,
-      "measuredOn": "2026-09-28, wave C3 3f sandbox (node 22.22, vite build, gzip -9 js+css)"
+      "baseline": 304814,
+      "measuredOn": "2026-10-20 nightly (ubuntu-latest, node 22, vite build, gzip -9 js+css); lowered from 382972 (-20.4%) after vuetify components are imported per SFC instead of registering the whole library"
     },
     "bundle:svelte/flowbite": {
       "kind": "bundle",
@@ -26,28 +26,28 @@
     },
     "boot:node": {
       "kind": "boot",
-      "baseline": null,
-      "measuredOn": "unpinned — the sandbox's docker builds cannot reach the npm registry through its proxy; the first nightly measures it and fails naming the value to pin"
+      "baseline": 11146,
+      "measuredOn": "2026-10-10/11 nightly (ubuntu-latest runner), mean of 11030 and 11262 ms"
     },
     "boot:python": {
       "kind": "boot",
-      "baseline": null,
-      "measuredOn": "unpinned — the sandbox's docker builds cannot reach PyPI through its proxy; the first nightly pins it"
+      "baseline": 12836,
+      "measuredOn": "2026-10-10/11 nightly (ubuntu-latest runner), mean of 12349 and 13324 ms"
     },
     "boot:dotnet": {
       "kind": "boot",
-      "baseline": null,
-      "measuredOn": "unpinned — the sandbox's docker builds cannot reach NuGet through its proxy; the first nightly pins it"
+      "baseline": 11277,
+      "measuredOn": "2026-10-10/11 nightly (ubuntu-latest runner), mean of 10696 and 11858 ms"
     },
     "boot:java": {
       "kind": "boot",
-      "baseline": null,
-      "measuredOn": "unpinned — the sandbox's docker builds cannot reach Maven Central through its proxy; the first nightly pins it"
+      "baseline": 18718,
+      "measuredOn": "2026-10-10/11 nightly (ubuntu-latest runner), mean of 18272 and 19165 ms"
     },
     "boot:elixir": {
       "kind": "boot",
-      "baseline": null,
-      "measuredOn": "unpinned — the sandbox's docker builds cannot reach hex.pm through its proxy; the first nightly pins it"
+      "baseline": 11707,
+      "measuredOn": "2026-10-10/11 nightly (ubuntu-latest runner), mean of 12440 and 10974 ms"
     }
   }
 }

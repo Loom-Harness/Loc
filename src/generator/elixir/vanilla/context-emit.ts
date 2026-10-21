@@ -92,7 +92,7 @@ import {
   renderReturningStmt,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
-import { refCollFieldNames } from "./ref-collection-emit.js";
+import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collection-emit.js";
 import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
@@ -852,7 +852,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // `contains` membership test; `__resolve_refs/2` (and its `import Ecto.Query`)
   // only by the mutation path.  Gate them separately so a contains-only op
   // doesn't emit an unused `__resolve_refs` (a `--warnings-as-errors` break).
-  const mutatesRefColl = contextMutatesRefColl(ctx);
+  const mutatesRefColl = contextMutatesRefColl(ctx, true);
   const refCollHelpers = contextUsesRefCollOp(ctx)
     ? `\n${renderContextRefCollHelpers(appModule, mutatesRefColl)}\n`
     : "";
@@ -1001,10 +1001,18 @@ function stmtHasRefCollContains(s: StmtIR): boolean {
  *  back to structs.  A read-only `contains` never touches it, so keeping this
  *  gate mutation-only avoids an emitted-but-unused `__resolve_refs` under
  *  `--warnings-as-errors`. */
-function contextMutatesRefColl(ctx: BoundedContextIR): boolean {
+function contextMutatesRefColl(ctx: BoundedContextIR, localOnly = false): boolean {
   return ctx.aggregates.some((agg) => {
     if (isEventSourced(agg)) return false;
-    const names = refCollFieldNames(agg);
+    // `localOnly`: count only same-context targets — a FOREIGN one persists
+    // through its join-row schema's `rows/2`, never `__resolve_refs`.
+    const names = localOnly
+      ? new Set(
+          refCollFields(agg)
+            .filter((rc) => !isForeignRefColl(rc, ctx.aggregates))
+            .map((rc) => snake(rc.field.name)),
+        )
+      : refCollFieldNames(agg);
     if (names.size === 0) return false;
     return (agg.operations ?? []).some(
       (op) =>
@@ -1433,6 +1441,7 @@ function renderNamedOpFunction(
     facadeMod.split(".")[0]!,
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
+    ctx.aggregates,
   );
   const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
   const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");

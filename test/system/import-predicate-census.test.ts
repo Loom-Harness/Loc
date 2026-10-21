@@ -57,7 +57,7 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
-  typescript: 238,
+  typescript: 239, // +1: hono workflow-builder `systemPrincipal(` import — keyed off the rendered body
   dotnet: 26,
   java: 51,
   elixir: 2,
