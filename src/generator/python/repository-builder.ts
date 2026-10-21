@@ -18,6 +18,7 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -751,11 +752,8 @@ export function findExecutedLine(
 function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicate | null {
   const root = rowClassName(agg.name);
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };

@@ -165,6 +165,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
+    id: "implicit-find-filter",
+    title:
+      "a clause-less find (`find byReference(reference: string): WorkOrder?`) filters by the fields its parameters name — single, multi-parameter, paged",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
+  },
+  {
     id: "envelope",
     title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
     doc: "payloads",
