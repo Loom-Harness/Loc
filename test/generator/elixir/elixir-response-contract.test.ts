@@ -44,7 +44,7 @@ const SCAFFOLD = `
             qty: int
             cost: int internal
           }
-          create(code: string) { code := code }
+          create(code: string, amount: decimal, apiKey: string, total: Money) { code := code }
           operation cancel() { code := "x" }
         }
         repository Orders for Order { }
@@ -77,7 +77,7 @@ const BASELINE = `
             qty: int
             cost: int internal
           }
-          create(code: string) { code := code }
+          create(code: string, amount: decimal, apiKey: string, total: Money) { code := code }
           operation cancel() { code := "x" }
         }
         repository Orders for Order { }
@@ -112,7 +112,7 @@ const DIVERGENT = `
             qty: int
             cost: int internal
           }
-          create(code: string) { code := code }
+          create(code: string, amount: decimal, apiKey: string, total: Money) { code := code }
           operation cancel() { code := "x" }
         }
         repository Orders for Order { }

@@ -60,7 +60,7 @@ system Shop {
         code: string
         status: string
         total: Money
-        create(code: string) { }
+        create(code: string, status: string, total: Money) { }
         operation setNote(note: string) { status := note }
         operation reprice(newTotal: Money) { total := newTotal }
         operation cancel() { status := "cancelled" }

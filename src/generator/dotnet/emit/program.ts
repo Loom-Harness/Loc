@@ -2,6 +2,7 @@ import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -1026,6 +1027,8 @@ builder.Services.AddProblemDetails(opts =>
         ctx.ProblemDetails.Type = "about:blank";
         ctx.ProblemDetails.Status = status;
         ctx.ProblemDetails.Title ??= ReasonPhrases.GetReasonPhrase(status);
+        // A 415 carries the one sentence every backend sends for it (RS-39).
+        if (status == 415) ctx.ProblemDetails.Detail = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
         ctx.ProblemDetails.Extensions.Remove("traceId");
@@ -1357,6 +1360,10 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();
+// An EMPTY request body is the empty JSON object (RS-39) — see
+// Middleware/EmptyJsonBodyMiddleware.cs.  Ahead of routing's endpoints so
+// model binding sees the normalised body.
+app.UseMiddleware<${ns}.Middleware.EmptyJsonBodyMiddleware>();
 // Serve the spec at /openapi.json (documentName "openapi" → "{documentName}.json").
 app.UseSwagger(c => c.RouteTemplate = "{documentName}.json");
 ${staticSubpathGuard}${authMount}app.MapControllers();

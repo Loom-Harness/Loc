@@ -40,7 +40,7 @@ system ProvBody {
       aggregate Order {
         reference: string
         total: int provenanced
-        create(reference: string) { }
+        create(reference: string, total: int) { }
         operation reprice(t: int) { total := t }
       }
       repository Orders for Order { }

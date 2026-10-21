@@ -209,8 +209,8 @@ function precondition(
   // pointer THROUGH the throw (M-T1.11 (c)).
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(detail)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
-    : `throw new DomainException(${JSON.stringify(detail)})`;
+    ? `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainException(${JSON.stringify(detail)}, DomainErrorKind.Precondition)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderCsExpr(expr, ctx)})) ${thrown};`;
   }

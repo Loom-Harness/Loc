@@ -26,24 +26,39 @@ class ValueObjectInvariantError(DomainError):
     for a messaged rule, its content-hash code)."""
 
     def __init__(self, value_object: str, message: str, code: str | None = None) -> None:
-        ${hasDomainFloorCodes ? 'super().__init__(message, code, "")' : "super().__init__(message)"}
+        ${hasDomainFloorCodes ? 'super().__init__(message, "invariant", code, "")' : 'super().__init__(message, "invariant")'}
         self.value_object = value_object${hasDomainFloorCodes ? "" : "\n        self.code = code"}`
     : "";
-  // M-T1.11 (c) — a MESSAGED invariant / field check / precondition raises its
-  // wire \`msg.<hash>\` code and RFC 6901 pointer along with the text, so the
-  // DomainError handler answers the same errors[] entry the wire rung carries.
+  // Every DomainError carries the refusing rung as \`kind\`, apart from the
+  // message an authored \`message "..."\` replaces.  With M-T1.11 (c) a MESSAGED
+  // invariant / field check / precondition also raises its wire \`msg.<hash>\`
+  // code and RFC 6901 pointer, so the DomainError handler answers the same
+  // errors[] entry the wire rung carries.
   const domainErrorBody = hasDomainFloorCodes
     ? `
-    """Precondition or invariant violation (surfaces as HTTP 422).  A messaged
-    rule carries its wire code and the pointer its errors[] entry names
+    """Precondition or invariant violation (surfaces as HTTP 422).  \`kind\` names
+    the refusing rung (None outside the precondition / invariant floor).  A
+    messaged rule carries its wire code and the pointer its errors[] entry names
     (M-T1.11 (c)); both are None for a message-less rule."""
 
-    def __init__(self, message: str, code: str | None = None, pointer: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        kind: DomainErrorKind | None = None,
+        code: str | None = None,
+        pointer: str | None = None,
+    ) -> None:
         super().__init__(message)
+        self.kind = kind
         self.code = code
         self.pointer = pointer`
     : `
-    """Precondition or invariant violation (surfaces as HTTP 422)."""`;
+    """Precondition or invariant violation (surfaces as HTTP 422).  \`kind\` names
+    the refusing rung (None outside the precondition / invariant floor)."""
+
+    def __init__(self, message: str, kind: DomainErrorKind | None = None) -> None:
+        super().__init__(message)
+        self.kind = kind`;
   const concurrencyError = hasVersioned
     ? `
 
@@ -53,6 +68,12 @@ class ConcurrencyError(Exception):
     write won the race (surfaces as HTTP 409; reload and retry)."""`
     : "";
   return `"""Domain error types.  Auto-generated."""
+
+from typing import Literal
+
+# Which rung of the domain floor refused a call — carried apart from the
+# message, which an authored \`message "..."\` replaces.
+DomainErrorKind = Literal["precondition", "invariant"]
 
 
 class DomainError(Exception):${domainErrorBody}${valueObjectInvariantError}
