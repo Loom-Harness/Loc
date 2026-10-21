@@ -18,6 +18,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -530,7 +531,7 @@ function valueObjectStateProperty(f: FieldIR, ctx: EnrichedBoundedContextIR): st
 function valueObjectPropertyImports(body: string, ctx: EnrichedBoundedContextIR): string[] {
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const voEnum = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnum = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const ids = [...new Set(valueObjectIdTargets(ctx.valueObjects).map((n) => `${n}Id`))]
