@@ -1,4 +1,4 @@
-import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
@@ -103,10 +103,10 @@ export function renderProgram(
      *  own default. */
     nativePort?: number;
     authRequired?: boolean;
-    /** Declared `user { … }` field names, in declaration order — the shape
+    /** Declared `user { … }` fields, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
      *  auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
      *  operation-return union with an `error` arm, M-FT.24); registers it. */
@@ -796,7 +796,7 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
   // the declared spelling verbatim (the web defaults' camelCase policy applies
   // to PROPERTY names, not dictionary keys) and sidesteps C# identifier rules.
   const meProjection = (options?.userFields ?? [])
-    .map((f) => `            [${JSON.stringify(f)}] = accessor.User.${upperFirst(f)},`)
+    .map((f) => `            [${JSON.stringify(f.name)}] = ${meClaimValue(f)},`)
     .join("\n");
   const authMe = authRequired
     ? `app.MapGet("${AUTH_BASE_PATH}/me", (ICurrentUserAccessor accessor) =>
@@ -1805,4 +1805,20 @@ export function renderDockerignore(): string {
 *.user
 *.log
 `;
+}
+
+/** One `/auth/me` value: the declared claim, with an `X id` (or `X id[]`)
+ *  claim projected onto its raw value.  The strong-id record struct has no
+ *  JSON converter (the wire DTOs carry the raw `Guid`), so serialising it
+ *  shipped `{"value": "…"}` where node / python / elixir answer the bare id
+ *  string the token carried. */
+function meClaimValue(f: FieldIR): string {
+  const access = `accessor.User.${upperFirst(f.name)}`;
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return `${access}${optional ? "?" : ""}.Value`;
+  if (t.kind === "array" && t.element.kind === "id") {
+    return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
+  }
+  return access;
 }

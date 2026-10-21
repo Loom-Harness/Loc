@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
@@ -121,6 +122,7 @@ import {
   renderDapperMigrationClass,
   renderDapperMigrationRunner,
 } from "./emit/dapper-migrations.js";
+import { renderDapperConnectionLease } from "./emit/dapper-session.js";
 import {
   dapperPortRegistrations,
   emitDapperWorkflowInfra,
@@ -804,6 +806,10 @@ function emitProjectFromContexts(
     // chain, so this adapter keeps no DDL of its own.
     const dapperWfDurable = durableEventTypes(merged).size > 0;
     out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
+    // The connection lease every Dapper repository opens + the ambient
+    // unit-of-work transaction it enlists in, so a `transactional` workflow's
+    // saves share ONE connection + transaction (dapper-session.ts).
+    out.set("Infrastructure/Persistence/DapperConnectionLease.cs", renderDapperConnectionLease(ns));
     // Workflow / saga / event-store / projection port adapters + the reused
     // persistence-neutral row POCOs (M-T6.9) — the raw-Npgsql siblings of the
     // EF PersistencePorts.cs; the EF configs / AppDbContext are NOT emitted.
@@ -1160,7 +1166,7 @@ function emitProjectFromContexts(
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
     authRequired,
-    userFields: (userFields ?? []).map((f) => f.name),
+    userFields: userFields ?? [],
     actorIdProp,
     usesValidators,
     usesStamping,
@@ -1931,7 +1937,7 @@ function emitProject(
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     usesStamping?: boolean;
     hasEmbeddedSpa?: boolean;

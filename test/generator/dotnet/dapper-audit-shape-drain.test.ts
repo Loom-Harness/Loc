@@ -114,7 +114,7 @@ describe("Dapper drains the audit buffer on every persistence shape", () => {
       const save = src.slice(src.indexOf("public async Task SaveAsync"));
       const drainIdx = save.indexOf("_audit.Drain()");
       const beginIdx = save.indexOf("BeginTransactionAsync");
-      const commitIdx = save.indexOf("__tx.CommitAsync");
+      const commitIdx = save.indexOf("__lease.CommitAsync");
       expect(beginIdx, "no transaction opened").toBeGreaterThanOrEqual(0);
       expect(drainIdx).toBeGreaterThan(beginIdx);
       expect(commitIdx).toBeGreaterThan(drainIdx);
