@@ -11,7 +11,11 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import {
@@ -102,7 +106,9 @@ export function testBodyValueImports(
   const voNames = valueObjectPool(ctx)
     .map((v) => v.name)
     .filter(refs);
-  const enumNames = ctx.enums.map((e) => e.name).filter(refs);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(refs);
   const domain: string[] = [];
   if (voNames.length > 0) {
     domain.push(`import { ${voNames.join(", ")} } from "${domainDir}/value-objects";`);

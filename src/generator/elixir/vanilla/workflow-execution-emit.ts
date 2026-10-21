@@ -104,7 +104,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { stateDefault } from "../state-default.js";
+import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -496,9 +496,9 @@ function lowerStatement(
       // Renders INSIDE the with-chain's `do`-branch (`BodyLine.kind = "emit"`)
       // so a failed precondition / op short-circuits the chain and the
       // broadcast is skipped — listeners only see events for successful
-      // workflows.  Inside `Repo.transaction(fn -> ...)` the broadcast
-      // fires before commit; that matches the standard Phoenix pattern
-      // (there is no separate "after-commit" hook).
+      // workflows.  Inside a transactional workflow's `Repo.transaction` it
+      // routes through `<App>.PostCommit`, which holds it until the commit and
+      // drops it on a rollback (M-T4.3 item 6, D-WRITE-TX).
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
@@ -507,7 +507,7 @@ function lowerStatement(
       return [
         {
           kind: "emit",
-          text: `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`,
+          text: `${appModule}.PostCommit.broadcast(${struct})`,
         },
       ];
     }
@@ -1052,7 +1052,7 @@ function renderLoopBody(
           .join(", ");
         const appModule = contextModule.split(".")[0]!;
         doLines.push(
-          `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
+          `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
         );
         break;
       }
@@ -1233,7 +1233,7 @@ function renderBranchStmt(
         .join(", ");
       const appModule = contextModule.split(".")[0]!;
       return [
-        `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
+        `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
       ];
     }
     case "expr-let": {
@@ -1576,7 +1576,9 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx)}`),
+          .map(
+            (f) => `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : {})}`,
+          ),
       ]
     : [];
   const statePrelude = corrParam
@@ -1743,8 +1745,14 @@ ${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requir
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
+    #
+    # \`PostCommit.transaction\` holds every event this body announces — the
+    # reactor fan-out and the PubSub broadcast — until the
+    # transaction commits, and drops them on a rollback (M-T4.3 item 6).
     ${appModule}.RequestContext.with_child_frame(fn ->
-      Repo.transaction(fn ->${txnBody}end)
+      ${appModule}.PostCommit.transaction(fn ->
+        Repo.transaction(fn ->${txnBody}end)
+      end)
     end)
     |> report_result()
   end

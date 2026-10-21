@@ -562,7 +562,7 @@ ${
 }
     case Map.fetch(@routing, type) do
       {:ok, {address, context, conn, transport}} ->
-        publish(transport, conn, address, context, type, ev)
+        ${appModule}.PostCommit.run(fn -> publish(transport, conn, address, context, type, ev) end)
 
       :error ->
         if local_dispatcher, do: local_dispatcher.dispatch(ev), else: :ok

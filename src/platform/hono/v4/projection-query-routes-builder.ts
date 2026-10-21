@@ -137,7 +137,7 @@ export function buildQueryProjectionsFile(
   const projections = (ctx.projections ?? []).filter(isQueryTimeProjection);
   if (projections.length === 0) return "";
 
-  const enumValues = new Map(ctx.enums.map((e) => [e.name, e.values] as const));
+  const enumValues = new Map(enumPool(ctx).map((e) => [e.name, e.values] as const));
 
   // Foreign aggregates touched: the query source (for its repo + Response) and
   // every `join` follow target (for its repo).  A WORKFLOW source reads the

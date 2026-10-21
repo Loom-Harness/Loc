@@ -1,5 +1,5 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
+import { enumPool, orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
@@ -525,7 +525,9 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   );
   const body = models.join("") + (hasProv ? lines(...provenancedModel()) : "");
   const uses = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(body);
-  const enumNames = ctx.enums.map((e) => e.name).filter(uses);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(uses);
   const pydanticNames = [
     ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
     // `Field` is unconditional because `Int32` uses it, and `Int32` — like

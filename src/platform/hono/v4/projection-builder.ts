@@ -22,6 +22,7 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -123,13 +124,13 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     ),
   );
   const bodyAndVos = `${voSchemaDecls.join("\n")}\n${bodyText}`;
-  const enumSchemaDecls = ctx.enums
+  const enumSchemaDecls = enumPool(ctx)
     .filter((e) => bodyAndVos.includes(`${e.name}Schema`))
     .map(
       (e) =>
         `const ${e.name}Schema = z.enum([${e.values.map((v) => `"${v}"`).join(", ")}]).openapi("${e.name}");`,
     );
-  const enumValueImports = ctx.enums
+  const enumValueImports = enumPool(ctx)
     .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
     .map((e) => e.name);
   const enumValueImportLine =

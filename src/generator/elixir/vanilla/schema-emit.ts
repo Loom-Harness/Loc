@@ -85,7 +85,7 @@ export function emitVanillaSchemas(
   const ctxModule = upperFirst(ctx.name);
   // Per-context enum-lookup table so the schema can pull each enum's
   // values list for the Ecto.Enum constraint.
-  const enumsByName = new Map(ctx.enums.map((e) => [e.name, e]));
+  const enumsByName = new Map(enumPool(ctx).map((e) => [e.name, e]));
   const pool = ctx.aggregates;
   for (const agg of ctx.aggregates) {
     // Event-sourced aggregates have no state table — `eventsourced-emit.ts`

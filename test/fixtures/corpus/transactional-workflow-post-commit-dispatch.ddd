@@ -1,0 +1,146 @@
+// shape: WHEN an aggregate event raised inside a `transactional` workflow
+// reaches its reactor — after the workflow commits, never inside its
+// transaction, and not at all once it rolls back (M-T4.3 item 6, D-WRITE-TX).
+//
+// The sibling `transactional-workflow-event-rollback` case counts the
+// reactor's Audit rows.  That count only discriminates where the reactor runs
+// OUTSIDE the workflow's transaction (node's pool): on python, elixir and .NET
+// the reactor joins the open transaction (same session / process /
+// DbContext), so its row rolls back with the workflow and the count reads the
+// same with dispatch before or after the commit.  This case makes the reactor
+// record WHEN it ran instead.
+//
+// Both workflows debit `src` inside an `if let` branch, which saves its
+// binding INSIDE the branch — mid-body, so `src`'s `Debited` is drained there,
+// before anything that follows has even run:
+//
+// - `debitOnce` then credits `dst`.  The reactor records the balance it reads
+//   for `dst`: dispatched at the drain (inside the transaction) it reads `dst`
+//   un-credited (100); dispatched after the commit, credited (110).  The
+//   credit is applied only AFTER the branch, so the answer is 100 even where
+//   the reactor shares the workflow's identity map (EF Core, JPA) and would
+//   see an in-memory change made before the drain.
+// - `debitThenOverdraw` then overdraws `dst`, whose precondition fails and
+//   rolls the workflow back.  With dispatch after the commit the drained
+//   event must be DROPPED: a deferral that survived the rollback would run
+//   the reactor and write a second Audit.
+//
+// No optimistic-concurrency conflict on purpose: the two-handle `debitTwice`
+// of the sibling case 409s only where two loads of one row are two objects,
+// which is not true on JPA or EF Core (M-T6.90).  A failed precondition rolls
+// back on every backend, so this case runs on all of them.
+system TransactionalWorkflowPostCommitDispatch {
+  subdomain Bank {
+    context Ledger {
+      event Debited { acct: Acct id, peer: Acct id, amount: int }
+
+      aggregate Acct with crudish {
+        name: string
+        balance: int
+
+        operation debit(amount: int, peer: Acct id) {
+          precondition balance >= amount
+          balance := balance - amount
+          emit Debited { acct: id, peer: peer, amount: amount }
+        }
+
+        operation credit(amount: int) {
+          balance := balance + amount
+        }
+      }
+      repository Accts for Acct { }
+
+      criterion Named(n: string) of Acct = this.name == n
+
+      aggregate Audit { note: string, peerBalance: int }
+      repository Audits for Audit { }
+
+      // The consumer: records the peer's balance as it reads it.
+      workflow onDebit {
+        a: Acct id
+        create(e: Debited) by e.acct {
+          let p = Accts.getById(e.peer)
+          let x = Audit.create({ note: "debited", peerBalance: p.balance })
+        }
+      }
+
+      // Commits.  `s` is saved (and its `Debited` drained) inside the branch,
+      // before `d` is credited.
+      workflow debitOnce transactional {
+        create(name: string, dst: Acct id) {
+          let d = Accts.getById(dst)
+          if let s = Accts.find(Named(name)) {
+            s.debit(10, dst)
+          }
+          d.credit(10)
+        }
+      }
+
+      // Always rolls back: the same drain, then the overdraft's precondition
+      // fails.
+      workflow debitThenOverdraw transactional {
+        create(name: string, dst: Acct id) {
+          let d = Accts.getById(dst)
+          if let s = Accts.find(Named(name)) {
+            s.debit(10, dst)
+          }
+          d.debit(1000, dst)
+        }
+      }
+    }
+  }
+
+  api LedgerApi from Bank
+  storage pg { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: LedgerApi
+    port: 4000
+  }
+
+  test e2e "a transactional workflow's events reach their reactor only after it commits" against d {
+    let a = api.accts.create({ name: "a", balance: 100 })
+    let b = api.accts.create({ name: "b", balance: 100 })
+
+    // The committed run: the reactor ran after the commit, so it read `b`
+    // already credited.
+    api.debitOnce.run({ name: "a", dst: b.id })
+    let once = api.accts.getById(a)
+    expect(once.balance).toBe(90)
+    let credited = api.accts.getById(b)
+    expect(credited.balance).toBe(110)
+    let afterOnce = api.audits.all()
+    expect(afterOnce.total).toBe(1)
+    let seen = api.audits.getById(afterOnce.items.first().id)
+    expect(seen.peerBalance).toBe(110)
+
+    // The rolled-back run: `a`'s debit was saved and its `Debited` drained
+    // before the overdraft failed — neither the debit nor the event survives.
+    expect(api.debitThenOverdraw.run({ name: "a", dst: b.id })).toThrow(422)
+    let after = api.accts.getById(a)
+    expect(after.balance).toBe(90)
+    let afterRollback = api.audits.all()
+    expect(afterRollback.total).toBe(1)
+
+    // Contrast: the operation over its own route owns its commit, so it
+    // dispatches right after it — a second Audit, reading `b` as it stands.
+    api.accts.debit(a, { amount: 5, peer: b.id })
+    let direct = api.audits.all()
+    expect(direct.total).toBe(2)
+
+    // The rest of the crudish surface, so every derived route has a caller.
+    api.accts.credit(b, { amount: 1 })
+    api.accts.update(a, { name: "renamed", balance: 85 })
+    api.accts.destroy(b)
+    let accts = api.accts.all()
+    expect(accts.total).toBe(1)
+    expect(accts.items.first().name).toBe("renamed")
+    api.accts.destroy(a)
+    let gone = api.accts.all()
+    expect(gone.total).toBe(0)
+  }
+}
