@@ -78,11 +78,11 @@ describe("vanilla — T2.c returning-op body statements", () => {
     expect(ctx).toContain(
       "loom_event_0 = %Api.Stock.Events.Adjusted{sku: record.sku, delta: delta}",
     );
-    expect(ctx).toContain('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
+    expect(ctx).toContain("Api.PostCommit.broadcast(loom_event_0)");
     // Ordering: persist_change comes BEFORE the broadcast (no phantom event on a
     // failed write).
     const persistAt = ctx.indexOf("ItemRepository.persist_change(changeset)");
-    const bcastAt = ctx.indexOf('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
+    const bcastAt = ctx.indexOf("Api.PostCommit.broadcast(loom_event_0)");
     expect(persistAt).toBeGreaterThan(-1);
     expect(persistAt).toBeLessThan(bcastAt);
     // No saga in this context → no Dispatcher routing (broadcast-only).

@@ -144,10 +144,10 @@ export function buildPyDispatchFile(
         outboxBlock(durableEvents, { durableBroker: true, pureProducer: true, hasRealtime }),
         "",
         "",
-        "def make_dispatcher(session: AsyncSession) -> ChannelTeeDispatcher:",
+        "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
         hasRealtime
-          ? "    return ChannelTeeDispatcher(OutboxDispatcher(session, RealtimeDispatcher(NoopDomainEventDispatcher())))"
-          : "    return ChannelTeeDispatcher(OutboxDispatcher(session, NoopDomainEventDispatcher()))",
+          ? "    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, RealtimeDispatcher(NoopDomainEventDispatcher()))), _DURABLE_EVENT_TYPES)"
+          : "    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, NoopDomainEventDispatcher())), _DURABLE_EVENT_TYPES)",
       );
       const ppScan = ppBody.replace(/"(?:\\.|[^"\\])*"/g, '""');
       const ppRefers = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(ppScan);
@@ -185,6 +185,7 @@ export function buildPyDispatchFile(
         `from app.domain.events import ${[
           "DomainEvent",
           "NoopDomainEventDispatcher",
+          "PostCommitDispatcher",
           ...durableEvents.map((e) => e.name).sort(),
         ].join(", ")}`,
         ppIdNames.length > 0 ? `from app.domain.ids import ${ppIdNames.join(", ")}` : null,
@@ -217,7 +218,7 @@ export function buildPyDispatchFile(
       "from sqlalchemy.ext.asyncio import AsyncSession",
       "",
       "from app.channels import publish_event",
-      "from app.domain.events import DomainEvent, DomainEventDispatcher, NoopDomainEventDispatcher",
+      "from app.domain.events import DomainEvent, DomainEventDispatcher, NoopDomainEventDispatcher, PostCommitDispatcher",
       ...(hasRealtime ? ["from app.realtime import RealtimeDispatcher"] : []),
       "",
       // The PROTOCOL, not the Noop (M-T6.68, audit #2864 T6).  What the factory
@@ -231,9 +232,9 @@ export function buildPyDispatchFile(
       channelTeeClass("DomainEventDispatcher"),
       "",
       "",
-      "def make_dispatcher(_session: AsyncSession) -> ChannelTeeDispatcher:",
+      "def make_dispatcher(_session: AsyncSession) -> PostCommitDispatcher:",
       "    # The tee needs no db access; signature parity with the saga shape.",
-      `    return ChannelTeeDispatcher(${producerInner})`,
+      `    return PostCommitDispatcher(ChannelTeeDispatcher(${producerInner}))`,
       "",
     );
   }
@@ -316,13 +317,12 @@ export function buildPyDispatchFile(
     ? "RealtimeDispatcher(InProcessDispatcher(session, isolate=True))"
     : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
-  const returnType = hasChannels
-    ? '"ChannelTeeDispatcher"'
-    : hasOutbox
-      ? '"OutboxDispatcher"'
-      : hasRealtime
-        ? "RealtimeDispatcher"
-        : "InProcessDispatcher";
+  // Outermost: `PostCommitDispatcher` (app/domain/events.py) defers the whole
+  // chain to the request's post-commit list (D-WRITE-TX, M-T4.3 item 6) — the
+  // reactors, the realtime wire and a broker publish all run after the request
+  // transaction commits, never inside it.  Durable events pass straight through
+  // so the OutboxDispatcher still records them INSIDE the transaction.
+  const chainExpr = hasChannels ? `ChannelTeeDispatcher(${innerExpr})` : innerExpr;
   const dispatcher = lines(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
@@ -364,8 +364,8 @@ export function buildPyDispatchFile(
     // outermost: InProcess → Realtime → Outbox → ChannelTee — ephemeral
     // events stream inline, durable ones stream when the relay redelivers,
     // and broker-routed events publish from the outermost tee (mirrors Hono).
-    `def make_dispatcher(session: AsyncSession) -> ${returnType}:`,
-    hasChannels ? `    return ChannelTeeDispatcher(${innerExpr})` : `    return ${innerExpr}`,
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    `    return PostCommitDispatcher(${chainExpr}${hasOutbox ? ", _DURABLE_EVENT_TYPES" : ""})`,
   );
 
   const body = lines(
@@ -476,6 +476,7 @@ export function buildPyDispatchFile(
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
+      "PostCommitDispatcher",
       ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
     ].join(", ")}`,
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
@@ -1295,7 +1296,7 @@ function buildRealtimeOnlyDispatch(): string {
     "",
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
-    "from app.domain.events import DomainEvent",
+    "from app.domain.events import DomainEvent, PostCommitDispatcher",
     "from app.realtime import RealtimeDispatcher",
     "",
     "",
@@ -1311,8 +1312,8 @@ function buildRealtimeOnlyDispatch(): string {
     "        return None",
     "",
     "",
-    "def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:",
-    "    return RealtimeDispatcher(InProcessDispatcher(session))",
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    "    return PostCommitDispatcher(RealtimeDispatcher(InProcessDispatcher(session)))",
     "",
   );
 }
