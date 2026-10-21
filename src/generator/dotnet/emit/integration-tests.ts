@@ -31,6 +31,7 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -226,6 +227,13 @@ export function renderContextIntegrationTest(
       new RegExp(`\\b${a.name}\\b`).test(bodyOnly),
   );
   const methodBlocks = ctx.tests.map((t) => renderTest(t, ctx, usedAggs, dapper));
+  // Value objects and enums the bodies construct or name (`new Berth(...)`,
+  // `Size.Large`) live in their own namespaces; derive each `using` from the
+  // names the rendered bodies spell, so a body that touches neither keeps a
+  // using-clean header.
+  const spells = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyOnly);
+  const usesValueObjects = valueObjectPool(ctx).some((v) => spells(v.name));
+  const usesEnums = enumPool(ctx).some((e) => spells(e.name));
 
   const className = `${upperFirst(ctx.name)}IntegrationTests`;
   const lines: string[] = [];
@@ -241,6 +249,8 @@ export function renderContextIntegrationTest(
   lines.push("using AwesomeAssertions;");
   lines.push(`using ${ns}.Domain.Common;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
+  if (usesValueObjects) lines.push(`using ${ns}.Domain.ValueObjects;`);
+  if (usesEnums) lines.push(`using ${ns}.Domain.Enums;`);
   for (const nsp of [...new Set(usedAggs.map((a) => aggNamespace(a.name, ns)))].sort()) {
     lines.push(`using ${nsp};`);
   }

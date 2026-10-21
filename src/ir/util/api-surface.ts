@@ -128,6 +128,11 @@ export interface ApiOperationIR {
   /** The `OperationIR` behind a `kind: "operation"` or `"gateProbe"` entry —
    *  same purpose as `find`. */
   readonly operation?: OperationIR;
+  /** Set when an explicit `route` claims this operation's slot
+   *  (D-EXPLICIT-ROUTE-WINS).  The operation stays in the list — the slot is
+   *  still served, by the explicit handler, so a client keeps calling it — but
+   *  a route or OpenAPI emitter renders `servedOperations(ops)` and skips it. */
+  readonly claimedByExplicitRoute?: true;
 }
 
 /** The per-context `httpStatus` override maps the derivation resolves error
@@ -146,6 +151,9 @@ export interface ApiStatusContext {
    *  `ctx.payloads.some(p => p.name === v.name && p.kind === "error")` read
    *  the .NET `buildReturnUnionSpec` performs). */
   readonly errorPayloadNames?: ReadonlySet<string>;
+  /** `BoundedContextIR.explicitRouteSlots` — the slots the derived surface
+   *  yields to an explicit route. */
+  readonly explicitRouteSlots?: ReadonlySet<string>;
 }
 
 /** The `httpStatus` map the DOMAIN FLOOR (`DomainError`) and `Forbidden` rungs
@@ -183,6 +191,27 @@ export const apiSurfaceCoverage = {
  *  Matches every backend's `snake(plural(agg.name))`. */
 export function aggregateSegment(aggName: string): string {
   return snake(plural(aggName));
+}
+
+/** The router slot a method + ABSOLUTE path occupies: `"get /api/orders/{}"`.
+ *  Every path parameter collapses to one placeholder, because every router
+ *  matches `/orders/{orderId}` and `/orders/{id}` as the same slot; both the
+ *  `{brace}` form the IR carries and Phoenix's `:colon` form are accepted. */
+export function routeSlot(method: string, absolutePath: string): string {
+  const normalized = absolutePath.replace(/\{\w+\}/g, "{}").replace(/:\w+/g, "{}");
+  return `${method.toLowerCase()} ${normalized}`;
+}
+
+/** The slot an explicit `route` occupies — explicit routes mount under
+ *  `API_BASE_PATH`, so its declared (base-relative) path is prefixed. */
+export function explicitRouteSlot(route: { method: string; path: string }): string {
+  return routeSlot(route.method, `${API_BASE_PATH}${route.path}`);
+}
+
+/** The derived operations a backend actually ROUTES (and declares in its
+ *  OpenAPI document): everything but the slots an explicit route claims. */
+export function servedOperations(ops: readonly ApiOperationIR[]): ApiOperationIR[] {
+  return ops.filter((op) => !op.claimedByExplicitRoute);
 }
 
 /** Absolute mount prefix for an aggregate's routes (`/api/orders`). */
@@ -461,6 +490,9 @@ export function deriveAggregateOperations(
       errorStatuses,
       ...(source?.find ? { find: source.find } : {}),
       ...(source?.operation ? { operation: source.operation } : {}),
+      ...(statuses?.explicitRouteSlots?.has(routeSlot(method, path))
+        ? { claimedByExplicitRoute: true as const }
+        : {}),
     });
   };
 
@@ -630,6 +662,7 @@ export function apiStatusContext(ctx: BoundedContextIR): ApiStatusContext {
     errorStatusOverrides: ctx.errorStatusOverrides,
     structuralErrorStatuses: ctx.structuralErrorStatuses,
     errorPayloadNames: new Set(ctx.payloads.filter((p) => p.kind === "error").map((p) => p.name)),
+    ...(ctx.explicitRouteSlots ? { explicitRouteSlots: new Set(ctx.explicitRouteSlots) } : {}),
   };
 }
 

@@ -94,3 +94,62 @@ system Ship {
     expect(f).toContain("await orderRepo.SaveAsync(o);");
   });
 });
+
+// A context-level test body may construct a value object and name an enum; the
+// emitted class must `using` their namespaces (it had neither: CS0246/CS0103).
+// Derived from the names the rendered bodies spell — a body naming neither
+// pulls in neither.
+const DOCKING = (body: string) => `
+system Ports {
+  subdomain Harbour { context Docking {
+    enum Size { Small, Large }
+    aggregate Ship with crudish { name: string  size: Size }
+    valueobject Berth { ship: Ship id  position: int }
+    aggregate Dock with crudish { name: string  berth: Berth }
+    repository Ships for Ship { }
+    repository Docks for Dock { }
+    aggregate Crew with crudish { name: string }
+    repository Crews for Crew { }
+    test "a dock holds a berth naming a ship" {
+${body}
+    }
+  } }
+  api DockingApi from Harbour
+  storage primary { type: postgres }
+  resource dState { for: Docking, kind: state, use: primary }
+  deployable d { platform: dotnet contexts: [Docking] dataSources: [dState] serves: DockingApi port: 4000 }
+}`;
+
+describe("dotnet: context integration test usings the value objects / enums its body uses", () => {
+  it("usings Domain.ValueObjects and Domain.Enums for a constructed VO and a named enum", async () => {
+    const f =
+      get(
+        await generateSystemFiles(
+          DOCKING(`      let s = Ship.create({ name: "Aurora", size: Size.Large })
+      let d = Dock.create({ name: "North", berth: Berth { ship: s.id, position: 3 } })
+      let found = Dock.findById(d.id)
+      expect(found.berth.position).toBe(3)`),
+        ),
+        "DockingIntegrationTests.cs",
+      ) ?? "";
+    expect(f).toContain("new Berth(s.Id, 3)");
+    expect(f).toContain("Size.Large");
+    expect(f).toContain("using D.Domain.ValueObjects;");
+    expect(f).toContain("using D.Domain.Enums;");
+  });
+
+  it("usings neither when the body names neither", async () => {
+    const f =
+      get(
+        await generateSystemFiles(
+          DOCKING(`      let c = Crew.create({ name: "Aurora" })
+      let found = Crew.findById(c.id)
+      expect(found.name).toBe("Aurora")`),
+        ),
+        "DockingIntegrationTests.cs",
+      ) ?? "";
+    expect(f).toContain("Crew.Create(");
+    expect(f).not.toContain("Domain.ValueObjects");
+    expect(f).not.toContain("Domain.Enums");
+  });
+});

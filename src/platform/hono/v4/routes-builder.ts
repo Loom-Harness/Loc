@@ -97,6 +97,7 @@ import {
   findValidatesRequest,
   isAllFind,
   relativeOpPath,
+  servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
@@ -698,9 +699,11 @@ export function buildRoutesFile(
   // derivation against, and that gate stayed non-tautological until four
   // independent implementations had agreed.  Kept local: schemas, handler
   // bodies, history + prepare (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not registered here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const derivedCreate = derivedOps.find((o) => o.kind === "create");
-  const derivedGetById = derivedOps.find((o) => o.kind === "getById")!;
+  const derivedGetById = derivedOps.find((o) => o.kind === "getById");
   const derivedDestroy = derivedOps.find((o) => o.kind === "destroy");
   const derivedFindByIR = new Map(
     derivedOps.filter((o) => o.kind === "find").map((o) => [o.find, o]),
@@ -1212,84 +1215,86 @@ export function buildRoutesFile(
   }
 
   // Get by id.
-  lines.push(`  app.openapi(`);
-  lines.push(`    createRoute({`);
-  lines.push(`      method: "${derivedGetById.method}",`);
-  lines.push(`      path: "${honoPath(derivedGetById)}",`);
-  lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
-  lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-  lines.push(`      request: { params: z.object({ id: UuidString }) },`);
-  lines.push(`      responses: {`);
-  lines.push(
-    `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
-  );
-  lines.push(...problemResponseLines(derivedGetById, "        "));
-  lines.push(`      },`);
-  lines.push(`    }),`);
-  lines.push(`    async (c) => {`);
-  lines.push(`      const { id } = c.req.valid("param");`);
-  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
-  // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
-  // an existing and a missing id alike (no existence oracle); same carrier and
-  // `detail` label as the find's own route (`emitFindRoute`).
-  const byIdFind = derivedGetById.find;
-  if (byIdFind?.requires) {
-    if (findGateUsesCurrentUser(byIdFind)) {
+  if (derivedGetById) {
+    lines.push(`  app.openapi(`);
+    lines.push(`    createRoute({`);
+    lines.push(`      method: "${derivedGetById.method}",`);
+    lines.push(`      path: "${honoPath(derivedGetById)}",`);
+    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
+    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      responses: {`);
+    lines.push(
+      `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
+    );
+    lines.push(...problemResponseLines(derivedGetById, "        "));
+    lines.push(`      },`);
+    lines.push(`    }),`);
+    lines.push(`    async (c) => {`);
+    lines.push(`      const { id } = c.req.valid("param");`);
+    // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+    // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
+    // an existing and a missing id alike (no existence oracle); same carrier and
+    // `detail` label as the find's own route (`emitFindRoute`).
+    const byIdFind = derivedGetById.find;
+    if (byIdFind?.requires) {
+      if (findGateUsesCurrentUser(byIdFind)) {
+        lines.push(
+          `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+        );
+      }
       lines.push(
-        `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
       );
     }
+    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
+    // every backend, and this route was the one place Hono answered a machine
+    // token instead.  The cause is structural, not cosmetic: the route reads
+    // through `repo.findById` (returns null) and raises its OWN error, bypassing
+    // `repo.getById`, whose throw already carries exactly this message
+    // (`typescript/repository-builder.ts`).  So the message is spelled to match
+    // what the bypassed producer would have said, which is also what
+    // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
+    // `"not_found"` token — that class agrees across backends already.)
     lines.push(
-      `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+      `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
     );
+    lines.push(...maskUserBind(agg, "      "));
+    // The ETag half of optimistic concurrency (`versioned`).  The update route
+    // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
+    // conditional-write path was undiscoverable: a client had no value to echo,
+    // and `expectedVersion` always fell back to the version the SERVER had just
+    // loaded, which defeats the whole point (the race being guarded against is
+    // one that happens across the user's think time, between this read and that
+    // write).  Publishing it here closes the loop: read → hold the tag → send it
+    // back on `If-Match` → get a real 409 if someone else won the race.
+    //
+    // A response header only, deliberately not declared in the `responses`
+    // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
+    // conformance spec-diff, so declaring it on node alone would read as a
+    // contract divergence.  Declaring it belongs with emitting it on the other
+    // four backends, in one change.
+    if (aggregateIsVersioned(agg)) {
+      lines.push(`      c.header("etag", versionETag(found.version));`);
+    }
+    if (emitTrace) {
+      // toWire isn't trivial — bind once so it's not run twice between
+      // Object.keys and c.json.
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      lines.push(
+        `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else {
+      lines.push(
+        `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      );
+    }
+    lines.push(`    },`);
+    lines.push(`  );`);
+    lines.push("");
   }
-  lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
-  // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
-  // every backend, and this route was the one place Hono answered a machine
-  // token instead.  The cause is structural, not cosmetic: the route reads
-  // through `repo.findById` (returns null) and raises its OWN error, bypassing
-  // `repo.getById`, whose throw already carries exactly this message
-  // (`typescript/repository-builder.ts`).  So the message is spelled to match
-  // what the bypassed producer would have said, which is also what
-  // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
-  // `"not_found"` token — that class agrees across backends already.)
-  lines.push(
-    `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-  );
-  lines.push(...maskUserBind(agg, "      "));
-  // The ETag half of optimistic concurrency (`versioned`).  The update route
-  // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
-  // conditional-write path was undiscoverable: a client had no value to echo,
-  // and `expectedVersion` always fell back to the version the SERVER had just
-  // loaded, which defeats the whole point (the race being guarded against is
-  // one that happens across the user's think time, between this read and that
-  // write).  Publishing it here closes the loop: read → hold the tag → send it
-  // back on `If-Match` → get a real 409 if someone else won the race.
-  //
-  // A response header only, deliberately not declared in the `responses`
-  // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
-  // conformance spec-diff, so declaring it on node alone would read as a
-  // contract divergence.  Declaring it belongs with emitting it on the other
-  // four backends, in one change.
-  if (aggregateIsVersioned(agg)) {
-    lines.push(`      c.header("etag", versionETag(found.version));`);
-  }
-  if (emitTrace) {
-    // toWire isn't trivial — bind once so it's not run twice between
-    // Object.keys and c.json.
-    lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
-    lines.push(
-      `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
-    );
-    lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
-  } else {
-    lines.push(
-      `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
-    );
-  }
-  lines.push(`    },`);
-  lines.push(`  );`);
-  lines.push("");
 
   // Canonical destroy → DELETE /{id} (hard delete).  Gated on the IR
   // lifecycle: emitted only when the aggregate has an unnamed `destroy`
@@ -1424,23 +1429,27 @@ export function buildRoutesFile(
 
   // Operations — the derived entries (public, non-canonical, in declaration
   // order), each carrying its path + resolved status set.
-  for (const [op, entry] of derivedOpByIR) {
-    lines.push(
-      ...emitOperationRoute(
-        agg,
-        op!,
-        ctx,
-        entry,
-        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
-        auditOps.includes(op!),
-        provOps.includes(op!),
-        emitTrace,
-        usingMikro,
-      ).map((l) => `  ${l}`),
-    );
+  // Keyed on the operation OR its probe: an explicit route can claim one of the
+  // pair and leave the other to this router.
+  for (const op of new Set([...derivedOpByIR.keys(), ...derivedProbeByIR.keys()])) {
+    const entry = derivedOpByIR.get(op);
+    if (entry)
+      lines.push(
+        ...emitOperationRoute(
+          agg,
+          op!,
+          ctx,
+          entry,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
+          auditOps.includes(op!),
+          provOps.includes(op!),
+          emitTrace,
+          usingMikro,
+        ).map((l) => `  ${l}`),
+      );
     const probe = derivedProbeByIR.get(op);
     if (probe) {
-      lines.push("");
+      if (entry) lines.push("");
       lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
     }
     lines.push("");
