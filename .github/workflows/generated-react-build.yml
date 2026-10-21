@@ -52,21 +52,6 @@ name: Generated React TSX build
 # The PR path is untouched — still 2 one-cell jobs, still ~5min.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/**'
-      - 'web/src/examples/**'
-      - 'vite/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'test/e2e/generated-react-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-react-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -188,6 +173,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle which calls
       # `langium:generate` to produce src/language/generated/.
       - name: Install Loom toolchain
@@ -227,6 +214,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
