@@ -68,6 +68,7 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
@@ -656,6 +657,9 @@ export function buildWorkflowsFile(
     /(?<!\.)\brunInChildContext\(/.test(bodyStr) ? "runInChildContext" : null,
   ].filter((x): x is string => x !== null);
   if (alsImports.length > 0) imports.push(`import { ${alsImports.join(", ")} } from "../obs/als";`);
+  // A reactor that reads the principal binds the system principal (ruling D1).
+  if (/(?<!\.)\bsystemPrincipal\(/.test(bodyStr))
+    imports.push(`import { systemPrincipal } from "../auth/middleware";`);
   // The provenance flush stamps a fresh per-row trace id.
   if (/(?<!\.)\brandomUUID\(/.test(bodyStr))
     imports.push(`import { randomUUID } from "node:crypto";`);
@@ -1332,6 +1336,16 @@ function emitInstanceRoutes(
 /** Deterministic handler-function name for an event subscription —
  *  `<workflow>On<Event>` for reactors, `<workflow>Start<Event>` for
  *  event-triggered creates. */
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `auth/middleware.ts`'s `systemPrincipal()`, which carries the
+ *  dispatching request's tenant and records its user as `causedBy`.  Bound only
+ *  when the body (or an operation it calls, gate included) reads
+ *  `currentUser`; before this the reactor referenced a `currentUser` nothing
+ *  declared (tsc TS2304). */
+function bindSystemPrincipal(statements: WorkflowStmtIR[], ctx: BoundedContextIR): string[] {
+  return reactorNeedsPrincipal(statements, ctx) ? ["  const currentUser = systemPrincipal();"] : [];
+}
+
 function handlerName(workflow: string, trigger: "on" | "create", event: string): string {
   return `${lowerFirst(workflow)}${trigger === "on" ? "On" : "Start"}${upperFirst(event)}`;
 }
@@ -1822,6 +1836,7 @@ function emitHandlerFn(
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
+  out.push(...bindSystemPrincipal(statements, ctx));
   const persisted = !!wf.correlationField;
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
@@ -1959,6 +1974,7 @@ function emitEventSourcedHandlerFn(
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
+  out.push(...bindSystemPrincipal(statements, ctx));
   out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
   const noParams = new Map<string, string>();
   // Correlation key: the `by <expr>` routing value, else the event field that

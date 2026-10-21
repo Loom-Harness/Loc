@@ -27,31 +27,11 @@ name: Mailer smtp (runtime e2e)
 # burst for a runtime regression acceptable to catch one merge later; the
 # structural + compile tiers are per-PR).
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/**'
-      - 'src/platform/**'
-      - 'test/e2e/mailer-smtp-e2e.test.ts'
-      - 'test/e2e/mailer-smtp-python-e2e.test.ts'
-      - 'test/e2e/mailer-smtp-dotnet-e2e.test.ts'
-      - 'test/e2e/mailer-smtp-java-e2e.test.ts'
-      - 'test/e2e/mailer-smtp-elixir-e2e.test.ts'
-      - 'test/e2e/support/mailpit-harness.ts'
-      - 'test/e2e/fixtures/mailer-e2e.ddd'
-      - 'package.json'
-      - '.github/workflows/email-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '41 3 * * *'
   # Per-PR proof — NARROW paths (only the mailer e2e surface + the mailer
   # source it exercises), so the 5-backend docker matrix fires when someone
   # touches the mailer path but NOT on every broad `src/generator/**` PR.
@@ -175,6 +155,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
