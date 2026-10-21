@@ -507,6 +507,17 @@ export function localizedPageChromeValue(
   return JSON.stringify(fillHoles(english, values));
 }
 
+/** {@link localizedPageChromeValue} WITHOUT registering the `t` import — for a
+ *  pack slot only SOME packs render (a dialog's close-icon name).  The caller
+ *  renders the template, then registers the import iff the output uses the
+ *  binding, so a pack that never reads the slot gets no unused `t`. */
+export function localizedPageChromeValueUnbound(ctx: WalkContext, name: string): string {
+  const english = chromeMessage(name);
+  if (ctx.i18nPrefix) return translateExpr(ctx, chromeKey(name), english);
+  // The F#/Dart targets spell their own string literal; JSON is the JS rule.
+  return ctx.target.renderStringLiteral?.(english) ?? JSON.stringify(english);
+}
+
 /** Substitute ICU `{hole}`s with their rendered values — the i18n-OFF spelling,
  *  where the sentence is a plain string rather than a runtime `t()` call.  Only
  *  QUOTED literal values are inlined (chrome holes are model-derived names). */

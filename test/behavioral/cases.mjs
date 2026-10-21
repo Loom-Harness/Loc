@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 // The pure registers live in a dependency-free module so the fast suite can
 // read them without test/behavioral/node_modules (see registers.mjs).
-import { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
+import { ADAPTER_ONLY_CASES, BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
 
 export { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes };
 
@@ -84,8 +84,10 @@ export async function loadCorpusFeatures(workDir) {
 export async function featureCases(backendKey, platformClause, workDir) {
   const cases = [];
   const skip = BEHAVIOURAL_SKIP[platformClause] ?? {};
+  // Armed on this ADAPTER's leg beyond the manifest's backend set (registers.mjs).
+  const armed = ADAPTER_ONLY_CASES[platformClause] ?? {};
   for (const f of await loadCorpusFeatures(workDir)) {
-    if (!f.backends.includes(backendKey)) continue;
+    if (!f.backends.includes(backendKey) && !(f.id in armed)) continue;
     if (f.id in skip) continue; // known runtime gap on this backend — see the bug register
     const raw = readFileSync(join(CORPUS_DIR, `${f.id}.ddd`), "utf8");
     if (!hasBehaviouralBlock(raw)) continue;
@@ -288,10 +290,14 @@ export const AUTHZ_LADDERS = {
     seed: { path: "/api/tickets", body: { subject: "authz ladder probe", open: true } },
     gated: [
       { label: "role gate", method: "POST", path: "/api/tickets/{id}/close", body: {} },
-      // H-10: the unauthorized token OMITS the optional `agentId` claim, so this
-      // arm is "an absent optional claim fails `!= null`" — 204 here is the
-      // bypass node shipped (`undefined !== null`).
+      // The unauthorized token OMITS the optional `agentId` claim, so this arm is
+      // "an absent optional claim fails `!= null`" — 204 here means an absent
+      // claim reached the principal as something other than null.
       { label: "absent optional claim", method: "POST", path: "/api/tickets/{id}/take", body: {} },
+      // The unauthorized token's `assignee` is present but not a UUID, so this
+      // arm is "a malformed identifier claim fails `!= null`" — 204 here means
+      // the raw value reached the principal.
+      { label: "malformed id claim", method: "POST", path: "/api/tickets/{id}/assign", body: {} },
     ],
     arms: { anonymous: 401, unauthorized: 403, authorized: 204 },
   },

@@ -64,6 +64,7 @@ import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import {
+  elixirLocal,
   elixirString,
   escapeElixirIdent,
   plural,
@@ -783,7 +784,7 @@ function renderDocFindFn(
     bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
   });
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   const paged = pagedReturn(f.returnType) != null;
   const single = isDocSingleReturn(f.returnType);
   const rc: RenderCtx = {
@@ -975,7 +976,7 @@ function docOpStructBody(
   const params = usedParams
     .filter((p) => !isDecimalParam(p.type))
     .map(
-      (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+      (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
     );
   const guardClauses = [...paramGuards, ...collectOpGuardClauses(agg.name, op, rc)];
   const lastIdx = op.statements.length - 1;

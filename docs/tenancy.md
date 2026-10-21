@@ -198,7 +198,7 @@ drops `tenantOwned`'s filter — bypasses it.
 ### The bundled dev Keycloak's demo tenant
 
 Because the self-scope matches only a uuid claim, the demo user of the bundled
-dev Keycloak (an `auth { oidc … }` block with a self-hosted provider) is seeded
+dev Keycloak (bundled for any `auth { oidc … }` block, whatever the provider) is seeded
 with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
 (`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
 matched no registry row ever (eval-closure #26). A matching first-boot registry
@@ -327,6 +327,36 @@ read DTOs by default. `dataKey` is the exception: it is dropped from
 
 Cross-tenant reads of another tenant's row return **404** (existence hidden),
 falling out of the filter semantics: the row simply isn't found.
+
+## Reactors and timers — the system principal's tenant
+
+An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
+stamps inside it use the **triggering event's tenant**: the system principal
+copies the tenancy claim and `orgPath` from the principal of the request that
+raised the event, so a reactor reads and writes in exactly the tenant its event
+came from. A `timerSource` tick has no originating request and therefore **no
+tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
+so it must be explicitly cross-tenant: declare it as a `find` (or an inline
+`Repo.run`) with `ignoring tenantOwned`, or `loom.timer-tenant-read` (error)
+refuses it.
+
+```ddd
+repository Jobs for Job {
+  find anyTenant(c: string): Job where this.code == c ignoring tenantOwned
+}
+workflow sweepRun {
+  sweep: Sweep id
+  create(t: SweepTick) by t.sweep {
+    let j = Jobs.anyTenant("x")      // `Jobs.byCode("x")` here: loom.timer-tenant-read
+    j.close()
+  }
+}
+```
+
+**Not yet:** an event that crosses a broker or the transactional outbox does
+not yet carry its tenant in the envelope, so a relay- or broker-fed reactor has
+no origin and runs tenant-less (fail-closed) until that slice lands
+([`channels.md`](channels.md#not-yet)).
 
 ## Hierarchy — the registry tree (`implements tenantRegistry`, Phase 2)
 

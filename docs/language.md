@@ -444,12 +444,12 @@ Inside an aggregate or an `entity` part:
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  **On a state-based aggregate (the default) the body is INERT** — every `precondition`, `emit` and assignment in it is dropped and raises `loom.lifecycle-body-dropped`, so the aggregate cannot guard its own construction or raise a creation event; put that logic in a `workflow` or an `operation`.  The body runs only on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  Closing the gap is M-T3.16.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  A body `requires` is enforced on every backend (403), reading `currentUser` only.  **Otherwise, on a state-based aggregate (the default) the body is not emitted** — a `precondition`, `emit` or value-changing assignment in it is `loom.lifecycle-body-dropped`, so the aggregate cannot check its own construction or raise a creation event there; put that logic in a `workflow` or an `operation`.  The whole body runs on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
-| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file). Lowers per backend — see [Tests](#tests). |
+| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file — which must be `import`ed from the entry file). Lowers per backend — see [Tests](#tests). |
 
 Entity parts may declare only `contains`, properties, `derived`,
 `invariant`, and `function` — no `operation` / `create` / `destroy` /
@@ -500,7 +500,27 @@ def is_at(self, pier: str, position: int) -> bool:
 ```
 
 Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
-`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+`this.Berth == new Berth(pier, position)` (record equality), Elixir
+`Loom.ValueObject.equal?(record.berth, %{pier: pier, position: position})` — value
+equality across the shapes an Elixir value object takes (a column value, a
+constructor map, a collection-element struct; decimals by value, not scale).
+
+The same holds in a `ui` page expression.  A page-side value object on the JS
+frontends is the plain JSON the wire delivered, so `===` would compare
+references; the comparison renders through a `loomValueEquals` helper emitted
+into the file that uses it (Flutter: `lib/value_equals.dart`):
+
+```ddd
+Column { "Ship", o => Text { o.shipTo == o.billTo ? "same" : "split" } }
+```
+
+```tsx
+<Text>{(loomValueEquals(row.shipTo, row.billTo) ? "same" : "split")}</Text>
+```
+
+Feliz renders F#'s structural record `=` (an optional/plain pair compares as
+`row.alt = (Some row.shipTo)`), HEEx Elixir's structural `==`.  A comparison
+with `null` stays a presence test on every frontend.
 
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
@@ -1354,7 +1374,10 @@ Each aggregate may declare zero or more `test` blocks at the root level
 hoisted beside its subject — or into a `tests/*.ddd` file — as
 `test "…" for <Subject> { … }`, where the subject is an aggregate, value
 object, domain service, or a bounded context for the in-process
-integration rung):
+integration rung).  A `tests/*.ddd` file is **not** discovered on its own:
+like any other file it joins the project only through an `import` from
+the entry file (`import "./tests/order.ddd"` in `main.ddd`) — an
+unimported test file is silently ignored.
 
 ```ddd
 test "money literal builds" {
@@ -1392,7 +1415,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.ThrowsAny<Exception>(…)` + an `is DomainException or DisallowedException or ForbiddenException` check / JUnit `assertThrows(RuntimeException.class, …)` + the same `instanceof` family check (a `create(...)` keeps the exact `DomainException` assertion, and a value-object literal the exact `ValueObjectInvariantException` one, since its invariant throws that type) / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1497,14 +1520,34 @@ with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
 
 On both, `DomainError` covers preconditions and invariants; a value object's
 `ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
-and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
-assert `DomainException` (a value-object construction asserts
-`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
-`{:error, _}` result.  All of these are domain classes, so a crash fails the test
-there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
-`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
-`when`-refused operation therefore fails on those two backends today.  Pin such a
-test on node / python / elixir, or assert the state instead.
+and `ForbiddenError` is a `requires` left in the operation body.  Java, .NET and
+elixir accept the same **domain-rejection family** — a precondition, an
+invariant, a `when` gate and a `requires`.  Java and .NET catch the throw and then
+assert it is one of `DomainException` / `DisallowedException` /
+`ForbiddenException` (.NET adds `ValueObjectInvariantException` when the context
+emits it); the `when` gate's `DisallowedException` is a sibling of
+`DomainException`, not a subclass, so a single-type assertion would miss it.
+Elixir asserts its `GuardError` (whose `:kind` is `:precondition`, `:forbidden` or
+`:disallowed` — the pure op core checks the `when` gate first) or an
+`{:error, _}` result.  A `create(...)` or a value-object literal can only be
+refused by an invariant, so there the bare form keeps its exact single-type
+assertion (`DomainException`; `ValueObjectInvariantException` for a .NET value
+object).  Every member of the family is a domain class, so a crash fails the test
+on these backends too.
+
+```java
+// generated (java): `expect(t.close()).toThrow()` over a `when`-gated op
+RuntimeException __thrown2 = assertThrows(RuntimeException.class, () -> t.close());
+assertTrue(__thrown2 instanceof DomainException || __thrown2 instanceof DisallowedException || __thrown2 instanceof ForbiddenException,
+    "expected the domain to reject this call, but it threw: " + __thrown2);
+```
+
+```csharp
+// generated (.NET)
+var __thrown2 = Assert.ThrowsAny<Exception>(() => { t.Close(); });
+Assert.True(__thrown2 is DomainException or DisallowedException or ForbiddenException,
+    $"expected the domain to reject this call, but it threw: {__thrown2}");
+```
 
 The context-level integration `test` (the `for <Context>` rung) is not covered by
 this.  It still accepts any rejection, because a repository read can also refuse

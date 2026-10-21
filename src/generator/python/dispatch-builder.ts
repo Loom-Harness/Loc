@@ -15,6 +15,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -292,6 +294,7 @@ export function buildPyDispatchFile(
         resolved.saves,
         hasOutbox,
         construct,
+        ctx,
         opFragments,
       ),
       "",
@@ -401,6 +404,10 @@ export function buildPyDispatchFile(
     return r ? r.statements : [];
   });
   const resourceImports = sys ? resourceImportLines(sys, handlerStmts) : [];
+  // Events a handler body emits (anywhere — `if let` / `else` / `for` bodies
+  // included) are constructed by name, so they import alongside the
+  // subscribed ones even when nothing in this context subscribes to them.
+  const emittedEventNames = workflowEmits(handlerStmts).map((e) => e.eventName);
   // An event-sourced workflow's schema model is its `<Wf>EventRow` stream,
   // not a mutable `<Wf>Row` correlation row.
   const touchedWorkflows = [...helperDone]
@@ -450,6 +457,7 @@ export function buildPyDispatchFile(
     refersTo("insert") ? "from sqlalchemy.dialects.postgresql import insert" : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
+    refersTo("system_principal") ? "from app.auth.user import system_principal" : null,
     hasChannels
       ? hasOutbox && durableBroker
         ? "from app.channels import publish_event, publish_event_from_relay"
@@ -458,11 +466,14 @@ export function buildPyDispatchFile(
     hasOutbox ? "from app.db.engine import engine" : null,
     ...repoAggs.map((n) => `from app.db.repositories.${snake(n)}_repository import ${n}Repository`),
     schemaRows.length > 0 ? `from app.db.schema import ${schemaRows.join(", ")}` : null,
-    refersTo("DomainError") ? "from app.domain.errors import DomainError" : null,
+    (() => {
+      const errs = ["DomainError", "ForbiddenError"].filter(refersTo);
+      return errs.length > 0 ? `from app.domain.errors import ${errs.join(", ")}` : null;
+    })(),
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
-      ...[...new Set([...eventNames, ...esEventNames])].sort(),
+      ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
     ].join(", ")}`,
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
@@ -512,38 +523,40 @@ function resolveHandlerBody(
     : null;
 }
 
+/** The repositories a subscription handler body constructs.  Rides the shared
+ *  `walkWorkflowStmtsDeep` so a read or save nested in an `if let` branch (or
+ *  its `else`) is seen — the hand-rolled recursion this replaced descended only
+ *  `for` bodies, so a handler whose only `Repo.find` sat in an `if let` read
+ *  through a repository it never constructed (mypy `name-defined`). */
 function reposIn(
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
 ): { repoName: string; aggName: string }[] {
   const out = new Map<string, { repoName: string; aggName: string }>();
-  const visit = (sts: WorkflowStmtIR[]): void => {
-    for (const st of sts) {
-      if (st.kind === "repo-let" || st.kind === "repo-run") {
-        out.set(st.repoName, { repoName: st.repoName, aggName: st.aggName });
-      }
-      if (st.kind === "for-each") {
-        visit(st.body);
-        for (const s of st.savesPerIteration) {
-          out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
-        }
-      }
-    }
+  const add = (r: { repoName: string; aggName: string }): void => {
+    out.set(r.repoName, { repoName: r.repoName, aggName: r.aggName });
   };
-  visit(statements);
-  for (const s of saves) out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (st) => {
+      // Per-kind SELECTION only — `walkWorkflowStmtsDeep` owns the recursion.
+      if (st.kind === "repo-let" || st.kind === "repo-run") add(st);
+      if (st.kind === "for-each") st.savesPerIteration.forEach(add);
+      if (st.kind === "if-let") {
+        add(st);
+        st.savesInThen.forEach(add);
+        st.savesInElse.forEach(add);
+      }
+    });
+  saves.forEach(add);
   return [...out.values()];
 }
 
 function factoryAggsIn(statements: WorkflowStmtIR[]): string[] {
   const out: string[] = [];
-  const visit = (sts: WorkflowStmtIR[]): void => {
-    for (const st of sts) {
+  for (const root of statements)
+    walkWorkflowStmtsDeep(root, (st) => {
       if (st.kind === "factory-let") out.push(st.aggName);
-      if (st.kind === "for-each") visit(st.body);
-    }
-  };
-  visit(statements);
+    });
   return out;
 }
 
@@ -674,14 +687,50 @@ function accumulatePy(path: string, op: "+" | "-", value: string): string {
  *  typed zero for each required non-key saga field.  Shared with the COMMAND
  *  route's load-or-allocate (`workflows-builder.ts`, F58), which binds the same
  *  `__key` local — one allocation shape for both entry points. */
-export function allocateKwargs(wf: WorkflowIR): string {
+export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const corr = wf.correlationField as string;
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
+    if (f.type.kind === "valueobject") {
+      const leaves = voLeafZeros(f.type.name, f.name, ctx);
+      if (leaves) {
+        parts.push(...leaves);
+        continue;
+      }
+    }
     parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
+}
+
+/** The zero kwargs for a REQUIRED value-object state field's flattened leaf
+ *  columns (`total_amount=Decimal("0"), total_currency=""`), recursing
+ *  through a nested value object.  The row flattens the field to exactly
+ *  these NOT NULL columns (`py-columns.columnsFor`) — there is no `total`
+ *  column to take a `total=""` kwarg, and building a zero value object would
+ *  run its constructor invariants on a placeholder.  An optional leaf (or a
+ *  whole optional nested value object) is a nullable column and stays unset.
+ *  A `decimal` leaf zeroes to a `Decimal`, the type its `Numeric` column
+ *  binds.  Undefined when the value object is not declared in scope. */
+function voLeafZeros(
+  voName: string,
+  prefix: string,
+  ctx: EnrichedBoundedContextIR,
+): string[] | undefined {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return undefined;
+  return vo.fields.flatMap((vf): string[] => {
+    if (vf.optional || vf.type.kind === "optional") return [];
+    const path = `${prefix}_${vf.name}`;
+    if (vf.type.kind === "valueobject") {
+      const nested = voLeafZeros(vf.type.name, path, ctx);
+      if (nested) return nested;
+    }
+    const zero =
+      vf.type.kind === "primitive" && vf.type.name === "decimal" ? 'Decimal("0")' : zeroFor(vf);
+    return [`${snake(path)}=${zero}`];
+  });
 }
 
 /** A typed zero for a workflow's own-state field — used both to allocate a
@@ -713,6 +762,18 @@ export function zeroFor(
   return '""';
 }
 
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `app.auth.user.system_principal()`, carrying the dispatching
+ *  request's tenant and recording its user as `caused_by`.  Bound only when the
+ *  body — or an operation it calls, hoisted gate included — reads
+ *  `currentUser`. */
+function bindSystemPrincipal(
+  statements: WorkflowStmtIR[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  return reactorNeedsPrincipal(statements, ctx) ? ["    current_user = system_principal()"] : [];
+}
+
 function handlerFn(
   fn: string,
   wf: WorkflowIR,
@@ -722,6 +783,12 @@ function handlerFn(
   saves: { name: string; aggName: string; repoName: string }[],
   hasOutbox: boolean,
   construct: string,
+  /** The hosting context — a value-object state field allocates its leaf
+   *  columns (`allocateKwargs`), and the op-call arm looks each called
+   *  operation up in it to render the operation's hoisted `requires` gate and
+   *  thread the principal (without it a reactor called a gated operation with
+   *  the gate silently DROPPED — fail-open). */
+  ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string {
@@ -735,6 +802,7 @@ function handlerFn(
       saves,
       hasOutbox,
       construct,
+      ctx,
       opFragments,
     );
   }
@@ -747,6 +815,7 @@ function handlerFn(
     `async def ${fn}(`,
     `    session: AsyncSession, events: "InProcessDispatcher", ${param}: ${sub.event}`,
     ") -> None:",
+    ...bindSystemPrincipal(statements, ctx),
   ];
   const persisted = !!wf.correlationField;
   // Persisted handlers render `this.<stateField>` against the tracked row.
@@ -759,7 +828,7 @@ function handlerFn(
       // Load-or-allocate: a starter creates the instance if its key is new.
       out.push(`    state = await _load_${snake(wf.name)}(session, __key)`);
       out.push("    if state is None:");
-      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf)})`);
+      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf, ctx)})`);
       out.push("        session.add(state)");
     } else {
       // Route-to-existing, else drop + log.
@@ -784,7 +853,7 @@ function handlerFn(
   for (const r of reposIn(statements, saves)) {
     out.push(`    ${snake(r.repoName)} = ${r.aggName}Repository(session, events)`);
   }
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way, but the
@@ -795,7 +864,7 @@ function handlerFn(
   // `app/dispatch.py`.
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -841,6 +910,7 @@ function esHandlerFn(
   saves: { name: string; aggName: string; repoName: string }[],
   hasOutbox: boolean,
   construct: string,
+  ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string {
@@ -856,7 +926,7 @@ function esHandlerFn(
   // also lets us surface per-statement sub-regions (source-map).
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, undefined, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -872,6 +942,7 @@ function esHandlerFn(
     `async def ${fn}(`,
     `    session: AsyncSession, events: "InProcessDispatcher", ${param}: ${sub.event}`,
     ") -> None:",
+    ...bindSystemPrincipal(statements, ctx),
     `    __key = str(${keyExpr})`,
   ];
   // `__events` is needed by an `on` reactor's empty-stream check (always), a
@@ -900,7 +971,7 @@ function esHandlerFn(
   for (const r of reposIn(statements, saves)) {
     out.push(`    ${snake(r.repoName)} = ${r.aggName}Repository(session, events)`);
   }
-  const hasEmit = statements.some((st) => st.kind === "emit");
+  const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push("    workflow_events: list[DomainEvent] = []");
   out.push(...bodyLines);
   if (opFragments) {

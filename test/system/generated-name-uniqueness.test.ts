@@ -62,65 +62,10 @@ function cases(): Case[] {
   return out;
 }
 
-/** M-T6.85: `with scaffoldApi` re-registers the auto REST surface; node and
- *  python mount both under `/api`, auto first, so the explicit route is dead. */
-const SCAFFOLD_API_DUPLICATE = "M-T6.85 — scaffoldApi duplicates the auto REST surface";
-
 /** Known collisions, each a reviewed claim with the issue that will close it.
  *  Keyed `<case label> | <scope> | <key>`. A stale entry fails the ratchet
  *  below, so a fix deletes its waiver in the same PR. */
-const KNOWN: Record<string, string> = {
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | GET /api/orders/{}":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | GET /api/orders/by_status":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | byStatusOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | GET /api/orders/by_priority":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | byPriorityOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | POST /api/orders":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | createOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/reprice":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | repriceOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/escalate":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | escalateOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/cancel":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | cancelOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api routes | DELETE /api/orders/{}":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/python-build/scaffold-handlers.ddd | api operationIds | destroyOrder":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/explicit-handler-return.ddd | api routes | GET /api/orders/{}":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/explicit-handler-return.ddd | api routes | POST /api/orders/{}/cancel":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | GET /api/orders/{}":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | GET /api/orders/by_status":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | GET /api/orders/by_priority":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | POST /api/orders":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/reprice":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/escalate":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | POST /api/orders/{}/cancel":
-    SCAFFOLD_API_DUPLICATE,
-  "test/e2e/fixtures/ts-build/scaffold-handlers.ddd | api routes | DELETE /api/orders/{}":
-    SCAFFOLD_API_DUPLICATE,
-};
+const KNOWN: Record<string, string> = {};
 
 interface Sweep {
   readonly generated: number;

@@ -186,6 +186,25 @@ export function appModuleOf(contextModule: string): string {
   return contextModule.split(".")[0] ?? contextModule;
 }
 
+/** The reference a controller calls the `<App>.<Ctx>` facade through.  Normally
+ *  the bare `<Ctx>` (under `alias <App>.<Ctx>`), but when the context is named
+ *  like the app (`deployable claims` hosting `context Claims`) that alias would
+ *  rebind `<App>` itself — every `<App>.GuardError` / `<App>.Repo` in the file
+ *  would then resolve to `<App>.<App>.…` and fail to compile.  In that case the
+ *  facade is referenced fully qualified and no alias is emitted
+ *  ({@link contextAliasLine}). */
+export function contextCallRef(appModule: string, ctxModule: string): string {
+  return ctxModule === appModule ? `${appModule}.${ctxModule}` : ctxModule;
+}
+
+/** The `alias <App>.<Ctx>` line (with trailing newline) a controller needs for
+ *  {@link contextCallRef}'s bare `<Ctx>` — empty when the ref is fully qualified. */
+export function contextAliasLine(appModule: string, ctxModule: string): string {
+  return contextCallRef(appModule, ctxModule) === ctxModule
+    ? `  alias ${appModule}.${ctxModule}\n`
+    : "";
+}
+
 /** `<App>.GuardError` — the typed exception a guard raises on the pure paths. */
 export function guardErrorModule(appModule: string): string {
   return `${appModule}.GuardError`;
@@ -226,10 +245,14 @@ defmodule ${guardErrorModule(appModule)} do
   author's \`message "..."\` missed the prefix and reraised into a 500.  With
   the classification out of band, \`:message\` is free text and carries exactly
   what the other four backends put in their \`DomainException\` / \`DomainError\`.
+
+  \`:disallowed\` is an operation's \`when\` state gate refusing, raised only by
+  the pure-core operation form (the domain unit tests' subject); the HTTP path
+  checks the gate in its \`with\` chain and answers 409 from there.
   """
   defexception [:message, :kind]
 
-  @type kind :: :forbidden | :precondition
+  @type kind :: :forbidden | :precondition | :disallowed
 end
 `;
 }
@@ -453,6 +476,17 @@ export function respondErrorTail(
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
    *  the term carries no arm for it. */
   notFoundDetail = false,
+  /** True when some aggregate this dispatcher can reach is `versioned` or
+   *  event-sourced (`aggregatesNeedConcurrency`) — the same predicate that
+   *  emits `ProblemDetails.conflict_response/1`.  A stale save inside a
+   *  workflow / handler body (`persist_change/1` / the document `update` rescue
+   *  `Ecto.StaleEntryError`, the event-log append rescues the
+   *  `(stream_id, version)` unique_violation, all to `{:error, :conflict}`)
+   *  rolls the transaction back and threads that term here; without the arm it
+   *  fell to the sanitized 500 catch-all where the single-aggregate route and
+   *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
+   *  project without concurrency never references a responder it didn't emit. */
+  conflict = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -486,6 +520,14 @@ export function respondErrorTail(
           clause(
             `def ${fnName}(conn, {:error, {:validation_failed, errors}})`,
             wireValidationResponse(),
+          ),
+        ]
+      : []),
+    ...(conflict
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, :conflict})`,
+            "ProblemDetails.conflict_response(conn)",
           ),
         ]
       : []),

@@ -31,6 +31,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
   relativeOpPath,
+  servedOperations,
 } from "../../../ir/util/api-surface.js";
 import { lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
@@ -38,7 +39,7 @@ import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirOpAction, plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -55,6 +56,8 @@ import {
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
+  contextAliasLine,
+  contextCallRef,
   denialOverrides,
   denialResponse,
   opHasWireDenial,
@@ -203,13 +206,17 @@ export function emitVanillaApiControllers(
     // cannot diverge.  An abstract
     // base derives nothing (the derivation's aggregate skip): its read-only
     // index/show below stay an elixir-local extra, like the history route.
-    const derivedOps = isAbstractBase(agg)
+    const allOps = isAbstractBase(agg)
       ? []
       : deriveAggregateOperations(
           agg,
           ctx.repositories.find((r) => r.aggregateName === agg.name),
           apiStatusContext(ctx),
         );
+    // A slot an explicit `route` claims is served by that route's controller
+    // alone (D-EXPLICIT-ROUTE-WINS) — the controller action stays, the router
+    // line does not.
+    const derivedOps = servedOperations(allOps);
     const abstract = isAbstractBase(agg);
     const routeOf = (o: ApiOperationIR, action: string): ApiRoute => ({
       method: o.method,
@@ -248,7 +255,7 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, derivedOps));
+    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (abstract) {
@@ -293,16 +300,19 @@ export function emitVanillaApiControllers(
     // public non-CRUD operation, matching the node/dotnet/python/java
     // backends.  The URL segment uses
     // `routeSlug` (D-URLSTYLE) while the action atom stays the op verb.
-    const served = servedOperationEntries(agg, derivedOps);
+    // Over the FULL list: an explicit route can claim an operation and leave its
+    // `can_<op>` probe to this router, or the other way round.
+    const served = servedOperationEntries(agg, allOps);
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      routes.push(routeOf(entry, `:${snake(op.name)}`));
+      if (!entry.claimedByExplicitRoute) routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
       // The side-effect-free `GET /<plural>/:id/can_<op>` companion of a
       // `when`-gated op (criterion.md, use site 2).  It was once DECLARED in
       // this backend's own OpenAPI and never mounted (the published probe
       // 404'd) — served and documented off the same derived entry now.
       const probe = served.probeByOp.get(op);
-      if (probe) routes.push(routeOf(probe, `:can_${snake(op.name)}`));
+      if (probe && !probe.claimedByExplicitRoute)
+        routes.push(routeOf(probe, `:can_${snake(op.name)}`));
     }
   }
 
@@ -311,7 +321,7 @@ export function emitVanillaApiControllers(
 
 function renderController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   aggSnake: string,
   memberOps: readonly OperationIR[],
@@ -324,7 +334,10 @@ function renderController(
   readOnly = false,
 ): string {
   const aggPascal = upperFirst(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // The facade's call receiver — fully qualified when `alias <App>.<Ctx>` would
+  // shadow the app module (context named like the app).
+  const ctxModule = contextCallRef(appModule, ctxName);
 
   // A `mask unless` aggregate emits a redacting `serialize/1` (responses) plus an
   // unmasked `serialize_unmasked/1`; audit before/after snapshots must record the
@@ -560,7 +573,7 @@ ${cuBind}${indexCuBind}${indexBody}
         ProblemDetails.conflict_response(conn)`
         : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
         { name: "aggregate", valueExpr: `"${aggPascal}"` },
@@ -894,8 +907,7 @@ ${cuBind}${updateCuBind}${versionBind}
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
   require Logger
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 

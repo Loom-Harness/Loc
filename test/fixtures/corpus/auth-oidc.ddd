@@ -7,8 +7,11 @@ system Helpdesk {
     email: string
     permissions: string[]
     // OPTIONAL: a principal may simply not carry it.  A token WITHOUT the claim
-    // must read as null — `take()` below is gated on it (H-10).
+    // must read as null — `take()` below is gated on it.
     agentId: string?
+    // OPTIONAL and identifier-typed: a value that is present but not a UUID must
+    // read as null too — `assign()` below is gated on it.
+    assignee: Ticket id?
   }
   auth {
     enforcement: opt
@@ -29,12 +32,20 @@ system Helpdesk {
           requires currentUser.role == "agent"
           open := false
         }
-        // H-10: node projected an ABSENT optional claim as `undefined`, and
-        // `!= null` lowers to `!== null` — so a token without `agentId` passed
-        // this gate (204 where 403 was due).  The ladder's `unauthorized` token
-        // carries no `agentId` at all; the authorized one does.
+        // An ABSENT optional claim is null, so this gate refuses a token
+        // without `agentId`: `!= null` lowers to `!== null` on node, which an
+        // `undefined` would pass.  The ladder's `unauthorized` token carries no
+        // `agentId` at all; the authorized one does.
         operation take() {
           requires currentUser.agentId != null
+          open := true
+        }
+        // A MALFORMED identifier claim is null, so this gate refuses a token
+        // whose `assignee` is not a UUID — passed through raw it is non-null.
+        // The ladder's `unauthorized` token carries `assignee: "not-a-uuid"`;
+        // the authorized one carries a UUID.
+        operation assign() {
+          requires currentUser.assignee != null
           open := true
         }
       }
@@ -69,11 +80,18 @@ system Helpdesk {
     expect(read.open).toBe(false)
 
     // The agent token CARRIES the optional `agentId` claim, so `take()`'s
-    // `!= null` gate admits it — the present-claim half of H-10 (the ladder's
-    // unauthorized token, which omits the claim, proves the 403 half).
+    // `!= null` gate admits it (the ladder's unauthorized token, which omits the
+    // claim, proves the 403 half).
     api.tickets.take(t)
     let taken = api.tickets.getById(t)
     expect(taken.open).toBe(true)
+
+    // The agent token's `assignee` is a well-formed UUID, so `assign()`'s gate
+    // admits it (the ladder's unauthorized token carries a malformed one).
+    api.tickets.close(t)
+    api.tickets.assign(t)
+    let assigned = api.tickets.getById(t)
+    expect(assigned.open).toBe(true)
 
     // The canonical `update` is UNGUARDED — no `requires` clause — but it still
     // sits behind `auth: required`, so it exercises the other half of the

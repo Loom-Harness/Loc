@@ -122,12 +122,17 @@ describe("<vo>.equals(other) renders value equality on every backend", () => {
   it("elixir: renders `==` and the test emitter no longer throws", async () => {
     const files = await generateSystemFiles(systemFor("elixir"));
     const ctx = fileEndingWith(files, "lib/d/docking.ex");
-    expect(ctx).toContain("(record.berth == %{pier: pier, position: position})");
+    // Value equality goes through `Loom.ValueObject.equal?/2` — a loaded VO and a
+    // constructed one are different terms for the same value (see
+    // test/generator/elixir/vo-canonical-shape.test.ts).
+    expect(ctx).toContain(
+      "(Loom.ValueObject.equal?(record.berth, %{pier: pier, position: position}))",
+    );
     // The precedence guard: bare, `not record.berth == other` negates the MAP
     // (`not` binds tighter than `==`) and raises ArgumentError at runtime.
-    expect(ctx).toContain("not (record.berth == other)");
+    expect(ctx).toContain("not (Loom.ValueObject.equal?(record.berth, other))");
     const tests = filesMatching(files, /test\/.*\.exs$/);
-    expect(tests).toContain('a == %{pier: "A", position: 3}');
+    expect(tests).toContain('Loom.ValueObject.equal?(a, %{pier: "A", position: 3})');
     expect(tests).not.toMatch(/\.equals\(/);
   });
 

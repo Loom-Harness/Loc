@@ -67,6 +67,15 @@ describe("migration data steps — AST validation (M-T2.3)", () => {
   it("flags an empty sql step", async () => {
     expect(await astCodes(`migration "x" { sql "  " }`)).toContain("loom.migration-sql-empty");
   });
+
+  it("accepts `sql before` and flags any other placement (B-20)", async () => {
+    expect(await astCodes(`migration "x" { sql before "UPDATE s.t SET a = 1" }`)).not.toContain(
+      "loom.migration-sql-placement",
+    );
+    expect(await astCodes(`migration "x" { sql after "UPDATE s.t SET a = 1" }`)).toContain(
+      "loom.migration-sql-placement",
+    );
+  });
 });
 
 describe("migration data steps — IR validation (M-T2.3)", () => {

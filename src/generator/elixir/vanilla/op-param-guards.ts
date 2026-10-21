@@ -5,7 +5,7 @@
 // without an import cycle.  The `defp`s these clauses call are appended to the
 // context module on demand by `context-emit.ts` (`renderNumericParamHelpers`).
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
-import { escapeElixirIdent, snake } from "../../../util/naming.js";
+import { elixirLocal, snake } from "../../../util/naming.js";
 
 /** Op params whose WIRE form can be malformed, and which therefore have to be
  *  REFUSED rather than coerced-and-hoped.  `coerceOpParam` (`context-emit.ts`) makes the
@@ -29,7 +29,7 @@ export function paramGuardClause(wireName: string, type: TypeIR | undefined): st
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -38,9 +38,9 @@ export function paramGuardClause(wireName: string, type: TypeIR | undefined): st
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
       return null;
   }

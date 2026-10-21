@@ -15,6 +15,7 @@ import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir
 import { FRONTEND_RENDERED_COLLECTION_OPS } from "../../ir/util/collection-op-site.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
 import { renderJsIntrinsic } from "../_expr/js-intrinsics.js";
+import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import type { WalkerTarget } from "./target.js";
 
 /** The seven expression-leaf methods every `WalkerTarget` supplies, plus the
@@ -25,6 +26,7 @@ type ExprLeaves = Pick<
   | "exprLiteral"
   | "exprBinary"
   | "exprMoneyBinary"
+  | "exprValueEquality"
   | "exprUnary"
   | "exprTernary"
   | "exprConvert"
@@ -67,6 +69,12 @@ export const jsExprLeaves: ExprLeaves = {
   // `money?` coerces to `0`.  See `renderJsMoneyBinary`.
   exprMoneyBinary(left, right, e) {
     return renderJsMoneyBinary(left, right, e);
+  },
+  // A page-side value object is the plain JSON object the wire delivered, so
+  // `===` would compare references.  The helper the page shell emits on use
+  // (`_frontend/value-equals.ts`) compares field by field.
+  exprValueEquality(left, right, e) {
+    return renderValueEqualsCall(left, right, e.op);
   },
   exprUnary(op: string, operand: string): string {
     return `(${op}${operand})`;
@@ -209,6 +217,7 @@ export const unreachableExprLeaves: ExprLeaves = {
   renderIntrinsic: undefined,
   renderCollectionOp: undefined,
   exprMoneyBinary: undefined,
+  exprValueEquality: undefined,
   exprLiteral: unreachedExprLeaf("exprLiteral"),
   exprBinary: unreachedExprLeaf("exprBinary"),
   exprUnary: unreachedExprLeaf("exprUnary"),
