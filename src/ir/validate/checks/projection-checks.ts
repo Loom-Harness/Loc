@@ -35,7 +35,7 @@ import {
 } from "../../types/loom-ir.js";
 import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-aggregate.js";
 import { typeLabel } from "../../util/type-label.js";
-import { walkExprDeep } from "../../util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonQueryablePredicate } from "./shared.js";
 
@@ -397,6 +397,22 @@ function validateQueryComprehension(
       checkAggregateDeclaredType(ctx, proj, s, diags);
       continue;
     }
+    // A select-only row takes each field's type from its expression, and
+    // `datetime - datetime` is a `duration` — a type with no column and no
+    // wire form on any backend (it has no field syntax for the same reason).
+    const selType = s.type?.kind === "optional" ? s.type.inner : s.type;
+    if (selType?.kind === "primitive" && selType.name === "duration") {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-select-duration",
+        message: diagMessage("loom.projection-select-duration", {
+          name: proj.name,
+          field: s.field,
+        }),
+        source: `${ctx.name}/${proj.name}`,
+      });
+      continue;
+    }
     const unresolved = firstUnresolvedRefName(s.expr);
     if (!unresolved) continue;
     const hint = WHOLE_TABLE_AGGREGATIONS.has(unresolved)
@@ -665,11 +681,14 @@ function validateHandlers(
     seen.add(h.event);
 
     // Routability: with no explicit `by`, the event must carry the key field
-    // by name so the runtime can route by `e.<key>`.
-    if (!h.correlation) {
+    // by name so the runtime can route by `e.<key>`.  With no `keyed by` at
+    // all there is no key column to route to, so an explicit `by` does not
+    // help either — the row has nowhere to store the routed key.
+    const keyless = proj.correlationField === undefined;
+    if (!h.correlation || keyless) {
       const event = ctx.events.find((e) => e.name === h.event);
-      const carriesKey = event?.fields.some((f) => f.name === proj.correlationField);
-      if (event && !carriesKey) {
+      const carriesKey = !keyless && event?.fields.some((f) => f.name === proj.correlationField);
+      if ((event || keyless) && !carriesKey) {
         diags.push({
           severity: "error",
           code: "loom.projection-event-unkeyed",
@@ -734,7 +753,11 @@ function foldImpurity(stmt: StmtIR): string | undefined {
     case "add":
     case "remove":
     case "let":
-      return undefined;
+      // Pure by KIND, but a value is an expression, and an expression can
+      // reach outside the event: `blob := files.get(k)` reads a bucket on
+      // every replay.  No fold emitter has a resource client in scope either
+      // (.NET / Java / Phoenix threw mid-generation).
+      return outboundCallIn(stmt);
     case "emit":
       return "emits an event";
     case "call":
@@ -766,6 +789,21 @@ function foldImpurity(stmt: StmtIR): string | undefined {
       return _exhaustive;
     }
   }
+}
+
+/** The impurity phrase for the first resource / remote-api call anywhere
+ *  under a fold statement's expressions, or `undefined` when there is none. */
+function outboundCallIn(stmt: StmtIR): string | undefined {
+  let found: string | undefined;
+  walkStmtExprsDeep(stmt, (e) => {
+    if (found || e.kind !== "call") return;
+    if (e.callKind === "resource-op" && e.resourceOp) {
+      found = `${e.resourceOp.resourceName}.${e.resourceOp.verb}`;
+    } else if (e.callKind === "remote-api-op" && e.remoteApiOp) {
+      found = `${e.remoteApiOp.resourceName}.${e.remoteApiOp.operationId}`;
+    }
+  });
+  return found ? `calls the resource operation '${found}(...)'` : undefined;
 }
 
 /** Best-effort name of the call a bare expression-statement performs, for the

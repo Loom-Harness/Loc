@@ -94,8 +94,10 @@ export function renderProjectionRowEntity(
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
   const voLookup = valueObjectFieldLookup(ctx);
-  // A projection row has no reference/value collections, so jpaFieldAnnotations
-  // never touches `associations` — a bare owner satisfies the type.
+  // A projection row is one table row: `stateRow` maps a reference collection
+  // onto its jsonb column (no association needed), and a value-object
+  // collection here is refused by `loom.collection-field-unpersisted`, so
+  // jpaFieldAnnotations never reads the owner's associations / fields.
   const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
@@ -109,7 +111,7 @@ export function renderProjectionRowEntity(
     `    ${idClass} ${jid(corr)};`,
   ];
   for (const f of stateOnly) {
-    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup }));
+    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
     fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
   }
 
@@ -150,7 +152,7 @@ export function renderProjectionRowEntity(
     ]),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
+  const usesHibernateTypes = needsHibernateTypes(stateOnly, { stateRow: true });
   return lines(
     `package ${pkg};`,
     ``,
