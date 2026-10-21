@@ -14,8 +14,8 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
-import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
