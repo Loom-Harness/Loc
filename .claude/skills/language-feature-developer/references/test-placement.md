@@ -72,7 +72,7 @@ Reach for the one that matches the compiler your emitted code must satisfy.
 | `test:tsc-react` | `LOOM_REACT_BUILD=1` | React (examples × packs) → `tsc` |
 | `test:svelte-build` / `test:vue-build` | `LOOM_SVELTE_BUILD=1` / `LOOM_VUE_BUILD=1` | `svelte-check` / `vue-tsc` + `vite build` |
 | `test:vue-e2e` / `test:svelte-e2e` | `LOOM_VUE_E2E=1` / `LOOM_SVELTE_E2E=1` | runtime: `vite preview` + emitted Playwright smoke |
-| `test:dotnet` | `LOOM_DOTNET_BUILD=1` | `dotnet build /warnaserror` |
+| `test:dotnet` | `LOOM_DOTNET_BUILD=1` | `dotnet build /warnaserror` + build and run the emitted xUnit project |
 | `test:java` | `LOOM_JAVA_BUILD=1` | `gradle testClasses bootJar` |
 | `test:python` | `LOOM_PYTHON_BUILD=1` | `uv sync` + ruff + `mypy --strict` + pytest |
 | `test:phoenix` | `LOOM_PHOENIX_VANILLA_BUILD=1` | vanilla Ecto/Phoenix `mix compile --warnings-as-errors` (`LOOM_HEX_MIRROR=1` behind the TLS proxy) |

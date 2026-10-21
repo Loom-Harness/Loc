@@ -1,20 +1,6 @@
 name: Tests + coverage
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'test/**'
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - 'vitest.config.ts'
-      - 'biome.json'
-      - 'biome.generated.json'
-      - 'designs/**'
-      - '.github/workflows/test.yml'
   # Deliberately UNFILTERED on pull requests: `tests passed` is a required
   # status check, and a required check that gets path-skipped never reports —
   # blocking the PR on "Expected" forever.  Running the fast suite on a
@@ -71,6 +57,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # `npm ci` runs the `prepare` lifecycle (langium:generate + build),
       # which produces src/language/generated/ + out/ — required before
       # vitest transforms any file that imports the generated AST, and
@@ -96,6 +86,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 
@@ -117,6 +109,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 
@@ -179,6 +173,8 @@ jobs:
             package-lock.json
             web/package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 

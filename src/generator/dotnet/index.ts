@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
@@ -117,6 +118,7 @@ import {
   renderDapperRepository,
   renderDapperSchema,
 } from "./emit/dapper.js";
+import { renderDapperConnectionLease } from "./emit/dapper-session.js";
 import {
   dapperPortRegistrations,
   dapperWorkflowTables,
@@ -832,6 +834,10 @@ function emitProjectFromContexts(
         dapperUniqueIndexesByTable((system?.migrations ?? []).flatMap((m) => m.next.tables)),
       ),
     );
+    // The connection lease every Dapper repository opens + the ambient
+    // unit-of-work transaction it enlists in, so a `transactional` workflow's
+    // saves share ONE connection + transaction (dapper-session.ts).
+    out.set("Infrastructure/Persistence/DapperConnectionLease.cs", renderDapperConnectionLease(ns));
     // Workflow / saga / event-store / projection port adapters + the reused
     // persistence-neutral row POCOs (M-T6.9) — the raw-Npgsql siblings of the
     // EF PersistencePorts.cs; the EF configs / AppDbContext are NOT emitted.
@@ -1174,7 +1180,7 @@ function emitProjectFromContexts(
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
     authRequired,
-    userFields: (userFields ?? []).map((f) => f.name),
+    userFields: userFields ?? [],
     actorIdProp,
     usesValidators,
     usesStamping,
@@ -1221,7 +1227,7 @@ function emitProjectFromContexts(
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
     orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
   });
-  emitTestProject(merged, ns, out);
+  emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
   // The SPA hits `/api/*` on its own origin (apiBaseUrl: ""), so
   // `api/config.ts` produces `fetch("/api/...")`-shaped calls that
@@ -1944,7 +1950,7 @@ function emitProject(
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     usesStamping?: boolean;
     hasEmbeddedSpa?: boolean;
@@ -2169,7 +2175,12 @@ function emitProject(
   }
 }
 
-function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, string>): void {
+function emitTestProject(
+  ctx: BoundedContextIR,
+  ns: string,
+  out: Map<string, string>,
+  resourceNugetDeps: Record<string, string> = {},
+): void {
   // Only emit a test csproj when at least one subject (aggregate / value object
   // / domain service) declares a `test` block — otherwise the project would
   // have nothing to compile.
@@ -2179,7 +2190,7 @@ function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, str
     ctx.domainServices.some((s) => s.tests.length > 0) ||
     ctx.tests.length > 0;
   if (!anyTests) return;
-  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns));
+  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns, resourceNugetDeps));
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {

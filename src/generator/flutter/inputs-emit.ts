@@ -10,11 +10,11 @@
 // A page shell must know WHICH state fields a body binds so it emits exactly the
 // tear-offs used (an unused `final` local is a Dart `analyze` warning → CI red).
 // `collectBoundInputFields` walks the page/component body for that set — the
-// Flutter twin of Feliz's `collectPageBoundState`.  Homed here (not imported
-// from `ir/util/walk`) so the generator keeps no backward edge into `ir/`;
-// mirrors `forms-emit.ts`'s own local `exprChildren` walk.
+// Flutter twin of Feliz's `collectPageBoundState`; its child step is the
+// shared `walkExprChildren`, so an input inside a `match` arm is found too.
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { walkExprChildren } from "../../ir/util/walk.js";
 
 /** Walker-primitive names of the controlled inputs the flutter pack renders —
  *  each binds a `state` field via `bind:`.  (FileUpload is still deferred; a
@@ -39,37 +39,14 @@ function setterFor(primitive: string, field: string): string {
   return primitive === "NumberField" ? `${base}Text` : base;
 }
 
-/** Immediate child expressions of `e` — a generator-local shallow walk (the
- *  same shape `forms-emit.ts` uses) so we don't import the `ir/util` walker
- *  against the pipeline layering. */
+/** Direct child expressions of `e`, from the shared `never`-checked walker —
+ *  every expression slot, including each `match` arm (where a scaffolded filter
+ *  bar hosts both of its reads).  Lambda-block statements are action bodies,
+ *  never a read or form host, so the statement channel is not followed. */
 function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "lambda":
-      return e.body ? [e.body] : [];
-    case "object":
-    case "new":
-      return e.fields.map((f) => f.value);
-    case "list":
-      return e.elements;
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    default:
-      return [];
-  }
+  const out: ExprIR[] = [];
+  walkExprChildren(e, { expr: (c) => out.push(c) });
+  return out;
 }
 
 /** The state-field name a controlled-input call binds via `bind:`, when it is a

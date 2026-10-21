@@ -1,10 +1,10 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
-import { installGeneratedProject } from "./support/npm-install.js";
+import { installGeneratedProjectAsync } from "./support/npm-install.js";
+import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
 // Generator build gate for the Vue frontend (vue-frontend-plan.md
@@ -17,7 +17,12 @@ import { installGeneratedProject } from "./support/npm-install.js";
 //
 // Run modes:
 //   1. `LOOM_VUE_BUILD=1 npx vitest run …` (or `npm run test:vue-build`).
-//   2. Single shard — `LOOM_VUE_BUILD_CASE=<name>` filters to one case.
+//   2. `LOOM_VUE_BUILD_CASE=<name|name:pack>[,…]` filters to those cases —
+//      a bare name selects it on every pack.
+//
+// CI runs the selected cases in ONE job, PARALLELISM at a time
+// (support/parallel.ts), so the toolchain install happens once rather than
+// once per case.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -346,55 +351,50 @@ function injectDesign(src: string, qualified: string): string {
 }
 
 function selectCases(): MatrixCase[] {
-  if (SHARD === undefined) return allCases;
-  const match = allCases.find((c) => c.label === SHARD || c.name === SHARD);
-  if (!match) {
+  const wanted = SHARD?.split(",").filter(Boolean);
+  if (!wanted || wanted.length === 0) return allCases;
+  const unknown = wanted.filter((w) => !allCases.some((c) => c.label === w || c.name === w));
+  if (unknown.length > 0) {
     throw new Error(
-      `LOOM_VUE_BUILD_CASE="${SHARD}" did not match any case.  Available: ${allCases.map((c) => c.label).join(", ")}`,
+      `LOOM_VUE_BUILD_CASE names no case: ${unknown.join(", ")}.  Available: ${allCases.map((c) => c.label).join(", ")}`,
     );
   }
-  return [match];
+  return allCases.filter((c) => wanted.includes(c.label) || wanted.includes(c.name));
 }
 
 const cases = ENABLED ? selectCases() : [];
 
+const limit = limiter(PARALLELISM);
+
 describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + vite build)", () => {
-  it.each(cases)("$label → vue-tsc --noEmit + vite build pass", ({
-    source,
-    fromFile,
-    vueDir,
-    pack,
-  }) => {
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-vue-build-"));
-    try {
-      const dddPath = path.join(outDir, "_case.ddd");
-      const raw = fromFile
-        ? fs.readFileSync(path.join(repoRoot, fromFile), "utf-8")
-        : (source ?? "");
-      fs.writeFileSync(dddPath, injectDesign(raw, pack));
-      execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
-      const projectDir = path.join(outDir, vueDir);
-      if (!fs.existsSync(projectDir)) {
-        throw new Error(`Expected Vue project at ${projectDir}`);
-      }
-      installGeneratedProject(projectDir, { timeout: 240_000 });
-      // vue-tsc carries the .vue SFC type surface that plain tsc
-      // can't see; --noEmit honours the project tsconfig.
-      execSync(`npx vue-tsc --noEmit`, {
-        cwd: projectDir,
-        stdio: "inherit",
-        timeout: 180_000,
-      });
-      execSync(`npx vite build`, {
-        cwd: projectDir,
-        stdio: "inherit",
-        timeout: 180_000,
-      });
-    } finally {
-      fs.rmSync(outDir, { recursive: true, force: true });
-    }
-  }, 600_000);
+  it.concurrent.each(cases)(
+    "$label → vue-tsc --noEmit + vite build pass",
+    ({ source, fromFile, vueDir, pack }) =>
+      limit(async () => {
+        const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-vue-build-"));
+        try {
+          const dddPath = path.join(outDir, "_case.ddd");
+          const raw = fromFile
+            ? fs.readFileSync(path.join(repoRoot, fromFile), "utf-8")
+            : (source ?? "");
+          fs.writeFileSync(dddPath, injectDesign(raw, pack));
+          await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
+            cwd: repoRoot,
+            timeout: 300_000,
+          });
+          const projectDir = path.join(outDir, vueDir);
+          if (!fs.existsSync(projectDir)) {
+            throw new Error(`Expected Vue project at ${projectDir}`);
+          }
+          await installGeneratedProjectAsync(projectDir, { timeout: 240_000 });
+          // vue-tsc carries the .vue SFC type surface that plain tsc
+          // can't see; --noEmit honours the project tsconfig.
+          await sh("npx vue-tsc --noEmit", { cwd: projectDir, timeout: 180_000 });
+          await sh("npx vite build", { cwd: projectDir, timeout: 180_000 });
+        } finally {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        }
+      }),
+    1_800_000,
+  );
 });

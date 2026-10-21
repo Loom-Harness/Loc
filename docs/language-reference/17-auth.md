@@ -592,6 +592,82 @@ end
 
 Two honest gaps: a **workflow body** may not call a `currentUser`-bound find (`loom.workflow-currentuser-find` points at `getById` or the route layer), and a **page** reading `currentUser` on a deployable that binds no verified session is `loom.current-user-needs-auth-ui` (the read would emit a dangling reference — react `undefined.<claim>`, invalid Dart on flutter, an unbound match on feliz).
 
+## Reactors — the system principal (`currentUser.isSystem`)
+
+An event reactor — a workflow's event-triggered `create(e) by …` starter or an `on(e)` subscription — has no request of its own, so it has no request principal. It runs as the **system principal** (decision [D-REACTOR-SYSTEM-PRINCIPAL](../decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)):
+
+| slot | value |
+|---|---|
+| `currentUser.isSystem` | `true` (it is `false` on every request principal) |
+| every `user { }` claim | EMPTY — `""`, `0`, `false`, `[]`, `null`, the zero id — never a grant |
+| the tenancy claim / `orgPath` | the triggering event's tenant — copied from the principal of the request that raised it |
+| `causedBy` | that request's user id (audit and logs only — not a language member, no gate can read it) |
+
+Gates are evaluated against it **normally**. A gate that should admit a reactor says so:
+
+```ddd
+aggregate Order {
+  operation finish() {
+    requires currentUser.isSystem || currentUser.permissions.contains(permissions.close)
+    done := true
+  }
+}
+workflow closeOrder {
+  orderRef: Order id
+  create(e: Shipped) by e.order {
+    let o = Orders.getById(e.order)
+    o.finish()                       // gate evaluated against the system principal
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/workflows.ts
+export async function closeOrderStartShipped(db, events, e: Events.Shipped): Promise<void> {
+  const currentUser = systemPrincipal();          // auth/middleware.ts
+  // …
+  if (!((currentUser.isSystem === true) || (currentUser.permissions).includes("d.close")))
+    throw new ForbiddenError("Forbidden: currentUser.isSystem || currentUser.permissions.contains(permissions.close)");
+  o.finish();
+}
+```
+== dotnet
+```csharp
+// Application/Workflows/CloseOrderStartShippedHandler.cs
+var currentUser = global::Api.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);
+if (!(currentUser.IsSystem || (currentUser.Permissions).Contains("d.close"))) throw new ForbiddenException("…");
+```
+== java
+```java
+// application/workflows/OrdDispatcher.java — @EventListener, on the publishing thread
+var currentUser = User.systemPrincipal(CurrentUserAccessor.currentOrNull());
+if (!(currentUser.isSystem() || currentUser.permissions().contains("d.close"))) throw new ForbiddenException("…");
+```
+== python
+```python
+# app/dispatch.py
+current_user = system_principal()          # app/auth/user.py
+if not (current_user.is_system or "d.close" in current_user.permissions):
+    raise ForbiddenError("…")
+```
+== elixir
+```elixir
+# lib/api/ord/workflows/close_order/start_shipped.ex
+current_user = ApiWeb.Auth.system_principal()
+with {:ok, o} <- Api.Ord.get_order(event.order),
+     {:ok, _} <- Api.Ord.finish_order(o, %{}, current_user) do
+```
+::: end
+
+The request principal is unchanged on the wire: `isSystem` / `causedBy` are optional slots (node), serializer-skipped at their defaults (.NET), extra record components the verifiers never set (java), defaulted dataclass fields (python), and absent map keys (elixir), and every `/auth/me` projects the declared claims only. `isSystem` and `causedBy` are therefore reserved claim names (`loom.user-reserved-field`).
+
+Two diagnostics follow from the rule:
+
+- **`loom.reactor-gate-unsatisfiable`** (warning) — a reactor reaches a `requires` (its own, or the hoisted gate of an operation it calls) that reads `currentUser` and never mentions `currentUser.isSystem`. With every claim empty that gate refuses every event with 403. Add the disjunct, call an ungated operation, or move the check onto the command that emits the event.
+- **`loom.timer-tenant-read`** (error) — a reactor on a `timerSource` tick reads a `tenantOwned` aggregate. A tick has no originating request, so the system principal has no tenant and the read's tenant filter matches nothing. Make the cross-tenant read explicit — a `find` (or inline `Repo.run`) with `ignoring tenantOwned`.
+
 ## Tenancy — `tenancy by user.<claim> of <Registry>`
 
 Multi-tenancy is the auth layer's data-partitioning half and shares its principal. One system-level line names the claim and the registry; each aggregate then declares an explicit stance:
