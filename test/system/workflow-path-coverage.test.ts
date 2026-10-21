@@ -424,7 +424,7 @@ function sharedSeams(globs: readonly string[]): string[] {
 //
 // So each trigger's own block must stand on its own.  A `pull_request:` block —
 // and ONLY a `pull_request:` block — may decline, because it is the one tier
-// with something underneath it: the workflow's own `push: main` run.  Declining
+// with something underneath it: the workflow's own nightly `schedule:` run on main.  Declining
 // is a REGISTER ENTRY (`PR_TIER_DECLARED`), not silence, and the register can
 // only be used by a workflow that really has that fallback and whose fallback
 // block really is compliant.  Every other trigger has nothing below it, so
@@ -470,37 +470,37 @@ interface TierDeclaration {
 const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
   "behavioral-e2e-dapper.yml": {
     reason:
-      "behavioural family: boots the generated .NET backend on the Dapper adapter against a postgres sidecar, one project build per corpus case; the six legs share path claims and fire together (~58 runner-min, 6 of ~20 slots). Post-merge `push: main` block carries the full generation path.",
+      "behavioural family: boots the generated .NET backend on the Dapper adapter against a postgres sidecar, one project build per corpus case; the six legs share path claims and fire together (~58 runner-min, 6 of ~20 slots). The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 7.8,
     measured: "2026-09-21",
   },
   "behavioral-e2e-dotnet.yml": {
     reason:
-      "behavioural family: boots the generated .NET backend against a postgres sidecar, one project build per corpus case; fires with its five siblings. Post-merge `push: main` block carries the full generation path.",
+      "behavioural family: boots the generated .NET backend against a postgres sidecar, one project build per corpus case; fires with its five siblings. The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 8.9,
     measured: "2026-09-21",
   },
   "behavioral-e2e-elixir.yml": {
     reason:
-      "behavioural family: boots the generated Phoenix release against a postgres sidecar and needs hex egress, one mix compile per corpus case. Post-merge `push: main` block carries the full generation path.",
+      "behavioural family: boots the generated Phoenix release against a postgres sidecar and needs hex egress, one mix compile per corpus case. The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 12.6,
     measured: "2026-09-21",
   },
   "behavioral-e2e-java.yml": {
     reason:
-      "behavioural family and the most expensive leg in it — a Gradle build plus a Spring Boot start per corpus case; its own file documents a 20->30 min cap raise after the cap censored 13 of 74 runs. Post-merge `push: main` block carries the full generation path.",
+      "behavioural family and the most expensive leg in it — a Gradle build plus a Spring Boot start per corpus case; its own file documents a 20->30 min cap raise after the cap censored 13 of 74 runs. The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 13.1,
     measured: "2026-09-21",
   },
   "behavioral-e2e-mikroorm.yml": {
     reason:
-      "behavioural family: the node backend on the MikroORM adapter, booted against a real postgres because @mikro-orm/postgresql cannot use PGlite. Post-merge `push: main` block carries the full generation path.",
+      "behavioural family: the node backend on the MikroORM adapter, booted against a real postgres because @mikro-orm/postgresql cannot use PGlite. The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 10.9,
     measured: "2026-09-21",
   },
   "behavioral-e2e-python.yml": {
     reason:
-      "behavioural family: boots the generated FastAPI backend against a postgres sidecar. Cheapest of the six at ~5 min, but it fires as part of the same family burst and there is no per-leg path claim that would separate it. Post-merge `push: main` block carries the full generation path.",
+      "behavioural family: boots the generated FastAPI backend against a postgres sidecar. Cheapest of the six at ~5 min, but it fires as part of the same family burst and there is no per-leg path claim that would separate it. The unfiltered nightly `schedule:` run on main covers the full generation path.",
     costMin: 5.0,
     measured: "2026-09-21",
   },
@@ -579,7 +579,7 @@ describe("workflow path filters cover the generation path", () => {
               : `via ${gate.entries.join(", ")}`
           }) — so a change confined to an unwatched phase cannot trigger this ` +
           "gate on that event, and it will not run for that change at all.\n" +
-          "Globs are NOT unioned across triggers here: a `push: main` block does not " +
+          "Globs are NOT unioned across triggers here: another trigger's block does not " +
           "cover the pull request, which is where the gate's name is shown.\n" +
           "Add the missing globs to THAT trigger's block; or, for a `pull_request:` " +
           "block on an expensive leg, add a measured entry to PR_TIER_DECLARED in this " +
@@ -642,27 +642,20 @@ describe("workflow path filters cover the generation path", () => {
   });
 
   it("every PR_TIER_DECLARED entry really has the post-merge tier it falls back on", () => {
-    // The whole claim is "this runs on `push: main` instead".  If that block
-    // does not exist, or does not itself cover the generation path and the
-    // seams, the declaration is not a tiering decision — it is a hole.
+    // The whole claim is "the nightly run on main covers what the PR block
+    // declines".  A `schedule:` trigger carries no `paths:` filter, so it runs
+    // the leg against the whole combined tree; without one the declaration is
+    // not a tiering decision — it is a hole.
     for (const file of Object.keys(PR_TIER_DECLARED)) {
       const gate = generationGates.find((g) => g.file === file);
       if (!gate) continue;
-      const push = gate.byTrigger.get("push") ?? [];
       expect(
-        push.length,
-        `${file} declares a post-merge fallback but has no push paths`,
-      ).toBeGreaterThan(0);
-      const missing = [
-        ...GENERATION_PATH.filter((tree) => !watchesTree(push, tree)),
-        ...sharedSeams(push)
-          .filter((s) => !watchesTree(push, `src/generator/${s}/**`))
-          .map((s) => `src/generator/${s}/**`),
-      ];
+        gate.byTrigger.has("schedule"),
+        `${file} declares a post-merge fallback but has no nightly \`schedule:\` trigger`,
+      ).toBe(true);
       expect(
-        missing,
-        `${file}'s pull_request block is declared post-merge-only, but its push block ` +
-          `does not cover ${missing.join(", ")} either — so nothing covers it at all.`,
+        gate.byTrigger.get("schedule"),
+        `${file}'s schedule cannot carry a paths filter — it must run unconditionally`,
       ).toEqual([]);
     }
   });
@@ -818,29 +811,46 @@ describe("the closure walker resolves what it claims to", () => {
     // The third invariant is entirely this function.  If it collapsed every
     // block into one bucket, every per-trigger assertion would silently fall
     // back to the union — the exact behaviour those assertions replace — and
-    // the suite would stay green while checking nothing.
-    const src = readFileSync(path.join(workflowsDir, "behavioral-e2e-java.yml"), "utf8");
+    // the suite would stay green while checking nothing.  No workflow carries
+    // two filtered blocks today, so the pin uses a synthetic one.
+    const src = [
+      "on:",
+      "  push:",
+      "    branches: [main]",
+      "    paths:",
+      "      - 'src/util/**'",
+      "      - 'src/ir/**'",
+      "  pull_request:",
+      "    types: [opened]",
+      "    paths:",
+      "      - 'src/ir/**'",
+      "  schedule:",
+      "    - cron: '0 1 * * *'",
+      "  workflow_dispatch:",
+      "jobs: {}",
+    ].join("\n");
     const byTrigger = globsByTrigger(src);
-    expect([...byTrigger.keys()]).toEqual(
-      expect.arrayContaining(["push", "pull_request", "workflow_dispatch"]),
-    );
     const push = byTrigger.get("push") ?? [];
     const pr = byTrigger.get("pull_request") ?? [];
-    // The measured asymmetry itself: the union says "covered", the PR block
-    // says otherwise.  If these two ever agree, this pin has stopped proving
-    // anything and needs a different fixture.
     expect(watchesTree(pathGlobs(src), "src/util/**")).toBe(true);
     expect(watchesTree(push, "src/util/**")).toBe(true);
     expect(watchesTree(pr, "src/util/**")).toBe(false);
-    // …and a trigger with no `paths:` (workflow_dispatch) contributes nothing.
+    // …and a trigger with no `paths:` contributes nothing.
+    expect(byTrigger.get("schedule")).toEqual([]);
     expect(byTrigger.get("workflow_dispatch")).toEqual([]);
+    // The real asymmetric leg reads the same way off its file.
+    const java = globsByTrigger(
+      readFileSync(path.join(workflowsDir, "behavioral-e2e-java.yml"), "utf8"),
+    );
+    expect(watchesTree(java.get("pull_request") ?? [], "src/util/**")).toBe(false);
+    expect(java.get("schedule")).toEqual([]);
   });
 
-  it("the per-trigger check is not degenerate — most gates really have two filtered blocks", () => {
-    const multi = generationGates.filter(
-      (g) => [...g.byTrigger.values()].filter((v) => v.length > 0).length > 1,
+  it("the per-trigger check is not degenerate — most gates really have a filtered PR block", () => {
+    const filteredPr = generationGates.filter(
+      (g) => (g.byTrigger.get("pull_request") ?? []).length > 0,
     );
-    expect(multi.length).toBeGreaterThan(20);
+    expect(filteredPr.length).toBeGreaterThan(20);
     expect(Object.keys(PR_TIER_DECLARED).length).toBeGreaterThan(0);
   });
 
