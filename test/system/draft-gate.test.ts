@@ -2,17 +2,18 @@
 //
 // docs/ci-gating.md → "Draft PRs and the runner queue": the account's runner
 // pool allows ~20 concurrent jobs, a substantive push fires 30–50, and the
-// claim-first culture means most pushes happen on DRAFT PRs.  So the per-PR
-// fan-out is draft-gated: every expensive workflow fires only once the PR is
-// marked ready for review, while drafts get the fast lane (test.yml,
-// langium-generated, workflow-lint, pr-gate).
+// drafts are train members (docs/agent-runbook.md → "Trains"), whose authors
+// run the gates locally and whose train PR runs them once.  So the per-PR
+// fan-out is draft-gated, the fast suite (test.yml) included: every workflow
+// that costs runner-minutes fires only once the PR is marked ready for
+// review, while drafts get the seconds-cheap lane (langium-generated,
+// workflow-lint, pr-gate).
 //
 // Two ways this rots, both silent:
 //   1. a NEW workflow gets a plain `pull_request:` trigger and quietly
 //      rejoins the draft fan-out — the queue regrows one workflow at a time;
-//   2. someone draft-gates a FAST-LANE workflow — worst of all test.yml,
-//      whose `tests passed` is a required check and the floor pr-gate's
-//      fail-closed arm stands on; gating it strands every draft PR.
+//   2. someone draft-gates a FAST-LANE workflow — worst of all pr-gate,
+//      which must run to aggregate whatever did.
 //
 // This suite reads the workflow files the same indentation-disciplined way
 // merge-queue-readiness.test.ts does (no YAML parser in the dependency tree)
@@ -26,11 +27,10 @@ import { describe, expect, it } from "vitest";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workflowsDir = path.resolve(here, "../../.github/workflows");
 
-/** Workflows that MUST keep running on draft PRs.  test.yml is the required
- *  floor; langium-generated and workflow-lint are seconds-cheap correctness
- *  gates; pr-gate must always run to aggregate whatever did. */
+/** Workflows that MUST keep running on draft PRs.  langium-generated and
+ *  workflow-lint are seconds-cheap correctness gates; pr-gate must always run
+ *  to aggregate whatever did. */
 const FAST_LANE = new Set([
-  "test.yml",
   "langium-generated.yml",
   "workflow-lint.yml",
   "pr-gate.yml",
@@ -86,6 +86,8 @@ function jobs(source: string): Array<{ name: string; hasNeeds: boolean; hasDraft
     if (!current) continue;
     if (/^ {4}needs:/.test(line)) current.hasNeeds = true;
     if (line.includes(DRAFT_GATE_IF)) current.hasDraftGate = true;
+    // A schedule-only job never runs on a pull_request event at all.
+    if (/^ {4}if:\s*github\.event_name == 'schedule'\s*$/.test(line)) current.hasDraftGate = true;
   }
   return found;
 }
@@ -140,7 +142,7 @@ describe("draft PRs run only the fast lane", () => {
       expect(
         w?.source.includes(DRAFT_GATE_IF),
         `${file} carries the draft-gate if — the fast lane must run on drafts ` +
-          "(test.yml is the required floor; pr-gate aggregates it)",
+          "(pr-gate aggregates whatever ran)",
       ).toBe(false);
     });
   }
