@@ -145,40 +145,47 @@ Minted 2026-09-11 by **M-T5.28** as the named successor its `loom.for-placement`
 
 Sources: [M-T5.28](archive/T5-done.md#m-t528--variant-match-off-a-page-crashes-all-five-backends-forif-let-off-a-workflow-emits-thisunknown--neither-is-gated--done-2026-09-11-wave-c1-packet-1b--m--p1) and its hand-off [`waves/handoffs/wave-c1-1b-placement-fork.md`](waves/handoffs/wave-c1-1b-placement-fork.md); [language-docs-audit-2026-09-03](../audits/2026-09-03-language-docs-audit-findings.md) F4.
 
-## M-T5.31 — A `retrieval` reaches the wire through `scaffoldPaged`; the filter bar still trails — `partial` · **M** · P1
+## M-T5.31 — A `retrieval` reaches the repository and stops there: no HTTP route on any backend, and no `requires` clause — `open` · **L** · P1
 
-**Owner design (confirmed by the user, 2026-10-18).** A `retrieval` is a domain declaration and stays one: it does **not** grow its own route, and it has no `requires` slot. Exposure is an opt-in scaffold macro that emits real, unfoldable source (`docs/old/proposals/read-path-architecture.md` rev. 3, "The ergonomic default"):
+Found 2026-09-10 by the tracker dev-experience run (#2861, "Not fixed here"). Re-verified on `main` @ `4865581` with a four-declaration model (`aggregate` + `criterion` + `retrieval` + `repository`, `platform: node`):
 
-```ddd
-context Sales with scaffoldPaged(of: TopInRegion, requires: SalesTeam) { … }
-api SalesApi with scaffoldPagedApi(of: TopInRegion) from Sales { }
+```
+out/api/domain/repository-ports.ts     runAvailableProducts(page?): Promise<Product[]>   ← emitted
+out/api/db/repositories/…-repository.ts  the implementation                              ← emitted
+out/api/http/product.routes.ts         GET /{id}, GET /                                  ← the retrieval is ABSENT
 ```
 
-`scaffoldPaged` / `scaffoldPagedApi` are the exposure mechanism, so they **do not retire**. `of:` takes a `criterion` or a `retrieval`; the macro reads the argument's kind. The gate sits where the exposure sits: `requires: <Policy>` (a parameterless function-form policy, the `crudish(requires:)` rule from #2877) becomes the emitted handler's first body statement. Under `denyByDefault` an ungated scaffolded route is refused like any other ungated `queryHandler` route (`loom.default-deny-ungated`).
+The read is fully lowered, typed and implemented, and then has no caller. A page cannot reach a repository, so a `retrieval` is unreachable from the generated frontend — and `find`, the one construct that *does* produce a route, is what `loom.repository-find-deprecated` tells the author to migrate away from. Following the validator's advice removes your read API. #2874 narrowed that warning to contexts that already declare a criterion or retrieval, which stops the tool contradicting its own scaffold; it does not give the migrated spelling anywhere to go, and its PR says so.
 
-**Shipped:**
+The second half is the gate. `Retrieval` (`ddd.langium:1678`) has no `requires` slot — compare `FindDecl:1405`, which does. So the spelling the compiler recommends is also the one that cannot be gated, which blocks M-T3.19's story for the list read and leaves `scaffoldPaged` with `of:` and nothing else.
 
-- `scaffoldPaged(of: <Retrieval>)` emits `queryHandler List<Agg>By<Read>(<read params>): <Agg> paged { [requires <Policy>()] let r = <Repo>.run(<Read>(args)); return r }`. `scaffoldPagedApi(of: <Retrieval>)` emits its `GET /<plural>/projections/<snake(read)>` route. Both forms unfold to source that re-parses.
-- Slice 6 is done: a paged `queryHandler` over `Repo.run(<Retrieval>(args))` generates on all five backends instead of being refused. The retrieval's `where` is the filter. Its `sort:` is the page's default order: the route's `sort` defaults to `""`, which every paged find reads as "the declared terms, then `id`". A request `sort` that is on the whitelist still wins. A sorted retrieval over an aggregate that pages in memory (event-log, document, embedded, inheritance subtype) is refused (`loom.paged-query-handler-shape#sorted-retrieval-shape`) rather than reordered silently. A paged body may hold only its `requires` gates and the run.
-- The paged-run route renders the handler's `requires` gates (a 403 before the read) on all five backends. Before this, every backend dropped them.
-- `loom.repository-find-deprecated` is back at full strength in every context, with #2874's interim narrowing deleted. It now names the exposure (`scaffoldPaged(of: …)` + `scaffoldPagedApi(of: …)`).
-- The `ddd new --template crud` starter exposes `TasksInProject` with `with scaffoldPaged(of: TasksInProject)` plus an `api TasksApi with scaffoldPagedApi(of: TasksInProject)` that the backend `serves:`.
-- **Client hooks bind to the served route.** A synthesized paged find (`findAllBy<Criterion>` / `page<Retrieval>`) has no derived `/<plural>/<find>` route. Its react/vue/svelte/angular hook now calls the explicit `GET` route that the target backend's served api binds to the handler (`pagedFindRoutes`, `src/ir/util/paged-find-routes.ts`). Its `sort` defaults to the declared order. A synthesized find that no served api routes gets no hook at all. A SPA page that reads such an unrouted find is refused (`loom.ui-read-unresolved#unrouted`), and so is any read of a synthesized find from Feliz or Flutter, which build read URLs from the derived path. `test/generator/_frontend/read-hooks-routed.test.ts` checks every hook GET of the starter (all four SPA frameworks) and of the scaffold-paged fixture against the backend's served surface.
+**The fix, in the order the slices must land:**
 
-**Remaining:**
+1. `Retrieval` gains `('requires' gate=Expression)?`, lowered to the same `ExprIR` position `FindDecl.gate` already occupies, so the five backends' existing gate renderers apply unchanged.
+2. A route per retrieval on all five backends, parameters bound from the retrieval's own `params` — the same threading `projection` reads now use after #2861 slice 1 (`src/platform/hono/v4/projection-query-routes-builder.ts` is the worked reference; the .NET/python/java/elixir twins are named in that commit).
+3. `scaffoldPaged` / `scaffoldPagedApi` retire: their reason to exist is that a retrieval had no route. #2877 explicitly declines to bolt a second gate parameter onto them for this reason.
+4. The interim narrowing in #2874 is deleted in the same PR that lands slice 2 — a waiver ratchets, so the fix removes it rather than leaving both rules standing.
 
-1. **Slice 5 — the scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts`) iterates `m.finds` only. Now that a routed paged find has a working hook, it should also offer the parameterised retrieval a `scaffoldPaged` + `scaffoldPagedApi` pair exposes. The ui macro works at the AST level, so it must discover that pair from the context's and api's `with` clauses. Pin it with a `scaffold-body-builders` case. **S**
-2. **`scaffoldPaged(of: <Aggregate>)`.** This arm is not built. A bare aggregate has no named read to `run`, and its unfiltered list is already the derived `GET /<plural>`. It only makes sense together with a declared default order, so it waits on a use case. **S**
-3. **`loads:` on a paged retrieval.** It is still refused at the declaration (`loom.retrieval-loads-unsupported`), so it cannot ride along yet. When the refusal lifts, the paged find must honour the load plan. **M**
+**Verification when it lands.** Per-backend route-emission cases (the five-case shape of `test/system/projection-param-threading.test.ts`), a gated-retrieval 403 case, and the generated node project booted against Postgres so the route is proved to answer a filtered read, not merely to exist. Mutation-proof each gate by file-copy revert.
 
-**Verification of the shipped half:**
+Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 
-- `test/macro/scaffold-paged.test.ts`: the retrieval + `requires:` macro form is byte-identical to the hand-written handler and route on all five backends, and the gate renders before the read with the declared-order `sort` default.
-- `test/ir/paged-query-handler.test.ts`: acceptance, the impure-body refusal and the sorted-retrieval-shape refusal.
-- `test/macro/unfold-action.test.ts`: unfold.
-- `test/cli/new.test.ts` and `test/cli/new-auth-guidance.test.ts`: the starter route is present on every backend and is gated under deny-by-default.
-- The generated node project was booted against Postgres, and the route answered paged, declared-order and 403 reads.
-- In the booted `ddd new` starter, the React app's own `usePageTasksInProjectTask` request got a 200, and its zod schema parsed the response.
+**Slices added 2026-09-29 (evaluation-closure review; both wait on slice 2 above):**
+
+- **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
+- **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
+
+## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
+
+The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
+
+Today `POST /<plural>` always takes the **field-derived** create input. A narrowed parameter list on a declared `create` shapes nothing, so an author who writes `create(title: string)` against a five-field aggregate gets a client for a contract they did not declare — the generated `test e2e` suite failed at runtime with a 422 naming a field the create does not accept. `loom.lifecycle-body-dropped` does not cover it: the ubiquitous `field := <same-named param>` idiom is exempt there, and that is exactly the shape that misleads.
+
+**The fix:** the declared parameter list becomes the create input — wire schema, route binding, and the frontend `CreateForm`'s field set all derive from it rather than from the aggregate's fields.
+
+**Why it was blocked (now cleared).** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
+
+**Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
 
 ## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `partial` (#3050 landed the `of:`-form half) · **M** · P1
 
