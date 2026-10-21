@@ -4,7 +4,6 @@ import dotnetPlatform from "./dotnet.js";
 import elixirPlatform from "./elixir.js";
 import felizPlatform from "./feliz.js";
 import flutterPlatform from "./flutter.js";
-import honoPlatform, { loomManifest as honoV4Manifest } from "./hono/v4/index.js";
 import honoV5Platform, { loomManifest as honoV5Manifest } from "./hono/v5/index.js";
 import javaPlatform from "./java.js";
 import type { LoomBackendManifest } from "./manifest.js";
@@ -50,7 +49,7 @@ export {
 // version, aliased to the same surface object the bareword returns
 // — so the resolution paths yield identical `PlatformSurface` instances
 // regardless of whether the source pins a version.  The grammar/lowering
-// wires `platform: "node@v4"` pins, so additional per-family versions
+// wires `platform: "node@v5"` pins, so additional per-family versions
 // slot in by registering them in `versionedPlatforms`.
 //
 // Adding a new platform: write the surface implementation, register
@@ -61,8 +60,7 @@ export {
 const platforms: Record<Platform, PlatformSurface> = {
   dotnet: dotnetPlatform,
   // Bareword `platform: node` → the default version (v5, zod 4 / TS 6).
-  // v4 stays resolvable via the pinned `platform: node@v4` (registered in
-  // `inTreeBackends` below).  Backend barewords actually resolve through
+  // Backend barewords actually resolve through
   // `parseBuiltinPlatformRef` → `qualifiedBackendSurfaces()`, so this
   // entry feeds `allPlatforms()` / the descriptor-consistency check.
   node: honoV5Platform,
@@ -122,16 +120,13 @@ export interface DiscoveredBackend {
   surface: PlatformSurface;
 }
 
-// hono@v4 ships a real co-located manifest (it is the only backend
+// hono@v5 ships a real co-located manifest (it is the only backend
 // already restructured into a versioned package dir).  dotnet@v10 /
 // elixir@v1 are still flat `src/platform/<name>.ts`; their
 // manifests are synthesised here until they are packaged, so
 // the discovered set — and thus every resolution — is unchanged.
 const inTreeBackends: DiscoveredBackend[] = [
-  // Both Hono package versions are registered: v5 (default, zod 4 / TS 6)
-  // and v4 (zod 3 / TS 5, pinnable via `platform: node@v4`).
   { manifest: honoV5Manifest, surface: honoV5Platform },
-  { manifest: honoV4Manifest, surface: honoPlatform },
   {
     manifest: {
       kind: "backend",
@@ -218,7 +213,7 @@ function qualifiedBackendSurfaces(): Record<string, PlatformSurface> {
 }
 
 /** Resolve any `platform:` ref — bareword (`hono`, `react`) or
- *  pinned (`hono@v4`) — to its surface.  Backend barewords route
+ *  pinned (`node@v5`) — to its surface.  Backend barewords route
  *  through `BUILTIN_PLATFORM_LATEST`; everything else (frontend,
  *  unknown) reads `platforms` directly.  Every path returns the
  *  same surface instance callers have always got. */

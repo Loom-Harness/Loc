@@ -120,7 +120,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`long` / `bool` on all five backends; the rest need the per-backend response " +
       "projection the `commandHandler` route already has.  (The `eventSourced` refusal is a " +
       "permanent rule with its own code, `loom.workflow-return-event-sourced`.)",
-    mission: "M-T5.48",
+    mission: "#3916",
     verified: false,
   },
   {
@@ -175,12 +175,12 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/orm-adapter-checks.ts:40",
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
-      "document/event-sourced source, and the two self-provisioning limits — declared migration " +
-      "steps (`#migrations`, owned by M-T2.17 per D-DAPPER-ALTER: it closes when the " +
-      "`test:migration-evolution-dapper` leg is green, NOT when the gate widens) and Postgres " +
-      "schema placement (`#schema-split` / `#schema-ignored`, the twin limit of the same " +
-      "boot-time schema owner — also M-T2.17) (migration-checks.ts, " +
-      "`validateMigrationAdapterSupport` / `validateSelfProvisioningSchemaSupport`).  The " +
+      "document/event-sourced source, and a dataSource `tablePrefix:` (`#schema-ignored`, " +
+      "migration-checks.ts `validateSelfProvisioningSchemaSupport`) — the repositories name every " +
+      "table unprefixed.  The declared-migration clause (`#migrations`) and the schema " +
+      "split-brain (`#schema-split`) DRAINED with M-T2.17's chain: Dapper applies the shared " +
+      "MigrationsIR as versioned migrations (`dapper-migrations.ts`) in the binding's schema, " +
+      "proven by the `test:migration-evolution-dapper` leg.  The " +
       "hierarchical (deep/global) tenancy `#deep-scope` clause DRAINED in wave C2 packet 2b: " +
       "`authzFilterToSql` renders the descendant-or-self fragment as raw Postgres and " +
       "`collectFilterPrincipalRefs` (now on `walkExprDeep`) binds its four params, proven on a " +
@@ -728,7 +728,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:243",
+    site: "src/ir/validate/checks/test-checks.ts:139",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -754,7 +754,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:426",
+    site: "src/ir/validate/checks/test-checks.ts:323",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "M-T5.19",
     verified: true,

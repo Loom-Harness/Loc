@@ -90,7 +90,8 @@ export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] 
 
 /** The `throw`/`raise` arguments a WORKFLOW-body precondition hands its
  *  backend's domain error: the authored message (else the derived
- *  `Precondition failed: <src>` default) and — for a messaged one — the
+ *  `Precondition failed: <src>` default), the refusing rung `kind` (spelled as
+ *  the backend's own expression, already in generated-source form), and — for a messaged one — the
  *  `msg.<hash>` code + pointer an operation precondition carries (M-T1.11 (c)).
  *  A messaged workflow precondition switches the backend-wide code carriage
  *  on (`hasDomainFloorMessages`), so the coded constructor always exists when
@@ -98,11 +99,12 @@ export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] 
  *  Python alike. */
 export function workflowPreconditionThrowArgs(
   st: Pick<InvariantIR, "expr" | "source" | "message">,
+  kind: string,
 ): string {
   const detail = JSON.stringify(st.message ? st.message.text : `Precondition failed: ${st.source}`);
   const code = domainFloorCode(st.message);
-  if (code === undefined) return detail;
-  return `${detail}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(st))}`;
+  if (code === undefined) return `${detail}, ${kind}`;
+  return `${detail}, ${kind}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(st))}`;
 }
 
 /** A messaged `precondition` anywhere under `s` (an `if` branch included). */

@@ -412,13 +412,3 @@ Slices:
 Coordinates with #3125 (let census, the measuring instrument) and #3133 (fail-closed owns the `unknown` refusal policy).
 
 Design: [`M-T5.47-single-typing-pass-design.md`](missions/M-T5.47-single-typing-pass-design.md). Claim: [#3148](https://github.com/Loom-Harness/Loc/pull/3148).
-
-## M-T5.48 — A workflow `create(…): T` returning an aggregate / payload / value object — `open` · **M** · P3
-
-*Minted 2026-10-06 by Fleet C (banking eval B-03, PR #3140), which shipped the `create(…): T { … return <expr> }` result for `X id` / `string` / `int` / `long` / `bool` on all five backends.*
-
-The remaining result kinds are refused by `loom.workflow-return-type-unsupported`: an aggregate / entity (projected through its `<Agg>Response` wire shape — the `commandHandler` route's `repo.toWire(…)` / `projectToResponse` / `to_wire` path), a `response` payload, a value object, and `decimal` / `money` / `datetime` (each backend's scalar wire encoding — RS-12 / RS-24 / RS-4). The `eventSourced` arm of the same code is a language rule (its create may only `emit`), not this mission.
-
-**The fix:** route the declared result through the same per-backend response projection the explicit-handler emitters already use, typed in each backend's OpenAPI 200; widen `isSupportedWorkflowResult` (`src/language/validators/structural.ts`) kind by kind as each lands on all five.
-
-**Verification.** Extend `test/fixtures/corpus/workflow-create-result.ddd` with a `create(…): Account` workflow; the wire golden must match on all five backends.

@@ -274,7 +274,7 @@ describe("statementExprMarks", () => {
     };
     const [chunk] = renderTsStatementChunks([stmt]);
     expect(chunk).toBe(
-      '    if (!(this._isActive)) throw new DomainError("Precondition failed: isActive");',
+      '    if (!(this._isActive)) throw new DomainError("Precondition failed: isActive", "precondition");',
     );
     const marks = statementExprMarks(stmt, chunk!);
     expect(marks).toHaveLength(1);

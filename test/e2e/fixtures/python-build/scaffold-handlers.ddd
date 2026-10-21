@@ -32,7 +32,10 @@ system HandlerScaffold {
         // (see the PR discussion) — this fixture exercises the SCALAR and ENUM
         // defaults below, which is what the create-body drop was about.
         total: Money
-        create(code: string) { code := code }
+        create(code: string, total: Money) {
+          code := code
+          total := total
+        }
         operation reprice(newTotal: Money) { total := newTotal }
         operation escalate(level: Priority) { priority := level }
         operation cancel() { status := "cancelled" }

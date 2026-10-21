@@ -21,7 +21,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -696,12 +696,17 @@ export function renderMikroRepository(
         ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
         findParamBindings(f.params),
       );
+      // An unwhitelisted `sort` (the route's `""` default) takes the read's
+      // declared order (`defaultSortOrder`).
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `${t.field}: "${t.direction}"`)
+        .join(", ");
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
-        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
         `    const ${L.total} = await em.count(${row}, ${filter});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,

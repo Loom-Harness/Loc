@@ -48,6 +48,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import {
   type ReadPort,
   readPortsForOperation,
@@ -874,7 +875,10 @@ function emitWorkflowRoute(
   out.push(`    tags: ["workflows"],`);
   out.push(`    operationId: "${camelId(opWorkflow(wf.name))}",`);
   out.push(`    request: {`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a workflow started with no input has an optional body.
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(wf.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   // `create(…): T { … return <expr> }` — the route answers 200 with the value
   // (the commandHandler twin); no declared result keeps the 204, byte-identical.
@@ -2334,7 +2338,7 @@ export function honoWorkflowStmtTarget(
   return {
     indentUnit: "  ",
     precondition: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st)});`,
+      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))});`,
     ],
     requires: (st, indent) => [
       `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,
