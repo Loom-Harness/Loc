@@ -9,6 +9,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -483,10 +484,12 @@ export function renderJavaSpringDataRepository(
   const methodLines = finds.flatMap((f) => {
     if (f.params.length > 0) imports.add("org.springframework.data.repository.query.Param");
     imports.add("org.springframework.data.jpa.repository.Query");
+    // A clause-less find (`find byReference(reference: string)`) still filters
+    // — by its implicit key match.  Without it the @Query selects every row:
+    // a miss answers 200 with some other row, two rows a non-unique 500.
+    const own = effectiveFindFilter(f, agg);
     const where = jpqlWhere(
-      f.filter
-        ? renderJpqlWhere(f.filter, { alias: "e", enumsPkg, mode: "jpql-spring-data" })
-        : null,
+      own ? renderJpqlWhere(own, { alias: "e", enumsPkg, mode: "jpql-spring-data" }) : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map((p) => {
