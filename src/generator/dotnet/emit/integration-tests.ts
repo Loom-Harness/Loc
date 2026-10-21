@@ -31,7 +31,7 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -233,7 +233,7 @@ export function renderContextIntegrationTest(
   // using-clean header.
   const spells = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyOnly);
   const usesValueObjects = valueObjectPool(ctx).some((v) => spells(v.name));
-  const usesEnums = ctx.enums.some((e) => spells(e.name));
+  const usesEnums = enumPool(ctx).some((e) => spells(e.name));
 
   const className = `${upperFirst(ctx.name)}IntegrationTests`;
   const lines: string[] = [];
