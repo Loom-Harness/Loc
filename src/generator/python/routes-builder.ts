@@ -35,6 +35,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
   relativeOpPath,
+  servedOperations,
 } from "../../ir/util/api-surface.js";
 import { maskedHistoryFields } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
@@ -141,11 +142,13 @@ export function buildPyRoutesFile(
   // This file keeps what is genuinely python's: pydantic models, handler
   // bodies, the union-absent runtime translation, and the entity-history
   // route (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not routed here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const createOp = derivedOps.find((o) => o.kind === "create");
   const allOp = derivedOps.find((o) => isAllFind(o));
   const declaredFindOps = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
-  const getByIdOp = derivedOps.find((o) => o.kind === "getById")!;
+  const getByIdOp = derivedOps.find((o) => o.kind === "getById");
   const destroyOp = derivedOps.find((o) => o.kind === "destroy");
   const opEntries = derivedOps.filter((o) => o.kind === "operation");
   const probeEntries = derivedOps.filter((o) => o.kind === "gateProbe");
@@ -231,15 +234,11 @@ export function buildPyRoutesFile(
       ? `    return ${agg.name}Repository(session, make_dispatcher(session))`
       : `    return ${agg.name}Repository(session, NoopDomainEventDispatcher())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
-    "",
-    "",
-    allRoute(agg, repo, allOp!),
+    allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
     // Finds register before /{id}: Starlette matches in declaration
     // order, so the static find paths must win over the id pattern.
     ...declaredFindOps.flatMap((e) => ["", "", findRoute(agg, e.find!, ctx, e)]),
-    "",
-    "",
-    byIdRoute(agg, getByIdOp),
+    getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
     // so the read surface cannot disagree with the gate / `ignoring` stance

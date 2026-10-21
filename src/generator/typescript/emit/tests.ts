@@ -87,6 +87,38 @@ export function renderServiceTestsFile(svc: DomainServiceIR, ctx: BoundedContext
   });
 }
 
+/** The non-aggregate domain imports a rendered test body needs, derived from
+ *  the names that body actually spells: the value objects and enums it
+ *  constructs or names (both live in `value-objects`), the `Ids` brand
+ *  namespace, and `decimal.js` for a money literal (rendered `new Decimal("…")`).
+ *  Shared by the aggregate-level unit tests and the context-level integration
+ *  tests so the two cannot drift — a body is a body, wherever it is declared.
+ *  `domainDir` is the relative path from the test file to `domain/`.  Narrowed
+ *  to referenced names per the generated-code Biome gate (no unused imports). */
+export function testBodyValueImports(
+  bodyStr: string,
+  ctx: BoundedContextIR,
+  domainDir: string,
+): { decimal: string[]; domain: string[] } {
+  const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(refs);
+  const domain: string[] = [];
+  if (voNames.length > 0) {
+    domain.push(`import { ${voNames.join(", ")} } from "${domainDir}/value-objects";`);
+  }
+  if (enumNames.length > 0) {
+    domain.push(`import { ${enumNames.join(", ")} } from "${domainDir}/value-objects";`);
+  }
+  if (/\bIds\.\w/.test(bodyStr)) domain.push(`import * as Ids from "${domainDir}/ids";`);
+  const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
+  return { decimal, domain };
+}
+
 /** Shared unit-test-file renderer for any test subject.  `subjectImport` names
  *  the module + symbols that carry the subject's own code (an aggregate's
  *  per-agg module, a service's `./services`); it's `null` for a value object,
@@ -124,36 +156,18 @@ function renderTestsCore(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  const voNames = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter(refs);
-  const enumNames = enumPool(ctx)
-    .map((e) => e.name)
-    .filter(refs);
-  const usesIds = /\bIds\.\w/.test(bodyStr);
-  // A money literal / money expression in a test body renders as
-  // `new Decimal("…")` / `.eq(...)` receivers (M-T6.44's fixture was the first
-  // test block to reference the money PRIMITIVE directly — every earlier
-  // fixture asserted a VO's scalar `amount`, so the import was never needed).
-  const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
-
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect } from "vitest";`);
-  if (usesDecimal) lines.push(`import Decimal from "decimal.js";`);
+  const value = testBodyValueImports(bodyStr, ctx, ".");
+  lines.push(...value.decimal);
   if (subjectImport && subjectNames.length > 0) {
     lines.push(`import { ${subjectNames.join(", ")} } from "${subjectImport.modulePath}";`);
   }
   for (const name of siblingAggs) {
     lines.push(`import { ${name} } from "./${lowerFirst(name)}";`);
   }
-  if (voNames.length > 0) {
-    lines.push(`import { ${voNames.join(", ")} } from "./value-objects";`);
-  }
-  if (enumNames.length > 0) {
-    lines.push(`import { ${enumNames.join(", ")} } from "./value-objects";`);
-  }
-  if (usesIds) lines.push(`import * as Ids from "./ids";`);
+  lines.push(...value.domain);
   const rejection = /\bexpectDomainRejection\(/.test(bodyStr);
   if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
   lines.push("");
