@@ -27,7 +27,7 @@ system Helpdesk {
 `;
 
 describe("mantine Badge never ellipsizes a short label", () => {
-  it.each(["mantine", "mantine@v7"])("%s theme pins the Badge root min width", async (design) => {
+  it.each(["mantine", "mantine@v9"])("%s theme pins the Badge root min width", async (design) => {
     const files = await generateSystemFiles(SYSTEM(design));
     const theme = files.get("web/src/theme.ts");
     expect(theme, "no web/src/theme.ts").toBeDefined();
