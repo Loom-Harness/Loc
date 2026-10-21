@@ -5,15 +5,15 @@ name: Channels (broker runtime e2e)
 # gated on its own LOOM_CHANNELS_E2E* env var with a matching `test:channels*`
 # script in package.json — but until this workflow, NOTHING in CI ran any of
 # them, so a broker-driver regression on any of the five backends could ship
-# silently. This wires every one of the 16 scripts across three matrixed jobs
-# (one per broker) plus the all-brokers-at-once auth leg:
+# silently. This wires every one of the scripts as one job PER BACKEND — the
+# backend's toolchain is set up once and its brokers run in sequence — plus
+# the all-brokers-at-once auth leg:
 #
-#   redis      (broadcast/ephemeral) — node/python/dotnet/java/elixir
-#   rabbitmq   (queue/work)          — node/python/dotnet/java/elixir
-#   kafka      (broadcast/log)       — node/python/dotnet/java/elixir
-#   auth       (all three at once)  — node only (M-T4.4 design §7)
+#   node, python, dotnet, java, elixir — redis, rabbitmq, kafka
+#   node-mikroorm                      — redis, rabbitmq
+#   auth (all three at once)           — node only (M-T4.4 design §7)
 #
-# Each cell boots the GENERATED two-deployable system (producer salesApi +
+# Each suite boots the GENERATED two-deployable system (producer salesApi +
 # consumer shipApi, each with its own database) and proves the event crossed
 # processes over the real broker — the runtime agreement the per-PR generator
 # pins (test/generator/**/channels-*.test.ts) and the structural wiring
@@ -43,20 +43,17 @@ name: Channels (broker runtime e2e)
 #     (see channels-e2e-auth.test.ts), so it gets no `services:` block, just
 #     postgres via `services:` for consistency with the other legs.
 #
-# TIER: the merge queue — `merge_group:` runs every cell on the rebased
+# TIER: the merge queue — `merge_group:` runs every suite on the rebased
 # candidate, so a broker regression is caught before it lands, not on a red
 # `main`.  The merge group is this gate's ONLY pre-merge run: on a pull request
 # it still needs the `run-channels` label (an earlier signal, not the gate).
 # Chosen over a per-PR `paths:` promotion by measurement (2026-10-05, Actions
-# API, last 10 `main` runs): 18 cells of 1.3-3.3 runner-minutes each, ~34
-# runner-minutes a firing.  A queue entry already runs ~309 jobs / ~514
-# runner-minutes with a ~22-minute critical path (the corpus compile gates), so
-# this adds ~7 % of an entry's cost and nothing to its wall time; a per-PR
-# block carrying the generation path would instead fire all 18 cells on every
-# `src/ir/**` push.  `push: main` stays as the post-merge regression net.
+# API): 18 suites of 1.3-3.3 runner-minutes each, ~34 runner-minutes a
+# firing, now 7 jobs; a per-PR block carrying the generation path would fire
+# all of them on every `src/ir/**` push.
 on:
   workflow_dispatch:
-  # The merge queue runs every cell against the rebased candidate; `merge_group`
+  # The merge queue runs every suite against the rebased candidate; `merge_group`
   # is not `pull_request`, so the label guard on each job short-circuits true.
   merge_group:
   # On-demand per-PR run: apply the `run-channels` label to a PR to run this
@@ -73,42 +70,46 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------
-  # redis — broadcast/ephemeral, the Hono reference (M-T4.4 slice 2) plus
-  # the four cross-backend legs. Postgres + valkey both run as plain
-  # `services:` containers; the suites' own docker-sidecar path is skipped
-  # entirely via the PG/REDIS URL overrides.
+  # Every broker, one job per backend.  The backend's toolchain is set up
+  # once and its suites run one after another: redis (broadcast/ephemeral,
+  # valkey as a `services:` container via LOOM_CHANNELS_REDIS_URL), rabbitmq
+  # (queue/work — exactly-one-of-N competing consumers + DLQ parking) and
+  # kafka (broadcast/log), the last two self-provisioning their broker with
+  # `docker run` exactly as they do locally (rabbitmq needs its cookie
+  # preseed, kafka its multi-listener KRaft config).  Each suite boots the
+  # GENERATED producer (salesApi) and consumer (shipApi), each with its own
+  # database, recreated empty before every suite.  A failing suite does not
+  # stop the next: the job runs them all and fails if any failed.
   # ---------------------------------------------------------------------
-  channels-e2e-redis:
+  channels-e2e:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.label.name == 'run-channels'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - backend: node
-            script: test:channels
-          # The SECOND node persistence adapter (M-T6.23 slice 2): the same
-          # choreography with `persistence: mikroorm` forced onto both
-          # deployables, so the broker DRIVER + producer tee + consumer loop are
-          # proven at runtime on that adapter, not just tsc-compiled.  This
-          # channel is broadcast/ephemeral, so nothing here is durable and the
-          # OUTBOX RELAY does not run — that half is the rabbit leg's
-          # `node-mikroorm` cell below (queue/work is the only shipped durable
-          # broker combo).
+            scripts: test:channels test:channels-rabbit test:channels-kafka
+          # The SECOND node persistence adapter: the same choreography with
+          # `persistence: mikroorm` forced onto both deployables, so the broker
+          # DRIVER + producer tee + consumer loop are proven at runtime on that
+          # adapter.  Its rabbit suite is the one that runs the OUTBOX RELAY
+          # (queue/work is the only shipped durable broker combo); it has no
+          # kafka suite.
           - backend: node-mikroorm
-            script: test:channels-mikroorm
+            scripts: test:channels-mikroorm test:channels-rabbit-mikroorm
           - backend: python
-            script: test:channels-python
+            scripts: test:channels-python test:channels-rabbit-python test:channels-kafka-python
           - backend: dotnet
-            script: test:channels-dotnet
+            scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet
           - backend: java
-            script: test:channels-java
+            scripts: test:channels-java test:channels-rabbit-java test:channels-kafka-java
           - backend: elixir
-            script: test:channels-elixir
-    name: channels-e2e-redis (${{ matrix.backend }})
+            scripts: test:channels-elixir test:channels-rabbit-elixir test:channels-kafka-elixir
+    name: channels-e2e (${{ matrix.backend }})
     services:
       postgres:
         image: postgres:18-alpine
@@ -174,237 +175,27 @@ jobs:
       - name: Install Loom toolchain
         run: npm ci
 
-      # Each suite hosts TWO deployables (producer salesApi + consumer
-      # shipApi), each with its own database.
-      - name: Create per-deployable databases
-        run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"
-
-      - name: Run channels redis runtime e2e (${{ matrix.backend }})
+      - name: Run every broker's channels runtime e2e (${{ matrix.backend }})
         env:
           LOOM_CHANNELS_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
           LOOM_CHANNELS_REDIS_URL: redis://127.0.0.1:6379
-        run: npm run ${{ matrix.script }} -- --reporter=verbose
-
-      - name: Surface failure context
-        if: failure()
+          SCRIPTS: ${{ matrix.scripts }}
         run: |
-          echo "## Channels redis runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'Boots the generated producer (salesApi) and consumer (shipApi) against postgres + valkey and asserts an `Order.place()` emit on salesApi publishes a CloudEvents envelope to the broadcast/ephemeral channel; shipApi'"'"'s consumer loop receives it, spawns the correlated workflow instance, and persists the Shipment in a database the producer never touches.' >> $GITHUB_STEP_SUMMARY
-
-  # ---------------------------------------------------------------------
-  # rabbitmq — queue/work, exactly-one-of-N competing consumers + DLQ
-  # parking (M-T4.4 slice 3). Only postgres is a `services:` container;
-  # rabbitmq is self-provisioned by the suite itself (cookie-permission
-  # preseed under sandboxed docker storage drivers — see
-  # channels-e2e-rabbit.test.ts), which also keeps the DLQ assertions live.
-  # ---------------------------------------------------------------------
-  channels-e2e-rabbit:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-channels'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: node
-            script: test:channels-rabbit
-          # The mikroorm adapter on the DURABLE combo (M-T6.23 slice 2): this is
-          # the cell that boots the outbox relay — `queue`/`work` makes the
-          # producer's events durable, so `createOutboxDispatcher` captures and
-          # `startOutboxRelay` drains through the publish tee to the real broker.
-          # It also asserts the drain's bookkeeping (`__loom_outbox` marked once,
-          # no re-publish), which the transport-only redis cell cannot see.
-          - backend: node-mikroorm
-            script: test:channels-rabbit-mikroorm
-          - backend: python
-            script: test:channels-rabbit-python
-          - backend: dotnet
-            script: test:channels-rabbit-dotnet
-          - backend: java
-            script: test:channels-rabbit-java
-          - backend: elixir
-            script: test:channels-rabbit-elixir
-    name: channels-e2e-rabbit (${{ matrix.backend }})
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Set up uv (python)
-        if: matrix.backend == 'python'
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up JDK (java)
-        if: matrix.backend == 'java'
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Set up Gradle (java)
-        if: matrix.backend == 'java'
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.6.1'
-
-      - name: Set up .NET (dotnet)
-        if: matrix.backend == 'dotnet'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Set up Elixir/OTP (elixir)
-        if: matrix.backend == 'elixir'
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: '27.3'
-          elixir-version: '1.18.4'
-
-      - name: Restore the last toolchain build (incremental tsc)
-        uses: ./.github/actions/restore-loom-build
-      - name: Install Loom toolchain
-        run: npm ci
-
-      - name: Create per-deployable databases
-        run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"
-
-      # No LOOM_CHANNELS_AMQP_URL override: the suite self-provisions its own
-      # rabbitmq:4-management-alpine sidecar (needs the cookie-preseed
-      # workaround, not expressible as a plain `services:` container) and
-      # tears it down in its own afterAll. Needs the docker daemon that
-      # ubuntu-latest runners already ship running.
-      - name: Run channels rabbitmq runtime e2e (${{ matrix.backend }})
-        env:
-          LOOM_CHANNELS_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
-        run: npm run ${{ matrix.script }} -- --reporter=verbose
-
-      - name: Surface failure context
-        if: failure()
-        run: |
-          echo "## Channels rabbitmq runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'Boots the generated producer plus THREE REPLICAS of the generated consumer against postgres + rabbitmq and asserts the `queue`/`work` contract: every emit is captured in the outbox, published by the relay, and consumed by EXACTLY ONE replica of the competing-consumer fleet (no loss, no dupes); a poisoned message published straight to the channel exchange parks in the DLQ instead of being lost or wedging the queue.' >> $GITHUB_STEP_SUMMARY
-
-  # ---------------------------------------------------------------------
-  # kafka — broadcast/log, per-partition ordering-per-key + DLQ parking
-  # (M-T4.4 slice 4). Same sidecar split as rabbitmq: postgres via
-  # `services:`, kafka self-provisioned by the suite (multi-listener KRaft
-  # single-node config — see channels-e2e-kafka.test.ts).
-  # ---------------------------------------------------------------------
-  channels-e2e-kafka:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-channels'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: node
-            script: test:channels-kafka
-          - backend: python
-            script: test:channels-kafka-python
-          - backend: dotnet
-            script: test:channels-kafka-dotnet
-          - backend: java
-            script: test:channels-kafka-java
-          - backend: elixir
-            script: test:channels-kafka-elixir
-    name: channels-e2e-kafka (${{ matrix.backend }})
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Set up uv (python)
-        if: matrix.backend == 'python'
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up JDK (java)
-        if: matrix.backend == 'java'
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Set up Gradle (java)
-        if: matrix.backend == 'java'
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.6.1'
-
-      - name: Set up .NET (dotnet)
-        if: matrix.backend == 'dotnet'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Set up Elixir/OTP (elixir)
-        if: matrix.backend == 'elixir'
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: '27.3'
-          elixir-version: '1.18.4'
-
-      - name: Restore the last toolchain build (incremental tsc)
-        uses: ./.github/actions/restore-loom-build
-      - name: Install Loom toolchain
-        run: npm ci
-
-      - name: Create per-deployable databases
-        run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"
-
-      # No LOOM_CHANNELS_KAFKA_URL override: the suite self-provisions its
-      # own single-node KRaft apache/kafka sidecar and tears it down in its
-      # own afterAll.
-      - name: Run channels kafka runtime e2e (${{ matrix.backend }})
-        env:
-          LOOM_CHANNELS_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
-        run: npm run ${{ matrix.script }} -- --reporter=verbose
-
-      - name: Surface failure context
-        if: failure()
-        run: |
-          echo "## Channels kafka runtime e2e failed (${{ matrix.backend }})" >> $GITHUB_STEP_SUMMARY
-          echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'Boots the generated producer plus TWO REPLICAS of the generated consumer against postgres + apache/kafka (KRaft) and asserts exactly-one-of-N delivery within the consumer group, ORDERING-PER-KEY (both of an order'"'"'s events land in the same partition and are consumed by the same replica, in emit order), and DLQ parking of a poisoned record onto `<address>.dlq`.' >> $GITHUB_STEP_SUMMARY
+          failed=""
+          for script in $SCRIPTS; do
+            echo "::group::$script"
+            PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres \
+              -c "DROP DATABASE IF EXISTS sales_api WITH (FORCE);" \
+              -c "DROP DATABASE IF EXISTS ship_api WITH (FORCE);" \
+              -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"
+            npm run "$script" -- --reporter=verbose || failed="$failed $script"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed:$failed"
+            echo "## Channels runtime e2e failed (${{ matrix.backend }}):$failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------
   # auth — all three brokers wired at once, credentialed (M-T4.4 slice 5a).
@@ -477,7 +268,7 @@ jobs:
     # rollup with it instead of posting a spurious FAILURE on the stale SHA; a
     # lone cancelled need on a live run (a job timeout) still fails below.
     if: ${{ !cancelled() }}
-    needs: [channels-e2e-redis, channels-e2e-rabbit, channels-e2e-kafka, channels-e2e-auth]
+    needs: [channels-e2e, channels-e2e-auth]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed
