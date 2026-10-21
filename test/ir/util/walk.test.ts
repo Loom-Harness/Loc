@@ -15,6 +15,8 @@
 import { describe, expect, it } from "vitest";
 import type { ExprIR, StmtIR, TypeIR, WorkflowStmtIR } from "../../../src/ir/types/loom-ir.js";
 import {
+  mapExprChildren,
+  mapStmtChildExprs,
   walkExprChildren,
   walkStmtChildren,
   walkWorkflowStmtChildren,
@@ -532,6 +534,68 @@ describe("walkWorkflowStmtChildren — every WorkflowStmtIR kind's children are 
       });
       sameRefs(gotExpr, exprChildren);
       sameRefs(gotWf, wfChildren);
+    });
+  }
+});
+
+/** Every expression a statement holds, nested `if` / `variant-match` bodies
+ *  included — the set `mapStmtChildExprs` must hand to `f`. */
+function stmtExprsDeep(s: StmtIR): ExprIR[] {
+  const out: ExprIR[] = [];
+  walkStmtChildren(
+    s,
+    (c) => out.push(c),
+    (n) => out.push(...stmtExprsDeep(n)),
+  );
+  return out;
+}
+
+/** A replacement function that records each child it is handed and returns a
+ *  fresh sentinel in its place. */
+function recordingMap(): { f: (c: ExprIR) => ExprIR; seen: ExprIR[]; made: ExprIR[] } {
+  const seen: ExprIR[] = [];
+  const made: ExprIR[] = [];
+  return {
+    seen,
+    made,
+    f: (c) => {
+      seen.push(c);
+      const r = sent();
+      made.push(r);
+      return r;
+    },
+  };
+}
+
+describe("mapExprChildren — every ExprIR kind's children are rebuilt through f", () => {
+  for (const [kind, make] of Object.entries(exprCases())) {
+    it(`maps the children of \`${kind}\``, () => {
+      const { node, exprChildren, stmtChildren } = make();
+      const { f, seen, made } = recordingMap();
+      const mapped = mapExprChildren(node, f);
+      expect(mapped.kind).toBe(node.kind);
+      // `f` saw every child slot, including a lambda block's statements…
+      sameRefs(seen, [...exprChildren, ...stmtChildren.flatMap(stmtExprsDeep)]);
+      // …and the rebuilt node carries exactly what `f` returned.
+      const got: ExprIR[] = [];
+      walkExprChildren(mapped, {
+        expr: (c) => got.push(c),
+        stmt: (s) => got.push(...stmtExprsDeep(s)),
+      });
+      sameRefs(got, made);
+    });
+  }
+});
+
+describe("mapStmtChildExprs — every StmtIR kind's expressions are rebuilt through f", () => {
+  for (const [kind, make] of Object.entries(stmtCases())) {
+    it(`maps the expressions of \`${kind}\``, () => {
+      const { node, exprChildren, stmtChildren } = make();
+      const { f, seen, made } = recordingMap();
+      const mapped = mapStmtChildExprs(node, f);
+      expect(mapped.kind).toBe(node.kind);
+      sameRefs(seen, [...exprChildren, ...(stmtChildren ?? []).flatMap(stmtExprsDeep)]);
+      sameRefs(stmtExprsDeep(mapped), made);
     });
   }
 });

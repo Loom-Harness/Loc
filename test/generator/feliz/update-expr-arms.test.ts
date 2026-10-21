@@ -150,23 +150,20 @@ describe("feliz update path — `new` (part construction)", () => {
   });
 });
 
-describe("feliz update path — the remaining `default` throw", () => {
-  it("still fails fast, and its message no longer claims total coverage", () => {
-    // `this` is a domain-body receiver: a page has no aggregate instance, so the
-    // frontend pipeline cannot produce it.  Fail fast rather than emit `()`.
+describe("feliz update path — the kinds a page body cannot carry", () => {
+  it("`this` fails fast and names the gate that refuses it", () => {
+    // A page has no aggregate instance; `loom.ui-this-unbound` refuses `this`
+    // at phase ⑦, so reaching the renderer means the validator was bypassed.
     expect(() =>
       renderFsExpr({ kind: "this" }, { stateNames: new Set(), locals: new Set() }),
-    ).toThrow(/unsupported expression 'this'/);
-    // The old wording asserted every remaining kind was "unreachable on valid
-    // frontend `.ddd`" — which is exactly what made `id` / `duration` crash
-    // users instead of prompting an arm.
-    let message = "";
-    try {
-      renderFsExpr({ kind: "this" }, { stateNames: new Set(), locals: new Set() });
-    } catch (e) {
-      message = (e as Error).message;
-    }
-    expect(message).not.toContain("Unreachable");
-    expect(message).toContain("implement the 'this' arm");
+    ).toThrow(/loom\.ui-this-unbound/);
+  });
+
+  it("an action named as a value renders its Msg case", () => {
+    const ctx = { stateNames: new Set<string>(), locals: new Set<string>() };
+    expect(renderFsExpr({ kind: "action-ref", actionName: "save" }, ctx)).toBe("Save");
+    expect(renderFsExpr({ kind: "action-ref", actionName: "clear", storeName: "Cart" }, ctx)).toBe(
+      "CartClear",
+    );
   });
 });
