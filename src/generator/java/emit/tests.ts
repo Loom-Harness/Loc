@@ -24,7 +24,7 @@ import {
 import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { renderJavaExpr } from "../render-expr.js";
+import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,8 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): str
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, state, i));
+  const rctx = testBodyRenderContext(t, (name) => escapeJavaIdent(name));
+  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, state, i, rctx));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -187,6 +188,22 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): str
     `    }`,
     ``,
   ];
+}
+
+const TEST_CTX: JavaRenderContext = { thisName: "this" };
+
+/** The render context of one test method body: its `let` locals (in the
+ *  spelling `localOf` declares them) seed the lambda scope.  A Java lambda
+ *  parameter may not redeclare an enclosing local ("variable x is already
+ *  defined") while a Loom lambda binder legally shadows one, so a binder that
+ *  lands on a test local renders under `<name>_` — the same seam the domain
+ *  and workflow emitters use.  No collision, no rename. */
+export function testBodyRenderContext(
+  t: TestIR,
+  localOf: (name: string) => string,
+): JavaRenderContext {
+  const lets = t.statements.flatMap((s) => (s.kind === "let" ? [localOf(s.name)] : []));
+  return withLambdaScope(TEST_CTX, lets);
 }
 
 /** Coerce a raw test literal (rendered) to a strongly-typed Java factory /
@@ -218,7 +235,11 @@ function coerceLiteralToJavaType(type: TypeIR | undefined, v: ExprIR, rendered: 
  *  Id record, not the raw guid string).  Returns null when `e` isn't a
  *  resolvable aggregate operation call (intrinsic matcher, unknown receiver,
  *  unknown member) so the caller falls back to the plain renderer. */
-export function renderOperationCall(e: ExprIR, ctx: BoundedContextIR): string | null {
+export function renderOperationCall(
+  e: ExprIR,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext = TEST_CTX,
+): string | null {
   if (e.kind !== "method-call" || e.isIntrinsicMatcher) return null;
   const rt = e.receiverType as { name?: string } | undefined;
   const aggName = rt?.name;
@@ -229,9 +250,9 @@ export function renderOperationCall(e: ExprIR, ctx: BoundedContextIR): string | 
     (o) => o.name === e.member,
   );
   if (!op || op.params.length === 0) return null;
-  const recv = renderJavaExpr(e.receiver);
+  const recv = renderJavaExpr(e.receiver, rctx);
   const args = e.args.map((a, i) => {
-    const rendered = renderJavaExpr(a);
+    const rendered = renderJavaExpr(a, rctx);
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, rendered) : rendered;
   });
@@ -241,7 +262,11 @@ export function renderOperationCall(e: ExprIR, ctx: BoundedContextIR): string | 
 /** `Agg.create({...})` → the positional `Agg.create(...)` factory call,
  *  omitted create-inputs filled with their omission value (the factory
  *  takes every canonical create-input positionally). */
-export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {
+export function renderCreateCall(
+  e: ExprIR,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext = TEST_CTX,
+): string | null {
   if (e.kind !== "method-call" || e.member !== "create" || e.args.length !== 1) return null;
   const objArg = e.args[0];
   const receiver = e.receiver;
@@ -254,7 +279,7 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
     if (v) {
       // A provided string literal renders as a raw value; coerce it to the
       // factory param's strong Java type (id record / Instant / …).
-      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v));
+      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v, rctx));
     }
     // Java has no optional or named parameters, so an omitted create input is
     // spelled `null` — the same signal the create DTO sends, and what the
@@ -271,7 +296,7 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
     // default (see `javaFactoryDefault`), so it still renders its expression.
     const omission = createOmissionValue(f);
     if (omission.kind === "default" && isServerSourcedDefault(omission.expr)) {
-      return renderJavaExpr(omission.expr);
+      return renderJavaExpr(omission.expr, rctx);
     }
     return "null";
   });
@@ -281,7 +306,10 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
 /** Explicit intrinsic matcher → a JUnit assertion.  Comparisons over
  *  BigDecimal receivers route through compareTo (BigDecimal's equals is
  *  scale-sensitive and `<`/`>` don't exist). */
-export function renderExplicitMatcher(expr: ExprIR): string | null {
+export function renderExplicitMatcher(
+  expr: ExprIR,
+  rctx: JavaRenderContext = TEST_CTX,
+): string | null {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
   const sig = intrinsicMatcherSig(expr.member);
   if (sig?.on !== "value") return null;
@@ -292,9 +320,9 @@ export function renderExplicitMatcher(expr: ExprIR): string | null {
     receiver = receiver.receiver;
   }
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const actual = renderJavaExpr(inner);
+  const actual = renderJavaExpr(inner, rctx);
   const arg = expr.args[0];
-  const rawExpected = arg !== undefined ? renderJavaExpr(arg) : "";
+  const rawExpected = arg !== undefined ? renderJavaExpr(arg, rctx) : "";
   // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
   // compares as an `Instant`, which never `equals` a `String`.
   const expected = coerceMatcherExpected(expr, rawExpected, javaTestLiteral()) ?? rawExpected;
@@ -389,18 +417,19 @@ function renderTestStmt(
   /** Position in the enclosing test body — only used to mint a collision-free
    *  local for a `toThrow(<kind>)` assertion's bound exception. */
   index = 0,
+  rctx: JavaRenderContext = TEST_CTX,
 ): string[] {
   // Only expect / expect-throws / let / expression / call survive the IR
   // validator (validateAggregateTestBodies).
   if (s.kind === "expect") {
-    const explicit = renderExplicitMatcher(s.expr);
+    const explicit = renderExplicitMatcher(s.expr, rctx);
     if (explicit) return [`        ${explicit}`];
-    return [`        assertTrue(${renderJavaExpr(s.expr)});`];
+    return [`        assertTrue(${renderJavaExpr(s.expr, rctx)});`];
   }
   if (s.kind === "expect-throws") {
     const expr =
-      renderCreateCall(s.expr, ctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
+      renderCreateCall(s.expr, ctx, rctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
     // `toThrow(<kind>)` — bind the thrown `DomainException` and assert the
     // rung's derived message prefix on it.  `assertThrows` already RETURNS the
     // exception, so the rung costs one local and one assertion; the local is
@@ -425,18 +454,18 @@ function renderTestStmt(
   }
   if (s.kind === "let") {
     const expr =
-      renderCreateCall(s.expr, ctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
+      renderCreateCall(s.expr, ctx, rctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
   if (s.kind === "call") {
-    const args = s.args.map((a) => render(a)).join(", ");
+    const args = s.args.map((a) => render(a, rctx)).join(", ");
     return [`        ${s.name}(${args});`];
   }
   if (s.kind === "expression") {
     const expr =
-      renderCreateCall(s.expr, ctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx) ?? render(s.expr), state);
+      renderCreateCall(s.expr, ctx, rctx) ??
+      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
     return [`        ${expr};`];
   }
   throw new Error(
@@ -444,8 +473,8 @@ function renderTestStmt(
   );
 }
 
-function render(e: ExprIR): string {
-  return renderJavaExpr(e);
+function render(e: ExprIR, rctx: JavaRenderContext): string {
+  return renderJavaExpr(e, rctx);
 }
 
 void upperFirst;

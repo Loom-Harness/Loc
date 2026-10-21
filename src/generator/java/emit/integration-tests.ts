@@ -29,12 +29,13 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
-import { renderJavaExpr } from "../render-expr.js";
+import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
   javaBareToThrow,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
+  testBodyRenderContext,
 } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -64,14 +65,18 @@ const repoField = (aggName: string): string => `${lowerFirst(aggName)}Repository
  *  `findById` (and an optional/union custom find) returns `Optional<Agg>` → we
  *  `.orElseThrow()` so the binding is a plain `Agg` (mirrors node's non-null
  *  assertion). `getById` already returns `Agg` (throws); `findAll` a `List`. */
-function findCallOf(e: ExprIR, ctx: BoundedContextIR): string | undefined {
+function findCallOf(e: ExprIR, ctx: BoundedContextIR, rctx: JavaRenderContext): string | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
   if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
   const field = repoField(aggName);
-  const args = e.args.map((a) => renderJavaExpr(a)).join(", ");
+  const args = e.args
+    .map((a) => {
+      return renderJavaExpr(a, rctx);
+    })
+    .join(", ");
   if (e.member === "findById") return `${field}.findById(${args}).orElseThrow()`;
   if (e.member === "getById") return `${field}.getById(${args})`;
   if (e.member === "findAll") return `${field}.findAll()`;
@@ -83,6 +88,7 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR): string | undefined {
 function renderStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
+  rctx: JavaRenderContext,
   /** Position in the test body: mints a collision-free local per throw assertion. */
   index = 0,
 ): string[] {
@@ -91,12 +97,12 @@ function renderStmt(
     case "let": {
       const agg = createAggOf(s.expr, ctx);
       if (agg && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
-        const create = renderCreateCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
+        const create = renderCreateCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
         return [`${I}var ${s.name} = ${create};`, `${I}${repoField(agg.name)}.save(${s.name});`];
       }
-      const find = findCallOf(s.expr, ctx);
+      const find = findCallOf(s.expr, ctx, rctx);
       if (find) return [`${I}var ${s.name} = ${find};`];
-      return [`${I}var ${s.name} = ${renderJavaExpr(s.expr)};`];
+      return [`${I}var ${s.name} = ${renderJavaExpr(s.expr, rctx)};`];
     }
     case "expression": {
       // A mutating operation on a let-bound aggregate instance → mutate in place,
@@ -107,20 +113,22 @@ function renderStmt(
         !s.expr.isCollectionOp
       ) {
         const aggName = s.expr.receiverType.name;
-        const recv = renderJavaExpr(s.expr.receiver);
-        const call = renderOperationCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
+        const recv = renderJavaExpr(s.expr.receiver, rctx);
+        const call = renderOperationCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
-      return [`${I}${renderJavaExpr(s.expr)};`];
+      return [`${I}${renderJavaExpr(s.expr, rctx)};`];
     }
     case "expect": {
-      const explicit = renderExplicitMatcher(s.expr);
+      const explicit = renderExplicitMatcher(s.expr, rctx);
       if (explicit) return [`${I}${explicit}`];
-      return [`${I}assertTrue(${renderJavaExpr(s.expr)});`];
+      return [`${I}assertTrue(${renderJavaExpr(s.expr, rctx)});`];
     }
     case "expect-throws": {
       const inner =
-        renderCreateCall(s.expr, ctx) ?? renderOperationCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
+        renderCreateCall(s.expr, ctx, rctx) ??
+        renderOperationCall(s.expr, ctx, rctx) ??
+        renderJavaExpr(s.expr, rctx);
       return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
     }
     default:
@@ -134,7 +142,9 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, i));
+  // Locals are declared under their source name here (`var ${s.name}`).
+  const rctx = testBodyRenderContext(t, (name) => name);
+  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,

@@ -34,6 +34,7 @@ export const PY = {
   StrEnum: pyRef("enum", "StrEnum"),
   // first-party, fixed
   FileRef: pyRef("app.domain.file_ref", "FileRef"),
+  system_principal: pyRef("app.auth.user", "system_principal"),
   DomainError: pyRef("app.domain.errors", "DomainError"),
   ForbiddenError: pyRef("app.domain.errors", "ForbiddenError"),
   DisallowedError: pyRef("app.domain.errors", "DisallowedError"),
