@@ -47,6 +47,7 @@ import {
   aggregateOpResolver,
   classifyDomainServiceTier,
 } from "../../ir/util/domain-service-tier.js";
+import { mapExprChildren } from "../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
@@ -256,45 +257,13 @@ export function inlineMutatingServiceCall(
 }
 
 /** Substitute bare `param`-kind refs in `e` with the mapped ExprIR (the
- *  workflow call arg).  Structural — recurses through the expr forms a
- *  param-op argument can take.  A ref with no substitution is left as-is. */
+ *  workflow call arg), at any depth — a param read inside a conversion, a
+ *  `match` arm or a list literal is substituted too, or the inlined clause
+ *  names a service param the workflow never bound.  A ref with no
+ *  substitution is left as-is. */
 function substituteRefs(e: ExprIR, subst: ReadonlyMap<string, ExprIR>): ExprIR {
-  switch (e.kind) {
-    case "ref":
-      return e.refKind === "param" && subst.has(e.name) ? subst.get(e.name)! : e;
-    case "member":
-      return { ...e, receiver: substituteRefs(e.receiver, subst) };
-    case "method-call":
-      return {
-        ...e,
-        receiver: substituteRefs(e.receiver, subst),
-        args: e.args.map((a) => substituteRefs(a, subst)),
-      };
-    case "binary":
-      return { ...e, left: substituteRefs(e.left, subst), right: substituteRefs(e.right, subst) };
-    case "unary":
-      return { ...e, operand: substituteRefs(e.operand, subst) };
-    case "paren":
-      return { ...e, inner: substituteRefs(e.inner, subst) };
-    case "ternary":
-      return {
-        ...e,
-        cond: substituteRefs(e.cond, subst),
-        // biome-ignore lint/suspicious/noThenProperty: `then` is the IR ternary's branch field, not a thenable.
-        then: substituteRefs(e.then, subst),
-        otherwise: substituteRefs(e.otherwise, subst),
-      };
-    case "call":
-      return { ...e, args: e.args.map((a) => substituteRefs(a, subst)) };
-    case "new":
-    case "object":
-      return {
-        ...e,
-        fields: e.fields.map((f) => ({ ...f, value: substituteRefs(f.value, subst) })),
-      };
-    default:
-      return e;
-  }
+  if (e.kind === "ref") return e.refKind === "param" && subst.has(e.name) ? subst.get(e.name)! : e;
+  return mapExprChildren(e, (c) => substituteRefs(c, subst));
 }
 
 /** Emit `lib/<app>/domain/services/<name>.ex` for each `domainService` in the
