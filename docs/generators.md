@@ -1319,6 +1319,59 @@ namespaces) never collided.  Pinned by the `python-reserved-words` corpus row
 (every compile tier + the wire-golden differential) and
 `test/generator/target-reserved-member-names.test.ts`.
 
+### The per-target reserved-identifier table (every backend)
+
+The Java and Python sections above are two instances of one contract.  Every
+target's reserved words now live in ONE table,
+`src/util/target-identifiers.ts` — `ts`, `csharp`, `java`, `python`,
+`elixir`, `fsharp`, `dart` — with ONE escaping path,
+`escapeTargetIdent(target, name)` (C# `@base`, F# ``` ``member`` ```, a
+trailing `_` everywhere else) and a pure `isReserved(target, name)`.  The
+per-language helpers (`escapeCsharpIdent` / `escapeTsIdent` / `escapeJavaIdent` /
+`escapePythonIdent` / `escapeElixirIdent` in `naming.ts`, java's `jid` and
+package segments, F#'s `fsIdent`, Dart's `dartMember`) are views of it, so no
+backend carries a keyword list of its own.  One table closes the drift the
+per-backend copies had: Java's two copies disagreed on `record` / `yield` / `sealed` / `permits`; TS lacked the
+strict-mode `arguments` / `eval`; C# lacked `await` (illegal inside the `async`
+handlers every command runs in); python lacked the method receivers `self` /
+`cls` and the builtin / `BaseModel` names a generated class body shadows
+(`str`, `dict`, …).
+
+A second table, `escapeTargetMember`, holds names a target reserves as a class
+MEMBER although they are legal bindings — TS `constructor` and `then` (an
+operation named `then` makes every aggregate a thenable, so `await
+repo.getById(…)` breaks), and Dart's inherited `Object` members (`hashCode`,
+`toString`, `noSuchMethod`, `runtimeType`).
+
+Scope collisions are a separate concern and stay with each backend's namer:
+a `.ddd` name landing on a local the generated method declares for itself
+(`javaLocals`, `csLocalNamer`, `csParamIdent`, `dartComponentMember`) is not
+a keyword, and those namers build on the table rather than replace it.
+
+**The gate** is `test/fixtures/corpus/target-reserved-words.ddd` (row `ALL`):
+every table word the `.ddd` grammar admits, as a field, an enum value, an
+operation, and that operation's parameter — ~180 names at once — on every
+backend's compile leg (tsc, `dotnet build /warnaserror` incl. Dapper, gradle,
+uv + ruff + mypy + pytest, `mix compile --warnings-as-errors`).
+`test/util/target-identifiers.test.ts` keeps the table and the fixture from
+drifting (a table word the grammar admits but the fixture omits fails), and
+checks the tables with an authoritative source against it (python's `keyword`
+module, the TypeScript scanner's reserved-word range).
+
+| backend | positions newly escaped by this gate |
+|---|---|
+| node | every parameter declaration + `param` reference (`break_: number`); operation / helper method names `then` / `constructor` |
+| .NET | enum members (`@break`, `@base` — the runtime name and the wire value stay `break`); domain-service, workflow-function and extern-hook parameters (`@event`, `@base`); `CA1720` stays in the csproj `NoWarn` (member names are domain vocabulary) |
+| python | receivers + builtin names via the existing funnel; the repository's SQLAlchemy / `app.db.wire` imports are detected by CALL, not by word (an escaped field `and_` is not `sqlalchemy.and_`) |
+| elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
+| java | already clean through `jid` (M-T6.36) |
+
+**Not covered yet** — tracked by M-T6.97: a FIELD named `constructor` on node
+(its getter cannot carry that name), TYPE names that shadow a target's
+globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
+node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
+frontends (the fixture declares no `ui`).
+
 ---
 
 ## System orchestration

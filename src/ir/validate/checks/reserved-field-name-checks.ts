@@ -14,18 +14,18 @@
 //   - `loom.elixir-part-timestamp-field` (elixir only).  A RELATIONAL entity
 //     part's Ecto schema carries the bundled `timestamps()` macro (its child
 //     table is created with them), so a declared part field whose column is
-//     `inserted_at` / `updated_at` defines the field twice and the generated
-//     project fails `mix compile`.  On an aggregate ROOT the emitter instead
-//     drops `timestamps()` and lets the declared field own the column
+//     `inserted_at` / `updated_at` — `updatedAt` included — defines the field
+//     twice and the generated project fails `mix compile`.  On an aggregate
+//     ROOT the emitter instead drops `timestamps()` and lets the declared field own the column
 //     (`ownsEctoTimestampColumn`, `vanilla/schema-emit.ts`); the part path
 //     cannot do that cleanly, because the shared relational-containment helper
 //     (`__put_assoc_parts`) strips `:inserted_at`/`:updated_at` off every part
 //     before `put_assoc` — a declared column of that name would silently lose
 //     its value on every containment write.  Scoped to contexts a
 //     `platform: elixir` deployable hosts; node / python / java / dotnet have
-//     no implicit timestamp columns and are untouched.  (The camelCase
-//     `createdAt` / `updatedAt` audit names are not this shape — the emitter
-//     skips them as explicit audit fields.)
+//     no implicit timestamp columns and are untouched.  A part's `createdAt`
+//     (column `created_at`) is not this shape: it is an ordinary declared
+//     column on every part schema.
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -98,7 +98,6 @@ export function validateReservedFieldNames(sys: SystemIR, diags: LoomDiagnostic[
         if (shape !== "relational") continue;
         for (const p of a.parts) {
           for (const f of p.fields) {
-            if (f.name === "createdAt" || f.name === "updatedAt") continue;
             const column = snake(f.name);
             if (column !== "inserted_at" && column !== "updated_at") continue;
             diags.push({
