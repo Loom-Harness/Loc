@@ -91,7 +91,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -107,8 +107,8 @@ import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
-  denialTerm,
   respondErrorTail,
+  workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 
@@ -379,7 +379,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -393,7 +393,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -700,7 +700,7 @@ function lowerStatement(
               case "precondition":
               case "requires":
                 clauses.push(
-                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
                 );
                 break;
               case "op-call":
@@ -1032,12 +1032,12 @@ function renderLoopBody(
       }
       case "precondition":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "requires":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "expr-let": {
@@ -1523,7 +1523,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
+      const params = fn.params.map((p) => elixirLocal(p.name)).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
