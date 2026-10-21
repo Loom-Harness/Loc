@@ -24,7 +24,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 export const PLAN_DIR = path.join(ROOT, "docs/new-plan");
 
-
 /** The status legend from README.md §"Status legend". `blocked(X)` is
  *  normalised to `blocked`; anything outside this set is reported verbatim
  *  under `nonLegend`, because an unrecognised status is a real finding (two of
