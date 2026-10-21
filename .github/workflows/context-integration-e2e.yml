@@ -22,9 +22,14 @@ name: Context integration (runtime e2e)
 # nightly; the native toolchains keep it lighter than the compose-boot gates.
 
 on:
-  push:
-    branches: [main]
-    paths: &paths
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '46 2 * * *'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
       - 'src/generator/typescript/emit/integration-tests.ts'
       - 'src/generator/python/emit/integration-tests.ts'
       - 'src/generator/dotnet/emit/integration-tests.ts'
@@ -37,9 +42,6 @@ on:
       - 'scripts/context-integration-e2e.sh'
       - 'package.json'
       - '.github/workflows/context-integration-e2e.yml'
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -114,6 +116,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
