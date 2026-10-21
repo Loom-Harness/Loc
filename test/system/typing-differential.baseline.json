@@ -18,7 +18,7 @@
   },
   "unknownCauses": {
     "not-a-value": 60059,
-    "no-rule": 2477,
+    "no-rule": 2559,
     "unresolved-member": 751,
     "unresolved-name": 493,
     "contextual-lambda": 139,
