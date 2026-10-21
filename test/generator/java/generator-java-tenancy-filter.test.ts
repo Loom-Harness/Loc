@@ -57,6 +57,8 @@ describe("java generator — principal (tenancy) capability filter", () => {
     expect(accessor).toContain("@Component");
     expect(accessor).toContain("public User user()");
     const user = files.get(`${ROOT}/auth/User.java`)!;
-    expect(user).toContain("record User(UUID id, String tenantId)");
+    expect(user).toContain(
+      "record User(UUID id, String tenantId, boolean isSystem, String causedBy)",
+    );
   });
 });

@@ -49,7 +49,13 @@ import {
 import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { isRefCollField, manyToManyLine, refCollFields } from "./ref-collection-emit.js";
+import {
+  foreignRefCollFields,
+  isRefCollField,
+  refCollFields,
+  refCollRelationLine,
+  renderRefRowSchema,
+} from "./ref-collection-emit.js";
 import { valueCollectionModule, valueCollectionsWithVo } from "./value-collection-schema-emit.js";
 import { valueObjectColumnType } from "./value-object-type-emit.js";
 
@@ -102,7 +108,8 @@ export function emitVanillaSchemas(
     const schemaPrefix = sys
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
       : undefined;
-    const schemaModule = isVanillaDocAgg(agg, ctx, sys)
+    const isDoc = isVanillaDocAgg(agg, ctx, sys);
+    const schemaModule = isDoc
       ? renderDocSchema(
           appModule,
           ctxModule,
@@ -111,6 +118,18 @@ export function emitVanillaSchemas(
           needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [],
         )
       : renderSchema(appModule, ctxModule, agg, enumsByName, schemaPrefix, ctx, sys, pool);
+    // A reference collection over a FOREIGN target (no schema in this context)
+    // is a `has_many` onto its join-row schema — emit that module beside the
+    // owner, in the owner's Postgres schema (where the migration creates the
+    // join table).
+    if (!isDoc) {
+      for (const rc of foreignRefCollFields(agg, pool)) {
+        out.set(
+          `lib/${appSnake}/${ctxSnake}/${rc.assoc.joinTable}.ex`,
+          renderRefRowSchema(appModule, ctxModule, rc, schemaPrefix),
+        );
+      }
+    }
     // Append the Inspect-protocol redaction impl (sensitive-field leak guard)
     // after the schema module — emitted only for an aggregate carrying a
     // sensitive leaf; `null` otherwise, so unaffected aggregates stay
@@ -188,8 +207,12 @@ function renderPartSchema(
   voColumns?: VoColumns,
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(part.name)}`;
+  // A part's `createdAt` / `updatedAt` are ordinary declared columns: nothing
+  // stamps a part (the audit lifecycle stamps the root only), the shared
+  // migration emits them as plain columns, and the wire list below names them —
+  // so they are schema fields the changeset casts, unlike the root's.
   const fieldLines = part.fields
-    .map((f) => renderFieldLine(f, enumsByName, voColumns))
+    .map((f) => renderFieldLine(f, enumsByName, PART_SYSTEM_FIELDS, voColumns))
     .filter(Boolean)
     .join("\n");
   // Part-in-part containment.  On a relational owner it is a `has_many`/`has_one`
@@ -222,7 +245,7 @@ function renderPartSchema(
   // `cast_assoc` on a relational owner (its own child rows) or `cast_embed` on an
   // embedded owner (inline jsonb).
   const castCols = part.fields
-    .filter((f) => !SYSTEM_FIELDS.has(f.name) && mapTypeToEcto(f.type, enumsByName))
+    .filter((f) => !PART_SYSTEM_FIELDS.has(f.name) && mapTypeToEcto(f.type, enumsByName))
     .map((f) => `:${snake(f.name)}`);
   const castAssocVerb = relational ? "cast_assoc" : "cast_embed";
   const castEmbeds = (part.contains ?? [])
@@ -290,7 +313,9 @@ end
 `;
 }
 
-const SYSTEM_FIELDS = new Set(["id", "createdAt", "updatedAt"]);
+const SYSTEM_FIELDS: ReadonlySet<string> = new Set(["id", "createdAt", "updatedAt"]);
+/** A part's only system field is its `id` — see `renderPartSchema`. */
+const PART_SYSTEM_FIELDS: ReadonlySet<string> = new Set(["id"]);
 
 function renderSchema(
   appModule: string,
@@ -326,11 +351,15 @@ function renderSchema(
   // `{:array, :binary_id}` field would query a phantom column → runtime 500).
   const declaredLines = schemaFields
     .filter((f) => !isRefCollField(f))
-    .map((f) => renderFieldLine(f, enumsByName, ctx ? voColumnsOf(ctx) : undefined))
+    .map((f) => renderFieldLine(f, enumsByName, SYSTEM_FIELDS, ctx ? voColumnsOf(ctx) : undefined))
     .filter(Boolean);
   // `many_to_many :party, App.Ctx.Pokemon, join_through: "<schema>.trainer_party", …`
   // — the runtime side of the already-correct join migration.
-  const refCollLines = refCollFields(agg).map((rc) => manyToManyLine(appModule, ctxModule, rc));
+  // A FOREIGN target (no schema in this context) is a `has_many` onto its
+  // join-row schema instead — see `isForeignRefColl`.
+  const refCollLines = refCollFields(agg).map((rc) =>
+    refCollRelationLine(appModule, ctxModule, rc, pool),
+  );
   // Co-located provenance backing columns — one `<field>_provenance` jsonb
   // (the pass-through `Provenance.Json` Ecto type) per provenanced field,
   // holding the current lineage persisted on the row.  Never cast from client
@@ -459,12 +488,13 @@ function voColumnsOf(ctx: BoundedContextIR): VoColumns {
 function renderFieldLine(
   field: AggField,
   enumsByName: Map<string, EnumIR>,
+  skip: ReadonlySet<string> = SYSTEM_FIELDS,
   voColumns?: VoColumns,
 ): string {
   // Skip system-provided fields.  Reference-collection arrays (`X id[]`) are
   // filtered out by the caller before this point — they live in join tables and
   // are emitted as `many_to_many` relationships, not stored columns.
-  if (field.name === "id" || field.name === "createdAt" || field.name === "updatedAt") return "";
+  if (skip.has(field.name)) return "";
   // Value-object collection arrays (`charges: Money[]`) persist as a `has_many`
   // child schema (emitted separately), NOT a `{:array, :map}` column — skip the
   // scalar field line; `renderSchema` adds the `has_many` instead.
