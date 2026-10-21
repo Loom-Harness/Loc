@@ -28,6 +28,7 @@ import {
   fsNumericBinary,
   fsString,
   fsTemporalBinary,
+  fsValueEquality,
   renderFsCollectionOp,
   renderFsIntrinsic,
   storeModelField,
@@ -1249,6 +1250,9 @@ export const felizTarget: WalkerTarget = {
   // action body.
   exprDuration: (unit, amount) => FS_LEAVES.duration(unit, amount),
   exprTemporalBinary: (left, right, e) => fsTemporalBinary(left, right, e),
+  // A record's `=` is structural already; the seam only lifts an optional /
+  // plain value-object pair into one type (`alt = Some shipTo`).
+  exprValueEquality: (left, right, e) => fsValueEquality(left, right, e),
   // `5 / 2` is `2.5` in Loom's type system, but F#'s integer `/` truncates —
   // and F# has NO implicit numeric conversion where Loom widens (`int + long`,
   // `qty * price`).  The seam converts the operands; it forwards to the SAME
