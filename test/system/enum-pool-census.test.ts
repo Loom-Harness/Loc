@@ -187,7 +187,6 @@ const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
   "src/generator/typescript/emit/value-objects.ts#renderEnumsAndValueObjects": DECLARES_OWN,
   "src/generator/python/emit/value-objects.ts#renderPyEnumsAndValueObjects": DECLARES_OWN,
-  "src/generator/python/emit/value-objects.ts#renderPyEnumsAndValueObjects$2": DECLARES_OWN,
   "src/generator/java/index.ts#emitProjectFromContexts": DECLARES_OWN,
   "src/generator/dotnet/context-scaffolding-emit.ts#emitEnums": DECLARES_OWN,
   "src/generator/java/index.ts#emitProjectFromContexts$2": ALL_CONTEXTS,
@@ -197,7 +196,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/platform/hono/v4/adapters/drizzle-persistence.ts#emitDrizzleSchema": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
-  "src/generator/python/explicit-handlers-emit.ts#emitPyExplicitRouteRouter": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
@@ -261,66 +259,9 @@ const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
   // DEFERRED — fleet packet P2 (python) drains these.
   // =========================================================================
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile": p2(
-    "dispatch (post-processing) import candidates",
-  ),
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile$2": p2(
-    "dispatch import candidates",
-  ),
-  "src/generator/python/emit/aggregate.ts#renderPyAggregate": p2(
-    "domain import candidates (mypy name-defined)",
-  ),
-  "src/generator/python/emit/http-models.ts#renderPyWireModels": p2("wire-model import candidates"),
-  "src/generator/python/emit/integration-tests.ts#renderPyContextIntegrationTest": p2(
-    "integration-test import candidates",
-  ),
-  "src/generator/python/emit/seed.ts#buildPySeedFile": p2("seed import candidates"),
-  "src/generator/python/emit/tests.ts#renderPySubjectTests": p2("unit-test import candidates"),
-  "src/generator/python/explicit-handlers-emit.ts#pyDomainImportLines": p2(
-    "explicit-handler domain imports",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderHandlerModule": p2(
-    "handler-module import candidates",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderPagedRunHandlerModule": p2(
-    "paged handler import candidates",
-  ),
-  "src/generator/python/projections-builder.ts#buildPyProjectionsFile": p2(
-    "projection import candidates",
-  ),
-  "src/generator/python/query-projections-builder.ts#buildPyQueryProjectionsFile": p2(
-    "query-projection import candidates",
-  ),
-  "src/generator/python/repository-builder.ts#buildPyRepositoryFile": p2(
-    "repository import candidates",
-  ),
-  "src/generator/python/repository-document-builder.ts#buildPyDocumentRepositoryFile": p2(
-    "document repo import candidates",
-  ),
-  "src/generator/python/repository-embedded-builder.ts#buildPyEmbeddedRepositoryFile": p2(
-    "embedded repo import candidates",
-  ),
-  "src/generator/python/repository-eventsourced-builder.ts#buildPyEventSourcedRepositoryFile": p2(
-    "event-sourced repo import candidates",
-  ),
-  "src/generator/python/repository-port-builder.ts#renderRepositoryPortsFile": p2(
-    "repository-port import candidates",
-  ),
-  "src/generator/python/routes-builder.ts#buildPyRoutesFile": p2("routes import candidates"),
   "src/generator/python/workflow-eventsourced-emit.ts#esZeroFor": p2(
     "event-sourced workflow zero value",
   ),
-  "src/generator/python/workflows-builder.ts#buildPyWorkflowsFile": p2(
-    "workflows import candidates",
-  ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P3 (elixir + java + dotnet) drains these.
-  // Also P3's, but INVISIBLE to this detector (the context is passed whole
-  // as a `{ enums?: EnumIR[] }` decls bag, so no `.enums` read happens on a
-  // context-typed receiver): `elixir/state-default.ts#stateDefault` called as
-  // `stateDefault(f.type, ctx)` from `vanilla/workflow-execution-emit.ts`.
-  // =========================================================================
   "src/generator/elixir/vanilla/schema-emit.ts#emitVanillaSchemas": p3(
     "Ecto schema enum lookup (`:string` instead of Ecto.Enum)",
   ),

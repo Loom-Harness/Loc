@@ -24,8 +24,21 @@ import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { pySubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
+import { pyRef } from "../_imports/python.js";
 import { columnsForFields, joinRowClassName, rowClassName } from "./py-columns.js";
 import { PY_INTRINSIC_RENDERERS, renderPyExpr } from "./render-expr.js";
+
+// Imports derived from use (M-T9.84): the SQLAlchemy vocabulary, the ambient
+// principal accessor and the row classes a lowered predicate spells.
+const AND_ = pyRef("sqlalchemy", "and_");
+const OR_ = pyRef("sqlalchemy", "or_");
+const NOT_ = pyRef("sqlalchemy", "not_");
+const FUNC = pyRef("sqlalchemy", "func");
+const SELECT = pyRef("sqlalchemy", "select");
+const LITERAL = pyRef("sqlalchemy", "literal");
+const LITERAL_COLUMN = pyRef("sqlalchemy", "literal_column");
+const REQUIRE_CURRENT_USER = pyRef("app.auth.user", "require_current_user");
+const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 
 // ---------------------------------------------------------------------------
 // `where` predicate lowering — typed find-filter ExprIR → a SQLAlchemy
@@ -74,39 +87,39 @@ export interface PyPredicate {
 // host-language code.  Exported for the intrinsic completeness test.
 // The Python mirror of node's `DRIZZLE_INTRINSIC_SQL`.
 export const SQLALCHEMY_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) => string> = {
-  "string.trim": (recv) => `func.trim(${recv})`,
-  "string.toUpper": (recv) => `func.upper(${recv})`,
-  "string.toLower": (recv) => `func.lower(${recv})`,
+  "string.trim": (recv) => `${FUNC}.trim(${recv})`,
+  "string.toUpper": (recv) => `${FUNC}.upper(${recv})`,
+  "string.toLower": (recv) => `${FUNC}.lower(${recv})`,
   // Prefix match (tenancy-authorization-final-surface decision 2).  `func.strpos`
   // rather than SQLAlchemy's `.startswith(…)`: the ColumnOperators helper emits
   // `LIKE`, whose autoescape mode differs by argument shape, and an anchored
   // position test is escaping-free by construction — see
   // `src/util/intrinsics.ts`.
-  "string.startsWith": (recv, args) => `(func.strpos(${recv}, ${args[0]}) == 1)`,
+  "string.startsWith": (recv, args) => `(${FUNC}.strpos(${recv}, ${args[0]}) == 1)`,
   // ---- numerics (A3 math batch) -------------------------------------------
   // Postgres round(numeric, n) is already half-away-from-zero (the catalogue
   // contract), so the SQL side needs no mode forcing; min/max are the
   // two-value LEAST/GREATEST, not the aggregates.
-  "int.abs": (recv) => `func.abs(${recv})`,
-  "long.abs": (recv) => `func.abs(${recv})`,
-  "decimal.abs": (recv) => `func.abs(${recv})`,
-  "money.abs": (recv) => `func.abs(${recv})`,
-  "int.min": (recv, args) => `func.least(${recv}, ${args[0]})`,
-  "long.min": (recv, args) => `func.least(${recv}, ${args[0]})`,
-  "decimal.min": (recv, args) => `func.least(${recv}, ${args[0]})`,
-  "money.min": (recv, args) => `func.least(${recv}, ${args[0]})`,
-  "int.max": (recv, args) => `func.greatest(${recv}, ${args[0]})`,
-  "long.max": (recv, args) => `func.greatest(${recv}, ${args[0]})`,
-  "decimal.max": (recv, args) => `func.greatest(${recv}, ${args[0]})`,
-  "money.max": (recv, args) => `func.greatest(${recv}, ${args[0]})`,
+  "int.abs": (recv) => `${FUNC}.abs(${recv})`,
+  "long.abs": (recv) => `${FUNC}.abs(${recv})`,
+  "decimal.abs": (recv) => `${FUNC}.abs(${recv})`,
+  "money.abs": (recv) => `${FUNC}.abs(${recv})`,
+  "int.min": (recv, args) => `${FUNC}.least(${recv}, ${args[0]})`,
+  "long.min": (recv, args) => `${FUNC}.least(${recv}, ${args[0]})`,
+  "decimal.min": (recv, args) => `${FUNC}.least(${recv}, ${args[0]})`,
+  "money.min": (recv, args) => `${FUNC}.least(${recv}, ${args[0]})`,
+  "int.max": (recv, args) => `${FUNC}.greatest(${recv}, ${args[0]})`,
+  "long.max": (recv, args) => `${FUNC}.greatest(${recv}, ${args[0]})`,
+  "decimal.max": (recv, args) => `${FUNC}.greatest(${recv}, ${args[0]})`,
+  "money.max": (recv, args) => `${FUNC}.greatest(${recv}, ${args[0]})`,
   "decimal.round": (recv, args) =>
-    args[0] !== undefined ? `func.round(${recv}, ${args[0]})` : `func.round(${recv})`,
+    args[0] !== undefined ? `${FUNC}.round(${recv}, ${args[0]})` : `${FUNC}.round(${recv})`,
   "money.round": (recv, args) =>
-    args[0] !== undefined ? `func.round(${recv}, ${args[0]})` : `func.round(${recv})`,
-  "decimal.floor": (recv) => `func.floor(${recv})`,
-  "money.floor": (recv) => `func.floor(${recv})`,
-  "decimal.ceil": (recv) => `func.ceil(${recv})`,
-  "money.ceil": (recv) => `func.ceil(${recv})`,
+    args[0] !== undefined ? `${FUNC}.round(${recv}, ${args[0]})` : `${FUNC}.round(${recv})`,
+  "decimal.floor": (recv) => `${FUNC}.floor(${recv})`,
+  "money.floor": (recv) => `${FUNC}.floor(${recv})`,
+  "decimal.ceil": (recv) => `${FUNC}.ceil(${recv})`,
+  "money.ceil": (recv) => `${FUNC}.ceil(${recv})`,
   // ---- datetime — midnight-UTC bucket (the daily-series grouping key).
   // `DateTime(timezone=True)` columns are stored in UTC, so Postgres
   // `date_trunc('day', …)` cuts at the same boundary as the in-memory arm.
@@ -118,7 +131,7 @@ export const SQLALCHEMY_INTRINSIC_SQL: Record<string, (recv: string, args: strin
   // are different expressions, so the query dies with `column
   // "orders.placed_at" must appear in the GROUP BY clause`.  Verified against
   // a real Postgres, not just asserted.
-  "datetime.startOfDay": (recv) => `func.date_trunc(literal_column("'day'"), ${recv})`,
+  "datetime.startOfDay": (recv) => `${FUNC}.date_trunc(${LITERAL_COLUMN}("'day'"), ${recv})`,
 };
 
 export function lowerToSqlAlchemy(
@@ -138,7 +151,7 @@ export function lowerToSqlAlchemy(
   // TPH concretes query the base's shared table.
   return lowerOver(
     e,
-    rowClassName(tableOwnerName(agg, ctx.aggregates)),
+    schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates))),
     agg.associations ?? [],
     opts?.principalAccessor ?? "current_user",
     tphNullableBoolColumns(agg, ctx),
@@ -272,7 +285,7 @@ function lower(
         case "deny": {
           ops.add("and_");
           const idCol = `${row}.id`;
-          return `and_(${idCol}.is_(None), ${idCol}.isnot(None))`;
+          return `${AND_}(${idCol}.is_(None), ${idCol}.isnot(None))`;
         }
         // `deep`/`global` read level (multi-tenancy) —
         // descendant-or-self materialized-path scope with the NULL-dataKey
@@ -305,9 +318,9 @@ function lower(
           const needle = `${org} + ${JSON.stringify(DATA_KEY_PATH_DELIMITER)}`;
           const prefilter = `${col}.like(${pySubtreeLikePattern(org)}, escape=${JSON.stringify(DATA_KEY_LIKE_ESCAPE)})`;
           return (
-            `or_(and_(${col}.isnot(None), or_(${col} == ${org}, ` +
-            `and_(${prefilter}, func.strpos(${col}, ${needle}) == 1))), ` +
-            `and_(${col}.is_(None), ${tenantCol} == ${tenant}))`
+            `${OR_}(${AND_}(${col}.isnot(None), ${OR_}(${col} == ${org}, ` +
+            `${AND_}(${prefilter}, ${FUNC}.strpos(${col}, ${needle}) == 1))), ` +
+            `${AND_}(${col}.is_(None), ${tenantCol} == ${tenant}))`
           );
         }
         default: {
@@ -400,11 +413,11 @@ function lower(
       if (l == null || r == null) return null;
       if (e.op === "&&") {
         ops.add("and_");
-        return `and_(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
+        return `${AND_}(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
       }
       if (e.op === "||") {
         ops.add("or_");
-        return `or_(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
+        return `${OR_}(${boolOperand(l, row, nullBools)}, ${boolOperand(r, row, nullBools)})`;
       }
       return `(${l} ${e.op} ${r})`;
     }
@@ -418,7 +431,7 @@ function lower(
         // instead of a `mypy --strict` `[arg-type]` — pairwise F15.
         if (isNullableBoolColumn(inner, row, nullBools)) return `${inner}.is_(False)`;
         ops.add("not_");
-        return `not_(${inner})`;
+        return `${NOT_}(${inner})`;
       }
       return `${e.op}${inner}`;
     }
@@ -471,9 +484,9 @@ function lower(
         const assoc = fieldName ? associations.find((a) => a.fieldName === fieldName) : undefined;
         const arg = lower(e.args[0]!, row, associations, ops, principalAccessor, nullBools);
         if (assoc && arg != null) {
-          const join = joinRowClassName(assoc);
+          const join = schemaRow(joinRowClassName(assoc));
           ops.add("select");
-          return `select(${join}).where(${join}.${assoc.ownerFk} == ${row}.id, ${join}.${assoc.targetFk} == ${arg}).exists()`;
+          return `${SELECT}(${join}).where(${join}.${assoc.ownerFk} == ${row}.id, ${join}.${assoc.targetFk} == ${arg}).exists()`;
         }
       }
       // Queryable scalar intrinsic (src/util/intrinsics.ts).  COLUMN side —
@@ -566,13 +579,13 @@ function renderTemporalArith(
   if (side == null) return null;
   if (nested == null && !isColumnRooted(other)) {
     ops.add("literal");
-    side = `literal(${side})`;
+    side = `${LITERAL}(${side})`;
   }
   const amount = lower(dur.amount, row, associations, ops, principalAccessor, nullBools);
   if (amount == null) return null;
   ops.add("func");
   const zeros = "0, ".repeat(MAKE_INTERVAL_ZEROS[dur.unit]);
-  return `(${side} ${e.op} func.make_interval(${zeros}${amount}))`;
+  return `(${side} ${e.op} ${FUNC}.make_interval(${zeros}${amount}))`;
 }
 
 /** True when the expression reads a `this`-rooted column — directly
@@ -703,7 +716,9 @@ export function contextFilterPredicate(
       predicate,
       agg,
       ctx,
-      exprUsesCurrentUser(predicate) ? { principalAccessor: "require_current_user()" } : undefined,
+      exprUsesCurrentUser(predicate)
+        ? { principalAccessor: `${REQUIRE_CURRENT_USER}()` }
+        : undefined,
     );
     if (!l) return null;
     for (const op of l.ops) ops.add(op);
@@ -711,7 +726,7 @@ export function contextFilterPredicate(
   }
   if (lowered.length === 1) return { expr: lowered[0]!, ops };
   ops.add("and_");
-  return { expr: `and_(${lowered.join(", ")})`, ops };
+  return { expr: `${AND_}(${lowered.join(", ")})`, ops };
 }
 
 /** Lower an aggregate's `writeScopeFilter` (authorization — the
@@ -725,7 +740,7 @@ export function writeScopePredicate(
 ): PyPredicate | null {
   if (!agg.writeScopeFilter) return null;
   return lowerToSqlAlchemy(agg.writeScopeFilter, agg, ctx, {
-    principalAccessor: "require_current_user()",
+    principalAccessor: `${REQUIRE_CURRENT_USER}()`,
   });
 }
 

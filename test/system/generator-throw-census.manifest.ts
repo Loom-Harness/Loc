@@ -13,6 +13,76 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_imports/python.ts
+  "src/generator/_imports/python.ts#parseStatement": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:141)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$2": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:151)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$3": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:160)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$4": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:164)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:286)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$2": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:291)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$5": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:336)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$3": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "M-T9.84",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$4": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "M-T9.84",
+    reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_imports/symbol.ts
+  "src/generator/_imports/symbol.ts#check": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:47)",
+  },
+  "src/generator/_imports/symbol.ts#check$2": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:49)",
+  },
+  "src/generator/_imports/symbol.ts#check$3": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
+  },
+  "src/generator/_imports/symbol.ts#resolveMarkers": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:111)",
+  },
+  "src/generator/_imports/symbol.ts#assertNoMarkers": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:133)",
+  },
+
+  // src/generator/_trace/sourcemap.ts
+  "src/generator/_trace/sourcemap.ts#fragment": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_trace/sourcemap.ts:251)",
+  },
+
   // src/generator/_auth/dev-stub-id.ts
   "src/generator/_auth/dev-stub-id.ts#devStubIdExpr": {
     invariant:

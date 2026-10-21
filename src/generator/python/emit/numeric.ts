@@ -36,10 +36,13 @@
 // by construction: if the call is in the file, the import is too.
 // ---------------------------------------------------------------------------
 
+import { rewrite } from "../../../util/emission-sink.js";
+import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
+import type { PyOutputMap } from "../py-output.js";
+
 /** The generated helper module.  Value-restricted TypeVar (not `float`) so
  *  `trunc_mod(int, int)` stays `int` under `mypy --strict` — a plain `float`
  *  return would poison every int-typed field it feeds. */
-import { rewrite } from "../../../util/emission-sink.js";
 export const NUMERIC_PY = `"""Numeric helpers with cross-backend semantics.  Auto-generated."""
 
 from typing import TypeVar
@@ -76,12 +79,13 @@ def trunc_div(a: _N, b: _N) -> _N:
 
 const HELPER_PATH = "app/domain/numeric.py";
 
-/** One entry per helper the module exports, each wired independently so a
- *  module that calls only one gets only that import (an unused import fails the
- *  generated project's ruff gate on F401). */
-const HELPERS: readonly { importLine: string; calls: RegExp }[] = [
-  { importLine: "from app.domain.numeric import trunc_mod", calls: /\btrunc_mod\(/ },
-  { importLine: "from app.domain.numeric import trunc_div", calls: /\btrunc_div\(/ },
+/** One entry per helper the module exports: the call it matches and the
+ *  marker that call is rewritten to, so the module's import of exactly the
+ *  helpers it calls is derived from use (an unused import fails the generated
+ *  project's ruff gate on F401). */
+const HELPERS: readonly { marker: string; calls: RegExp }[] = [
+  { marker: pyRef("app.domain.numeric", "trunc_mod"), calls: /\btrunc_mod\(/g },
+  { marker: pyRef("app.domain.numeric", "trunc_div"), calls: /\btrunc_div\(/g },
 ];
 
 /**
@@ -89,36 +93,33 @@ const HELPERS: readonly { importLine: string; calls: RegExp }[] = [
  * helpers the matching import — a no-op when nothing in the project uses `%`
  * or `divTrunc`.
  *
- * The import lands directly after the module docstring, at the head of the
- * import block.  Generated projects pin ruff's lint scope to `E4/E7/E9 + F`
- * (see the emitted `pyproject.toml`), so isort's grouping rule (`I001`) is not
- * in play and placement only has to be syntactically valid.
+ * Each call is rewritten to the helper's `ref()` marker and the module is
+ * written back through the output map, whose finalizer derives the import
+ * into the module's one canonical import block (M-T9.84).  A `PY_IMPORTS`
+ * slot goes in directly after the module docstring so a module that had no
+ * import region of its own still gets one.
  */
-export function wireNumericHelpers(out: Map<string, string>): void {
+export function wireNumericHelpers(out: PyOutputMap): void {
   let used = false;
   for (const [path, content] of out) {
-    if (path === HELPER_PATH) continue;
+    if (path === HELPER_PATH || !path.endsWith(".py")) continue;
     let next = content;
     for (const h of HELPERS) {
-      if (!h.calls.test(next) || next.includes(h.importLine)) continue;
+      if (next.search(h.calls) === -1) continue;
       used = true;
-      next = insertImport(next, h.importLine);
+      next = next.replace(h.calls, `${h.marker}(`);
     }
-    if (next !== content) rewrite(out, path, next);
+    if (next !== content) rewrite(out, path, withImportSlot(next));
   }
   if (used) out.set(HELPER_PATH, NUMERIC_PY);
 }
 
-/** Splice the import in after a leading module docstring (every generated
- *  module opens with one), else at the very top. */
-function insertImport(content: string, importLine: string): string {
+/** Place a `PY_IMPORTS` slot after a leading one-line module docstring (every
+ *  generated module opens with one), else at the very top. */
+function withImportSlot(content: string): string {
   const lines = content.split("\n");
-  // A one-line `"""…"""` docstring is the emitters' universal opener; anything
-  // else (no docstring, or a multi-line one) falls back to a top insert, which
-  // is still valid Python — it just isn't the file's own docstring any more,
-  // so only do it when line 0 clearly isn't one.
   const head = lines[0] ?? "";
   const hasDocstring = head.startsWith('"""') && head.endsWith('"""') && head.length > 5;
-  lines.splice(hasDocstring ? 1 : 0, 0, ...(hasDocstring ? ["", importLine] : [importLine, ""]));
+  lines.splice(hasDocstring ? 1 : 0, 0, ...(hasDocstring ? ["", PY_IMPORTS] : [PY_IMPORTS, ""]));
   return lines.join("\n");
 }

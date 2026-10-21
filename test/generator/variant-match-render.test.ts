@@ -24,6 +24,7 @@
 // per-backend variant-match regression.  Mirrors render-expr-kinds.test.ts.
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../src/generator/dotnet/render-expr.js";
 import { renderExpr as renderElixirExpr } from "../../src/generator/elixir/render-expr.js";
 import { renderJavaExpr } from "../../src/generator/java/render-expr.js";
@@ -66,7 +67,7 @@ describe("variant-match over a TAGGED union — per-backend rendering", () => {
   });
 
   it("Python: conditional on the tagged dict, cast subscript reads", () => {
-    expect(renderPyExpr(MATCH)).toBe(
+    expect(spellMarkers(renderPyExpr(MATCH))).toBe(
       '(cast(str, outcome["code"]) if outcome["type"] == "A" else "gone")',
     );
   });

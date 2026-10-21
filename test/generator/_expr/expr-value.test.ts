@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spellMarkers } from "../../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../../src/generator/dotnet/render-expr.js";
 import { collectJavaExprImports, renderJavaExpr } from "../../../src/generator/java/render-expr.js";
 import { NUMERIC_PY } from "../../../src/generator/python/emit/numeric.js";
@@ -192,7 +193,7 @@ function pyInput(type: ValueType, value: string): string {
 function pyProgram(rows: readonly ValueRow[]): string {
   const fns = rows.map((row) => {
     const names = Object.keys(row.params);
-    return `def r_${row.id}(${names.join(", ")}):\n    return ${renderPyExpr(row.expr)}\n`;
+    return `def r_${row.id}(${names.join(", ")}):\n    return ${spellMarkers(renderPyExpr(row.expr))}\n`;
   });
   const calls = rows.map((row) => {
     const args = Object.values(row.params).map((prm) => pyInput(prm.type, prm.value));
