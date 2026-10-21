@@ -54,7 +54,7 @@ export const BUILTIN_PACK_FORMATS = {
  *  `loom.design-pack-retired` naming the successor, rather than the
  *  generic "unknown version" error — the pin was valid once, so the
  *  diagnostic says what to move to. */
-export const RETIRED_PACKS = {
+const RETIRED_PACKS = {
   "mantine@v7": "mantine@v9",
   "chakra@v2": "chakra@v3",
   "mui@v5": "mui@v7",
