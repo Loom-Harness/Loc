@@ -157,7 +157,7 @@ jobs:
           - backend: elixir
             suite: flat
             script: test:tenancy-elixir
-    name: tenancy-e2e (${{ matrix.backend }})
+    name: tenancy-e2e (${{ matrix.backend }} / ${{ matrix.suite }})
     services:
       postgres:
         image: postgres:18-alpine
