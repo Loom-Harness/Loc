@@ -36,16 +36,16 @@ public sealed class Order
     public bool IsMutable() => this.Status == OrderStatus.Draft;
     public void AddLine(ProductId productId, int qty)
     {
-        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
-        if (!(qty > 0)) throw new DomainException("Precondition failed: qty > 0");
+        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()", DomainErrorKind.Precondition);
+        if (!(qty > 0)) throw new DomainException("Precondition failed: qty > 0", DomainErrorKind.Precondition);
         _lines.Add(OrderLine._Create(new OrderLine.__State { Id = OrderLineId.New(), ParentId = this.Id, ProductId = productId, Quantity = qty }));
         AssertInvariants();
     }
 
     public void Confirm()
     {
-        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
-        if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0");
+        if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()", DomainErrorKind.Precondition);
+        if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0", DomainErrorKind.Precondition);
         Status = OrderStatus.Confirmed;
         _domainEvents.Add(new OrderConfirmed(Order: this.Id, At: DateTime.UtcNow));
         AssertInvariants();
@@ -69,7 +69,7 @@ public sealed class Order
 
     private void AssertInvariants()
     {
-        if ((this.Status == OrderStatus.Confirmed) && !(this.Lines.Count > 0)) throw new DomainException("Invariant violated: lines.count > 0");
+        if ((this.Status == OrderStatus.Confirmed) && !(this.Lines.Count > 0)) throw new DomainException("Invariant violated: lines.count > 0", DomainErrorKind.Invariant);
     }
 
     public sealed class __State

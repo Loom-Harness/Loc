@@ -24,7 +24,7 @@ import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EnrichedBoundedContextIR } from "../../src/ir/types/loom-ir.js";
 import dotnetPlatform from "../../src/platform/dotnet.js";
 import elixirPlatform from "../../src/platform/elixir.js";
-import honoPlatform from "../../src/platform/hono/v4/index.js";
+import honoPlatform from "../../src/platform/hono/v5/index.js";
 import type { PlatformSurface } from "../../src/platform/surface.js";
 import { parseValid } from "../_helpers/parse.js";
 

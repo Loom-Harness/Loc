@@ -71,7 +71,7 @@ export function hostableFrameworksFor(platform: string | undefined): ReadonlySet
 
 /** The bareword family of a `platform:` value — strips a
  *  `@version` pin so the predicate helpers + framework checks work
- *  on `platform: "node@v4"` exactly as on `platform: node`.
+ *  on `platform: "node@v5"` exactly as on `platform: node`.
  *  Frontend / unknown names pass through unchanged
  *  (`parseBuiltinPlatformRef` returns null for them). */
 export function platformFamily(platform: string | undefined): string | undefined {

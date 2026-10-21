@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedBoundedContextIR,
   ExprIR,
@@ -50,6 +50,7 @@ import {
 } from "../render-expr.js";
 import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
 import { voRecord } from "./dto.js";
+import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
 import {
   bearsNestedRecord,
@@ -324,7 +325,7 @@ export function javaWorkflowStmtTarget(
     precondition: (s, indent) => {
       collectJavaExprImports(s.expr, imports);
       return [
-        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s)});`,
+        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s, "DomainException.Kind.PRECONDITION")});`,
       ];
     },
     requires: (s, indent) => {
@@ -340,7 +341,7 @@ export function javaWorkflowStmtTarget(
       const agg = ctx.aggregates.find((a) => a.name === s.aggName);
       if (!agg) throw new Error(`workflow factory-let: unknown aggregate '${s.aggName}'`);
       const byName = new Map(s.fields.map((f) => [f.name, f.value]));
-      const args = forCreateInput(agg.fields).map((f) => {
+      const args = createInputFields(agg).map((f) => {
         const v = byName.get(f.name);
         if (!v) return "null";
         collectJavaExprImports(v, imports);
@@ -1399,7 +1400,7 @@ export function renderJavaWorkflows(
     `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
     wf.params.length > 0
       ? `    public void ${lowerFirst(wf.name)}(@Valid @RequestBody ${upperFirst(wf.name)}Request request) {`
-      : `    public void ${lowerFirst(wf.name)}() {`,
+      : `    public void ${lowerFirst(wf.name)}(${EMPTY_COMMAND_BODY_PARAM}) {`,
     `        workflows.${lowerFirst(wf.name)}(${wf.params.length > 0 ? "request" : ""});`,
     `    }`,
     ``,

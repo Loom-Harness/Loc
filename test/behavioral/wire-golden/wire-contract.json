@@ -237,6 +237,64 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/listings/{id}/discontinue",
+      "status": 404,
+      "body": {
+        "detail": "Listing {id} not found",
+        "instance": "/api/listings/{id}/discontinue",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/listings/{id}/discontinue",
+      "status": 404,
+      "body": {
+        "detail": "Listing {id} not found",
+        "instance": "/api/listings/{id}/discontinue",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/listings/{id}/discontinue",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/listings/{id}/discontinue",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/listings/{id}/add_tag",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/label"
+          }
+        ],
+        "instance": "/api/listings/{id}/add_tag",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

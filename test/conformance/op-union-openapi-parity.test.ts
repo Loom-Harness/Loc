@@ -239,8 +239,8 @@ function fromElixir(out: Map<string, string>): Published {
     fileEnding(out, `/schemas/${alias.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase()}.ex`);
   const ops: Published["ops"] = {};
   for (const op of OPS) {
-    const i = spec.indexOf(`"/orders/{id}/${op}" =>`);
-    const block = spec.slice(i, spec.indexOf('"/orders/{id}/', i + 10));
+    const i = spec.indexOf(`"/api/orders/{id}/${op}" =>`);
+    const block = spec.slice(i, spec.indexOf('"/api/orders/{id}/', i + 10));
     const successAlias = block.match(/200 => [\s\S]*?schema: \w+\.Api\.Schemas\.(\w+)\}/)![1]!;
     const errors: Record<string, string[]> = {};
     for (const m of block.matchAll(/(\d{3}) => [^\n]*\n[^\n]*\n[^\n]*anyOf: \[([^\]]*)\]/g)) {

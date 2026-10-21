@@ -235,7 +235,7 @@ preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
 | Form | Purpose |
 | --- | --- |
 | `subdomain Name { … }` | Groups one or more bounded contexts under a name.  A subdomain is a logical unit; it doesn't directly produce code.  Was named `module` before the D-STORAGE-SPLIT rename. |
-| `deployable name { platform: dotnet\|node\|elixir\|python\|java, contexts: [A, B], dataSources: [X, Y], port: N, … }` | A **backend** deployable: one project, one HTTP server, one DbContext, listening on `port`.  `contexts:` names which bounded contexts this deployable hosts; `dataSources:` lists the system-scope `resource` decls that route those contexts' persistence (every hosted aggregate must have a matching binding — see the `resource` row below; the clause keyword stays `dataSources:` for compatibility).  Further clauses, all order-independent: `serves: <Api>` (which api contracts it exposes), `channels: [<channelSource>, …]` (broker bindings — [`channels.md`](channels.md)), `ui: <Ui>` / `ui: <Ui> { Param: <deployable>, … }` (mount a UI on a fullstack host — `elixir` renders it as HEEx, `dotnet` / `java` embed a SPA), `hosts: [...]`, `auth: required` (JWT-decode middleware + verifier seam — [`auth.md`](auth.md)), `design: <pack>`, `favicon: "…"`.  `platform:` accepts a bareword or a quoted `"family@version"` pin (`"node@v4"`), optionally followed by a **realization block** `{ persistence: …, directoryLayout: … }` — the only two axes that remain (see [Deployable platforms](#deployable-platforms)). |
+| `deployable name { platform: dotnet\|node\|elixir\|python\|java, contexts: [A, B], dataSources: [X, Y], port: N, … }` | A **backend** deployable: one project, one HTTP server, one DbContext, listening on `port`.  `contexts:` names which bounded contexts this deployable hosts; `dataSources:` lists the system-scope `resource` decls that route those contexts' persistence (every hosted aggregate must have a matching binding — see the `resource` row below; the clause keyword stays `dataSources:` for compatibility).  Further clauses, all order-independent: `serves: <Api>` (which api contracts it exposes), `channels: [<channelSource>, …]` (broker bindings — [`channels.md`](channels.md)), `ui: <Ui>` / `ui: <Ui> { Param: <deployable>, … }` (mount a UI on a fullstack host — `elixir` renders it as HEEx, `dotnet` / `java` embed a SPA), `hosts: [...]`, `auth: required` (JWT-decode middleware + verifier seam — [`auth.md`](auth.md)), `design: <pack>`, `favicon: "…"`.  `platform:` accepts a bareword or a quoted `"family@version"` pin (`"node@v5"`), optionally followed by a **realization block** `{ persistence: …, directoryLayout: … }` — the only two axes that remain (see [Deployable platforms](#deployable-platforms)). |
 | `deployable name { platform: react\|vue\|svelte\|angular\|feliz\|flutter, targets: <backend>, ui: <Ui>, port: N }` | A **frontend** deployable.  `targets:` names the backend whose API base URL it is wired to and whose hosted contexts it inherits; a `ui:` binding is **required** (every page flows through the page metamodel — `ui Web with scaffold(subdomains: [...]) { }` is the bulk-CRUD shape).  The four static-bundle hosts (react / vue / svelte / angular) render a `ui` of any of those four `framework:`s; `feliz` (F#/Fable/Elmish) and `flutter` (Dart/Riverpod) host only their own.  Optional `auth: ui` mounts the login redirect + route guard under a system `auth { … }`. |
 | `context Name { … }` | Allowed directly inside a system; treated as if it were in an implicit `_default` subdomain. |
 | `test e2e "name" against <deployable> [verifies <TestCase>] { … }` | End-to-end test that runs against the named deployable — HTTP (vitest + fetch) for a backend, Playwright page objects for a frontend; lowers to `<system>/e2e/<System>.e2e.test.ts` / `<frontend>/e2e/<System>.ui.spec.ts`.  See [End-to-end tests](#end-to-end-tests-against-a-deployable). |
@@ -277,7 +277,7 @@ lowers to the runtime string `<lowercase-subdomain>.<name>`.  The block is **sub
 | `platform:` | Stack |
 | --- | --- |
 | `dotnet` | ASP.NET Core + EF Core + Mediator (martinothamar) + Swashbuckle.  Default port 8080. |
-| `node`   | Hono + Drizzle ORM + Zod with `@hono/zod-openapi` (bareword resolves to the `hono@v5` package; `"node@v4"` pins the previous one).  Default port 3000. |
+| `node`   | Hono + Drizzle ORM + Zod with `@hono/zod-openapi` (bareword resolves to the `hono@v5` package, the only registered version; `node@v4` (zod 3 / TS 5) was retired, and pinning it is a validation error naming `node@v5`).  Default port 3000. |
 | `elixir` | Phoenix + plain Ecto (the Ash foundation was removed).  A fullstack host: mounts a `framework: phoenixLiveView` ui as HEEx (`coreComponents` / `daisyui` packs).  The old `platform: phoenix` / `phoenixLiveView` aliases were retired — `elixir` is the only spelling.  Default port 4000. |
 | `python` | FastAPI + SQLAlchemy 2 + Pydantic.  Default port 8000. |
 | `java`   | Spring Boot + Spring Data JPA + Hibernate.  Default port 8081. |
@@ -444,7 +444,7 @@ Inside an aggregate or an `entity` part:
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  A body `requires` is enforced on every backend (403), reading `currentUser` only.  **Otherwise, on a state-based aggregate (the default) the body is not emitted** — a `precondition`, `emit` or value-changing assignment in it is `loom.lifecycle-body-dropped`, so the aggregate cannot check its own construction or raise a creation event there; put that logic in a `workflow` or an `operation`.  The whole body runs on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
@@ -652,6 +652,50 @@ shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 > `internal` or `secret` field (`row.isDeleted`, `row.tenantId`) won't type-check
 > against the API-read DTO, which omits them. Both are the same rule read off the
 > two ✗ columns above.
+
+#### A server-owned field with no default starts at its type's seed
+
+A `managed` / `token` / `internal` field is off the create input, so a
+non-optional one with no `= <default>` gets its first value from the create
+factory: the language-defined **seed** for its type
+(`src/ir/util/server-init-seed.ts`, one table every backend reads).
+
+| Type | Seed |
+|---|---|
+| `datetime` | now (UTC) |
+| `int` / `long` / `decimal` | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| `T[]` | `[]` |
+
+```ddd
+aggregate Ticket {
+  title: string
+  openedAt: datetime managed       // no default: created at now
+  hits: int managed                // created at 0
+  create(title: string) { }
+}
+```
+
+```java
+// Java — Ticket.create(...)
+e.openedAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+e.hits = 0;
+```
+
+```elixir
+# Elixir — Ticket changeset, ahead of validate_required
+|> __default(:opened_at, Loom.Datetime.normalize(DateTime.utc_now()))
+|> __default(:hits, 0)
+```
+
+The other types have no honest seed: `money` has no currency, an enum has no
+first value, a value object or `X id` has no value to invent, and a `guid` has
+no "absent" (`""` is not a uuid and the nil uuid is a real value). A
+non-optional server-owned field of one of these needs a `= <default>`, a
+capability stamp, or a `?`. Otherwise it is refused with
+`loom.unconstructible-server-field`. The `corpus/managed-seeds` wire golden
+pins the seeds on all five backends.
 
 #### `immutable` constrains the CLIENT UPDATE INPUT, not domain assignment
 
@@ -1562,25 +1606,61 @@ is deleted and a different rule throws in its place — measured, not
 hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
+operation complete() {
+    precondition status == InProgress message "finish the work first"
+    status := Completed
+}
+
 test "a fresh work order cannot be completed" {
     let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
     expect(wo.complete()).toThrow(precondition)
 }
 ```
 
+The rung is **structural** on every backend: the domain error carries it as a
+field, separate from the message, so an authored `message "…"` on the rule costs
+the assertion nothing.
+
 ```ts
-// generated (node)
-expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+// generated (node) — domain/workOrder.ts
+if (!(this._status === WorkStatus.InProgress)) throw new DomainError("finish the work first", "precondition", "msg.…", "");
+// generated (node) — domain/workOrder.test.ts
+expectDomainRejection(() => { wo.complete(); }, "precondition");   // reads err.kind
+```
+
+```python
+# generated (python)
+with pytest.raises(DomainError) as rejected:
+    wo.complete()
+assert rejected.value.kind == "precondition", str(rejected.value)
+```
+
+```java
+// generated (java)
+DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
+assertEquals(DomainException.Kind.PRECONDITION, __thrown1.getKind(), __thrown1.getMessage());
+```
+
+```csharp
+// generated (.NET)
+var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
+Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 
 ```elixir
-# generated (elixir) — structural, because GuardError is `defexception [:message, :kind]`
-__thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
-assert __thrown1.kind == :precondition
+# generated (elixir)
+rejected1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
+assert rejected1.kind == :precondition
 ```
 
+The field is `DomainError.kind` (node, python), `DomainException.getKind()`
+(java), `DomainException.Kind` (.NET; a value object's invariant throws the
+separate `ValueObjectInvariantException`, so there the type is the rung) and
+`GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
+same 422 problem whose `detail` is the authored message.
+
 `precondition` and `invariant` are keywords, not values — they are legal only in
-this one argument position (`loom.throw-kind-outside-tothrow`).  Three rules
+this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules
 bound the form, each for its own reason:
 
 - **Unit tier only.** In a `test e2e` body it is refused
@@ -1590,13 +1670,6 @@ bound the form, each for its own reason:
   refused in a context-integration `test`
   (`loom.throw-kind-integration-unsupported`), which renders through a separate
   emitter carrying no rung.
-- **Not against a rule with a custom `message`**
-  (`loom.throw-kind-custom-message`).  The node / python / java / .NET domain
-  layers discriminate on the derived `"Precondition failed: "` /
-  `"Invariant violated: "` prefix, and an authored `message "…"` *replaces* that
-  string rather than extending it.  Elixir alone is structural, but a unit test
-  is emitted for all five backends from one `.ddd`.  Drop the `message`, or
-  assert the bare `toThrow()` here and pin the wording in a `test e2e` block.
 - **`requires` is not a rung here.**  It is an authorization gate (403) needing a
   principal the unit tier has no vocabulary for.
 

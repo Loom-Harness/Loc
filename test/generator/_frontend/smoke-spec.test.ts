@@ -137,7 +137,7 @@ describe("smokeSpec — one navigation assertion per param-less route", () => {
 
   // The URL assertion above restates `page.goto`'s own argument, so on its own
   // it cannot fail on anything the app does.  That is not a nitpick: a pack
-  // whose shell threw on mount (mui@v5 handing React a CJS module object)
+  // whose shell threw on mount (a CJS module object handed to React)
   // rendered nothing but its error boundary and passed this gate, `tsc
   // --noEmit` and `vite build`.  Every case must therefore also assert the app
   // did not crash into that boundary.

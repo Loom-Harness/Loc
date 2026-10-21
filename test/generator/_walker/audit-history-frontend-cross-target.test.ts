@@ -291,7 +291,7 @@ describe("every render path collects the read (the degrade-honestly set is empty
     expect(out).toContain("|> Enum.map(&order_audit_entry/1)");
     // Guard 2 — reachability rides the ENTITY read, since `audit_records`
     // carries no tenant column for a capability filter to scope.
-    expect(out).toContain("case Api.Ordering.get_order(id) do");
+    expect(out).toContain("{:ok, _record} <- Api.Ordering.get_order(id) do");
     // And it renders through the same `Timeline` the JSX frontends use.
     expect(out).toContain(
       '<ol class="loom-timeline" data-testid="orders-detail-history-timeline">',

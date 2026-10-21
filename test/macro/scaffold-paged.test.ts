@@ -150,3 +150,129 @@ describe("scaffoldPaged — paged criterion read over run(criterion)", () => {
     expect(routes!).toContain("findAllByInRegion(rgn, query.page, query.pageSize");
   });
 });
+
+// `of:` is polymorphic — a named `retrieval` pages its `where`, ordered by its
+// `sort:` — and `requires: <Policy>` gates the emitted handler with a body
+// `requires` (a handler carries no header gate).
+const RETRIEVAL_SRC = (platform: string, ctxMacro: string, apiMacro: string, body = ""): string => `
+  system Shop {
+    user { id: string  role: string }
+    auth {
+      enforcement: opt
+      provider: keycloak
+      oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+    }
+    subdomain Sales {
+      context Sales${ctxMacro} {
+        aggregate Order {
+          region: string
+          rank: int
+        }
+        repository Orders for Order { }
+        policy Staff(): bool = currentUser.role == "staff"
+        criterion InRegion(rgn: string) of Order = region == rgn
+        retrieval TopInRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [rank desc] }
+        ${body}
+      }
+    }
+    api SalesApi${apiMacro} from Sales { }
+    storage pg { type: postgres }
+    resource st { for: Sales, kind: state, use: pg }
+    deployable api { platform: ${platform}, contexts: [Sales], dataSources: [st], serves: SalesApi, port: 5001, auth: required }
+  }
+`;
+const MACRO_FORM = (platform: string): string =>
+  RETRIEVAL_SRC(
+    platform,
+    " with scaffoldPaged(of: TopInRegion, requires: Staff)",
+    " with scaffoldPagedApi(of: TopInRegion)",
+  );
+const HAND_FORM = (platform: string): string =>
+  RETRIEVAL_SRC(
+    platform,
+    "",
+    "",
+    `queryHandler ListOrderByTopInRegion(rgn: string): Order paged {
+          requires Staff()
+          let r = Orders.run(TopInRegion(rgn))
+          return r
+        }`,
+  ).replace(
+    "api SalesApi from Sales { }",
+    'api SalesApi from Sales { route GET "/orders/projections/top_in_region" -> Sales.ListOrderByTopInRegion }',
+  );
+
+const BACKENDS = ["node", "python", "java", "dotnet", "elixir"] as const;
+
+/** The 403 gate each backend renders before the paged read. */
+const GATE: Record<(typeof BACKENDS)[number], string> = {
+  node: 'throw new ForbiddenError("Forbidden: Staff()")',
+  python: 'raise ForbiddenError("Forbidden: Staff()")',
+  java: 'throw new ForbiddenException("Forbidden: Staff()")',
+  dotnet: 'throw new ForbiddenException("Forbidden: Staff()")',
+  elixir: 'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: Staff()")',
+};
+
+/** Each backend's paged-route `sort` default — the empty string every paged
+ *  find reads as "the declared order, then `id`". */
+const SORT_DEFAULT: Record<(typeof BACKENDS)[number], string> = {
+  node: 'sort: z.string().default("")',
+  python: 'sort: str = ""',
+  java: '@RequestParam(defaultValue = "") String sort',
+  dotnet: '[FromQuery] string sort = ""',
+  elixir: 'Map.get(params, "sort", "")',
+};
+
+describe("scaffoldPaged — over a retrieval, gated by `requires:`", () => {
+  it("parses + validates with no errors", async () => {
+    const { errors } = await parseString(MACRO_FORM("node"));
+    expect(errors).toEqual([]);
+  });
+
+  it("splices the gate as the handler's first statement, then the retrieval run", async () => {
+    const { model } = await parseString(MACRO_FORM("node"), { validate: false });
+    const ctx = [...AstUtils.streamAllContents(model)]
+      .filter(isBoundedContext)
+      .find((c) => c.name === "Sales") as BoundedContext;
+    expect(printStructural(ctx)).toMatch(
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r/,
+    );
+  });
+
+  it("emits the `/projections/<retrieval>` route on the api", async () => {
+    const { model } = await parseString(MACRO_FORM("node"), { validate: false });
+    const api = [...AstUtils.streamAllContents(model)].filter(isApi)[0] as Api;
+    expect(printStructural(api)).toContain(
+      'route GET "/orders/projections/top_in_region" -> Sales.ListOrderByTopInRegion',
+    );
+  });
+
+  for (const platform of BACKENDS) {
+    it(`${platform}: generates byte-identically to the hand-written handler + route`, async () => {
+      const macro = await generateSystemFiles(MACRO_FORM(platform));
+      const hand = await generateSystemFiles(HAND_FORM(platform));
+      expect([...macro.keys()].sort()).toEqual([...hand.keys()].sort());
+      for (const [k, v] of macro) expect(v, `content differs for ${k}`).toBe(hand.get(k));
+    });
+
+    it(`${platform}: renders the 403 gate before the read, sorting by the declared order`, async () => {
+      const files = await generateSystemFiles(MACRO_FORM(platform));
+      const all = [...files.values()].join("\n");
+      const gateAt = all.indexOf(GATE[platform]);
+      expect(gateAt, "gate rendered").toBeGreaterThan(-1);
+      expect(
+        all.slice(gateAt).search(/TopInRegion|top_in_region/),
+        "read after the gate",
+      ).toBeGreaterThan(0);
+      expect(all).toContain(SORT_DEFAULT[platform]);
+    });
+  }
+
+  it("refuses a policy that takes parameters", async () => {
+    const src = MACRO_FORM("node")
+      .replace("policy Staff(): bool", "policy Staff(r: string): bool")
+      .replace('currentUser.role == "staff"', "currentUser.role == r");
+    const { errors } = await parseString(src);
+    expect(errors.join("\n")).toContain("scaffoldPaged can only call a parameterless policy");
+  });
+});
