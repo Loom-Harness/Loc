@@ -756,11 +756,6 @@ Decide first which is the contract (the node golden says two loads are two handl
 ## M-T6.91 — the optimistic-concurrency 409 `detail` is spelled two ways: node `"<Aggregate> <id> was modified by another request"`, the other four `"The resource was modified by another request; reload and retry."` — `open` · **S** · P2 ⚠ needs a ruling first
 
 Found by #3224: the first golden that records a concurrency 409 (`transactional-workflow-event-rollback`, node-minted) diverges on the Dapper and python legs at `$.detail` only — status, `title` and `type` agree. Node raises `ConcurrencyConflictError` with the aggregate + id sentence (`src/platform/hono/v4/emit.ts`); .NET (EF + Dapper), java, python and elixir answer one fixed sentence. Rule it the way RS-27 ruled the 404-by-id sentence (one canonical sentence, an RS-rule pinning it), implement it on the losing side, and delete the `dapper`/`python` waiver for this case from `test/_helpers/wire-waivers.ts` in the same PR (the waiver ratchet fails it as stale otherwise).
-
-## M-T6.92 — elixir: a stale-version save inside a `transactional` workflow answers 500, not the concurrency 409 — `open` · **S** · P2
-
-Found by #3224 booting `transactional-workflow-event-rollback` on the elixir behavioural leg (keyed `vanilla` for the trial only). `debitTwice` loads one `Acct` twice and saves both handles; node, python and the .NET Dapper adapter answer the optimistic-concurrency 409 and roll back, elixir answers `500 {"detail":"internal"}`. The stale update inside the workflow's `Repo.transaction` is not mapped to the conflict rung the plain update route uses. Exit: map it, then add `vanilla` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` (and to the case's M-T6.91 `detail` waiver until that rules).
-
 ## M-T6.97 — Target-reserved names the adversarial fixture does not yet reach: a TS field `constructor`, type names that shadow target globals, the frontends — `open` · **M** · P2
 
 *Minted 2026-10-12 by the per-target reserved-identifier consolidation, which made `test/fixtures/corpus/target-reserved-words.ddd` compile on all five backends and recorded what it deliberately left out.* Re-verify on fresh `main` before building (RUNBOOK §1).
