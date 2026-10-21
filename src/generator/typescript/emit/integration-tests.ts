@@ -203,6 +203,8 @@ export function renderContextIntegrationTest(
     (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
   );
   const usesIds = /\bIds\./.test(bodyStr);
+  // A money literal or a money-typed matcher renders `new Decimal(…)`.
+  const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
   // A body that constructs a value object (`let a = Berth { … }`) names its
   // class — import it, narrowed by the same body scan, as the unit-test
   // emitter does; without it the file fails `tsc` with TS2304.
@@ -219,6 +221,7 @@ export function renderContextIntegrationTest(
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
+  if (usesDecimal) lines.push(`import Decimal from "decimal.js";`);
   lines.push(`import { Pool } from "pg";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(`import { migrate } from "drizzle-orm/node-postgres/migrator";`);
