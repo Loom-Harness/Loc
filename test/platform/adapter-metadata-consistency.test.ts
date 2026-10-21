@@ -21,10 +21,10 @@ import * as live from "../../src/platform/resolve-adapters.js";
 const AXES = ["persistence", "style", "layout"] as const;
 
 // Every `platform:` spelling the front half may see — backends (with menus),
-// python (backend, no menu yet), frontends (no menu), and the `node@v4` pin.
+// python (backend, no menu yet), frontends (no menu), and the `node@v5` pin.
 const PLATFORMS: Platform[] = [
   "node",
-  "node@v4" as Platform,
+  "node@v5" as Platform,
   "dotnet",
   "elixir",
   "java",

@@ -195,7 +195,7 @@ describe("java — reserved-word param / binding names: declaration and use agre
     const w = await file(SOURCE, "OWorkflows.java");
     expect(w).toContain("var case_ = ordersRepository.getById(do_);");
     expect(w).toContain("case_.bump(final_ + n);");
-    expect(w).toContain('var new_ = Order.create("s", final_, "r", null);');
+    expect(w).toContain('var new_ = Order.create("s", final_, "r");');
     expect(w).toContain('var default_ = ordersRepository.runByReg("r");');
     expect(w).toContain("for (var final__ : default_) {");
     expect(w).toContain("ordersRepository.save(case_);");

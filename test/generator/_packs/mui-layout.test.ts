@@ -27,9 +27,9 @@
 //     consumes it (review-B D4).
 //
 // The assertions are deliberately split: the template-level ones run against
-// BOTH pack versions (a `design:` clause only ever reaches the newest version
-// of a family, so generating can never see v5), and the generated-output ones
-// prove the rendered page really carries them.
+// every MUI pack version (a `design:` clause only ever reaches the newest
+// version of a family), and the generated-output ones prove the rendered page
+// really carries them.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +39,7 @@ import { describe, expect, it } from "vitest";
 import { loadPack, resolvePackDir } from "../../../src/generator/_packs/loader-fs.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const MUI_PACKS = ["mui@v5", "mui@v7"] as const;
+const MUI_PACKS = ["mui@v7"] as const;
 const DESIGNS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../designs");
 
 function render(pack: string, primitive: string, ctx: Record<string, unknown>): string {
@@ -228,9 +228,9 @@ const GRID_TEMPLATES = fs
 
 describe("DataGrid — the visibility toggle never stringifies a header function", () => {
   it("every pack that ships a grid was found", () => {
-    // 15 packs share the line the fix replaces; if a pack is added or the glob
+    // 11 packs share the line the fix replaces; if a pack is added or the glob
     // stops matching, the per-pack assertions below silently cover nothing.
-    expect(GRID_TEMPLATES.length).toBe(15);
+    expect(GRID_TEMPLATES.length).toBe(11);
   });
 
   it.each(GRID_TEMPLATES)("%s reads the shared label", (_name, file) => {

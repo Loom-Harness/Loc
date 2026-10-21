@@ -10,6 +10,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
+  pagedSortDefault,
 } from "../../ir/stdlib/generics.js";
 import { unionInstanceName, unionReturn, variantTag } from "../../ir/stdlib/unions.js";
 import {
@@ -33,6 +34,7 @@ import {
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -75,6 +77,32 @@ export interface ApiModuleOptions {
    *  `"@tanstack/react-query"` (default, byte-identical to the
    *  pre-extraction React output) or `"@tanstack/vue-query"`. */
   queryPackage?: string;
+  /** The routes the target backend serves for SYNTHESIZED paged finds
+   *  (`pagedFindRoutes`).  A synthesized find gets a hook only when it is
+   *  routed here, and the hook calls that route; absent ⇒ no such hook. */
+  pagedFindRoutes?: PagedFindRoutes;
+}
+
+/** The client-side path of a find's hook, relative to the api base: the
+ *  explicit route that serves a synthesized paged find (`pagedFindRoutes` —
+ *  never one with path tokens, so the arguments ride the query string), else
+ *  the derived `/<plural>/<find>` route. */
+export function findHookPath(
+  tag: string,
+  find: { name: string },
+  route: { path: string } | null | undefined,
+): string {
+  return route ? route.path : `/${tag}/${snake(find.name)}`;
+}
+
+/** The finds a frontend emits a hook for: every declared find, and each
+ *  synthesized paged find the target backend actually routes. */
+export function clientFinds<F extends { name: string; synthesized?: boolean }>(
+  aggName: string,
+  finds: readonly F[],
+  routes: PagedFindRoutes | undefined,
+): F[] {
+  return finds.filter((f) => servedFindRoute(aggName, f, routes) !== undefined);
 }
 
 /** The client read-hook name for an aggregate's entity-history trail.
@@ -105,10 +133,15 @@ export function aggregateHasProvenanced(agg: EnrichedAggregateIR): boolean {
 
 export function buildApiModule(
   agg: EnrichedAggregateIR,
-  repo: RepositoryIR | undefined,
+  declaredRepo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
   options: ApiModuleOptions = {},
 ): string {
+  // The client sees only the finds it can reach over HTTP.
+  const repo = declaredRepo && {
+    ...declaredRepo,
+    finds: clientFinds(agg.name, declaredRepo.finds, options.pagedFindRoutes),
+  };
   const queryPackage = options.queryPackage ?? "@tanstack/react-query";
   // The `Provenanced<T>` carrier's `lineage` member references
   // `provLineageSchema`, so the import rides on the aggregate declaring a
@@ -264,7 +297,7 @@ export function buildApiModule(
           // (schemathesis F4).
           `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
           `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
-          `  sort: z.string().default("id"),`,
+          `  sort: z.string().default(${JSON.stringify(pagedSortDefault(find))}),`,
           `  dir: z.string().default("asc"),`,
         );
       }
@@ -591,7 +624,7 @@ export function buildApiModule(
           `      const qs = new URLSearchParams(Object.entries(queryArgs.value).map(([k, v]) => [k, String(v)])).toString();`,
         );
         lines.push(
-          `      const r = await api.get(\`/${tag}/${findSnake}\${qs ? "?" + qs : ""}\`);`,
+          `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
         );
         lines.push(`      return ${responseSchema}.parse(r);`);
         lines.push(`    },`);
@@ -612,7 +645,9 @@ export function buildApiModule(
         // Record<string,string> rejects under strict tsc.
         `      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(`      const r = await api.get(\`/${tag}/${findSnake}\${qs ? "?" + qs : ""}\`);`);
+      lines.push(
+        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, options.pagedFindRoutes))}\${qs ? "?" + qs : ""}\`);`,
+      );
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  });`);

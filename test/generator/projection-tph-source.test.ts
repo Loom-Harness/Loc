@@ -114,7 +114,7 @@ describe("dotnet/dapper: projection SQL reads the storage the Dapper schema writ
     expect(src).toContain(`sum((amount->>'Amount')::numeric)::numeric AS total FROM bills`);
     expect(src).not.toMatch(/amount_amount/);
     // …which is what the Dapper schema actually stores.
-    const schema = await projectionSource(DAPPER, /Persistence\/DbSchema\.cs$/);
-    expect(schema).toMatch(/amount jsonb not null/);
+    const schema = await projectionSource(DAPPER, /Migrations\/\d+_\w+_Initial\.cs$/);
+    expect(schema).toMatch(/""amount"" JSONB NOT NULL/);
   }, 120_000);
 });

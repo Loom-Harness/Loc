@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -21,7 +21,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 
@@ -291,7 +291,7 @@ export function renderCreateInput(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const declared = new Map(forCreateInput(agg.fields).map((f) => [f.name, f.type] as const));
+  const declared = new Map(createInputFields(agg).map((f) => [f.name, f.type] as const));
   // Emit EXACTLY the fields the test author wrote.
   //
   // Filling each omission from the create-input set would make the assertion
@@ -408,14 +408,17 @@ export function renderTestStmt(
   }
   if (s.kind === "expect-throws") {
     const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — `pytest.raises(match=...)` runs `re.search` over
-    // `str(exc)`, so the rung's derived prefix is passed anchored (`^…`).  The
-    // pattern is a raw string: the prefix is escaped for regex, and `r"…"`
-    // keeps any backslash that escaping introduces out of Python's own string
-    // grammar.
+    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
+    // `ValueObjectInvariantError` subclasses it) and assert its structural
+    // `kind`, never its message, which an authored `message "..."` replaces.
+    // `rejected` is rebound by each assertion, so several in one test body
+    // don't collide.
     if (s.throwKind) {
-      const pattern = throwKindPatternSource(s.throwKind);
-      return [`    with ${PYTEST}.raises(Exception, match=r"${pattern}"):`, call];
+      return [
+        `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
+        call,
+        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
+      ];
     }
     return [`    with ${PYTEST}.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
   }

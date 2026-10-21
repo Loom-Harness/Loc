@@ -95,7 +95,9 @@ describe("node/Hono — http/messages.ts + defaultHook resolution", () => {
   it("resolves errors[].message through the catalog in the 422 hook", async () => {
     const problem = bySuffix(await filesFor("node"), "http/problem-details.ts")!;
     expect(problem).toContain('import { localizeMessage } from "./messages"');
-    expect(problem).toContain("message: localizeMessage(issue.params?.loomCode, issue.message)");
+    expect(problem).toContain(
+      'message: isAbsent(result.data, issue.path) ? "Required" : localizeMessage(issue.params?.loomCode, issue.message)',
+    );
   });
 });
 
@@ -137,7 +139,9 @@ describe("java/Spring — messages.properties ResourceBundle + MessageSource res
     expect(advice).toContain("import org.springframework.context.MessageSource;");
     expect(advice).toContain("ApiExceptionAdvice(HttpMetrics httpMetrics, MessageSource messages)");
     expect(advice).toContain("Locale.forLanguageTag(RequestContext.locale()");
-    expect(advice).toContain('entry.put("message", resolveMessage(err, locale));');
+    expect(advice).toContain(
+      'entry.put("message", "NotNull".equals(err.getCode()) ? "Required" : resolveMessage(err, locale));',
+    );
     // A FieldError with no default message must not turn the 422 into a 500.
     expect(advice).toContain("catch (NoSuchMessageException ex)");
   });
@@ -273,13 +277,13 @@ describe("cross-backend parity", () => {
     }
     // …and the resolution sites keep their pre-catalog form.
     expect(bySuffix(await filesFor("node", NO_MESSAGES), "http/problem-details.ts")).toContain(
-      "message: issue.message,",
+      'message: isAbsent(result.data, issue.path) ? "Required" : issue.message,',
     );
     expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
       "localize_message",
     );
     expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
-      'entry.put("message", err.getDefaultMessage());',
+      'entry.put("message", "NotNull".equals(err.getCode()) ? "Required" : err.getDefaultMessage());',
     );
   });
 });

@@ -34,7 +34,7 @@ function sys(channel: string): string {
       event OrderPlaced  { order: Order id }
       event OrderShipped { order: Order id }
       aggregate Customer { name: string }
-      aggregate Order { status: OrderStatus  create(customer: Customer id) {} }
+      aggregate Order { status: OrderStatus  create() {} }
       ${channel}
       projection OrderBook keyed by order {
         order: Order id

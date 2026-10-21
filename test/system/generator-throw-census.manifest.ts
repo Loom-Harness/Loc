@@ -518,14 +518,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/explicit-handlers-emit.ts
-  "src/generator/dotnet/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Any `queryHandler H(...): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`, a let-bound paged find, or an aliased let) validates clean but crashes (repros also g2-pagedqh-find.ddd, g2-pagedqh-alias.ddd).",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/dotnet/projection-emit.ts
   "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
     guardedBy: ["loom.projection-fold-impure"],
@@ -748,14 +740,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     deferred:
       "An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.",
     mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
-  },
-
-  // src/generator/elixir/vanilla/explicit-handlers-emit.ts
-  "src/generator/elixir/vanilla/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A `queryHandler X(n): Thing paged { let xs = Things.byName(n) return xs }` (custom find, not a synthesized-criterion Repo.run) passes validation but has no synthCriterion repo-run.",
-    mission: "M-T9.77",
     reviewUntil: "2027-01-31",
   },
 
@@ -1186,14 +1170,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
-  // src/generator/java/explicit-handlers-emit.ts
-  "src/generator/java/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A queryHandler returning `Order paged` whose body is anything other than `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`) validates clean and throws here.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
     deferred:
@@ -1234,14 +1210,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
-  },
-
-  // src/generator/python/explicit-handlers-emit.ts
-  "src/generator/python/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Same as Java: any paged queryHandler body other than the exact let/return repo-run shape validates clean.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/generator/python/find-predicate.ts
@@ -1494,14 +1462,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/emit.ts#generateTypeScriptForContexts": {
     invariant:
       "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/v4/emit.ts:638-644; src/platform/hono/v4/emit.ts:1403-1416)",
-  },
-
-  // src/platform/hono/v4/explicit-handlers-builder.ts
-  "src/platform/hono/v4/explicit-handlers-builder.ts#emitPagedRunHandler": {
-    deferred:
-      "No validator pins the body of a `queryHandler H(...): <Agg> paged`; `return Orders.run(InRegion(rgn))` (or a let-rebinding, or `let r = Orders.findAll()`, or a compound criterion) validates clean on node and crashes the paged branch.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/platform/hono/v4/projection-builder.ts

@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   emitsRestCreate,
-  forCreateInput,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -136,7 +136,7 @@ export function renderJavaService(
   // harmless no-op (the framework always provides the publisher) and keeps the
   // dispatch seam ready for an out-of-process relay (the outbox upgrade path).
   const dispatches = true;
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   const eff = (t: TypeIR, optional: boolean): TypeIR =>
     optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
   // A `mask unless` aggregate projects RESPONSE reads through the redacting

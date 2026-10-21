@@ -1,7 +1,7 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
-  forCreateInput,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
 import {
@@ -77,6 +77,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
 import {
@@ -548,7 +549,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
       "",
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   const available = new Set(inputs.map((f) => f.name));
   const constraints = createFieldConstraints(agg.invariants, available);
   return lines(
@@ -792,7 +793,7 @@ function createRoute(
       .join(", ");
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", status_code=201, response_model=Create${agg.name}Response, operation_id="${camelId(opCreate(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def create_${snake(agg.name)}(body: Create${agg.name}Request, session: SessionDep) -> dict[str, object]:`,
+      `async def create_${snake(agg.name)}(${pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg))}, session: SessionDep) -> dict[str, object]:`,
       `    created = ${aggClassRef(agg.name)}.create(${args})`,
       auditCreate ? "    repo = _repo(session)" : null,
       auditCreate ? "    await repo.save(created)" : "    await _repo(session).save(created)",
@@ -802,7 +803,7 @@ function createRoute(
       `    return {"id": created.id}`,
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
   // per-request HERE (the request field is optional): the factory arg coalesces
   // the client's value with the freshly-evaluated default.  In the handler body
@@ -835,7 +836,7 @@ function createRoute(
   const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
-    `body: Create${agg.name}Request`,
+    pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
     ...(bindPrincipal ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
@@ -1204,7 +1205,7 @@ function operationRoute(
       // error arms' statuses — this route always ANSWERED them (the
       // ProblemDetails translations below) but never declared them.
       `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, body: ${upperFirst(op.name)}${agg.name}Request, ${PY_REQUEST_PARAM}, session: SessionDep) -> dict[str, object] | ${H.JSONResponse}:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, ${PY_REQUEST_PARAM}, session: SessionDep) -> dict[str, object] | ${H.JSONResponse}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
@@ -1235,7 +1236,7 @@ function operationRoute(
   const needsRequest = usesUser || gateUsesUser || stampUpdateUsesUser || versioned;
   const opSig = [
     ID_PARAM,
-    `body: ${upperFirst(op.name)}${agg.name}Request`,
+    pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params),
     ...(needsRequest ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");

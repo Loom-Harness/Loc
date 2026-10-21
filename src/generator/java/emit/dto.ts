@@ -1,7 +1,7 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
-  forCreateInput,
   isRequiredCreateInput,
   wireFieldsFor,
   wireFieldsForAggregate,
@@ -153,7 +153,7 @@ export function renderDtoFiles(
   // --- nested value-object records ------------------------------------------
   const voNames = new Set<string>();
   referencedValueObjects(
-    forCreateInput(agg.fields).map((f) => f.type),
+    createInputFields(agg).map((f) => f.type),
     voNames,
   );
   for (const op of agg.operations) {
@@ -193,7 +193,7 @@ export function renderDtoFiles(
 
   // --- create request (aggregates exposing a REST create; event-sourced ones
   // via their `create` action's params) -------------------------
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   if (emitsRestCreate(agg)) {
     const imports = new Set<string>();
     const components = (

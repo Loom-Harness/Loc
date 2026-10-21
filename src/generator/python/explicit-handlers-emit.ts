@@ -52,6 +52,13 @@ import type {
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../ir/util/paged-run.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -266,17 +273,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -304,9 +301,19 @@ function renderPagedRunHandlerModule(
   // `to_wire_masked` when the run's aggregate declares a `mask unless` field.
   const runAgg = ctx.aggregates.find((a) => a.name === run.aggName);
   const runWire = runAgg && aggHasFieldMask(runAgg) ? "to_wire_masked" : "to_wire";
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a 403 before the repo is touched; a gate reading `currentUser` takes the
+  // actor as a trailing param the route binds.
+  const usesUser = pagedRunGatesUseCurrentUser(h);
+  const gateLines = renderWorkflowStmtChunks(
+    pagedRunGates(h),
+    pyWorkflowStmtTarget(rctx, ctx, new Set()),
+    "    ",
+  ).flat();
   const sigParams = [
     `session: ${H.AsyncSession}`,
     ...h.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`),
+    ...(usesUser ? [`current_user: ${H.User}`] : []),
     "page: int",
     "page_size: int",
     "sort: str",
@@ -314,8 +321,9 @@ function renderPagedRunHandlerModule(
   ].join(", ");
   const def = lines(
     `async def ${fnName}(${sigParams}) -> dict[str, object]:`,
+    ...gateLines,
     `    ${repoVar} = ${repoClassRef(run.aggName)}(session, ${dispatcherExpr})`,
-    `    result = await ${repoVar}.${snake(run.retrievalName)}(${callArgs})`,
+    `    result = await ${repoVar}.${snake(pagedRunFindName(run))}(${callArgs})`,
     "    return {",
     `        "items": [${repoVar}.${runWire}(__e) for __e in result.items],`,
     '        "page": result.page,',
@@ -545,14 +553,16 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   const path = snakePath(r.path);
   const opId = camelName(h.name);
   const routeName = `${snake(h.name)}_route`;
+  const usesUser = pagedRunGatesUseCurrentUser(h);
   // Non-default params first (Python signature order): path + criterion query
   // params + session, then the defaulted pagination controls.
   const sig = [
     ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
     ...queryParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Query")),
+    ...(usesUser ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
     ...PY_PAGED_CONTROLS,
-    `sort: str = "id"`,
+    `sort: str = ${JSON.stringify(pagedRunSortDefault(h, ctx))}`,
     `dir: str = "asc"`,
   ].join(", ");
   // Call args in handler-param order (each wire→domain coerced), then the
@@ -560,6 +570,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   const callArgs = [
     "session",
     ...h.params.map((p) => pyWireToDomain(pythonIdent(p.name), p.type, ctx)),
+    ...(usesUser ? ["current_user"] : []),
     "page",
     "pageSize",
     "sort",
@@ -568,6 +579,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   return lines(
     `@router.${method}("${path}", operation_id="${opId}")`,
     `async def ${routeName}(${sig}) -> dict[str, object]:`,
+    usesUser ? PY_USER_BIND : null,
     `    return await ${handlerFnRef(h.name)}(${callArgs})`,
   );
 }

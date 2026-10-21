@@ -544,7 +544,7 @@ describe("java renderJavaStatements", () => {
     ];
     expect(renderJavaStatements(stmts)).toBe(
       [
-        `        if (!(true)) throw new DomainException("Precondition failed: must hold");`,
+        `        if (!(true)) throw new DomainException("Precondition failed: must hold", DomainException.Kind.PRECONDITION);`,
         `        if (!(true)) throw new ForbiddenException("Forbidden: role check");`,
         `        var x = 1;`,
         `        this.code = "A";`,

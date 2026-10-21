@@ -49,6 +49,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import { pyCommandBodyParam } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { responsePyType } from "./emit/http-models.js";
@@ -578,7 +579,7 @@ function workflowRoute(
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
   const sig = [
-    `body: ${upperFirst(wf.name)}Request`,
+    pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
     ...(usesUser ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
@@ -915,7 +916,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise ${PY.DomainError}(${workflowPreconditionThrowArgs(st)})`,
+      `${i}    raise ${PY.DomainError}(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

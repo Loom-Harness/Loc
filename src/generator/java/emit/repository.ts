@@ -10,7 +10,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -807,13 +807,20 @@ export function renderJavaRepositoryImpl(
       const sortWhitelist = sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `Sort.Order.${t.direction}(${JSON.stringify(jid(t.field))})`)
+        .join(", ");
       return [
         `    @Override`,
         `    public ${sig} {`,
         ...wrapBypass(findBypass, [
           `        String __sortField = java.util.List.of(${sortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
+          // An unwhitelisted `sort` (the route's `""` default) takes the read's
+          // declared order (`defaultSortOrder`).
+          declaredOrder
+            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)}) : ${SORT}.by(${declaredOrder});`
+            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)});`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,

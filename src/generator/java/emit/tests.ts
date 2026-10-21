@@ -21,7 +21,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
+import { javaThrowKind } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
@@ -430,24 +430,20 @@ function renderTestStmt(
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
       withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
-    // `toThrow(<kind>)` — bind the thrown `DomainException` and assert the
-    // rung's derived message prefix on it.  `assertThrows` already RETURNS the
-    // exception, so the rung costs one local and one assertion; the local is
-    // suffixed with the statement index so several throw assertions in one
-    // test body don't collide.
+    // `toThrow(<kind>)` — bind the thrown `DomainException` (a value object's
+    // `ValueObjectInvariantException` subclasses it) and assert its structural
+    // `getKind()`, never its message, which an authored `message "..."`
+    // replaces.  `assertThrows` already RETURNS the exception, so the rung
+    // costs one local and one assertion; the local is suffixed with the
+    // statement index so several throw assertions in one test body don't
+    // collide.
     if (s.throwKind) {
-      // `assertTrue` needs no import bookkeeping — the module shell already
+      // `assertEquals` needs no import bookkeeping — the module shell already
       // emits `import static org.junit.jupiter.api.Assertions.*;`.
       const local = `__thrown${index}`;
       return [
         `        DomainException ${local} = assertThrows(DomainException.class, () -> ${expr});`,
-        `        assertTrue(${local}.getMessage().startsWith(${JSON.stringify(
-          THROW_KIND_PREFIX[s.throwKind],
-        )}),`,
-        `            ${JSON.stringify(
-          `expected ${s.throwKind === "invariant" ? "an" : "a"} ${s.throwKind} to reject ` +
-            "this call, but it threw: ",
-        )} + ${local}.getMessage());`,
+        `        assertEquals(${javaThrowKind(s.throwKind)}, ${local}.getKind(), ${local}.getMessage());`,
       ];
     }
     return javaBareToThrow(s.expr, expr, `__thrown${index}`, "        ");

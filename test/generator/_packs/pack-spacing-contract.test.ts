@@ -146,13 +146,9 @@ interface PackUnderTest {
 }
 
 const PACKS: readonly PackUnderTest[] = [
-  { family: "mantine", version: "v7", dialect: "mantine", cssTemplates: ["app-shell"] },
   { family: "mantine", version: "v9", dialect: "mantine", cssTemplates: ["app-shell"] },
-  { family: "mui", version: "v5", dialect: "mui", cssTemplates: [] },
   { family: "mui", version: "v7", dialect: "mui", cssTemplates: [] },
-  { family: "chakra", version: "v2", dialect: "chakra", cssTemplates: [] },
   { family: "chakra", version: "v3", dialect: "chakra", cssTemplates: [] },
-  { family: "shadcn", version: "v3", dialect: "tailwind", cssTemplates: ["globals-css"] },
   { family: "shadcn", version: "v4", dialect: "tailwind", cssTemplates: ["globals-css"] },
   { family: "shadcnVue", version: "v1", dialect: "tailwind", cssTemplates: ["globals-css"] },
   { family: "shadcnSvelte", version: "v1", dialect: "tailwind", cssTemplates: ["globals-css"] },
