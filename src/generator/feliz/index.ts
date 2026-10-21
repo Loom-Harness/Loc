@@ -1660,7 +1660,13 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
-  const viewsToast = views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // The same built-in toast is reached from two places: a view's
+  // `Action { …, then: toast(…) }` closure and an action body's `toast(…)`
+  // statement in `update`.  F# is order-sensitive and a module may not bind
+  // the name twice, so it is declared once — ahead of `update` when an arm
+  // calls it (the views follow `update` and see it too), else ahead of the views.
+  const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
+  const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
 
   return lines(
     "module App",
@@ -1777,6 +1783,8 @@ function renderAppFs(
     "",
     init,
     "",
+    updateToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
+    updateToast ? "" : false,
     update,
     // The persistence write-back wrapper + the `url` tier's `popstate`
     // subscription — both reference `update` / `Msg`, so they follow it.
