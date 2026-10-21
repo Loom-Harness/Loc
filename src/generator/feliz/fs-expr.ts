@@ -694,22 +694,29 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.lambda(e.param, e.body ? r(e.body) : undefined);
     case "paren":
       return `(${r(e.inner)})`;
-    default:
-      // Fail fast rather than silently substituting `(* unsupported *) ()`.
-      // Three kinds reach here, none of them authored in a page body:
-      // `this` (a domain-body receiver — a page has no aggregate instance),
-      // `action-ref` (a handler reference the view walker binds as a dispatch
-      // wrapper, never a value in an update arm), and `authz-filter` (a
-      // synthesized query-filter sentinel that lives only on an aggregate's
-      // `contextFilters`).  So this is a defensive fail-fast on an IR shape the
-      // frontend pipeline does not produce — NOT a claim that every expression
-      // a user can write is covered.  If it fires on real `.ddd`, the arm is
-      // missing: add it here rather than widening the throw.
+    case "action-ref":
+      // An action named as a VALUE in an update arm (`let f = save`) is its
+      // Elmish `Msg` case — the F# value that stands for "this action" (a
+      // case with a payload is its constructor function).  The view path
+      // binds the same reference as a dispatch wrapper instead.
+      return e.storeName ? storeMsgCase(e.storeName, e.actionName) : upperFirst(e.actionName);
+    case "this":
+      // A page has no aggregate instance: `loom.ui-this-unbound` refuses a
+      // `this` in any ui body on this frontend at phase ⑦.
       throw new Error(
-        `feliz: unsupported expression '${e.kind}' in an F# action/update body — ` +
-          `no arm renders it on the MVU update path. If a valid page body reaches ` +
-          `this, implement the '${e.kind}' arm in fs-expr.ts (the view path's ` +
-          `treatment of the same kind is in _walker/walker-core.ts).`,
+        "internal: `this` reached the F# update renderer; loom.ui-this-unbound refuses it " +
+          "at validation. Please file a bug.",
       );
+    case "authz-filter":
+      // A read-path policy sentinel planted only on an aggregate's
+      // `contextFilters` — never in a ui body.
+      throw new Error(
+        `internal: an authorization filter for '${e.aggregate}' reached the F# update renderer. ` +
+          "Please file a bug.",
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }

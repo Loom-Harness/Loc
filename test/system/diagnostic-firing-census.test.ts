@@ -2862,6 +2862,30 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
 }`,
 
+  // `this` in a page action on a walker frontend: no aggregate instance is in
+  // scope there.  Without the gate the model reports `0 error(s)` and then the
+  // shared walker / Feliz update renderer abort `ddd generate system`.
+  "loom.ui-this-unbound": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { label: string = "" }
+      action again() { label := string(this) }
+      body: Stack { Button { "Again", onClick: again } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // `display`/`inspect` are reserved derived names that only mean something on
   // an aggregate — on a value object they are rejected.
   "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {
