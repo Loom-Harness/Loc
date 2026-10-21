@@ -317,6 +317,25 @@
     {
       "seq": 17,
       "method": "POST",
+      "path": "/api/employees/{id}/rename",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/name"
+          }
+        ],
+        "instance": "/api/employees/{id}/rename",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
       "path": "/api/employees",
       "status": 201,
       "body": {
@@ -324,14 +343,14 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 19,
       "method": "POST",
       "path": "/api/employees/{id}/raise",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 19,
+      "seq": 20,
       "method": "GET",
       "path": "/api/employees/{id}/history",
       "status": 200,
@@ -384,7 +403,7 @@
       ]
     },
     {
-      "seq": 20,
+      "seq": 21,
       "method": "GET",
       "path": "/api/employees/{id}/history",
       "status": 200,
@@ -448,7 +467,7 @@
       ]
     },
     {
-      "seq": 21,
+      "seq": 22,
       "method": "POST",
       "path": "/api/employees/{id}/raise",
       "status": 403,
@@ -461,14 +480,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 23,
       "method": "POST",
       "path": "/api/employees/{id}/raise",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "GET",
       "path": "/api/payslips",
       "status": 403,
@@ -481,7 +500,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 25,
       "method": "GET",
       "path": "/api/payslips",
       "status": 200,
@@ -495,7 +514,7 @@
       ]
     },
     {
-      "seq": 25,
+      "seq": 26,
       "method": "POST",
       "path": "/api/payslips",
       "status": 201,
@@ -504,7 +523,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 27,
       "method": "GET",
       "path": "/api/payslips/{id}/history",
       "status": 403,
@@ -517,7 +536,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 28,
       "method": "GET",
       "path": "/api/payslips/{id}/history",
       "status": 200,
@@ -553,7 +572,7 @@
       ]
     },
     {
-      "seq": 28,
+      "seq": 29,
       "method": "GET",
       "path": "/api/payslips/{id}/history",
       "status": 403,
@@ -566,7 +585,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 30,
       "method": "GET",
       "path": "/api/payslips/{id}/history",
       "status": 404,
@@ -579,7 +598,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 31,
       "method": "POST",
       "path": "/api/desks",
       "status": 201,
@@ -588,7 +607,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 32,
       "method": "GET",
       "path": "/api/desks/{id}/history",
       "status": 404,
@@ -601,7 +620,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 33,
       "method": "GET",
       "path": "/api/desks/{id}/history",
       "status": 404,
