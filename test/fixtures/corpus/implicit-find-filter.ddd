@@ -1,0 +1,80 @@
+// A find with NO `where` is still a filtered read: `find byReference(reference:
+// string): WorkOrder?` — the documented unique-key form — answers only the rows
+// whose `reference` equals the argument, each parameter pairing with the field
+// it names.
+//
+// Every other `find` in the corpus spells its `where` out, so no booted leg
+// ever ran the clause-less form.  Java's JPA `@Query` carried no `where` at all
+// (`select e from WorkOrder e`), and so did the Dapper and MikroORM adapters: a
+// lookup for a key that does not exist answered 200 with some other row, and
+// with two rows in the table the single find answered a non-unique 500.  The
+// statements below are ordered so each of those readings fails a different
+// assertion: the miss on a one-row table, the hit on a two-row table, a
+// multi-parameter find that must AND its pairs, and a paged find whose COUNT and
+// page query must both carry the filter.
+system ImplicitFindFilter {
+  subdomain Ops {
+    context Work {
+      aggregate WorkOrder with crudish {
+        reference: string
+        region: string
+      }
+      repository WorkOrders for WorkOrder {
+        find byReference(reference: string): WorkOrder?
+        find byRegionAndRef(region: string, reference: string): WorkOrder[]
+        find inRegion(region: string): WorkOrder paged
+      }
+    }
+  }
+  api WorkApi from Ops
+  storage primary { type: postgres }
+  resource workState { for: Work, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Work]
+    dataSources: [workState]
+    serves: WorkApi
+    port: 4000
+  }
+
+  test e2e "a clause-less find filters by the fields its parameters name" against d {
+    let first = api.workOrders.create({ reference: "ONLY-ONE", region: "north" })
+
+    // A miss on a ONE-row table: an unfiltered read answers that row with a 200.
+    expect(api.workOrders.byReference({ reference: "DOES-NOT-EXIST" })).toThrow(404)
+    let hit = api.workOrders.byReference({ reference: "ONLY-ONE" })
+    expect(hit.region).toBe("north")
+
+    // A hit on a TWO-row table: an unfiltered single read is non-unique (500)
+    // or answers whichever row comes first.
+    api.workOrders.create({ reference: "WO-200", region: "south" })
+    let second = api.workOrders.byReference({ reference: "WO-200" })
+    expect(second.region).toBe("south")
+
+    // Two parameters AND their pairs — neither alone decides the row.
+    let crossed = api.workOrders.byRegionAndRef({ region: "north", reference: "WO-200" })
+    expect(crossed.length).toBe(0)
+    let matched = api.workOrders.byRegionAndRef({ region: "south", reference: "WO-200" })
+    expect(matched.length).toBe(1)
+
+    // Paged: the COUNT and the page query both carry the filter.
+    let southPage = api.workOrders.inRegion({ region: "south" })
+    expect(southPage.items.length).toBe(1)
+    expect(southPage.total).toBe(1)
+
+    // A write moves a row across the predicate: the finds read the column the
+    // update wrote, not a cached or unfiltered set.
+    api.workOrders.update(first, { reference: "ONLY-ONE", region: "south" })
+    expect(api.workOrders.getById(first).region).toBe("south")
+    let moved = api.workOrders.inRegion({ region: "south" })
+    expect(moved.total).toBe(2)
+    let everything = api.workOrders.all()
+    expect(everything.total).toBe(2)
+
+    // Once the row is gone its key misses — while another row still exists.
+    api.workOrders.destroy(first)
+    expect(api.workOrders.byReference({ reference: "ONLY-ONE" })).toThrow(404)
+    let remaining = api.workOrders.byReference({ reference: "WO-200" })
+    expect(remaining.region).toBe("south")
+  }
+}

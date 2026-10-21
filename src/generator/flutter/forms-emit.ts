@@ -54,6 +54,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
@@ -829,7 +830,8 @@ function collectBodyWorkflowForms(
     if (e.kind === "call" && e.name === "WorkflowForm") {
       const runsArg = namedArg(e, "runs");
       const wf = runsArg?.kind === "ref" ? workflowsByName.get(runsArg.name) : undefined;
-      if (wf && !seen.has(workflowFormWidgetName(wf.name))) {
+      // An event-only saga has no command route (`emitsCommandRoute`) — no form widget.
+      if (wf && emitsCommandRoute(wf) && !seen.has(workflowFormWidgetName(wf.name))) {
         seen.add(workflowFormWidgetName(wf.name));
         out.push(flutterWorkflowForm(wf, bcByWorkflow.get(wf.name), aggregatesByName));
       }
