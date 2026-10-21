@@ -55,63 +55,6 @@ name: Tenancy isolation (runtime e2e)
 # `if:` cannot read `matrix`, and because test/system/draft-gate.test.ts and
 # merge-queue-readiness.test.ts read each job's guard literally.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/python/index.ts'
-      - 'src/generator/java/emit/auth.ts'
-      - 'src/generator/dotnet/emit/efcore.ts'
-      - 'src/generator/dotnet/auth-emit.ts'
-      - 'src/generator/elixir/vanilla/api-emit.ts'
-      - 'src/generator/elixir/vanilla/openapi-emit.ts'
-      - 'src/platform/hono/**'
-      # The MikroORM adapter's own emitter: it owns the hierarchical subtree
-      # predicate (a `raw()` FilterQuery key) that the `node-mikroorm` cell
-      # boots.  Missing from this list, a mikroorm-emitter-only change skipped
-      # the whole workflow.
-      - 'src/generator/typescript/emit/mikroorm.ts'
-      # Same argument, .NET side: the Dapper adapter splices the subtree
-      # predicate into every SELECT as a raw SQL string with four hand-bound
-      # parameters, which the `dotnet-dapper` cell boots.
-      - 'src/generator/dotnet/emit/dapper.ts'
-      - 'test/e2e/tenancy-isolation.test.ts'
-      - 'test/e2e/tenancy-isolation-python.test.ts'
-      - 'test/e2e/tenancy-isolation-java.test.ts'
-      - 'test/e2e/tenancy-isolation-dotnet.test.ts'
-      - 'test/e2e/tenancy-isolation-elixir.test.ts'
-      - 'test/e2e/tenancy-hierarchy.test.ts'
-      - 'test/e2e/tenancy-hierarchy-python.test.ts'
-      - 'test/e2e/tenancy-hierarchy-java.test.ts'
-      - 'test/e2e/tenancy-hierarchy-dotnet.test.ts'
-      - 'test/e2e/tenancy-hierarchy-elixir.test.ts'
-      - 'test/e2e/tenancy-hierarchy-mikroorm.test.ts'
-      - 'test/e2e/tenancy-hierarchy-dapper.test.ts'
-      - 'test/e2e/tenancy-subtree-explain.test.ts'
-      # The organizationContext switch-gate leg (M-T3.6 items 3+5): its own
-      # test file + fixture, and the auth-layer emitters that host the gate
-      # which the lines above do not already reach (python/elixir auth, and
-      # the neutral log catalog the deny is logged through).
-      - 'test/e2e/tenancy-org-context.test.ts'
-      - 'test/fixtures/corpus/org-context.ddd'
-      - 'src/generator/python/auth-emit.ts'
-      - 'src/generator/elixir/auth-emit.ts'
-      - 'src/generator/_obs/log-events.ts'
-      - 'test/e2e/support/tenancy-isolation-harness.ts'
-      - 'test/fixtures/corpus/tenancy-owned.ddd'
-      - 'test/fixtures/corpus/tenancy-hierarchy.ddd'
-      - 'package.json'
-      - '.github/workflows/tenancy-e2e.yml'
   workflow_dispatch:
   merge_group:
   # Per-PR, path-scoped, for the `flat` job; the other job runs on a PR only
@@ -267,6 +210,8 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
@@ -293,85 +238,45 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'run-tenancy')
     # Cold path is dominated by the generated project's build/dep install
     # (gradle bootJar / mix deps.get + compile are the slowest). 20min cap.
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
+        # One job per backend, its suites in sequence (the database is
+        # recreated empty before each):
+        #   hierarchy   — the hierarchical-tenancy suite (deep/self scope over a
+        #                 registry tree).
+        #   org-context — the organizationContext switch gate: an in-scope
+        #                 `x-org-context` switch stamps the sub-scope dataKey
+        #                 (deep-visible from the parent, hidden from a sibling),
+        #                 an out-of-subtree switch and a forged one on an
+        #                 orgPath-less token are 403 with NO write, and reads
+        #                 stay principal-anchored.  The accessor re-roots the
+        #                 write stamp onto a caller-submitted value, so the gate
+        #                 on EVERY backend is the security control and this boot
+        #                 is its only runtime proof.
+        #   explain     — the subtree read is INDEX-USABLE, not merely correct:
+        #                 it builds the schema from the emitted migration SQL,
+        #                 lifts the predicate out of a generated repository,
+        #                 seeds 20k rows and asserts the PLAN (`Index Scan` on
+        #                 `<table>_data_key_idx`).  Spins its own postgres
+        #                 container, so it ignores the service container.
         include:
-          # Hierarchy / policy read ladder (tenancy-hierarchy.ddd) — a SEPARATE
-          # cell per backend (own boot, own 20-min budget), so the heavier
-          # backends never run two boots in one job.
           - backend: node
-            suite: hierarchy
-            script: test:tenancy-hierarchy
+            scripts: test:tenancy-hierarchy test:tenancy-org-context test:tenancy-subtree-explain
           - backend: python
-            suite: hierarchy
-            script: test:tenancy-hierarchy-python
+            scripts: test:tenancy-hierarchy-python test:tenancy-org-context-python
           - backend: java
-            suite: hierarchy
-            script: test:tenancy-hierarchy-java
+            scripts: test:tenancy-hierarchy-java test:tenancy-org-context-java
           - backend: dotnet
-            suite: hierarchy
-            script: test:tenancy-hierarchy-dotnet
+            scripts: test:tenancy-hierarchy-dotnet test:tenancy-org-context-dotnet
           - backend: elixir
-            suite: hierarchy
-            script: test:tenancy-hierarchy-elixir
-          # The SECOND node persistence adapter.  Not a sixth backend — the same
-          # Hono backend on `persistence: mikroorm`, whose subtree predicate is
-          # lowered by completely different machinery (a `raw()` SQL FilterQuery
-          # key, since the operator vocabulary has no prefix test) than the
-          # drizzle operator tree above.  A raw fragment's SQL text, `?` binding
-          # arity and single-use cache key are all invisible to `tsc`, so this
-          # boot is the only gate on them.
+            scripts: test:tenancy-hierarchy-elixir test:tenancy-org-context-elixir
           - backend: node-mikroorm
-            suite: hierarchy
-            script: test:tenancy-hierarchy-mikroorm
-          # The SECOND .NET persistence adapter, by the same argument: EF Core
-          # registers a HasQueryFilter expression tree the provider translates;
-          # Dapper splices a raw SQL string into every SELECT and binds four
-          # parameters by hand.  An unbound parameter, or a filter that reaches
-          # three of four reads, is runtime-only — `dotnet build /warnaserror`
-          # is green on both.  (This shape was validator-REFUSED on dapper until
-          # wave C2 packet 2b, so the cell is new with the emission.)
+            scripts: test:tenancy-hierarchy-mikroorm
           - backend: dotnet-dapper
-            suite: hierarchy
-            script: test:tenancy-hierarchy-dapper
-          # M-T3.6 items 3+5 — the `organizationContext` operating-scope switch
-          # gate (org-context.ddd).  Its own cell per backend: an in-scope
-          # `x-org-context` switch stamps the sub-scope dataKey (deep-visible
-          # from the parent, hidden from a sibling), an out-of-subtree switch
-          # and a forged one on an orgPath-less token are 403 with NO write,
-          # and reads stay principal-anchored.  The accessor re-roots the write
-          # stamp onto a caller-submitted value, so the gate on EVERY backend is
-          # the security control and this boot is its only runtime proof.
-          - backend: node
-            suite: org-context
-            script: test:tenancy-org-context
-          - backend: python
-            suite: org-context
-            script: test:tenancy-org-context-python
-          - backend: java
-            suite: org-context
-            script: test:tenancy-org-context-java
-          - backend: dotnet
-            suite: org-context
-            script: test:tenancy-org-context-dotnet
-          - backend: elixir
-            suite: org-context
-            script: test:tenancy-org-context-elixir
-          # M-T3.17 — the subtree read is INDEX-USABLE, not merely correct.
-          # Boots nothing: it builds the schema from the emitted migration SQL,
-          # lifts the predicate verbatim out of a generated repository, seeds
-          # 20k rows and asserts the PLAN (`Index Scan` / `Index Cond` on
-          # `<table>_data_key_idx`).  The structural tiers can only see that a
-          # LIKE is present; only the planner can say the index is used, and
-          # that is exactly the claim #2562 lost silently.  Spins its own
-          # postgres container (it needs `docker exec … psql` to EXPLAIN), so it
-          # ignores the service container above.
-          - backend: node
-            suite: explain
-            script: test:tenancy-subtree-explain
-    name: tenancy-e2e (${{ matrix.backend }} / ${{ matrix.suite }})
+            scripts: test:tenancy-hierarchy-dapper
+    name: tenancy-e2e (${{ matrix.backend }})
     services:
       postgres:
         image: postgres:18-alpine
@@ -424,13 +329,28 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
-      - name: Run tenancy isolation runtime e2e (${{ matrix.backend }})
+      - name: Run every tenancy suite (${{ matrix.backend }})
         env:
           LOOM_TENANCY_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/app
-        run: npm run ${{ matrix.script }} -- --reporter=verbose
+          SCRIPTS: ${{ matrix.scripts }}
+        run: |
+          failed=""
+          for script in $SCRIPTS; do
+            echo "::group::$script"
+            PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres \
+              -c "DROP DATABASE IF EXISTS app WITH (FORCE);" -c "CREATE DATABASE app;"
+            npm run "$script" -- --reporter=verbose || failed="$failed $script"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::failed:$failed"
+            exit 1
+          fi
 
       - name: Surface failure context
         if: failure()

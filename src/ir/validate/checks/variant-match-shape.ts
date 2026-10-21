@@ -30,11 +30,15 @@
 // result was a runtime bomb instead.  The right layer to refuse it is here, in
 // phase ⑦ — the generator cannot raise a `loom.*` diagnostic without inverting
 // the pipeline.
+//
+// Closed by M-T5.43 V14: the statement's `subjectType` is now the awaited
+// operation's declared return, and `validateVariantMatch` (structural-checks.ts)
+// runs these gates over every page / component / store action statement.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { typeKey, variantTag } from "../../stdlib/unions.js";
-import type { StmtIR, TypeIR } from "../../types/loom-ir.js";
+import type { TypeIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** The shape both `match` forms reduce to, so one gate serves both. */
@@ -116,18 +120,4 @@ export function checkVariantMatchShape(
     }),
     source,
   });
-}
-
-/** Every `variant-match` statement in an action body, at any depth (arms and
- *  `else` nest). */
-export function forEachVariantMatchStmt(
-  stmts: readonly StmtIR[],
-  visit: (s: Extract<StmtIR, { kind: "variant-match" }>) => void,
-): void {
-  for (const s of stmts) {
-    if (s.kind !== "variant-match") continue;
-    visit(s);
-    for (const arm of s.arms) forEachVariantMatchStmt(arm.body, visit);
-    forEachVariantMatchStmt(s.elseBody ?? [], visit);
-  }
 }

@@ -159,7 +159,9 @@ defining property of a value object — and means exactly what `a == b` means
 on two value objects.  It lowers to that same comparison, so each backend
 renders its own value-equality idiom: python `==` (frozen-dataclass
 `__eq__`), Java `Objects.equals` (record `equals`), .NET record `==`, Elixir
-`==`, TypeScript the `equals()` method every value-object class emits.  The
+`Loom.ValueObject.equal?/2` (field-wise across the map, column and
+collection-element shapes a value object takes there), TypeScript the
+`equals()` method every value-object class emits.  The
 argument must be the same value object type and the receiver must be
 non-null (the `loom.intrinsic-*` diagnostics); a value object that declares
 its own `equals` member keeps it.  Domain logic only — in a

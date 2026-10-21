@@ -762,7 +762,29 @@ const REGISTERED: Ratchet[] = [
     // defect is a missing id-brand DECLARATION, which the corpus compile
     // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
     // missing symbol), and nothing in the fixture reads the claim at runtime.
-    max: 21,
+    //
+    // 21 -> 22 (2026-10-12, claims-eval wave 2; re-derived on merge as main's
+    // 21 + this PR's one): `context-named-like-app`, a
+    // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
+    // controller's `alias Claims.Claims` shadowed the app module, so
+    // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
+    // the fix (spelling the facade fully qualified) is not observable on the
+    // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
+    // as base + each side's delta (see the #3024 note above).
+    //
+    // 22 -> 23 (claims eval D18, PR #3250; re-derived on merge as main's 22 + this PR's one): a reviewed RAISE of one.
+    // `foreign-id-field` is the same shape for a hosted `X id` FIELD whose
+    // target aggregate lives in a non-hosted sibling context — a missing
+    // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
+    // javac cannot find symbol) the corpus compile tier reads directly; its
+    // CRUD routes are the ones `core-domain` already boots.
+    //
+    // 23 -> 24 (2026-10-19; re-derived on merge as main's 23 + this PR's one): `target-reserved-words`, the all-targets
+    // identifier-legality fixture.  Like `dotnet-bcl-type-collision` it is not
+    // a tier gap: its defect IS a compile failure, which the five corpus
+    // compile legs read directly, and the escape is invisible on the wire by
+    // ruling D-TARGET-RESERVED-NAMES.
+    max: 24,
   },
 ];
 

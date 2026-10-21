@@ -20,53 +20,6 @@ name: TypeScript (Hono) build verification
 #   - Manual dispatch.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/typescript/**'
-      - 'src/generator/_expr/**'
-      - 'src/generator/_openapi/**'
-      - 'src/platform/hono.ts'
-      - 'src/platform/hono/**'
-      # Shared emission seams the platform tree above delegates into: `_stmt` is
-      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
-      # the one tagged-union wire shape, `_i18n` the validation-catalog
-      # collector.  The leading underscore means SHARED, not per-target -- a
-      # change confined to one of them changes what this gate compiles.  Derived
-      # from this block's platform claim and pinned by
-      # test/system/workflow-path-coverage.test.ts.
-      - 'src/generator/_adapters/**'
-      - 'src/generator/_auth/**'
-      - 'src/generator/_channels/**'
-      - 'src/generator/_frontend/**'
-      - 'src/generator/_i18n/**'
-      - 'src/generator/_numeric/**'
-      - 'src/generator/_obs/**'
-      - 'src/generator/_openapi/**'
-      - 'src/generator/_payload/**'
-      - 'src/generator/_persistence/**'
-      - 'src/generator/_stmt/**'
-      - 'src/generator/_test/**'
-      - 'src/generator/_trace/**'
-      - 'src/generator/_type/**'
-      - 'src/generator/_workflow/**'
-      - 'examples/**'
-      - 'web/src/examples/erp/**'
-      - 'package.json'
-      - '.github/workflows/hono-build.yml'
-      - 'test/e2e/generated-build.test.ts'
-      - 'test/e2e/fixtures/ts-build/**'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -144,6 +97,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Build the Loom toolchain.  `prepare` lifecycle runs
       # `langium:generate` which populates src/language/generated/.
       - name: Install Loom toolchain

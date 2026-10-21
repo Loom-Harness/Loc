@@ -6,39 +6,31 @@ name: Generated Angular build
 # generator/pack drift invisible to the IR-level tests, institutionalising
 # the per-PR `ng build` verification from the Slice-4 batches.
 #
-# Matrix policy:
-#   - pull_request    → showcase (read + create-form + byId + action surface),
-#                       store (shared signal-store surface) and grid × the
-#                       packs.  `grid` is in the PR slice because the
+# One job runs the selected cases, PARALLELISM (the runner's cores) at a
+# time.  Case policy (`<case>` = every pack, `<case>:<pack>` = one cell):
+#   - pull_request,   → showcase (read + create-form + byId + action surface),
+#     merge_group       store (shared signal-store surface) and grid × Material
+#                       + PrimeNG.  `grid` is in the PR slice because the
 #                       DataGrid's markup lands in a HOISTED SIBLING component
 #                       whose template — strictTemplates-checked, and resolving
 #                       every name against the CLASS — no other case reaches.
-#   - push: main /    → full sweep
-#     workflow_dispatch  ({minimal, scaffold, showcase, store, file, grid,
-#                        history}).
-#   - ALWAYS (both)   → `history × angularMaterial@v1`, added through
-#                       `include:` rather than by widening CASES, so it costs
-#                       ONE cell instead of one-per-pack.  See the `include`
-#                       block below for why one Angular cell is the whole gate.
+#   - nightly,        → minimal, scaffold, showcase, store, file, grid,
+#     workflow_dispatch optional × every pack.
+#   - ALWAYS          → `history:angularMaterial@v1`: an `audited` aggregate's
+#                       scaffolded History section is a template over an
+#                       `AuditEntry[]` typed `unknown` at the leaves, and
+#                       `ng build` is the only per-PR gate that runs
+#                       `strictTemplates` over generated markup (the defect it
+#                       catches — a double `?? []` guard, TS2869 — fails here).
+#                       The pack is irrelevant to it (`Timeline` emits native
+#                       markup), so one cell is the whole gate.  On a PR
+#                       `optional:angularMaterial@v1` rides along the same way:
+#                       an optional field's null dereference and a `File?`'s
+#                       unimported `FileRef` are pack-neutral.
 #
-# Cell names MUST match the case labels in
-# test/e2e/generated-angular-build.test.ts (`<case>:<pack>`).
+# Case names are the `name`s in test/e2e/generated-angular-build.test.ts.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/angularMaterial/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'angular/**'
-      - 'stacks/ng1/**'
-      - 'test/e2e/generated-angular-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-angular-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -50,6 +42,8 @@ on:
       - 'angular/**'
       - 'stacks/ng1/**'
       - 'test/e2e/generated-angular-build.test.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
       - 'langium-config.json'
@@ -70,65 +64,24 @@ on:
       - '!src/platform/hono.ts'
   workflow_dispatch:
   merge_group:
+  # The full case × pack sweep runs nightly on main; PRs and the merge queue
+  # run the slice (see the header).
+  schedule:
+    - cron: '13 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  configure:
+  build:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - id: set
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Slim PR slice: the two most representative cases (feature
-            # showcase + the shared signal-store surface) × two
-            # representative packs (Material + PrimeNG).  spartanNg, the
-            # `minimal`/`scaffold`/`file` cases, and full pack drift are
-            # caught by the push:main sweep below one merge later.
-            CASES='["showcase","store","grid"]'
-            PACKS='["angularMaterial@v1", "primeng@v1"]'
-          else
-            CASES='["minimal","scaffold","showcase","store","file","grid","optional"]'
-            PACKS='["angularMaterial@v1", "primeng@v1", "spartanNg@v1"]'
-          fi
-          # `history` (an `audited` aggregate + a scaffolded ui → the
-          # scaffolded History section) rides in through `include:`, NOT by
-          # being added to CASES.  A CASES entry is multiplied by every pack —
-          # 2 cells per PR, 3 post-merge.  An include entry whose keys collide
-          # with the matrix dimensions cannot be folded into an existing
-          # combination, so GitHub appends it as exactly ONE new cell.
-          #
-          # One cell is the whole gate, and one FRONTEND is too:  the section's
-          # payload is a template over an `AuditEntry[]` typed `unknown` at the
-          # leaves, and `ng build` is the only per-PR gate that runs
-          # `strictTemplates` over generated markup.  The defect this exists to
-          # catch — a double `?? []` guard, TS2869 — fails here.  The pack is
-          # irrelevant to it (`Timeline` emits native `<ol>`/`<li>`/`<dl>`, no
-          # pack components), hence one pack, the default.
-          #
-          # `optional` rides in the same way, and for the same reason: an
-          # optional field's null dereference (`p.budget.amount` on a
-          # `Budget?`) and a `File?`'s unimported `FileRef` are pack-neutral —
-          # all three packs failed them identically — so one cell per PR proves
-          # the gate, and the post-merge sweep runs it against every pack.
-          echo "matrix={\"case\":$CASES,\"pack\":$PACKS,\"include\":[{\"case\":\"history\",\"pack\":\"angularMaterial@v1\"},{\"case\":\"optional\",\"pack\":\"angularMaterial@v1\"}]}" >> "$GITHUB_OUTPUT"
-
-  matrix:
-    needs: configure
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    timeout-minutes: 12
-    name: ${{ matrix.case }} × ${{ matrix.pack }}
+    timeout-minutes: 40
+    name: angular build (selected cases × packs)
     steps:
       - uses: actions/checkout@v6
 
@@ -138,16 +91,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      # Root install runs the `prepare` lifecycle (langium:generate + build).
       - name: Install Loom toolchain
         run: npm ci
 
-      - name: Build toolchain
-        run: npm run build
-
-      - name: Run angular-build shard
+      - name: ng build every selected case
         env:
-          LOOM_ANGULAR_BUILD_CASE: ${{ matrix.case }}:${{ matrix.pack }}
-        run: npx vitest run test/e2e/generated-angular-build.test.ts
+          # See the header for the case policy.
+          LOOM_ANGULAR_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'showcase:angularMaterial@v1,showcase:primeng@v1,store:angularMaterial@v1,store:primeng@v1,grid:angularMaterial@v1,grid:primeng@v1,history:angularMaterial@v1,optional:angularMaterial@v1' || 'minimal,scaffold,showcase,store,file,grid,optional,history:angularMaterial@v1' }}
+        run: npm run test:angular-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
@@ -166,7 +120,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [configure, matrix]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

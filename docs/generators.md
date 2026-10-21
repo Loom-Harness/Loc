@@ -488,14 +488,14 @@ web_app/
 │                                    # @mantine/* (core, hooks, form, notifications, dates, modals),
 │                                    # mantine-form-zod-resolver
 ├── tsconfig.json + tsconfig.node.json
-├── vite.config.ts                   # @vitejs/plugin-react, dev/preview both bind 0.0.0.0:3000
+├── vite.config.ts                   # @vitejs/plugin-react, dev/preview bind 0.0.0.0:<port:> (PORT overrides; the image passes --port 3000)
 ├── index.html
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime: vite preview
 ├── .dockerignore                    # excludes e2e/, dist/, playwright-report/, test-results/
 ├── certs/.gitkeep
 ├── src/
 │   ├── main.tsx                     # MantineProvider + QueryClientProvider + Router + Notifications + ModalsProvider
-│   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id
+│   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id — each page a React.lazy chunk behind a Suspense (pack loader fallback)
 │   ├── api/
 │   │   ├── client.ts                # fetch wrapper, ApiError
 │   │   ├── config.ts                # API_BASE_URL = /api (relative, same-origin); window.__LOOM_API_BASE__ or VITE_API_BASE_URL override
@@ -677,6 +677,25 @@ component.
 | Contained-part subtable | `<plural>-detail-<containment>` |
 | Contained-part row | `<plural>-detail-<containment>-row-<id>` |
 | Contained-part row cell | `<plural>-detail-<containment>-row-<id>-<field>` |
+| Route-level loading fallback (shell) | `route-loading` (`role="status"`) |
+
+### Route-level code splitting
+
+Every routed page is its own chunk; only the shell (layouts, sidebar,
+NotFound, error boundary) is in the entry bundle.  `App.tsx` binds each page
+as `const OrderList = React.lazy(() => import("./pages/orders/list"))` and
+wraps each layout's `<Outlet />` — plus the whole `<Routes>`, for `layout:
+none` pages — in `<React.Suspense fallback={<RouteLoading />}>`, where
+`RouteLoading` renders the pack's own loader (`Loader` / `CircularProgress` /
+`Spinner` / `Loader2`) with `data-testid="route-loading"`.  The generated
+smoke spec waits for that fallback to clear before asserting the page did not
+crash; the page objects already wait on each page's root testid.  Vue
+(`component: () => import(…)`) and Angular (`loadComponent`) split the same
+way — on vuetify each `.vue` file also imports the components its template
+renders (`import { VBtn, VCard } from "vuetify/components"`, derived from the
+emitted markup) rather than `createVuetify` registering the whole library, so
+those components ride the page's chunk; SvelteKit splits per `+page.svelte` on its own.  Pinned by
+`test/generator/_frontend/lazy-route-pages.test.ts`.
 
 ### Page-object classes
 
@@ -782,7 +801,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 
 | Concern | Emission |
 |---|---|
-| Routing | SvelteKit file routing — `/orders/:id` → `src/routes/(app)/orders/[id]/+page.svelte`; route groups `(app)` (chrome) / `(bare)` (`layout: none`) carry the layout selectors.  A named `layout <Name>` lowers to its own route group `(<name>)/+layout.svelte`, rendering the header/sidebar/footer slots around `{@render children()}`; pages selecting it via `layout: <Name>` route into that group (`src/generator/svelte/layouts-emitter.ts`). |
+| Routing | SvelteKit file routing — `/orders/:id` → `src/routes/(app)/orders/[id]/+page.svelte` (one chunk per route, by SvelteKit's own splitting); route groups `(app)` (chrome) / `(bare)` (`layout: none`) carry the layout selectors.  A named `layout <Name>` lowers to its own route group `(<name>)/+layout.svelte`, rendering the header/sidebar/footer slots around `{@render children()}`; pages selecting it via `layout: <Name>` route into that group (`src/generator/svelte/layouts-emitter.ts`). |
 | Data | `@tanstack/svelte-query` v6 factories with the React hook names (`useAllCustomers`, …) — `createQuery(() => opts)` returns a runes-reactive object with the `.data`/`.isPending`/`.mutate` surface.  Zod schemas are byte-identical with the react modules (shared `src/generator/_frontend/zod-schemas.ts`). |
 | State | `let x = $state<T>(init)`; walker `:=` writes lower to plain assignments; page `title:` becomes a `$effect`.  Money page-state imports `decimal.js` so `Decimal` initial values compile (matches the react fix). |
 | Forms | Hand-rolled runes + zod helper (`src/lib/forms.svelte.ts`): `createForm(schema, defaults)` → `values` (deep-reactive bind targets), `errors` (dotted-path map), `submit`, `applyServerErrors` (RFC 7807 422 decode).  Field templates bind `form.values.<path>`. |
@@ -812,8 +831,8 @@ web_app/
 ├── src/
 │   ├── main.ts             # createApp + router + VueQueryPlugin (+ vuetify instance / globals.css)
 │   ├── App.vue             # app chrome + <router-view/> + onErrorCaptured boundary
-│   ├── router.ts           # createRouter(createWebHistory) route table + NotFound catch-all
-│   ├── theme.ts            # createVuetify tokens (vuetify) / `export {}` stub (shadcnVue — CSS vars)
+│   ├── router.ts           # createRouter(createWebHistory) route table (each page `component: () => import(…)`, its own chunk) + NotFound catch-all
+│   ├── theme.ts            # createVuetify tokens, no global component registration (vuetify) / `export {}` stub (shadcnVue — CSS vars)
 │   ├── lib/form.ts         # useLoomForm — vee-validate useForm over the shared zod schema (local toTypedSchema) + per-field error map
 │   ├── lib/format.ts       # formatting FUNCTIONS (the React packs' format components, fn-style)
 │   ├── lib/toast.ts        # channels only: reactive pushToast() queue the app-shell host renders
@@ -892,7 +911,7 @@ suite gate this).
 
 | Concern | Emission |
 |---|---|
-| Pages | Each `page` becomes a standalone `@Component` under `src/app/pages/<slug>.component.ts` with an inline `template`.  The route table (`src/app/app.routes.ts`) maps `/orders/:id` → the component via `provideRouter`; a wildcard `**` mounts `NotFound`.  The app shell (`app.component.ts`) derives the sidebar from the page set. |
+| Pages | Each `page` becomes a standalone `@Component` under `src/app/pages/<slug>.component.ts` with an inline `template`.  The route table (`src/app/app.routes.ts`) maps `/orders/:id` → the component via `provideRouter`, lazily (`loadComponent: () => import(…)`, one chunk per page); a wildcard `**` mounts `NotFound`.  The app shell (`app.component.ts`) derives the sidebar from the page set. |
 | State / derived | `state { x: T = init }` → `readonly x = signal(init)` (read `x()`, write `x.set(…)`); the `:=` walker write lowers to `.set(…)`.  `derived n = expr` → `readonly n = computed(() => …)` (signal reads `this.`-prefixed in the class-field initialiser). |
 | Events | Angular `(click)` binds a **statement**, not a function value (and forbids arrow functions) — the `renderEventHandler` seam inlines the lambda body (`(click)='count.set(count() + 1)'`). `Button(to:)` routes through `renderNavigateExpr` → `router.navigateByUrl(<to>)`. |
 | Data | **TanStack Angular Query**: per aggregate `src/api/<agg>.ts` ships an `@Injectable` `HttpClient` service (the raw requests) + factories the page-shell hoists as component fields — `useAll<Agg>s` / `use<Agg>ById` return `injectQuery` results (cached, keyed `["<tag>"]` / `["<one>", id]`; byId is `enabled: !!id` so it stays idle until the route param resolves), and `useCreate<Agg>` / `use<Op><Agg>` return `injectMutation` results whose `onSuccess` calls `queryClient.invalidateQueries` on exactly the affected keys.  Signals are *called* (`handle.data()` / `handle.isPending()`); the `renderQueryDataAccess` seam defaults a collection read to `[]` (`(handle.data() ?? [])`).  The `QueryClient` is provided once in `app.config.ts` (`provideTanStackQuery`).  byId reads bind the route param from the `ActivatedRoute` snapshot. |
@@ -1062,7 +1081,7 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `abstract aggregate Party` + `extends` (TPC) | base emits no schema; each concrete is a standalone `Ecto.Schema` on its own table; the context module gains `list_parties/0` (the union of the concrete `list_<concrete>/0` reads). |
 | `abstract aggregate Party` + `inheritanceUsing: sharedTable` (TPH) | the concretes share one table: each concrete `Ecto.Schema` declares `schema "<base_plural>"`, a `:kind` string field defaulted to its own name, and every read self-filters on `where: c.kind == "<Concrete>"` so it reads/writes only its rows. The base owns no schema; the context module gains the same polymorphic `list_parties/0` union reader. See [`phoenix-tph-emission.md`](old/proposals/phoenix-tph-emission.md). |
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | **Supported** (`src/generator/elixir/vanilla/eventsourced-emit.ts`): an append-only `<agg>_events` stream + `apply` fold + rehydrator, the elixir sibling of the node/.NET/python/java event stores. |
-| `shape: document` persistence | **Supported (CRUD + finds/ops — DEBT-07; Route A)** — `src/generator/elixir/vanilla/document-emit.ts`: the whole aggregate persists as one jsonb blob in an `(id, data, version)` table, where `data` is a **typed `embeds_one :data, <Agg>.Data` embed** cast via `cast_embed` (the same `validate_required` / invariant validators the relational `base_changeset` runs); reads merge `data` back over the id. **Custom finds** filter in memory (`Repo.all |> Enum.filter`), **named operations** run their body, pure **`function`s** compile, and **returning ops** (`: A or B`) emit the tagged tuple — all in **struct mode** over the loaded `row.data` struct (Route A slices 1–2 deleted the old string-keyed `docMap` fork), incl. value-object-subfield reads. The residual (audited/provenanced ops, collection mutation, derived / dereferenced-entity / collection-method reads, paged/union finds) stays gated (`loom.vanilla-document-unsupported`). `shape: embedded` (DEBT-32, `src/generator/elixir/vanilla/schema-emit.ts`): each entity part is an Ecto `embedded_schema` module the root `embeds_many`s (value objects fold to `:map`), stored inline in the parent's jsonb column — a containment-mutating op (`lines += Line{…}`) appends the struct + `put_embed`s. `contains` on a *relational*-shape aggregate persists as child TABLES (§11c): each part is a table-backed schema the owner `has_many`s + `cast_assoc`s + preloads, INCLUDING **deep part-in-part** (M-T6.2 Drain C — a part's own `contains` becomes a `has_many` on its grandchild table, FK'd to the direct parent; the migration emitter's part tier now emits grandchild tables and the read/update preload nests `[lines: :tags]`; boot-verified). The `loom.vanilla-containment-unsupported` gate is **fully retired**. |
+| `shape: document` persistence | **Supported (CRUD + finds/ops — DEBT-07; Route A)** — `src/generator/elixir/vanilla/document-emit.ts`: the whole aggregate persists as one jsonb blob in an `(id, data, version)` table, where `data` is a **typed `embeds_one :data, <Agg>.Data` embed** cast via `cast_embed` (the same `validate_required` / invariant validators the relational `base_changeset` runs); reads merge `data` back over the id. **Custom finds** filter in memory (`Repo.all |> Enum.filter`), **named operations** run their body, pure **`function`s** compile, and **returning ops** (`: A or B`) emit the tagged tuple — all in **struct mode** over the loaded `row.data` struct (Route A slices 1–2 deleted the old string-keyed `docMap` fork), incl. value-object-subfield reads. The residual (audited/provenanced ops, collection mutation, derived / dereferenced-entity / collection-method reads, paged/union finds) stays gated (`loom.vanilla-document-unsupported`). `shape: embedded` (DEBT-32, `src/generator/elixir/vanilla/schema-emit.ts`): each entity part is an Ecto `embedded_schema` module the root `embeds_many`s (a value-object field is a `Loom.ValueObject` jsonb value, cast and loaded in the constructor's atom-keyed shape), stored inline in the parent's jsonb column — a containment-mutating op (`lines += Line{…}`) appends the struct + `put_embed`s. `contains` on a *relational*-shape aggregate persists as child TABLES (§11c): each part is a table-backed schema the owner `has_many`s + `cast_assoc`s + preloads, INCLUDING **deep part-in-part** (M-T6.2 Drain C — a part's own `contains` becomes a `has_many` on its grandchild table, FK'd to the direct parent; the migration emitter's part tier now emits grandchild tables and the read/update preload nests `[lines: :tags]`; boot-verified). The `loom.vanilla-containment-unsupported` gate is **fully retired**. |
 | `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create({…})` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (F5; `valueobject-emit.ts` emits `<VO>.new/1`, and the aggregate `base_changeset` runs it via `validate_vo` so the invariant is enforced at the real create/update path, not just in tests). A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](audits/test-parity-generated-backends.md). |
 | `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
 
@@ -1292,6 +1311,59 @@ namespaces) never collided.  Pinned by the `python-reserved-words` corpus row
 (every compile tier + the wire-golden differential) and
 `test/generator/target-reserved-member-names.test.ts`.
 
+### The per-target reserved-identifier table (every backend)
+
+The Java and Python sections above are two instances of one contract.  Every
+target's reserved words now live in ONE table,
+`src/util/target-identifiers.ts` — `ts`, `csharp`, `java`, `python`,
+`elixir`, `fsharp`, `dart` — with ONE escaping path,
+`escapeTargetIdent(target, name)` (C# `@base`, F# ``` ``member`` ```, a
+trailing `_` everywhere else) and a pure `isReserved(target, name)`.  The
+per-language helpers (`escapeCsharpIdent` / `escapeTsIdent` / `escapeJavaIdent` /
+`escapePythonIdent` / `escapeElixirIdent` in `naming.ts`, java's `jid` and
+package segments, F#'s `fsIdent`, Dart's `dartMember`) are views of it, so no
+backend carries a keyword list of its own.  One table closes the drift the
+per-backend copies had: Java's two copies disagreed on `record` / `yield` / `sealed` / `permits`; TS lacked the
+strict-mode `arguments` / `eval`; C# lacked `await` (illegal inside the `async`
+handlers every command runs in); python lacked the method receivers `self` /
+`cls` and the builtin / `BaseModel` names a generated class body shadows
+(`str`, `dict`, …).
+
+A second table, `escapeTargetMember`, holds names a target reserves as a class
+MEMBER although they are legal bindings — TS `constructor` and `then` (an
+operation named `then` makes every aggregate a thenable, so `await
+repo.getById(…)` breaks), and Dart's inherited `Object` members (`hashCode`,
+`toString`, `noSuchMethod`, `runtimeType`).
+
+Scope collisions are a separate concern and stay with each backend's namer:
+a `.ddd` name landing on a local the generated method declares for itself
+(`javaLocals`, `csLocalNamer`, `csParamIdent`, `dartComponentMember`) is not
+a keyword, and those namers build on the table rather than replace it.
+
+**The gate** is `test/fixtures/corpus/target-reserved-words.ddd` (row `ALL`):
+every table word the `.ddd` grammar admits, as a field, an enum value, an
+operation, and that operation's parameter — ~180 names at once — on every
+backend's compile leg (tsc, `dotnet build /warnaserror` incl. Dapper, gradle,
+uv + ruff + mypy + pytest, `mix compile --warnings-as-errors`).
+`test/util/target-identifiers.test.ts` keeps the table and the fixture from
+drifting (a table word the grammar admits but the fixture omits fails), and
+checks the tables with an authoritative source against it (python's `keyword`
+module, the TypeScript scanner's reserved-word range).
+
+| backend | positions newly escaped by this gate |
+|---|---|
+| node | every parameter declaration + `param` reference (`break_: number`); operation / helper method names `then` / `constructor` |
+| .NET | enum members (`@break`, `@base` — the runtime name and the wire value stay `break`); domain-service, workflow-function and extern-hook parameters (`@event`, `@base`); `CA1720` stays in the csproj `NoWarn` (member names are domain vocabulary) |
+| python | receivers + builtin names via the existing funnel; the repository's SQLAlchemy / `app.db.wire` imports are detected by CALL, not by word (an escaped field `and_` is not `sqlalchemy.and_`) |
+| elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
+| java | already clean through `jid` (M-T6.36) |
+
+**Not covered yet** — tracked by M-T6.97: a FIELD named `constructor` on node
+(its getter cannot carry that name), TYPE names that shadow a target's
+globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
+node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
+frontends (the fixture declares no `ui`).
+
 ---
 
 ## System orchestration
@@ -1350,6 +1422,16 @@ EF Core's `EnsureCreated` is all-or-nothing per database, so two
 backends sharing one DB silently leave the loser-of-the-race's
 tables uncreated.  React deployables don't connect to a DB and don't
 appear in the init script.
+
+Every statement is idempotent (`SELECT 'CREATE DATABASE x' WHERE NOT
+EXISTS (…) \gexec`): Postgres runs `docker-entrypoint-initdb.d` only on an
+EMPTY volume, so the compose stack also carries a one-shot `db-bootstrap`
+service that re-applies the same file over TCP on every `up`, and each
+database-backed service waits for it with `condition:
+service_completed_successfully`.  A deployable added in a later
+generation therefore gets its database on an existing volume (B-26 of the
+banking evaluation — it used to crash-loop on `database "x" does not
+exist`).
 
 ### Migrations
 

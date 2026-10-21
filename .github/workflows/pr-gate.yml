@@ -186,6 +186,7 @@ on:
       - 'Channels (broker runtime e2e)'
       - 'main-red alarm'
       - 'Cleanup old workflow artifacts'
+      - 'Cancel dead merge-queue runs'
       - 'Conformance full (nightly)'
       - 'Conformance parity (per-PR)'
       - 'Context integration (runtime e2e)'
