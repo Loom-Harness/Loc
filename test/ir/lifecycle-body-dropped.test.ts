@@ -1,16 +1,14 @@
-// The canonical `create` / `destroy` body is lowered and then MOSTLY ignored.
+// What a state-based canonical `create` / `destroy` body renders, and the
+// named error for everything it does not.
 //
-// `canonicalCreate.statements` / `canonicalDestroy.statements` carry the full
-// body.  `canonicalCreate` is otherwise consumed as a MARKER (its existence
-// gates `POST /<aggs>` and the `static create` factory) plus `params`/`audited`;
-// the factory body is synthesized from the field set.  So a `precondition`, an
-// `emit`, a computed `assign` in the braces still never reaches an emitter, and
-// a named error beats a silent drop.
-//
-// The ONE statement that IS rendered now is `requires` (M-T3.16 step 5): every
-// backend evaluates a lifecycle gate at its own chokepoint and denies with 403,
-// so it must NOT be reported as dropped — the emitted gate would be unreachable
-// from any valid source.  What it may READ is enforced separately
+// Rendered: a `requires` (every backend evaluates a lifecycle gate at its own
+// chokepoint and denies with 403), and in a CREATE also its `precondition`s,
+// `emit`s and `let`s (`createBodyStatements`, src/ir/util/op-gates.ts), run
+// against the constructed instance.  None of those may be reported as dropped
+// — the emitted code would be unreachable from any valid source.  Everything
+// else (a destroy's `precondition` / `emit`, a create's computed `assign`, a
+// `+=`, a call) still never reaches an emitter, and a named error beats a
+// silent drop.  What a gate may READ is enforced separately
 // (`loom.lifecycle-guard-unreadable`), and an EVENT-SOURCED lifecycle guard is
 // refused outright (`loom.lifecycle-guard-event-sourced`) because it would
 // render into a domain `_init` with no principal in scope.
@@ -118,9 +116,8 @@ describe("validator — the lifecycle body no backend renders", () => {
         wrap(`
       aggregate Order {
         code: string
-        create(code: string) {
+        destroy() {
           precondition code.length > 0
-          code := code
         }
       }`),
       ),
@@ -132,19 +129,42 @@ describe("validator — the lifecycle body no backend renders", () => {
     expect(d?.message).toMatch(/operation/);
   });
 
-  it("still rejects a `precondition` in a create — that one is NOT rendered", async () => {
+  it("ACCEPTS a create's `precondition`, `emit` and `let` — the body renders them", async () => {
+    const codes = await codesFor(`
+      event Placed { order: Order id, code: string }
+      aggregate Order {
+        code: string
+        create(code: string) {
+          let trimmed = code
+          precondition trimmed.length > 0 message "code is required"
+          emit Placed { order: id, code: code }
+        }
+      }`);
+    expect(codes).not.toContain(CODE);
+  });
+
+  it("still rejects a `precondition` / `emit` in a DESTROY — that body is NOT rendered", async () => {
+    const codes = await codesFor(`
+      event Gone { order: Order id }
+      aggregate Order {
+        code: string
+        destroy() {
+          precondition code.length > 0
+          emit Gone { order: id }
+        }
+      }`);
+    expect(codes.filter((c) => c === CODE).length).toBe(2);
+  });
+
+  it("still rejects a computed assignment in a create", async () => {
     const codes = await codesFor(`
       aggregate Order {
         code: string
-        status: string
+        note: string = "none"
         create(code: string) {
-          precondition code.length > 0
-          code := code
+          note := code
         }
-        destroy() { requires currentUser.role == "admin" }
       }`);
-    // Exactly ONE drop: the `precondition`.  The destroy's `requires` is a
-    // rendered gate — a count of 2 here is the regression this pins.
     expect(codes.filter((c) => c === CODE).length).toBe(1);
   });
 

@@ -2,6 +2,7 @@ import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -165,7 +166,7 @@ export function renderProgram(
     realtimeTenantClaim?: string;
     /** Persistence selection (D-REALIZATION-AXES `persistence:`): when true,
      *  the deployable uses Dapper — Program.cs registers an `NpgsqlDataSource`
-     *  (not a `DbContext`) and applies the self-contained `DbSchema` at
+     *  (not a `DbContext`) and applies its versioned migrations via `DbSchema` at
      *  startup instead of EF migrations. */
     usingDapper?: boolean;
     /** Per-operation audit (audit-and-logging.md): registers the scoped
@@ -221,6 +222,10 @@ export function renderProgram(
      *  index.ts (it holds the pre-merge context names the event stores key
      *  off).  Consumed only when `usingDapper` — the EF path uses open generics. */
     dapperPortRegistrations?: string[];
+    /** Dapper connection `search_path` — `public` then every schema the
+     *  migrations put this deployable's tables in (`dapperSearchPath`).
+     *  Consumed only when `usingDapper`. */
+    dapperSearchPath?: string[];
     /** File upload/download (M-T1.2): fully-qualified raw-bytes helper method
      *  references for the bound objectStore, so Program.cs maps root
      *  `POST /files` + `GET /files/{key}` over them.  Undefined ⇒ no File field,
@@ -911,7 +916,7 @@ builder.Services.AddHttpLogging(opts =>
 ${
   usingDapper
     ? `// Dapper persistence: a single Npgsql data source, no DbContext.
-${renderDapperConnectionSetup().join("\n")}`
+${renderDapperConnectionSetup(options?.dapperSearchPath ?? []).join("\n")}`
     : usesStamping
       ? `builder.Services.AddScoped<${ns}.Infrastructure.Persistence.AuditableInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
@@ -1022,6 +1027,8 @@ builder.Services.AddProblemDetails(opts =>
         ctx.ProblemDetails.Type = "about:blank";
         ctx.ProblemDetails.Status = status;
         ctx.ProblemDetails.Title ??= ReasonPhrases.GetReasonPhrase(status);
+        // A 415 carries the one sentence every backend sends for it (RS-39).
+        if (status == 415) ctx.ProblemDetails.Detail = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
         ctx.ProblemDetails.Extensions.Remove("traceId");
@@ -1143,10 +1150,13 @@ await LoomWaitForDbAsync(
     },
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 
-// Dapper persistence: apply the self-contained schema (CREATE TABLE IF NOT
-// EXISTS) before serving traffic.  Idempotent; no migration history table.
+// Dapper persistence: apply the pending versioned migrations (Migrations/)
+// before serving traffic.  Idempotent — applied ids are recorded in
+// public.__loom_migrations; a database the pre-migration DbSchema bootstrap
+// provisioned is baselined on its first boot here (see DbSchema.cs).
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
-    app.Services.GetRequiredService<NpgsqlDataSource>());
+    app.Services.GetRequiredService<NpgsqlDataSource>(),
+    app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
     : hasMigrations
       ? `
@@ -1350,6 +1360,10 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();
+// An EMPTY request body is the empty JSON object (RS-39) — see
+// Middleware/EmptyJsonBodyMiddleware.cs.  Ahead of routing's endpoints so
+// model binding sees the normalised body.
+app.UseMiddleware<${ns}.Middleware.EmptyJsonBodyMiddleware>();
 // Serve the spec at /openapi.json (documentName "openapi" → "{documentName}.json").
 app.UseSwagger(c => c.RouteTemplate = "{documentName}.json");
 ${staticSubpathGuard}${authMount}app.MapControllers();
@@ -1371,7 +1385,7 @@ app.MapFallbackToFile("index.html");
 }
 ${
   usingDapper || hasMigrations
-    ? // Dapper applied its schema via DbSchema.EnsureAsync at startup; a
+    ? // Dapper applied its migrations via DbSchema.EnsureAsync at startup; a
       // migrations-bearing deployable applied them via Database.Migrate().
       // Either way EnsureCreated must NOT also run: mixing it with
       // Migrate() is the classic EF trap — whichever runs first creates

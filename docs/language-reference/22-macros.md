@@ -55,9 +55,9 @@ Thirteen macros ship in [`src/macros/stdlib/`](../../src/macros/stdlib/), regist
 | `softDeleteByDefault` | `context` | — | `implements softDeletable` + `with softDelete` on every child aggregate |
 | `scaffoldDashboard` | `context` | — | one singleton query-time `projection` per aggregate (row count + a sum per numeric/money field, and a per-day series when a date field exists) |
 | `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read |
-| `scaffoldPaged` | `context` | `of: Criterion` | a paged `queryHandler` over the read-only port (`Repo.run(<criterion>)`) |
+| `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.run(<read>)`), optionally gated |
 | `scaffoldApi` | `api` | `of: Subdomain` | one `route` per handler `scaffoldHandlers` emits for the subdomain |
-| `scaffoldPagedApi` | `api` | `of: Criterion` | the `GET …/projections/<criterion>` route binding to `scaffoldPaged`'s handler |
+| `scaffoldPagedApi` | `api` | `of: Criterion \| Retrieval` | the `GET …/projections/<read>` route binding to `scaffoldPaged`'s handler |
 | `scaffold` | `ui` | `subdomains:`, `contexts:`, `aggregates:`, `workflows:` (all ref-lists) | Home / WorkflowsIndex singletons + delegates to the composers below |
 | `scaffoldSubdomain` | `ui` | `of: Subdomain` | one `scaffoldContext` per context in the subdomain |
 | `scaffoldContext` | `ui` | `of: BoundedContext` | one `scaffoldAggregate` / `scaffoldWorkflow` per member |
@@ -355,7 +355,7 @@ commandHandler RenameProduct(productId: Product id, cmd: RenameProductCommand) {
 ```
 ::: end
 
-`scaffoldPaged(of: <Criterion>)` (target `context`) is the ergonomic paged read — one `queryHandler` over the read-only port:
+`scaffoldPaged(of: <Criterion | Retrieval>)` (target `context`) is the ergonomic paged read — one `queryHandler` over the read-only port, and the way a named read reaches the wire (a `criterion` / `retrieval` has no route of its own). The macro reads its argument's kind:
 
 ::: tabs macro
 == written
@@ -375,7 +375,47 @@ queryHandler ListProductByNamed(needle: string): Product paged {
 ```
 ::: end
 
-`scaffoldApi(of: <Subdomain>)` and `scaffoldPagedApi(of: <Criterion>)` are the matching **`api`-target** macros — they emit the `route`s (POST for writes, GET for reads; `/projections/<criterion>` for the paged one) that bind to those handlers:
+Over a `retrieval`, the retrieval's `where` filters the page and its `sort:` is the page's default order. `requires: <Policy>` names a parameterless function-form `policy` and becomes the handler's first statement (a handler has no header gate), the same rule as `crudish(requires:)`. Under `denyByDefault` an ungated scaffolded route is refused like any other ungated handler (`loom.default-deny-ungated`):
+
+::: tabs macro
+== written
+```ddd
+context Catalog with scaffoldPaged(of: Cheapest, requires: Staff) {
+  aggregate Product { name: string  price: money }
+  repository Products for Product { }
+  policy Staff(): bool = currentUser.role == "staff"
+  criterion Named(needle: string) of Product = this.name == needle
+  retrieval Cheapest(needle: string) of Product { where: Named(needle)  sort: [price asc] }
+}
+api CatalogApi with scaffoldPagedApi(of: Cheapest) from Sales { }
+```
+== expanded
+```ddd
+queryHandler ListProductByCheapest(needle: string): Product paged {
+  requires Staff()
+  let r = Products.run(Cheapest(needle))
+  return r
+}
+// on CatalogApi:
+route GET "/products/projections/cheapest" -> Catalog.ListProductByCheapest
+```
+== node
+```ts
+// http/catalogApi-routes.ts — the route's `sort` defaults to "", i.e. the declared order
+request: { query: z.object({ needle: z.string(), page: …, pageSize: …, sort: z.string().default(""), dir: z.string().default("asc") }) },
+…
+if (!(currentUser.role === "staff")) throw new ForbiddenError("Forbidden: Staff()");
+const products = new ProductRepository(db, events);
+const result = await products.pageCheapest(needle, query.page, query.pageSize, query.sort, query.dir);
+
+// db/repositories/product-repository.ts — a whitelisted `sort` wins, else the declared terms + `id`
+const orderBy = Object.hasOwn(sortColumns, sort)
+  ? [dir === "desc" ? desc(sortColumns[sort]!) : asc(sortColumns[sort]!)]
+  : [asc(schema.products.price), asc(schema.products.id)];
+```
+::: end
+
+`scaffoldApi(of: <Subdomain>)` and `scaffoldPagedApi(of: <Criterion | Retrieval>)` are the matching **`api`-target** macros — they emit the `route`s (POST for writes, GET for reads; `/projections/<read>` for the paged one) that bind to those handlers:
 
 ```ddd
 subdomain Sales {

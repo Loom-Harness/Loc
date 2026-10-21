@@ -54,6 +54,8 @@ on:
       - 'src/generator/sql-pg.ts'
       - 'src/generator/_persistence/**'
       - 'src/generator/elixir/migrations-emit.ts'
+      # The Dapper migration emitter + boot-time runner (M-T2.17).
+      - 'src/generator/dotnet/emit/dapper-migrations.ts'
       # The Drizzle journal and its ordering key (see the `push:` block).
       - 'src/generator/typescript/emit/migrations.ts'
       - 'test/e2e/migration-evolution.test.ts'
@@ -101,6 +103,10 @@ jobs:
             script: test:migration-evolution-java
           - backend: dotnet
             script: test:migration-evolution-dotnet
+          # The .NET backend on `persistence: dapper` (M-T2.17): the same chain,
+          # applied by DbSchema.EnsureAsync, plus the legacy-bootstrap baseline.
+          - backend: dapper
+            script: test:migration-evolution-dapper
           - backend: elixir
             script: test:migration-evolution-elixir
     name: migration-evolution-e2e (${{ matrix.backend }})
@@ -144,7 +150,7 @@ jobs:
           gradle-version: '9.6.1'
 
       - name: Set up .NET (dotnet)
-        if: matrix.backend == 'dotnet'
+        if: matrix.backend == 'dotnet' || matrix.backend == 'dapper'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

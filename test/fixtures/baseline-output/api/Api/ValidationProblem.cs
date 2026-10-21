@@ -8,6 +8,19 @@ namespace Api.Api;
 public static class ValidationProblem
 {
     /// <summary>
+    /// The message every backend sends for a REQUIRED request field the body
+    /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
+    /// value-typed member) or DataAnnotations' [Required] did (a reference one).
+    /// </summary>
+    private const string MissingField = "Required";
+
+    /// <summary>[Required]'s own sentence — "The X field is required." —
+    /// recognised so it carries the shared wording instead.</summary>
+    private static bool IsRequiredMessage(string message) =>
+        message.StartsWith("The ", StringComparison.Ordinal)
+        && message.EndsWith(" field is required.", StringComparison.Ordinal);
+
+    /// <summary>
     /// RFC 7807 answer for a request MVC rejected during model binding or
     /// DataAnnotations validation.  Wired in Program.cs via
     /// ApiBehaviorOptions.InvalidModelStateResponseFactory.
@@ -92,7 +105,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = "The " + name + " field is required.",
+                            ["message"] = MissingField,
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -139,7 +152,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

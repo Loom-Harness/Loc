@@ -54,8 +54,8 @@ interface BackendAdapterMeta {
 // `parseBuiltinPlatformRef`).  `python` and every frontend platform carry no
 // adapter menu (their surfaces omit `adapters()`), so they are absent — the
 // lookups below return `undefined` / `[]` for them, matching the live
-// surface.  hono@v4 and hono@v5 share one adapter menu (v5 reuses v4's
-// `makeHonoPlatform`), so the single `node` entry covers both.
+// surface.  The `node` entry is the menu of the shared `makeHonoPlatform`
+// surface, so it holds for every registered `node@…` version.
 // ---------------------------------------------------------------------------
 const BACKEND_ADAPTER_METADATA: Partial<Record<Platform, BackendAdapterMeta>> = {
   node: {

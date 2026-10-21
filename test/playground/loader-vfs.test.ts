@@ -89,12 +89,10 @@ describe("resolvePackDir: built-in names", () => {
     expect(resolvePackDir("mui")).toBe("/designs/mui/v7");
   });
   it("resolves pinned built-ins to /designs/<family>/<version>", () => {
-    // Both old + new mantine majors are loadable.  Pinning is the
-    // opt-out for projects that don't want to ride BUILTIN_PACK_LATEST
-    // forward across toolchain upgrades.
-    expect(resolvePackDir("mantine@v7")).toBe("/designs/mantine/v7");
+    // Pinning is the opt-out for projects that don't want to ride
+    // BUILTIN_PACK_LATEST forward across toolchain upgrades.
     expect(resolvePackDir("mantine@v9")).toBe("/designs/mantine/v9");
-    expect(resolvePackDir("chakra@v2")).toBe("/designs/chakra/v2");
+    expect(resolvePackDir("chakra@v3")).toBe("/designs/chakra/v3");
   });
 });
 
@@ -126,7 +124,7 @@ describe("resolvePackDir: paths", () => {
 
 describe("loadPack: built-in pack loading", () => {
   it("loads the mantine pack and exposes its templates", () => {
-    const pack = loadPack("/designs/mantine/v7");
+    const pack = loadPack("/designs/mantine/v9");
     expect(pack.manifest.name).toBe("mantine");
     // page-list / page-detail / page-new etc. were
     // deleted; pack now exposes the walker stdlib primitives.
@@ -136,7 +134,7 @@ describe("loadPack: built-in pack loading", () => {
   });
 
   it("loads the shadcn pack including its declared helpers", () => {
-    const pack = loadPack("/designs/shadcn/v3");
+    const pack = loadPack("/designs/shadcn/v4");
     expect(pack.manifest.name).toBe("shadcn");
     // shadcn declares a `lucide` icon-rename helper in its manifest
     // (PR #58).  The VFS loader path must wire the helper-registration

@@ -22,7 +22,7 @@ Touches: <files / area>. Plan: <one line>.
 
 Re-read the issue; if another claim landed first, back off. Update the comment when the scope changes. A claim with no update or branch push for 24h is stale — a new session may take it over by saying so in a comment.
 
-**No draft PR, no doc edit to claim.** Both cost CI and neither expires.
+**No draft PR, no doc edit to claim.** Both cost CI and neither expires. (A draft PR is for a train member's finished work — see "Trains" below — not a claim.)
 
 ## 3. Design before code (when the issue says so)
 Grammar-touching or `design` work: read the linked design records, follow the matching skill (`language-feature-developer`, `dependency-upgrade`, `generated-stack-verifier`, `parity-auditor`), and put the resolved open questions in the issue (decisions that will hold go in `docs/decisions.md` with the code PR).
@@ -49,6 +49,27 @@ Too big for one session? Split the issue into sub-issues, finish one, leave the 
 ## Waves and evals
 - A wave is a parent issue; each packet is a sub-issue with disjoint `Touches:`. A coordinator files and orders them; workers claim one each.
 - An eval / audit session's deliverable is a parent issue with one sub-issue per finding. Fix sessions claim those.
+
+## Trains — how a fleet lands its work
+
+A fleet does not send one PR per worker through the merge queue. Each queue entry re-runs the whole queue gate set (~75 jobs, ~240 runner-minutes); an entry ejected for a conflict or a red check costs that again plus a round trip; and parallel PRs in one area conflict with each other in the queue, one ejection at a time. A **coordinator** stacks the workers' changes into one **train** and puts only the train through the queue.
+
+**Workers**
+- Work the issue as above (§1–§5), but open the PR as a **draft**, based on `main`, with no `run-*` labels. A draft runs only the seconds-cheap lane (`langium-generated`, `workflow-lint`, `pr-gate`); the fan-out and the fast suite are draft-gated (`docs/ci-gating.md` → "Draft PRs and the runner queue"), so a member push costs almost no runner time.
+- Run the gates locally — the fast suite, the push preflight (typecheck + censuses on `origin/main + HEAD`), and the heavy gates for your area. CI will not run them for you until the train does.
+- **Never mark a member ready for review** — that fires the full fan-out on it. Tell the coordinator the branch is done (issue comment or message).
+
+**Coordinator**
+1. Branch the train from fresh `main`. Merge each finished member in with a **merge commit** — never squash or rebase — so each member's commits survive, `git bisect` can walk them, and a member PR based on `main` is closed as merged when the train lands.
+2. **3–8 members**, preferably one `area:`. Resolve conflicts between members once, here, instead of in the queue.
+3. Before queueing: merge `origin/main` once, run the push preflight and the heavy gates for every area the train touches. Then open **one** ready-for-review PR (title `Train: #a #b #c`, members listed in the body, each `Fixes #N` carried over), push **once**, enable auto-merge.
+4. **Red, in CI or after a queue ejection:** read which check failed and find the member from the log; when that is not obvious, `git bisect` over the member merges **locally** — never re-run CI to bisect. Rebuild the train without that member (do not revert on top), push once, and hand the member back to its worker on its draft.
+5. A member that keeps conflicting with `main` lands first, alone: ask the owner to jump it to the front of the queue rather than syncing it again.
+
+**Rules learned the hard way**
+- No pushes while the train is queued — GitHub refuses them (GH006), and a sync of a queued PR re-runs everything for nothing.
+- A member PR whose base is another member (a stacked PR) is **not** auto-closed when the train lands; close it by hand.
+- One push per fix. A conflict with `main` is the only reason to sync an open train.
 
 ## The kickoff prompt
 

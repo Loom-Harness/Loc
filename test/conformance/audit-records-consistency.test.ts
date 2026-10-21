@@ -2,7 +2,7 @@
 //
 // The table is emitted six ways — the platform-neutral DDL (MigrationsIR), the
 // Hono Drizzle `pgTable`, the MikroORM entity, the EF Core POCO, the JPA entity
-// and the Dapper `DbSchema` CREATE TABLE — and each used to carry its own
+// and the Dapper migration's CREATE TABLE — and each used to carry its own
 // hand-written column list.
 //
 // They drifted, and it cost two CI legs.  `before` / `after` are NULLABLE (a
@@ -157,24 +157,32 @@ describe("audit_records agrees with the shared descriptor", () => {
     }
   });
 
-  it("the Dapper DbSchema CREATE TABLE matches", async () => {
+  it("the Dapper migration's CREATE TABLE matches", async () => {
+    // Dapper applies the shared migration chain (M-T2.17), so its table is the
+    // MigrationsIR one — read it out of the emitted migration, the way the
+    // runner will execute it.
     const files = generateSystems(await build(sys("dotnet { persistence: dapper }"))).files;
-    const schema = expectEmitted(files, "d/Infrastructure/Persistence/DbSchema.cs");
-    const table = schema.slice(schema.indexOf(`CREATE TABLE IF NOT EXISTS ${AUDIT_RECORDS_TABLE}`));
+    const migrations = [...files.entries()]
+      .filter(([p]) => p.startsWith("d/Migrations/"))
+      .map(([, c]) => c.replace(/""/g, "").replace(/"/g, ""))
+      .join("\n");
+    const start = migrations.indexOf(`CREATE TABLE ${AUDIT_RECORDS_TABLE} (`);
+    expect(start, "no audit_records CREATE TABLE in the Dapper migrations").toBeGreaterThan(-1);
+    const table = migrations.slice(start);
     const body = table.slice(0, table.indexOf(");"));
 
     for (const c of AUDIT_RECORD_COLUMNS) {
-      const line = body.split("\n").find((l) => l.trim().startsWith(c.column));
+      const line = body.split("\n").find((l) => l.trim().startsWith(`${c.column} `));
       expect(line, `dapper column '${c.column}' missing`).toBeDefined();
       if (c.column === AUDIT_RECORDS_PK) {
-        // Same as drizzle: `primary key` already implies NOT NULL.
-        expect(line, "the PK column must declare primary key").toMatch(/primary key/i);
-        continue;
+        expect(body, "the PK column must be the primary key").toContain(
+          `PRIMARY KEY (${AUDIT_RECORDS_PK})`,
+        );
       }
       expect(
         /\bnot null\b/i.test(line!),
         `dapper '${c.column}': not-null should be ${!c.nullable}`,
-      ).toBe(!c.nullable);
+      ).toBe(!c.nullable || c.column === AUDIT_RECORDS_PK);
     }
   });
 

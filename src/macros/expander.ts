@@ -42,6 +42,7 @@ import {
   isCriterion,
   isImplementsDecl,
   isPolicyDecl,
+  isRetrieval,
   isSubdomain,
   isSystem,
   isUi,
@@ -55,13 +56,7 @@ import {
 } from "../language/generated/ast.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../util/capability-tag.js";
 import { readArgBool, readArgInt, readArgRef, readArgRefs, readArgString } from "./api/_read.js";
-import type {
-  MacroDefinition,
-  NamedDeclKind,
-  OriginToken,
-  ParamSpec,
-  ParamType,
-} from "./api/define.js";
+import type { MacroDefinition, OriginToken, ParamSpec, ParamType, RefKinds } from "./api/define.js";
 import { _withOrigin } from "./api/factories.js";
 import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
@@ -164,6 +159,9 @@ interface Inventory {
   /** Reusable predicate specifications (`criterion X(...) of T = …`) keyed by
    * name — the `of:` target of `scaffoldPaged` / `scaffoldPagedApi`. */
   Criterion: Map<string, AstNode>;
+  /** Named query bundles (`retrieval X(...) of T { … }`) keyed by name — the
+   * other `of:` target of `scaffoldPaged` / `scaffoldPagedApi`. */
+  Retrieval: Map<string, AstNode>;
   /** FUNCTION-form authorization predicates (`policy X(...): bool = …`) keyed
    * by name — the `requires:` target of `crudish`.  The read-ladder form
    * (`policy { allow deep on X }`) is deliberately excluded: it has no name
@@ -184,6 +182,7 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
     ValueObject: new Map(),
     EnumDecl: new Map(),
     Criterion: new Map(),
+    Retrieval: new Map(),
     Policy: new Map(),
     Capability: new Map(),
   };
@@ -198,6 +197,7 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
       else if (node.$type === "ValueObject") inv.ValueObject.set(named.name, node);
       else if (node.$type === "EnumDecl") inv.EnumDecl.set(named.name, node);
       else if (isCriterion(node)) inv.Criterion.set(named.name, node);
+      else if (isRetrieval(node)) inv.Retrieval.set(named.name, node);
       // Function form only — `returnType` present discriminates
       // `policy X(): bool = …` from the read-ladder `policy X { … }`.
       else if (isPolicyDecl(node) && node.returnType) inv.Policy.set(named.name, node);
@@ -1028,7 +1028,7 @@ function coerceArg(
               message: diagMessage("loom.macro-arg-unresolved-ref", {
                 argName,
                 macroName,
-                of: spec.of,
+                of: describeRefKinds(spec.of),
                 refText,
               }),
               node: arg,
@@ -1056,7 +1056,7 @@ function coerceArg(
                 message: diagMessage("loom.macro-arg-unresolved-ref", {
                   argName,
                   macroName,
-                  of: spec.of,
+                  of: describeRefKinds(spec.of),
                   refText,
                 }),
                 node: arg,
@@ -1106,12 +1106,7 @@ export function resolveMacroArgs(
 
 /** One `ref` / `refList` element of a macro call, with the declaration kind
  * its param spec expects. */
-type MacroRefVisitor = (
-  kind: NamedDeclKind,
-  name: string,
-  arg: MacroArg,
-  macroName: string,
-) => void;
+type MacroRefVisitor = (kind: RefKinds, name: string, arg: MacroArg, macroName: string) => void;
 
 /** Walk every macro host in `model` and visit each `ref` / `refList` argument
  * element (name + expected declaration kind).  Shared by the validator's
@@ -1196,7 +1191,7 @@ export function collectUnresolvedMacroRefs(
       message: diagMessage("loom.macro-arg-unresolved-ref", {
         argName: arg.name,
         macroName,
-        of: kind,
+        of: describeRefKinds(kind),
         refText: name,
       }),
       node: arg,
@@ -1206,8 +1201,18 @@ export function collectUnresolvedMacroRefs(
   _macroDepsByDoc.set(AstUtils.getDocument(model), { unresolved, providers });
 }
 
-function resolveRef(inv: Inventory, kind: NamedDeclKind, name: string): AstNode | undefined {
-  return inv[kind].get(name);
+function resolveRef(inv: Inventory, kinds: RefKinds, name: string): AstNode | undefined {
+  for (const kind of typeof kinds === "string" ? [kinds] : kinds) {
+    const hit = inv[kind].get(name);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** A ref argument's kind(s) as the diagnostic names them (`Criterion or
+ *  Retrieval`). */
+function describeRefKinds(kinds: RefKinds): string {
+  return typeof kinds === "string" ? kinds : kinds.join(" or ");
 }
 
 function listMacroNames(): string {

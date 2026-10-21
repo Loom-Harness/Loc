@@ -126,7 +126,10 @@ describe("Hono validation-error extension — emission", () => {
     // splats it into the JSON.stringify body.
     expect(src).toMatch(/const errors = \(result\.error\?\.issues \?\? \[\]\)\.map/);
     expect(src).toMatch(/pointer:\s*pointerOf\(issue\.path\)/);
-    expect(src).toMatch(/message:\s*issue\.message/);
+    // An absent required field reads the shared word instead (RS-39).
+    expect(src).toMatch(
+      /message:\s*isAbsent\(result\.data, issue\.path\) \? "Required" : issue\.message/,
+    );
     // The shorthand `errors` (= the local const) is included in the
     // emitted JSON body — that's the field the frontend ACL reads.
     expect(src).toMatch(/instance:\s*c\.req\.path,\s*errors,/);

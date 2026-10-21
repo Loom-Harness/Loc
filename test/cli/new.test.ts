@@ -4,7 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { cliInvocation } from "../../src/cli/new-templates.js";
+import { cliInvocation, renderStarter } from "../../src/cli/new-templates.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -69,12 +70,11 @@ describe("ddd new — scaffold matrix", () => {
           deployables: { name: string; platform: string; port: number }[];
         };
         expect(report.ok).toBe(true);
-        // ...and CLEANLY.  `ok` is true with warnings, so this assertion was
-        // the gap: the shipped `crud` starter carried a list-returning
-        // `find byProject(...)`, which `loom.repository-find-deprecated` warns
-        // on — so a fresh `ddd new` scolded the user on their very first
-        // `ddd parse`, before they had written a line.  A starter is the one
-        // model in the repo that must be exemplary.
+        // ...and CLEANLY.  `ok` is true with warnings, so this is the
+        // assertion that keeps a fresh `ddd new` from scolding the user on
+        // their first `ddd parse` (a list-returning `find` would draw
+        // `loom.repository-find-deprecated`).  A starter is the one model in
+        // the repo that must be exemplary.
         expect(
           report.diagnostics ?? [],
           `${platform}/${template} scaffolds without diagnostics`,
@@ -84,6 +84,29 @@ describe("ddd new — scaffold matrix", () => {
         fs.rmSync(tmp, { recursive: true });
       });
     }
+  }
+});
+
+describe("ddd new — the crud starter's named read is on the wire", () => {
+  // The starter's list read is a criterion + retrieval pair; `scaffoldPaged` +
+  // `scaffoldPagedApi` expose it as a paged GET on every backend.
+  for (const platform of ["node", "dotnet", "elixir", "java", "python"] as const) {
+    it(`${platform}: serves GET /tasks/projections/tasks_in_project`, async () => {
+      const src = renderStarter({
+        name: "myApp",
+        template: "crud",
+        platform,
+        design: platform === "elixir" ? "coreComponents" : "mantine",
+        invocation: "ddd",
+      });
+      expect(src).toContain("with scaffoldPaged(of: TasksInProject)");
+      expect(src).toContain("with scaffoldPagedApi(of: TasksInProject)");
+      const files = await generateSystemFiles(src);
+      const routed = [...files.values()].some((c) =>
+        c.includes("/tasks/projections/tasks_in_project"),
+      );
+      expect(routed).toBe(true);
+    });
   }
 });
 

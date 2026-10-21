@@ -14,6 +14,7 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -168,10 +169,10 @@ export function generateReactForContexts(
 
   // Route list-page emission through the new template-pack
   // layer.  `deployable.design` is fully qualified by the lowering
-  // pass (e.g. "mantine@v7"); the `??` default is defensive against
+  // pass (e.g. "mantine@v9"); the `??` default is defensive against
   // programmatic IR construction that bypasses lowering and matches
   // the current toolchain's default Mantine version.
-  const design = deployable.design ?? "mantine@v7";
+  const design = deployable.design ?? "mantine@v9";
   const pack = loadPack(resolvePackDir(design));
 
   // Page metamodel routing.  Every React deployable declares a
@@ -195,9 +196,15 @@ export function generateReactForContexts(
   // Per-aggregate api modules — always emitted; 1:1 with the
   // aggregate inventory.  Page emission below walks the resolved
   // `ui.pages` for both pages and page-objects (single source).
+  // A synthesized paged find is reachable only through the explicit route
+  // the backend serves for it, so its hook binds to that route (or is absent).
+  const findRoutes = pagedFindRoutes(sys, target ?? deployable);
   for (const { agg, ctx } of aggregates) {
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-    out.set(`src/api/${lowerFirst(agg.name)}.ts`, buildApiModule(agg, repo, ctx));
+    out.set(
+      `src/api/${lowerFirst(agg.name)}.ts`,
+      buildApiModule(agg, repo, ctx, { pagedFindRoutes: findRoutes }),
+    );
   }
 
   const workflows = allWorkflows(contexts);

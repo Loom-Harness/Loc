@@ -130,6 +130,36 @@ Notes:
   gate.)
 - Additive: a system that doesn't opt in keeps its welcome page unchanged.
 
+### `scaffoldPaged` / `scaffoldPagedApi` — a named read on the wire
+
+A `criterion` or `retrieval` is a domain declaration with no route of its own.
+This pair is how one reaches a client: `scaffoldPaged` (target `context`) emits
+a paged `queryHandler` over `Repo.run(<read>)`, and `scaffoldPagedApi` (target
+`api`) emits the `GET /<plural>/projections/<read>` route bound to it. `of:` takes
+either kind, and the macro reads the argument's kind. Over a retrieval, the
+`sort:` is the page's default order. `requires: <Policy>` (a parameterless
+function-form policy) gates the handler, the same rule as `crudish(requires:)`:
+
+```ddd
+context Projects with scaffoldPaged(of: TasksInProject, requires: Members) { … }
+api TasksApi with scaffoldPagedApi(of: TasksInProject) from Core { }
+```
+
+expands to (unfold ejects exactly this):
+
+```ddd
+queryHandler ListTaskByTasksInProject(p: Project id): Task paged {
+  requires Members()
+  let r = Tasks.run(TasksInProject(p))
+  return r
+}
+route GET "/tasks/projections/tasks_in_project" -> Projects.ListTaskByTasksInProject
+```
+
+The generated route and repository code for every backend are in
+[language reference §22](language-reference/22-macros.md). The
+`ddd new --template crud` starter uses this pair for `TasksInProject`.
+
 ### Composability
 
 Unfolding one level on `with scaffold(subdomains: [Sales])` reveals one

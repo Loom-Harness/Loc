@@ -10,7 +10,6 @@ import { allPlatformDescriptors } from "../../../platform/metadata.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { plural, snake } from "../../../util/naming.js";
-import { buildCreateInput } from "../../enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -28,7 +27,6 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
-import { isMacroEmitted } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
@@ -1554,33 +1552,21 @@ function flagStmt(
 }
 
 // ---------------------------------------------------------------------------
-// The canonical `create` / `destroy` BODY is not rendered on a state-based
-// aggregate — an honest gap, so that it stops being a silent one.
+// What a state-based canonical `create` / `destroy` BODY renders, and the
+// honest gap for the rest.
 //
-// Lowering does its job: `canonicalCreate.statements` and
-// `canonicalDestroy.statements` carry the full body, guards included.  No
-// backend reads either.  `canonicalCreate` is consumed as a MARKER — its
-// existence gates whether `POST /<aggs>` and the `static create` factory are
-// emitted — plus `params` / `audited`; `.statements` is read nowhere across all
-// five emitters.  The factory body is synthesized from the field set
-// (`forCreateInput`), so whatever the author wrote in the braces never reaches
-// an emitter.
+// A `requires` is hoisted to each backend's chokepoint (403).  A `create` body
+// additionally renders its `precondition`s, `emit`s and `let`s
+// (`createBodyStatements`, `src/ir/util/op-gates.ts`) against the constructed
+// instance — the 422 / event an operation body produces.  Everything else is
+// NOT rendered: a destroy body beyond its gate, and in a create any
+// assignment the factory does not already reproduce, any `+=` / `-=`, call,
+// `if` or `match`.  A statement nothing renders would silently not run — a
+// guard that never checks, a side effect that never happens — so each is a
+// named error instead.
 //
-// That makes a `requires` inside a create SILENTLY NON-ENFORCING: it parses
-// clean, emits no guard, and turns an authorization-gated create into an open
-// one.  A `precondition` vanishes the same way, and so does a literal default
-// (`status := "New"`) — while `name := name` survives only by coincidence,
-// because the field-derived input already supplies `name`.  That coincidence is
-// why this went unnoticed: repo-wide it is the ONLY create-body idiom in use.
-//
-// EVENT-SOURCED aggregates are exempt and must stay so — their create runs
-// through `agg.creates[0]`, a different path that IS rendered (`emit` in an
-// `eventLog` create works today).  Gating them would break working code.
-//
-// This is deliberately a GAP, not a fix: the fix is to render the body like any
-// other operation (the IR is already correct — see the header note above), one
-// backend at a time.  Until then a named error beats a silent drop, which is
-// this repo's standing rule for a capability a backend does not emit.
+// EVENT-SOURCED creates are exempt: their body is the `_init` fold, a
+// different path that renders `emit` and the rest.
 // ---------------------------------------------------------------------------
 
 /** What the author loses for each statement kind a lifecycle body can hold.
@@ -1609,10 +1595,12 @@ function droppedStmtReason(kind: StmtIR["kind"], label: "create" | "destroy"): s
     // would make the emitted gate unreachable from any valid source.
     case "requires":
       return null;
+    // A create body renders these against the constructed instance
+    // (`RENDERED_CREATE_STMT_KINDS`); a destroy body does not.
     case "precondition":
-      return `the guard never runs — ${subject} is left unchecked`;
+      return label === "create" ? null : `the guard never runs — ${subject} is left unchecked`;
     case "emit":
-      return "the domain event is never published";
+      return label === "create" ? null : "the domain event is never published";
     case "add":
     case "remove":
       return "the collection mutation never runs";
@@ -1624,7 +1612,7 @@ function droppedStmtReason(kind: StmtIR["kind"], label: "create" | "destroy"): s
       return "the branch never runs";
     case "assign":
       return label === "create"
-        ? "the assignment never runs — the field takes its value from the request body instead"
+        ? "the assignment never runs — the field takes its value from the create input, or its declared default, instead"
         : "the assignment never runs";
     // `let` binds a local that only the dropped statements could read, so it is
     // not observable on its own; `return` is not admissible in a lifecycle body.
@@ -1880,92 +1868,6 @@ export function validateLifecycleBodyDropped(
             origin: create.origin,
           });
         }
-      }
-    }
-
-    // ── the declared create's PARAMETER LIST is not the request contract ──
-    //
-    // `POST /<aggs>` takes the FIELD-DERIVED create input, never the parameter
-    // list the author wrote (see the block comment above — no emitter reads
-    // `canonicalCreate.params`).  So a narrowed list shapes nothing:
-    //
-    //     aggregate Issue {
-    //       …
-    //       blockedBy: Issue id[]
-    //       create(project: Project id, key: string, title: string) { … }
-    //     }
-    //
-    // still emits `Issue.create({ …, blockedBy })` and a request body that
-    // REQUIRES `blockedBy`.  The author reads their own list as the contract,
-    // writes a client (or a `test` block) against it, and gets a 422 naming a
-    // field their create does not even accept.
-    //
-    // The sibling `loom.lifecycle-body-dropped` did not cover this: it fires on
-    // a dropped STATEMENT, and the ubiquitous `field := <same-named param>`
-    // idiom is exempt there because the field-derived input reproduces its
-    // effect.  A create whose body is only those identity assignments is
-    // therefore silent today — which is precisely the shape that misleads.
-    //
-    // A warning, not an error: the model is emittable and correct, the author's
-    // MENTAL MODEL is what is wrong.  Listing every create-input field (what
-    // `with crudish` generates) or declaring the empty list `create()` both
-    // keep it quiet.  (Not "omitting the parens": a `create`'s parens are
-    // mandatory in the grammar — `create { }` does not parse.  F-010.)
-    if (agg.canonicalCreate && agg.canonicalCreate.params.length > 0) {
-      const declared = new Set(agg.canonicalCreate.params.map((p) => p.name));
-      const input = agg.createInput ?? buildCreateInput(agg);
-      const missing = input.filter((c) => !declared.has(c.field.name));
-      // A missing REQUIRED field breaks a caller: the request body demands it
-      // and the declared `create` never mentions it, so a client written from
-      // the declaration gets a 422 naming a field the author does not believe
-      // exists.  A missing OPTIONAL field is the opposite hazard: the author
-      // narrowed the list to KEEP it out of creation (typically a field only an
-      // operation should set — `approvedAmount: money?` set by `approve()`),
-      // and `POST /<plural>` still accepts it, so any client can create the row
-      // with the value already set, bypassing the operation's preconditions
-      // (claims eval D10: an approvedAmount of 99999 stored at creation).  Both
-      // warn — but only on a NARROWED list (the `params.length > 0` guard
-      // above), so an aggregate with nullable fields and an empty `create()` or
-      // a full list stays quiet.  The optional half is also limited to a
-      // create the AUTHOR wrote: a macro-synthesized one (`with crudish`) was
-      // not narrowed on purpose and has no parameter list to edit.
-      const missingRequired = missing.filter((c) => c.requiredInput).map((c) => c.field.name);
-      const alsoAccepted = missing.filter((c) => !c.requiredInput).map((c) => c.field.name);
-      const fmt = (ns: string[]) => ns.map((n) => `\`${n}\``).join(", ");
-      if (
-        missingRequired.length === 0 &&
-        alsoAccepted.length > 0 &&
-        !isMacroEmitted(agg.canonicalCreate.origin)
-      ) {
-        diags.push({
-          severity: "warning",
-          code: "loom.create-params-not-wire",
-          message: diagMessage("loom.create-params-not-wire#optional", {
-            agg: agg.name,
-            missing: fmt(alsoAccepted),
-            verb: alsoAccepted.length === 1 ? "is" : "are",
-          }),
-          source: `${ctx.name}/aggregate ${agg.name}.create`,
-          origin: agg.origin,
-        });
-      }
-      if (missingRequired.length > 0) {
-        diags.push({
-          severity: "warning",
-          code: "loom.create-params-not-wire",
-          message: diagMessage("loom.create-params-not-wire", {
-            agg: agg.name,
-            missing: fmt(missingRequired),
-            also:
-              alsoAccepted.length > 0
-                ? `  (\`${agg.name}\`'s optional ${fmt(alsoAccepted)} ${
-                    alsoAccepted.length === 1 ? "is" : "are"
-                  } accepted on the wire too.)`
-                : "",
-          }),
-          source: `${ctx.name}/aggregate ${agg.name}.create`,
-          origin: agg.origin,
-        });
       }
     }
 

@@ -61,7 +61,7 @@ import type {
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
-import { pagedRunStmt } from "../util/paged-run.js";
+import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
   buildDenyFilter,
@@ -946,6 +946,7 @@ export function enrichContext(
     ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
     ctx.queryHandlers,
     ctx.criteria,
+    ctx.retrievals,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1185,6 +1186,7 @@ function synthesizePagedQueryHandlerFinds(
   repositories: RepositoryIR[],
   queryHandlers: QueryHandlerIR[] | undefined,
   criteria: CriterionIR[] | undefined,
+  retrievals: RetrievalIR[] | undefined,
 ): RepositoryIR[] {
   const handlers = (queryHandlers ?? []).filter((h) => pagedReturn(h.returnType));
   if (handlers.length === 0) return repositories;
@@ -1192,28 +1194,44 @@ function synthesizePagedQueryHandlerFinds(
   const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const h of handlers) {
     // The returned value must be a plain `let`-ref bound to a top-level
-    // `Repo.run(<Criterion>)` (synthCriterion) statement — the only paged-run
-    // body shape the five backends emit (`pagedRunStmt`).  Any other shape is
-    // left un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
+    // `Repo.run(<Criterion | Retrieval>)` statement — the only paged-run body
+    // shape the five backends emit (`pagedRunStmt`).  Any other shape is left
+    // un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
     // before any emitter runs.
     const run = pagedRunStmt(h);
-    if (!run?.synthCriterion) continue;
-    const crit = crits.find((c) => c.name === run.synthCriterion!.name);
-    if (!crit) continue;
+    if (!run) continue;
     const repo = out.find((r) => r.aggregateName === run.aggName);
     if (!repo) continue;
-    if (repo.finds.some((f) => f.name === run.retrievalName)) continue;
+    if (repo.finds.some((f) => f.name === pagedRunFindName(run))) continue;
+    if (run.synthCriterion) {
+      const crit = crits.find((c) => c.name === run.synthCriterion!.name);
+      if (!crit) continue;
+      repo.finds.push({
+        name: run.retrievalName,
+        params: crit.params,
+        returnType: h.returnType,
+        filter: crit.body,
+        criterionRef: {
+          name: crit.name,
+          args: crit.params.map(
+            (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
+          ),
+        },
+        synthesized: true,
+      });
+      continue;
+    }
+    // A named retrieval: its `where` filters the page, its `sort:` orders it
+    // unless the caller picks a whitelisted `sort` column.
+    const r = (retrievals ?? []).find((x) => x.name === run.retrievalName);
+    if (!r) continue;
     repo.finds.push({
-      name: run.retrievalName,
-      params: crit.params,
+      name: pagedRunFindName(run),
+      params: r.params,
       returnType: h.returnType,
-      filter: crit.body,
-      criterionRef: {
-        name: crit.name,
-        args: crit.params.map(
-          (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
-        ),
-      },
+      filter: r.where,
+      ...(r.criterionRef ? { criterionRef: r.criterionRef } : {}),
+      ...(r.sort.length > 0 ? { defaultSort: r.sort } : {}),
       synthesized: true,
     });
   }

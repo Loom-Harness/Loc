@@ -184,7 +184,7 @@ across layers, put it at the layer where its consumers live, never "upward".
 
 1. Two homes are possible:
    - **In-tree (default for new backends):** implement `PlatformSurface` in `src/platform/<backend>.ts`; register in `src/platform/registry.ts`.
-   - **Out-of-tree (versioned package, like the `node@v4` / `node@v5` backends in `packages/backend-hono-v4/` and `packages/backend-hono-v5/`):** add a workspace under `packages/backend-<family>-v<N>/` with a `package.json` carrying a `loom: { kind: "backend", family, loomVersion, core }` block.  `src/platform/fs-discovery.ts` picks it up via `setBackendSource`; `parseBuiltinPlatformRef` lets a deployable target it by `family@version`.
+   - **Out-of-tree (versioned package, like the `node@v5` backend in `packages/backend-hono-v5/`):** add a workspace under `packages/backend-<family>-v<N>/` with a `package.json` carrying a `loom: { kind: "backend", family, loomVersion, core }` block.  `src/platform/fs-discovery.ts` picks it up via `setBackendSource`; `parseBuiltinPlatformRef` lets a deployable target it by `family@version`.
 2. If the backend serves a wire shape, read `agg.wireShape` etc. directly from the IR — do not recompute.
 3. If it runs domain logic, implement an `ExprTarget` leaf table in `render-expr.ts` and a `StmtTarget` leaf table in `render-stmt.ts` (the dispatchers live in `src/generator/_expr/target.ts` and `src/generator/_stmt/target.ts`), honouring `refKind` / `callKind` / `isCollectionOp`.
 4. If a new `platform:` keyword is added, also extend the `Platform` rule in `ddd.langium`, the `Platform` type in `loom-ir.ts`, and `checkDeployable` in `src/language/validators/deployable.ts` (see the `'react'` and `'phoenixLiveView'` additions for the pattern).

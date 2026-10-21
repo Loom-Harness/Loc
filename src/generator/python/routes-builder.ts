@@ -1,7 +1,7 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
-  forCreateInput,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
 import {
@@ -83,6 +83,7 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyCommandBodyParam, usesOptionalBody } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
 import { paramPyType, requestPyType, responsePyType, wireModelImport } from "./emit/http-models.js";
@@ -294,7 +295,7 @@ export function buildPyRoutesFile(
       : null,
     refersTo("Decimal") ? "from decimal import Decimal" : null,
     refersTo("math") || refersTo("datetime") || refersTo("Decimal") ? "" : null,
-    `from fastapi import ${["APIRouter", "Depends", refersTo("Path") ? "Path" : null, refersTo("Query") ? "Query" : null, refersTo("Request") ? "Request" : null, refersTo("Response") ? "Response" : null].filter(Boolean).join(", ")}`,
+    `from fastapi import ${["APIRouter", usesOptionalBody(scan) ? "Body" : null, "Depends", refersTo("Path") ? "Path" : null, refersTo("Query") ? "Query" : null, refersTo("Request") ? "Request" : null, refersTo("Response") ? "Response" : null].filter(Boolean).join(", ")}`,
     refersTo("JSONResponse") ? "from fastapi.responses import JSONResponse" : null,
     `from pydantic import ${["BaseModel", refersTo("Field") ? "Field" : null, refersTo("RootModel") ? "RootModel" : null, refersTo("ValidationError") ? "ValidationError" : null, refersTo("ValidationInfo") ? "ValidationInfo" : null, refersTo("ValidatorFunctionWrapHandler") ? "ValidatorFunctionWrapHandler" : null, refersTo("field_validator") ? "field_validator" : null, refersTo("model_validator") ? "model_validator" : null].filter(Boolean).join(", ")}`,
     refersTo("PydanticCustomError")
@@ -330,7 +331,7 @@ export function buildPyRoutesFile(
       // A `currentUser.*` create-field default binds `current_user: User` in
       // the create handler for its per-request coalesce.
       (hasCreateFactory(agg) &&
-        forCreateInput(agg.fields).some(
+        createInputFields(agg).some(
           (f) =>
             f.default !== undefined &&
             isServerSourcedDefault(f.default) &&
@@ -667,7 +668,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
       "",
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   const available = new Set(inputs.map((f) => f.name));
   const constraints = createFieldConstraints(agg.invariants, available);
   return lines(
@@ -911,7 +912,7 @@ function createRoute(
       .join(", ");
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", status_code=201, response_model=Create${agg.name}Response, operation_id="${camelId(opCreate(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def create_${snake(agg.name)}(body: Create${agg.name}Request, session: SessionDep) -> dict[str, object]:`,
+      `async def create_${snake(agg.name)}(${pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg))}, session: SessionDep) -> dict[str, object]:`,
       `    created = ${agg.name}.create(${args})`,
       auditCreate ? "    repo = _repo(session)" : null,
       auditCreate ? "    await repo.save(created)" : "    await _repo(session).save(created)",
@@ -921,7 +922,7 @@ function createRoute(
       `    return {"id": created.id}`,
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
   // per-request HERE (the request field is optional): the factory arg coalesces
   // the client's value with the freshly-evaluated default.  In the handler body
@@ -954,7 +955,7 @@ function createRoute(
   const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
-    `body: Create${agg.name}Request`,
+    pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
     ...(bindPrincipal ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
@@ -1344,7 +1345,7 @@ function operationRoute(
       // error arms' statuses — this route always ANSWERED them (the
       // ProblemDetails translations below) but never declared them.
       `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, body: ${upperFirst(op.name)}${agg.name}Request, request: Request, session: SessionDep) -> dict[str, object] | JSONResponse:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, request: Request, session: SessionDep) -> dict[str, object] | JSONResponse:`,
       usesUser || gateUsesUser || stampUpdateUsesUser
         ? "    current_user: User = request.state.current_user"
         : null,
@@ -1377,7 +1378,7 @@ function operationRoute(
   const needsRequest = usesUser || gateUsesUser || stampUpdateUsesUser || versioned;
   const opSig = [
     ID_PARAM,
-    `body: ${upperFirst(op.name)}${agg.name}Request`,
+    pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params),
     ...(needsRequest ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
