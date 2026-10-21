@@ -25,7 +25,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
 import { renderPyExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
@@ -232,7 +232,10 @@ export function renderPyContextIntegrationTest(
   ]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
     .sort();
 
