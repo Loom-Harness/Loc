@@ -49,7 +49,11 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../../ir/util/paged-run.js";
-import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import {
@@ -99,133 +103,52 @@ function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string
   return new Set(h.params.filter((p) => requestRecordFor(p.type, ctx)).map((p) => p.name));
 }
 
-/** Collect every `<record>.<field>` member access on a RECORD param reachable
- *  from `e` into `acc` (record-param name → the field names read).  A record
- *  param is flattened into exactly the fields the body reads, so only referenced
- *  fields are destructured — an unused binding would trip
- *  `mix compile --warnings-as-errors`.  The receiver of a matched member is the
- *  bare record ref, so recursion stops there. */
+/** Record `e` into `acc` (record-param name → the field names read) when it is
+ *  a `<record>.<field>` member read off a RECORD param.  A record param is
+ *  flattened into exactly the fields the body reads, so only referenced fields
+ *  are destructured — an unused binding would trip
+ *  `mix compile --warnings-as-errors`. */
+function noteRecordFieldAccess(
+  e: ExprIR,
+  records: ReadonlySet<string>,
+  acc: Map<string, Set<string>>,
+): void {
+  if (
+    e.kind !== "member" ||
+    e.receiver.kind !== "ref" ||
+    e.receiver.refKind !== "param" ||
+    !records.has(e.receiver.name)
+  ) {
+    return;
+  }
+  let fields = acc.get(e.receiver.name);
+  if (!fields) {
+    fields = new Set<string>();
+    acc.set(e.receiver.name, fields);
+  }
+  fields.add(e.member);
+}
+
+/** Every record-field access reachable from `e`, at any depth.  A field read
+ *  only inside a `duration`, an interpolated `i18nFormat` hole or a
+ *  block-bodied lambda is still destructured — otherwise the emitted body
+ *  names a variable `run/1` never bound. */
 function collectRecordFieldAccess(
   e: ExprIR | undefined,
   records: ReadonlySet<string>,
   acc: Map<string, Set<string>>,
 ): void {
-  if (!e) return;
-  if (
-    e.kind === "member" &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "param" &&
-    records.has(e.receiver.name)
-  ) {
-    let fields = acc.get(e.receiver.name);
-    if (!fields) {
-      fields = new Set<string>();
-      acc.set(e.receiver.name, fields);
-    }
-    fields.add(e.member);
-    return;
-  }
-  switch (e.kind) {
-    case "member":
-      collectRecordFieldAccess(e.receiver, records, acc);
-      return;
-    case "method-call":
-      collectRecordFieldAccess(e.receiver, records, acc);
-      for (const a of e.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "lambda":
-      collectRecordFieldAccess(e.body, records, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectRecordFieldAccess(f.value, records, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectRecordFieldAccess(el, records, acc);
-      return;
-    case "paren":
-      collectRecordFieldAccess(e.inner, records, acc);
-      return;
-    case "unary":
-      collectRecordFieldAccess(e.operand, records, acc);
-      return;
-    case "binary":
-      collectRecordFieldAccess(e.left, records, acc);
-      collectRecordFieldAccess(e.right, records, acc);
-      return;
-    case "ternary":
-      collectRecordFieldAccess(e.cond, records, acc);
-      collectRecordFieldAccess(e.then, records, acc);
-      collectRecordFieldAccess(e.otherwise, records, acc);
-      return;
-    case "convert":
-      collectRecordFieldAccess(e.value, records, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectRecordFieldAccess(arm.cond, records, acc);
-        collectRecordFieldAccess(arm.value, records, acc);
-      }
-      collectRecordFieldAccess(e.otherwise, records, acc);
-      return;
-  }
+  walkExprDeep(e, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
-/** Statement driver for {@link collectRecordFieldAccess} — mirrors the shape of
- *  `collectWorkflowStmtParamRefs`, feeding every expression of every
- *  `WorkflowStmtIR` kind through the record-field walker. */
+/** Statement driver for {@link collectRecordFieldAccess}: every expression of
+ *  every workflow statement, descending the `for-each` / `if-let` bodies. */
 function collectRecordFieldsInStmt(
   st: WorkflowStmtIR,
   records: ReadonlySet<string>,
   acc: Map<string, Set<string>>,
 ): void {
-  switch (st.kind) {
-    case "precondition":
-    case "requires":
-    case "expr-let":
-      collectRecordFieldAccess(st.expr, records, acc);
-      return;
-    case "assign":
-      collectRecordFieldAccess(st.value, records, acc);
-      return;
-    case "factory-let":
-    case "emit":
-      for (const f of st.fields) collectRecordFieldAccess(f.value, records, acc);
-      return;
-    case "op-call":
-      for (const a of st.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-let":
-      for (const a of st.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-delete":
-      collectRecordFieldAccess(st.entity, records, acc);
-      return;
-    case "resource-call":
-      collectRecordFieldAccess(st.call, records, acc);
-      return;
-    case "domain-service-call":
-      if (st.call.kind === "call")
-        for (const a of st.call.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-run":
-      for (const a of st.retrievalArgs) collectRecordFieldAccess(a, records, acc);
-      collectRecordFieldAccess(st.page?.offset, records, acc);
-      collectRecordFieldAccess(st.page?.limit, records, acc);
-      return;
-    case "for-each":
-      collectRecordFieldAccess(st.iterable, records, acc);
-      for (const inner of st.body) collectRecordFieldsInStmt(inner, records, acc);
-      return;
-    case "if-let":
-      for (const a of st.retrievalArgs) collectRecordFieldAccess(a, records, acc);
-      for (const inner of st.thenBody) collectRecordFieldsInStmt(inner, records, acc);
-      for (const inner of st.elseBody ?? []) collectRecordFieldsInStmt(inner, records, acc);
-      return;
-  }
+  walkWorkflowStmtExprsDeep(st, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
 /** The `run/1` params destructure of a handler, wire-preserving under the
