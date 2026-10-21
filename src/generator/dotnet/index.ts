@@ -300,15 +300,9 @@ export function generateDotnetForContexts(
     /** `.ddd` source text keyed by `OriginRef` source path —
      *  forwarded verbatim into the root `renderEntity` call so the REGULAR
      *  named-operation body loop can weave `#line` directives.  Gated on
-     *  `sourceTexts` ALONE — `sourcemap` is NOT consulted (`renderEntity`
-     *  weaves whenever this map is present; a statement whose file has no
-     *  text gets no directive, never a guessed one).  Unlike the v3/SMAP
-     *  sidecars (`recorder && sourceTexts` in src/system/index.ts), the CLI's
-     *  `generate system` always supplies this map, so its .NET output carries
-     *  `#line` with or without `--sourcemap` — which docs/debugging.md's
-     *  "with the flag off, generated output is byte-for-byte unchanged" does
-     *  not describe.  Tracked as leftover-waves C5 (fix: gate on `sourcemap && sourceTexts`), not
-     *  settled here. */
+     *  `sourcemap` also being present (same honest-skip convention as the
+     *  v3 sidecars; enforced at the `renderEntity` call site): no recorder
+     *  or no text → no directives, never guessed. */
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
@@ -645,6 +639,10 @@ function emitProjectFromContexts(
   // The `User` property the SSE endpoint reads the room key off — the bound
   // `tenancy by user.<claim>`, never the row column `TenantId`.
   const realtimeTenantClaim = realtimeTenantClaimProperty(realtimeRoomPlan);
+  // The deployable carries auth: durable events record their EVENT ORIGIN on
+  // the outbox row, every envelope carries it, and the relay / consumer
+  // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
+  const deployableCarriesAuth = !!(system?.deployable.auth?.required && system.sys.user);
   if (hasChannels && system) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
@@ -665,6 +663,7 @@ function emitProjectFromContexts(
           hasOutbox: hasOutboxTier,
           durableBroker: durableBrokerEvents.size > 0,
           valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+          carriesOrigin: deployableCarriesAuth,
         },
       ),
     );
@@ -697,12 +696,16 @@ function emitProjectFromContexts(
     const outboxInner = hasSubscriptions
       ? "InProcessDomainEventDispatcher"
       : "NoopDomainEventDispatcher";
-    const relayOpts = { durableBroker: durableBrokerEvents.size > 0, hasSubscriptions };
+    const relayOpts = {
+      durableBroker: durableBrokerEvents.size > 0,
+      hasSubscriptions,
+      carriesOrigin: deployableCarriesAuth,
+    };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -712,7 +715,7 @@ function emitProjectFromContexts(
       out.set("Infrastructure/Persistence/OutboxMessage.cs", renderOutboxMessage(ns));
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -1602,7 +1605,10 @@ function emitAggregate(
       operationReturnUnions,
       opFragments,
       construct,
-      sourceTexts,
+      // C5 (M-T6.75): `#line` weaving is a `--sourcemap` feature — without a
+      // recorder the output must stay byte-identical to a plain generate,
+      // even though the CLI always hands `sourceTexts` down.
+      sourcemap ? sourceTexts : undefined,
     ),
     agg.origin,
     opFragments,

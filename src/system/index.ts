@@ -232,9 +232,11 @@ export function generateSystemsFromLoom(
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
-  // Every system's migrations, folded into ONE source-side ledger below:
-  // the ledger is keyed by module and lives beside the `.ddd`, which may
-  // declare several systems.
+  // Every system's migrations, folded into ONE source-side ledger below: the
+  // ledger is keyed by module and lives beside the `.ddd`.  (A valid project
+  // declares exactly one system — `loom.multiple-systems` — so these loops run
+  // once; a second system would collide on the root files, which the
+  // write-once sink refuses.)
   const builtMigrations: MigrationsIR[] = [];
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
@@ -308,8 +310,7 @@ export function generateSystemsFromLoom(
   // which test projects exist, how each deployable's own project boots, which
   // `.loom/` artifacts this model produced (traceability is emitted above,
   // after `emitSystem`, so an earlier call would under-report it).  Written at
-  // the output root beside `docker-compose.yml`, and like that file the last
-  // system wins when a source declares several.  Scaffold-once, so it never
+  // the output root beside `docker-compose.yml`.  Scaffold-once, so it never
   // overwrites `ddd new`'s README at this same path nor a reader's own edits
   // — see the header of `readme.ts`.
   for (const sys of loom.systems) {

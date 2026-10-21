@@ -100,7 +100,7 @@ describe("Python channel tee — the wrapped-dispatcher annotation (M-T6.68)", (
     // a broadcast channel puts a `RealtimeDispatcher` between the tee and the
     // Noop.  This is the mismatched argument, pinned.
     expect(py).toContain(
-      "return ChannelTeeDispatcher(RealtimeDispatcher(NoopDomainEventDispatcher()))",
+      "return PostCommitDispatcher(ChannelTeeDispatcher(RealtimeDispatcher(NoopDomainEventDispatcher())))",
     );
   });
 });

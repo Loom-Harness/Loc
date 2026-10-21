@@ -405,7 +405,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 - **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
-## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `done` (#3107) · **S–M** · P1 ⚠ verify-first
 
 Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
 which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
@@ -701,16 +701,6 @@ Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-fl
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
 
-## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `open` · **M** · P2
-
-*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
-
-`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
-
-**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
-
-**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
-
 ## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
 
 *Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
@@ -763,14 +753,11 @@ Found by #3224 while keying `transactional-workflow-event-rollback` for the .NET
 
 Decide first which is the contract (the node golden says two loads are two handles); then on EF either load untracked and attach on save (the repository's `Detached ⇒ Add` branch in `SaveAsync` would have to become an upsert-by-version), or detach between loads. Python (SQLAlchemy session) may share the shape — unverified. Exit: add `dotnet` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` and delete the case's Dapper entry from `ADAPTER_ONLY_CASES` (`test/behavioral/registers.mjs`) — `test/behavioral/adapter-only-cases.test.ts` fails the entry as stale the moment the key lands.
 
+**java shares it (measured 2026-10-12, #3262).** Booted `run-java.mjs` on the case once M-T4.3 item 6 made java's workflow route publish: `debitOnce` passes (one Audit, after the commit), `debitTwice` answers 204 — `expected the call to reject, but it resolved`.  JPA's persistence context hands both `AcctRepositoryImpl.getById` loads the SAME managed entity, so the second `bumpVersion` reads the version the first save already applied.  Same ruling, same exit for the `java` key.  Python does NOT share it: its `debitTwice` 409s (booted, the leg is armed).
+
 ## M-T6.91 — the optimistic-concurrency 409 `detail` is spelled two ways: node `"<Aggregate> <id> was modified by another request"`, the other four `"The resource was modified by another request; reload and retry."` — `open` · **S** · P2 ⚠ needs a ruling first
 
 Found by #3224: the first golden that records a concurrency 409 (`transactional-workflow-event-rollback`, node-minted) diverges on the Dapper and python legs at `$.detail` only — status, `title` and `type` agree. Node raises `ConcurrencyConflictError` with the aggregate + id sentence (`src/platform/hono/v4/emit.ts`); .NET (EF + Dapper), java, python and elixir answer one fixed sentence. Rule it the way RS-27 ruled the 404-by-id sentence (one canonical sentence, an RS-rule pinning it), implement it on the losing side, and delete the `dapper`/`python` waiver for this case from `test/_helpers/wire-waivers.ts` in the same PR (the waiver ratchet fails it as stale otherwise).
-
-## M-T6.92 — elixir: a stale-version save inside a `transactional` workflow answers 500, not the concurrency 409 — `open` · **S** · P2
-
-Found by #3224 booting `transactional-workflow-event-rollback` on the elixir behavioural leg (keyed `vanilla` for the trial only). `debitTwice` loads one `Acct` twice and saves both handles; node, python and the .NET Dapper adapter answer the optimistic-concurrency 409 and roll back, elixir answers `500 {"detail":"internal"}`. The stale update inside the workflow's `Repo.transaction` is not mapped to the conflict rung the plain update route uses. Exit: map it, then add `vanilla` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` (and to the case's M-T6.91 `detail` waiver until that rules).
-
 ## M-T6.97 — Target-reserved names the adversarial fixture does not yet reach: a TS field `constructor`, type names that shadow target globals, the frontends — `open` · **M** · P2
 
 *Minted 2026-10-12 by the per-target reserved-identifier consolidation, which made `test/fixtures/corpus/target-reserved-words.ddd` compile on all five backends and recorded what it deliberately left out.* Re-verify on fresh `main` before building (RUNBOOK §1).

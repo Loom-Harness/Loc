@@ -1,0 +1,118 @@
+{
+  "case": "member-named-like-vo",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/claims",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "amount": 12.5,
+        "id": "<volatile:key>",
+        "price": {
+          "scale": 2
+        },
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/claims",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amount": 12.5,
+            "id": "<volatile:key>",
+            "price": {
+              "scale": 2
+            },
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/claims/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "amount": 7,
+        "id": "<volatile:key>",
+        "price": {
+          "scale": 3
+        },
+        "version": 2
+      }
+    },
+    {
+      "seq": 5,
+      "method": "DELETE",
+      "path": "/api/claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "PATCH",
+      "path": "/api/claims",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/claims",
+        "instance": "/api/claims",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/claims",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/claims",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

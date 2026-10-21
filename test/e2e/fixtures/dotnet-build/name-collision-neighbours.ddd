@@ -22,6 +22,13 @@
 //   * `contains comments: Comment[]` — the plural containment that emits
 //     `IReadOnlyList<Comment> Comments`, adjacent to but distinct from the
 //     singular collision the gate does refuse.
+//   * `amount: int` beside `valueobject Amount`, a function `issueFiled()`
+//     beside `event IssueFiled`, and an operation `claimAmount` whose body
+//     builds an `Amount` and emits an `IssueFiled` (M-T6.69).  The emitter names
+//     a value object or an event only in TYPE position (`public Amount Price`,
+//     `new Amount(…)`, `new IssueFiled(…)`), where member lookup never runs, so
+//     a same-named member hides nothing.  The gate used to refuse this — the
+//     most canonical DDD shape there is, on .NET alone.
 //
 // Bare `context {…}` (not a `system {…}` wrapper) so legacy
 // `ddd generate dotnet` emits a single buildable project, matching the other
@@ -35,15 +42,33 @@ context Tracking {
     currency: string
   }
 
+  valueobject Amount {
+    scale: int
+  }
+
+  event IssueFiled {
+    amount: int
+    price: Amount
+  }
+
   aggregate Issue {
     title: string
     kind: Kind
     money: Money
+    amount: int
+    price: Amount
     contains comments: Comment[]
 
     derived commentCount: int = comments.count
 
     function isChore(): bool = kind == Chore
+
+    function issueFiled(): int = amount
+
+    operation claimAmount(s: int) {
+      price := Amount { scale: s }
+      emit IssueFiled { amount: amount, price: price }
+    }
 
     // The shape the diagnostic points at: the renamed operation, whose body
     // constructs the part by simple name.  With the member called `Comment`
