@@ -45,6 +45,7 @@ export class MixWorkspace {
   /** Hex/rebar archives, mounted at `/root/.mix` so `--if-missing` fetches them once. */
   private readonly mixHome: string;
   private readonly templates = new Map<string, Promise<string>>();
+  private archivesInstalled: Promise<void> | undefined;
   /** Set once the gate has started (or declined to start) its hex mirror. */
   mirror: HexMirror | undefined;
 
@@ -72,12 +73,28 @@ export class MixWorkspace {
     );
   }
 
+  /**
+   * Install Hex and rebar into the shared `/root/.mix` once, in one container.
+   * Every container runs `mix local.hex --if-missing`, which skips the install
+   * as soon as the archive directory EXISTS — so two containers starting
+   * together let one load a Hex archive the other is still unpacking
+   * (`:mix_hex_core is not available`).  Installed here first, every later
+   * `--if-missing` only reads a complete archive.
+   */
+  private archives(): Promise<void> {
+    this.archivesInstalled ??= sh(this.dockerRun("", "", "true"), { timeout: 600_000 }).then(
+      () => undefined,
+    );
+    return this.archivesInstalled;
+  }
+
   /** The template for a project's dependency set, built on first use. */
   template(projDir: string): Promise<string> {
     const sig = depsSignature(projDir);
     let built = this.templates.get(sig);
     if (!built) {
       built = (async () => {
+        await this.archives();
         const dir = path.join(this.root, "deps", sig);
         fs.mkdirSync(dir, { recursive: true });
         // The project's mix.exs and config: dependency compilation reads the
