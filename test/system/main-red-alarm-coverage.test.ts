@@ -116,6 +116,9 @@ const UNWATCHED_SCHEDULES: Record<string, string> = {
   // 96 comments a day onto the single `ci-red` issue, which is how an alarm
   // stops being read.
   "pr-gate.yml": "the */15 cron sweeps open PRs, not main",
+  // Housekeeping on a 10-minute cron: it cancels runs, it gates nothing, and a
+  // broken sweep would post ~144 comments a day onto the single `ci-red` issue.
+  "cancel-dead-queue-runs.yml": "housekeeping sweep of dead merge-queue runs, not a gate",
 };
 
 /** The `workflows:` list of the alarm's `workflow_run` trigger. */

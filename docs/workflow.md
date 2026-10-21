@@ -394,7 +394,10 @@ saves committed.
 
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
-`BeginTransactionAsync` / one Drizzle `db.transaction`).  Use it
+`BeginTransactionAsync` / one Drizzle `db.transaction`; on
+`persistence: dapper` every repository enlists in the unit of work's
+one Npgsql connection + transaction, so a later failure rolls the
+earlier saves back there too).  Use it
 when the workflow's aggregates share a database AND you want
 all-or-nothing semantics — at the cost of locking and the
 distribution barrier the keyword represents.
@@ -620,6 +623,13 @@ expression (`paid.amount == "x"` is a type error).  These transport
 types are in scope **only** in `create` / `handle` parameter positions —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
+
+> **Principal.** A reactor / event starter has no request, so it runs as the
+> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is
+> empty, and the tenant is the triggering event's.  Gates on the operations it
+> calls are evaluated against it — `requires currentUser.isSystem || …` admits
+> it; a gate that reads `currentUser` without that disjunct is warned
+> (`loom.reactor-gate-unsatisfiable`).  See [`language-reference/17-auth.md` § Reactors](language-reference/17-auth.md#reactors--the-system-principal-currentuserissystem).
 
 > **Status.** The parameter surface above parses, resolves, and
 > type-checks today.  **In-process dispatch ships on the Hono, .NET,
