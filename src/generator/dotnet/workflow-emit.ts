@@ -15,6 +15,7 @@ import {
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -1318,7 +1319,9 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
     `${ns}.Domain.Enums`,
   ]);
   const methods = fns.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .join(", ");
     const head = `    public static ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       collectCsExprUsings(fn.body.expr, usings, ns);
@@ -1816,7 +1819,7 @@ export function csWorkflowStmtTarget(
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st)});`,
       ];
     },
     requires: (st, indent) => {

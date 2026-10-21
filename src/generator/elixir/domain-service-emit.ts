@@ -49,7 +49,7 @@ import {
 } from "../../ir/util/domain-service-tier.js";
 import { mapExprChildren } from "../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../ir/validate/checks/if-stmt-checks.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "./render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./vanilla/denial.js";
 import { renderElixirIfStmt } from "./vanilla/if-stmt-emit.js";
@@ -391,7 +391,7 @@ function renderOperation(
   const multiContextReading =
     classifyDomainServiceTier(op) === "reading" && !readingIsSingleContext(op, ctx);
   const fnName = snake(op.name);
-  const paramNames = op.params.map((p) => escapeElixirIdent(snake(p.name)));
+  const paramNames = op.params.map((p) => elixirLocal(p.name));
 
   // @spec — each declared parameter's type, then the return type.  A union
   // (`Money or CouponExpired`) return is conveyed as a tagged tuple at
