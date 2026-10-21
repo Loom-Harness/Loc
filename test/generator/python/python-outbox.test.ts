@@ -66,9 +66,13 @@ describe("python durable-channel outbox", () => {
     );
     expect(dispatch).toContain("await self._inner.dispatch(event)");
     // make_dispatcher now wraps the in-process dispatcher in the outbox one.
-    expect(dispatch).toContain('def make_dispatcher(session: AsyncSession) -> "OutboxDispatcher":');
     expect(dispatch).toContain(
-      "return OutboxDispatcher(session, InProcessDispatcher(session, isolate=True))",
+      "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    );
+    // Outermost the post-commit deferral, which lets a durable event straight
+    // through so its outbox row records inside the request transaction.
+    expect(dispatch).toContain(
+      "return PostCommitDispatcher(OutboxDispatcher(session, InProcessDispatcher(session, isolate=True)), _DURABLE_EVENT_TYPES)",
     );
   });
 

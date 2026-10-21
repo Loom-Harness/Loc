@@ -9,7 +9,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -197,7 +197,7 @@ export function buildPyEventSourcedRepositoryFile(
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   return lines(

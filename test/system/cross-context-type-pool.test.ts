@@ -115,3 +115,78 @@ describe("a value object / enum from a sibling context resolves for every emitte
     ).toContain('const GradeSchema = z.enum(["A", "B"])');
   });
 });
+
+// 4. NODE DOMAIN / REPOSITORY / UNIT TESTS, enum (claims D1).  The per-aggregate
+//    domain module, its drizzle repository and its unit-test file each picked
+//    their `value-objects` import candidates from `ctx.enums` — so a field typed
+//    by a sibling context's enum kept its `Grade` annotations and lost the
+//    import (tsc TS2304 in all three files).  A test body's bare `A` now
+//    lowers to `Grade.A` (lowering's sibling-enum fallback); the test file must
+//    then also IMPORT `Grade`, or the qualified value is an undefined name — a
+//    `ReferenceError` that a `toThrow()` test happily counts as a pass.
+const SRC_TESTS = `
+system EnumXCtx {
+  subdomain S1 {
+    context Owner {
+      enum Grade { A, B }
+      aggregate Home with crudish { name: string }
+      repository RH for Home { }
+    }
+  }
+  subdomain S2 {
+    context Consumer {
+      aggregate Away with crudish {
+        g: Grade
+        title: string
+        invariant title.length > 2
+        test "neg" { expect(Away.create({ g: A, title: "x" })).toThrow() }
+        test "pos" { let a = Away.create({ g: Grade.B, title: "abc" })  expect(a.g).toBe(B) }
+      }
+      repository RA for Away { find byGrade(k: Grade): Away? where this.g == k }
+    }
+  }
+  storage primary { type: postgres }
+  resource s1 { for: Owner, kind: state, use: primary }
+  resource s2 { for: Consumer, kind: state, use: primary }
+  deployable api {
+    platform: node
+    contexts: [Owner, Consumer]
+    dataSources: [s1, s2]
+    port: 3000
+  }
+}
+`;
+
+describe("a sibling-context enum is imported by the node domain / repository / unit tests", () => {
+  it("the domain module and its repository import the enum they annotate with", async () => {
+    const files = await generateSystemFiles(SRC_TESTS);
+    const domain = bySuffix(files, "domain/away.ts");
+    const repo = bySuffix(files, "db/repositories/away-repository.ts");
+    // Vacuity guards: the annotation is what makes the import mandatory.
+    expect(domain).toMatch(/\bg: Grade\b/);
+    expect(repo).toMatch(/: Grade\b/);
+    expect(domain, "domain/away.ts names Grade without importing it").toContain(
+      'import type { Grade } from "./value-objects";',
+    );
+    expect(repo, "the repository names Grade without importing it").toContain(
+      'import type { Grade } from "../../domain/value-objects";',
+    );
+  });
+
+  it("a unit-test body's bare and qualified sibling enum values resolve and are imported", async () => {
+    const files = await generateSystemFiles(SRC_TESTS);
+    const test = bySuffix(files, "domain/away.test.ts");
+    expect(test, "bare `A` must lower to the qualified value").toContain(
+      'Away.create({ g: Grade.A, title: "x" })',
+    );
+    expect(test, "qualified `Grade.B` must resolve").toContain(
+      'Away.create({ g: Grade.B, title: "abc" })',
+    );
+    expect(test, "bare `B` in a matcher must lower to the qualified value").toContain(
+      "toBe(Grade.B)",
+    );
+    expect(test, "the test file names Grade without importing it").toContain(
+      'import { Grade } from "./value-objects";',
+    );
+  });
+});
