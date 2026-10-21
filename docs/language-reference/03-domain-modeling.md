@@ -527,8 +527,9 @@ owns:
 - **`inserted_at` / `updated_at`** (or `insertedAt`) are the columns Ecto's bundled
   `timestamps()` defines. On an aggregate root the Elixir backend drops
   `timestamps()` from the schema and its migration, and the declared field owns
-  the column. On a relational entity part hosted on `platform: elixir` the name is
-  refused — `loom.elixir-part-timestamp-field`.
+  the column. On a relational entity part hosted on `platform: elixir` the name —
+  and `updatedAt`, whose column is `updated_at` — is refused,
+  `loom.elixir-part-timestamp-field`. A part's `createdAt` is an ordinary column.
 
 Elixir reserved words (`end`, `after`, `fn`, `do`, …) are fine as field and
 parameter names. The Elixir backend binds the local as `end_` and keeps the wire

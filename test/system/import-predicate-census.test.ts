@@ -56,7 +56,7 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
-  python: 291, // +1: dispatch-builder `refersTo("system_principal")` (reactor SYSTEM principal, D1) +2 import lines from this PR's own slice — body-scan / usage-list keyed, not free predicates
+  python: 293, // +1 reactor SYSTEM-principal import (`refersTo("system_principal")`, D1) +2 dispatch-builder `ids` / `voEnum` import lines (#3098) +2 import lines from this PR's own slice — body-scan / usage-list keyed, not free predicates
   typescript: 240, // +1: hono workflow-builder `systemPrincipal(` import (same ruling) +1 import line from this PR's own slice — keyed off the rendered body
   dotnet: 26,
   java: 51,
