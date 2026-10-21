@@ -1,4 +1,5 @@
 import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -76,8 +77,10 @@ export function renderJavaEventSourcedRepositoryImpl(
       IN_MEMORY_READ_NAMES,
     );
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
-    const filter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
+    const filter = own
+      ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     if (isPagedFind(f)) {
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");

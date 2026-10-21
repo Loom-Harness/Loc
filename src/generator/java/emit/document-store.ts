@@ -3,6 +3,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
@@ -173,8 +174,10 @@ export function renderJavaDocumentRepositoryImpl(
       IN_MEMORY_READ_NAMES,
     );
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
-    const ownFilter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
+    const ownFilter = own
+      ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
     // — empty in the no-bypass shape, where `findAll()` already applied them.

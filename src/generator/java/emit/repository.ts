@@ -9,6 +9,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -485,10 +486,12 @@ export function renderJavaSpringDataRepository(
     return combined ? ` where ${combined}` : "";
   };
   const methodLines = finds.flatMap((f) => {
+    // A clause-less find (`find byReference(reference: string)`) still filters
+    // — by its implicit key match.  Without it the @Query selects every row:
+    // a miss answers 200 with some other row, two rows a non-unique 500.
+    const own = effectiveFindFilter(f, agg);
     const where = jpqlWhere(
-      f.filter
-        ? renderJpqlWhere(f.filter, { alias: "e", enumsPkg, mode: "jpql-spring-data" })
-        : null,
+      own ? renderJpqlWhere(own, { alias: "e", enumsPkg, mode: "jpql-spring-data" }) : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map(

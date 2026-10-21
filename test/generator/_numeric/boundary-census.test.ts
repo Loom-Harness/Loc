@@ -112,6 +112,19 @@ const BACKENDS: BackendCensus[] = [
           "ExprTarget sum-fold zero seed, not a read boundary — the JS collection-op\n           leaves moved here from typescript/render-expr.ts when the shared JS\n           collection-op table was extracted; same code, new home",
       },
       {
+        file: "src/generator/typescript/emit/tests.ts",
+        contains:
+          "return `  expect(String(${actual})).${tail}(new Decimal(${expected}).toString());`;",
+        reason:
+          "unit-test money `toBe` (banking eval B-01): canonicalises the EXPECTED operand of a generated vitest assertion, not a read boundary — no wire or storage value passes through it",
+      },
+      {
+        file: "src/generator/typescript/emit/tests.ts",
+        contains: "return `  expect(new Decimal(${actual}).comparedTo(${expected})).${tail}(0);`;",
+        reason:
+          "unit-test money ordering matcher (banking eval B-01): lifts an in-memory domain value into decimal.js for a generated vitest comparison, not a read boundary",
+      },
+      {
         file: "src/platform/hono/v4/workflow-eventsourced-builder.ts",
         contains: 'return "new Decimal(0)";',
         reason: "workflow saga-state zero-default construction, not a read boundary",

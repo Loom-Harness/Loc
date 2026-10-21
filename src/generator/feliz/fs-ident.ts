@@ -19,107 +19,15 @@
 // this ESCAPES rather than gates: `aggregate Member` keeps working.
 //
 // The list is F#'s reserved-keyword set (F# 4.1+ spec §3.4), including the
-// words reserved for future use, since the compiler rejects those too.
+// words reserved for future use — it lives in the shared per-target table,
+// `src/util/target-identifiers.ts`.
 // ---------------------------------------------------------------------------
 
-const FS_KEYWORDS: ReadonlySet<string> = new Set([
-  "abstract",
-  "and",
-  "as",
-  "assert",
-  "base",
-  "begin",
-  "class",
-  "default",
-  "delegate",
-  "do",
-  "done",
-  "downcast",
-  "downto",
-  "elif",
-  "else",
-  "end",
-  "exception",
-  "extern",
-  "false",
-  "finally",
-  "fixed",
-  "for",
-  "fun",
-  "function",
-  "global",
-  "if",
-  "in",
-  "inherit",
-  "inline",
-  "interface",
-  "internal",
-  "lazy",
-  "let",
-  "match",
-  "member",
-  "module",
-  "mutable",
-  "namespace",
-  "new",
-  "not",
-  "null",
-  "of",
-  "open",
-  "or",
-  "override",
-  "private",
-  "public",
-  "rec",
-  "return",
-  "select",
-  "static",
-  "struct",
-  "then",
-  "to",
-  "true",
-  "try",
-  "type",
-  "upcast",
-  "use",
-  "val",
-  "void",
-  "when",
-  "while",
-  "with",
-  "yield",
-  // Reserved for future use — the compiler rejects these as identifiers too.
-  "atomic",
-  "break",
-  "checked",
-  "component",
-  "const",
-  "constraint",
-  "constructor",
-  "continue",
-  "eager",
-  "event",
-  "external",
-  "fixed_",
-  "functor",
-  "include",
-  "method",
-  "mixin",
-  "object",
-  "parallel",
-  "process",
-  "protected",
-  "pure",
-  "sealed",
-  "tailcall",
-  "trait",
-  "virtual",
-  "volatile",
-]);
+import { escapeTargetIdent, isReserved } from "../../util/target-identifiers.js";
 
 /** True when `name` cannot be spelled as a bare F# identifier. */
 export function isFsKeyword(name: string): boolean {
-  return FS_KEYWORDS.has(name);
+  return isReserved("fsharp", name);
 }
 
 /** `name`, escaped with double backticks when it collides with an F# keyword.
@@ -128,5 +36,5 @@ export function isFsKeyword(name: string): boolean {
  *  emitter chose itself (`fileRefDecoder`) needs no escaping and is unchanged,
  *  so an existing model's output stays byte-identical. */
 export function fsIdent(name: string): string {
-  return isFsKeyword(name) ? `\`\`${name}\`\`` : name;
+  return escapeTargetIdent("fsharp", name);
 }
