@@ -1280,6 +1280,7 @@ function emitProjectFromContexts(
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
+      carriesOrigin: authRequired,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1376,6 +1377,7 @@ function emitProjectFromContexts(
           ...contexts.flatMap((c) => valueObjectPool(c)),
           ...foreignValueTypes.valueObjects,
         ],
+        carriesOrigin: authRequired,
       },
     )) {
       place(name, "config", content);
@@ -1389,6 +1391,8 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
+        carriesOrigin: authRequired,
+        basePkg,
       })) {
         place(f.name, f.category, f.content);
       }

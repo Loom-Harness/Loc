@@ -638,6 +638,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     hasChannels,
     durableBrokerEvents,
     hasRealtime,
+    authRequired,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /
@@ -653,6 +654,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
         valueObjectPool(merged),
+        authRequired,
       ),
     );
   }
