@@ -77,7 +77,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   // elixir's workflow / explicit-route dispatcher receives the bare
   // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
   // generic sentence.  Status, `title` and `type` agree; every other backend
-  // names `<Aggregate> <id>` (RS-39).  M-T6.100 carries both through the term.
+  // names `<Aggregate> <id>` (RS-39).  #3838 carries both through the term.
   {
     backends: ["elixir"],
     cases: ["transactional-workflow-event-rollback"],
@@ -85,6 +85,6 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     path: "$.detail",
     kinds: ["value"],
     reason:
-      "M-T6.100 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
+      "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
 ];
