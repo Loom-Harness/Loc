@@ -97,6 +97,10 @@ export const NOT_A_GATE = new Map([
   ["ci-red-alarm.yml", "an alarm, not a gate — it 'fails' only if the alarm itself breaks"],
   ["pr-gate.yml", "the aggregate check; its verdict mirrors other legs by construction"],
   ["cleanup-artifacts.yml", "housekeeping cron, no product signal"],
+  [
+    "cancel-dead-queue-runs.yml",
+    "housekeeping cron that cancels dead queue runs, no product signal",
+  ],
   ["flake-budget.yml", "this budget itself"],
 ]);
 
