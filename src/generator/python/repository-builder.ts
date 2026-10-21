@@ -18,6 +18,7 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -439,6 +440,13 @@ export function buildPyRepositoryFile(
   // Import narrowing via body scan (string literals stripped).
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
+  // A module-level FUNCTION (SQLAlchemy's `and_`/`select`/`func`, the
+  // `app.db.wire` helpers) is used only when CALLED or used as a receiver
+  // (`and_(`, `func.`).  A bare word match is not enough: a member named
+  // `and` / `or` / `not` escapes to `and_` / `or_` / `not_` (the shared python
+  // funnel, src/util/target-identifiers.ts), and `self.and_` / `and_=and_`
+  // would otherwise import an unused SQLAlchemy name (ruff F401).
+  const calls = (n: string): boolean => new RegExp(`(?<![.\\w])${n}(?=\\s*[(.])`).test(scan);
   const domainNames = [agg.name, ...agg.parts.map((p) => p.name)].filter(refersTo);
   const idNames = [
     ...new Set(
@@ -485,7 +493,7 @@ export function buildPyRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(refersTo);
+  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(calls);
 
   const hasProv = provenancedFieldsOf(agg).length > 0;
   const hasAudit = aggHasAuditedTarget(agg);
@@ -554,7 +562,7 @@ export function buildPyRepositoryFile(
     refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     hasProv ? "from app.db.provenance import ProvenanceRecord" : null,
     rowNames.length > 0 ? `from app.db.schema import ${rowNames.join(", ")}` : null,
-    wireHelperImport(refersTo),
+    wireHelperImport(calls),
     aggregateIsVersioned(agg)
       ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
       : "from app.domain.errors import AggregateNotFoundError",
@@ -737,11 +745,8 @@ export function findExecutedLine(
 function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicate | null {
   const root = rowClassName(agg.name);
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };

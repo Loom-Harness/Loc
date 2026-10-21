@@ -52,7 +52,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -509,7 +509,7 @@ function prepareFields(
 /** Enum name → values from a bounded context. */
 function enumsFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, string[]> {
   const m = new Map<string, string[]>();
-  if (bc) for (const e of bc.enums) m.set(e.name, e.values);
+  if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
   return m;
 }
 
