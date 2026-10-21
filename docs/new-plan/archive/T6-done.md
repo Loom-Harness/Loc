@@ -1429,3 +1429,15 @@ Found by #3224: the first golden that records a concurrency 409 (`transactional-
 > **Coverage.** New corpus case `concurrency-conflict` on ALL backends — a stale `If-Match` on a versioned `update` — driven through a new e2e call option, `api.<aggs>.update(id, body, { ifMatch: v })` → `If-Match: "v"` (any other third argument is `loom.e2e-call-options`; before this it was silently dropped). The M-T6.91 `$.detail` waiver on `transactional-workflow-event-rollback` is deleted. Measured locally: node, python, dotnet (EF), dapper, java, elixir and mikroorm legs all 0 divergences; with the backend emitters reverted, python / dapper / dotnet / java / elixir each diverge at exactly `$.detail` (and python + dapper also on the rollback case).
 >
 > **Not covered (named in RS-39):** a two-handle conflict inside a workflow on EF (M-T6.90) and elixir (M-T6.92); the elixir event-sourced create arm has no id in its path. Found in passing and filed as M-T6.95: java's `shape: document` upsert has no write-time version CAS, so a lost load→save race overwrites (the service's `If-Match` pre-check still refuses a stale client precondition).
+
+## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `done` ([D-EXPLICIT-ROUTE-WINS](../../decisions.md), #3230) · **M** · P2
+
+*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
+
+`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
+
+**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
+
+**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
+
+**Done.** The explicit layer won: the derived surface yields any slot an explicit route claims on all five backends, the root-mount exception is deleted, and the census carries none of this mission's waivers.

@@ -1,5 +1,6 @@
 import type { BoundedContextIR, TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
@@ -144,11 +145,18 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
   // aggregate's create/operation one (`_frontend/request-names.ts`).
   const names = requestNamesForContexts(contexts);
   const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
+  // Only a command-startable workflow gets a request interface, a service POST
+  // and a mutation factory — an event-only saga has no `POST /workflows/<wf>`
+  // route on any backend (the shared `emitsCommandRoute` rule).
+  const anyCommands = workflows.some(({ wf }) => emitsCommandRoute(wf));
+  const injectors = [anyCommands ? "injectMutation" : "", anyInstances ? "injectQuery" : ""].filter(
+    Boolean,
+  );
   const out: string[] = [
     "// Auto-generated.  Do not edit by hand.",
     'import { HttpClient } from "@angular/common/http";',
     'import { Injectable, inject } from "@angular/core";',
-    `import { ${anyInstances ? "injectMutation, injectQuery" : "injectMutation"} } from "@tanstack/angular-query-experimental";`,
+    `import { ${injectors.join(", ")} } from "@tanstack/angular-query-experimental";`,
     'import { firstValueFrom } from "rxjs";',
     'import { API_BASE_URL } from "./config";',
     "",
@@ -163,11 +171,13 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
 
   // Request + instance-row interfaces.
   for (const { wf } of workflows) {
-    const R = names.workflow(wf.name);
-    out.push(`export interface ${R}Request {`);
-    for (const p of wf.params) out.push(`  ${p.name}: ${wireTsType(p.type)};`);
-    out.push("}");
-    out.push("");
+    if (emitsCommandRoute(wf)) {
+      const R = names.workflow(wf.name);
+      out.push(`export interface ${R}Request {`);
+      for (const p of wf.params) out.push(`  ${p.name}: ${wireTsType(p.type)};`);
+      out.push("}");
+      out.push("");
+    }
     if (wf.instanceWireShape) out.push(...instanceRowLines(wf));
   }
 
@@ -179,10 +189,12 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
     const T = upperFirst(wf.name);
     const m = lowerFirst(wf.name);
     const slug = snake(wf.name);
-    out.push("");
-    out.push(`  ${m}(input: ${names.workflow(wf.name)}Request) {`);
-    out.push(`    return this.http.post<void>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`);
-    out.push("  }");
+    if (emitsCommandRoute(wf)) {
+      out.push("");
+      out.push(`  ${m}(input: ${names.workflow(wf.name)}Request) {`);
+      out.push(`    return this.http.post<void>(\`\${API_BASE_URL}/workflows/${slug}\`, input);`);
+      out.push("  }");
+    }
     if (wf.instanceWireShape) {
       out.push("");
       out.push(`  ${m}Instances() {`);
@@ -205,17 +217,18 @@ export function buildAngularWorkflowsModule(contexts: BoundedContextIR[]): strin
   for (const { wf } of workflows) {
     const T = upperFirst(wf.name);
     const m = lowerFirst(wf.name);
-    out.push(
-      `/** \`${wf.name}\` workflow command (TanStack \`injectMutation\`) — \`mutateAsync(input)\``,
-      " *  POSTs the command params. */",
-      `export function use${names.workflow(wf.name)}Workflow() {`,
-      "  const service = inject(WorkflowsService);",
-      "  return injectMutation(() => ({",
-      `    mutationFn: (input: ${names.workflow(wf.name)}Request) => firstValueFrom(service.${m}(input)),`,
-      "  }));",
-      "}",
-      "",
-    );
+    if (emitsCommandRoute(wf))
+      out.push(
+        `/** \`${wf.name}\` workflow command (TanStack \`injectMutation\`) — \`mutateAsync(input)\``,
+        " *  POSTs the command params. */",
+        `export function use${names.workflow(wf.name)}Workflow() {`,
+        "  const service = inject(WorkflowsService);",
+        "  return injectMutation(() => ({",
+        `    mutationFn: (input: ${names.workflow(wf.name)}Request) => firstValueFrom(service.${m}(input)),`,
+        "  }));",
+        "}",
+        "",
+      );
     if (wf.instanceWireShape) {
       out.push(
         `/** \`${wf.name}\` instance list read — the saga-state rows. */`,

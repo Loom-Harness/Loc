@@ -11,6 +11,7 @@ import type {
 import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -481,11 +482,8 @@ function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): string | u
  *  where the find condition is AND-ed with the capability predicate over `x`. */
 function conventionInline(agg: EnrichedAggregateIR, find: FindIR): string | undefined {
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   return clauses.length > 0 ? clauses.join(" and ") : undefined;
 }
