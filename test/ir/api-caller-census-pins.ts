@@ -815,6 +815,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
   // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
