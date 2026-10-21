@@ -405,7 +405,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 - **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
-## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `done` (#3107) · **S–M** · P1 ⚠ verify-first
 
 Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
 which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.

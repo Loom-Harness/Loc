@@ -9,7 +9,7 @@ import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -209,7 +209,7 @@ export function buildPyEmbeddedRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const domainNames = [agg.name, ...parts.map((p) => p.name)].filter(refersTo);

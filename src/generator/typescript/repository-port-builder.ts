@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 
@@ -113,7 +113,10 @@ export function renderRepositoryPortsFile(
   // `tsc` with TS2304 — the `intrinsics` corpus fixture's `byFloorPrice(whole:
   // money)` was the first find with a money parameter (wave C3 3d → 3-A fold).
   const usesDecimal = referenced("Decimal");
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(referenced)
     .sort();
   const aggNames = nonEmpty
