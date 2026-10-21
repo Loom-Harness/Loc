@@ -30,11 +30,7 @@ const workflowsDir = path.resolve(here, "../../.github/workflows");
 /** Workflows that MUST keep running on draft PRs.  langium-generated and
  *  workflow-lint are seconds-cheap correctness gates; pr-gate must always run
  *  to aggregate whatever did. */
-const FAST_LANE = new Set([
-  "langium-generated.yml",
-  "workflow-lint.yml",
-  "pr-gate.yml",
-]);
+const FAST_LANE = new Set(["langium-generated.yml", "workflow-lint.yml", "pr-gate.yml"]);
 
 const DRAFT_GATE_IF =
   "github.event_name != 'pull_request' || github.event.pull_request.draft == false";
