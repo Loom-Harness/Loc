@@ -12,6 +12,7 @@ import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import {
   enumPool,
   findValueObjectInScope,
@@ -219,7 +220,7 @@ export function buildPyDocumentRepositoryFile(
           `            .returning(${row}.id)`,
           "        )",
           "        if _guarded.first() is None:",
-          `            raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently")`,
+          `            raise ConcurrencyError(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,

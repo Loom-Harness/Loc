@@ -13,6 +13,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
   UNPROCESSABLE_ENTITY,
@@ -1177,10 +1178,13 @@ export function renderApiExceptionAdvice(
       `        // client's If-Match expected version was stale (think-time CAS) or the`,
       `        // load→save window lost a race (the repository's guarded version bump`,
       `        // matched zero rows — write-time CAS).`,
-      `        // Return a friendly 409 instead of leaking a 500.`,
-      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", "The resource was modified by another request; reload and retry.", "status", ${concurrencyStatus});`,
+      `        // Return a friendly 409 instead of leaking a 500.  RS-39: the detail`,
+      `        // names the aggregate and the row — every raise site passes`,
+      `        // (<Aggregate>.class, id.value()).`,
+      `        String detail = (e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier() + ${JSON.stringify(` ${CONCURRENCY_CONFLICT_SUFFIX}`)};`,
+      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", detail, "status", ${concurrencyStatus});`,
       `        httpMetrics.recordDomainFault("conflict");`,
-      `        return respond(problem(${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry.", request), ${concurrencyStatus});`,
+      `        return respond(problem(${concurrencyStatus}, "Conflict", detail, request), ${concurrencyStatus});`,
       `    }`,
       ``,
     ],

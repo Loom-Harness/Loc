@@ -8,6 +8,7 @@ import type {
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -378,7 +379,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `            .returning(${row}.id)`,
       "        )",
       "        if _guarded.first() is None:",
-      `            raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently")`,
+      `            raise ConcurrencyError(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push(

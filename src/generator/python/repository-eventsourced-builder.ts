@@ -9,6 +9,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -153,7 +154,7 @@ export function buildPyEventSourcedRepositoryFile(
     ...(aggregateIsVersioned(agg)
       ? [
           "            if expected_version is not None and version != expected_version:",
-          `                raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently")`,
+          `                raise ConcurrencyError(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
         ]
       : []),
     "            for ev in pending:",
@@ -176,7 +177,7 @@ export function buildPyEventSourcedRepositoryFile(
     "                    )",
     "                except IntegrityError as err:",
     '                    if getattr(getattr(err, "orig", None), "sqlstate", None) == "23505":',
-    `                        raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently") from err`,
+    `                        raise ConcurrencyError(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}") from err`,
     "                    raise",
     "                await self._events.dispatch(ev)",
     "        await self._session.flush()",

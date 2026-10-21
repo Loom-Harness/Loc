@@ -230,7 +230,22 @@ test e2e "create, add a line to, and confirm an order" against api {
 }
 ```
 
-`api.<agg>.create(...)` → `POST /api/<plural>`, `getById` → `GET /api/<plural>/{id}`, an operation `addLine` → `POST /api/<plural>/{id}/add_line`, `destroy` → `DELETE /api/<plural>/{id}` (asserted as 204 + empty body). The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
+`api.<agg>.create(...)` → `POST /api/<plural>`, `getById` → `GET /api/<plural>/{id}`, an operation `addLine` → `POST /api/<plural>/{id}/add_line`, `destroy` → `DELETE /api/<plural>/{id}` (asserted as 204 + empty body).
+
+**Optimistic concurrency — `{ ifMatch: v }`.** The `update` of a `versioned` aggregate takes an optional third argument that sends the `If-Match` precondition header, so a stale write is drivable from an e2e body:
+
+```ddd
+let read = api.notes.getById(n)
+api.notes.update(n, { text: "second" }, { ifMatch: read.version })
+expect(api.notes.update(n, { text: "lost" }, { ifMatch: read.version })).toThrow(409)
+```
+
+```ts
+await __postIfMatch(`${base}/api/notes/${n.id}/update`, ({ text: "second" }), read.version);
+// …which sends  if-match: "<version>"  — the quoted entity-tag every backend parses
+```
+
+The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-39](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`).
 
 ```ts
 // e2e/SalesSystem.e2e.test.ts — emitted once at the output root

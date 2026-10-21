@@ -1566,7 +1566,7 @@ export function renderReturningOpControllerAction(
     ...(persists && aggregateIsVersioned(agg)
       ? [
           `  def ${resultFn}(conn, {:error, :conflict}),
-    do: ProblemDetails.conflict_response(conn)`,
+    do: ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])`,
         ]
       : []),
   ].join("\n\n");
