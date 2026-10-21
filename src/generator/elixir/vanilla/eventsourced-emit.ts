@@ -528,6 +528,11 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     : f.params
         .map((p) => `a.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
         .join(" and ");
+  // A filterless, param-less find (`find pick(): X`) has no predicate at all:
+  // match every folded row rather than emitting `fn a ->  end` (a syntax
+  // error) or `fn a -> true end` (an unused-variable warning, fatal under
+  // `--warnings-as-errors`).
+  const filterAll = pred ? `Enum.filter(all, fn a -> ${pred} end)` : "all";
   if (pagedReturn(f.returnType)) {
     // Same whitelist the relational/document builders order by; the folded
     // aggregate is a struct, so a whitelisted property reads off it directly
@@ -545,7 +550,7 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     ].join(", ");
     return `  def ${fnName}(${argList}) do
     {:ok, all} = list()
-    matched = Enum.filter(all, fn a -> ${pred} end)
+    matched = ${filterAll}
 
     total = length(matched)
     offset = (page - 1) * page_size
@@ -572,8 +577,10 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
   end`;
   }
   const reduce = single
-    ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
-    : `{:ok, Enum.filter(all, fn a -> ${pred} end)}`;
+    ? pred
+      ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
+      : "{:ok, List.first(all)}"
+    : `{:ok, ${filterAll}}`;
   return `  def ${fnName}(${argNames.join(", ")}) do
     {:ok, all} = list()
     ${reduce}
