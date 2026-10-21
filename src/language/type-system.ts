@@ -3,7 +3,7 @@ import { AstUtils } from "langium";
 import type { PrimitiveName } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
 import { intrinsicsForReceiver, isIntrinsicName } from "../util/intrinsics.js";
-import { PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
+import { PRINCIPAL_IS_SYSTEM, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import {
   isValueObjectEqualsIntrinsic,
@@ -987,6 +987,7 @@ export function absentUserClaim(recvType: DddType, name: string): string[] | und
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   if (t.kind !== "userclaim") return undefined;
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
+  if (name === PRINCIPAL_IS_SYSTEM) return undefined;
   if (t.ref.fields.some((f) => f.name === name)) return undefined;
   return t.ref.fields.map((f) => f.name);
 }
@@ -1572,6 +1573,7 @@ export function membersOfType(t: DddType): MemberCompletion[] {
         ),
         { name: PRINCIPAL_ORG_PATH, kind: "field", detail: "string" },
         { name: PRINCIPAL_ROOT_ORG, kind: "field", detail: "string" },
+        { name: PRINCIPAL_IS_SYSTEM, kind: "field", detail: "bool" },
       ];
     default:
       return [];
