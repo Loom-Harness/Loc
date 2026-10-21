@@ -244,10 +244,14 @@ export function renderPyAggregate(
   // would otherwise slip past the gate and land the refused write silently.
   // So the import follows any `when`-carrying operation.
   const usesDisallowed = shapes.some((s) => s.operations.some((op) => !!op.when));
+  // Each declarative flag above is OR-ed with a reference scan of the rendered
+  // body: a raise site the flags do not enumerate (an event-sourced `create`'s
+  // `precondition`, which lives in `esCreate`, not `operations`) still pulls its
+  // import — otherwise the module raises an unbound `DomainError` (F821).
   const errorNames = [
-    usesDisallowed ? "DisallowedError" : null,
-    usesDomainError ? "DomainError" : null,
-    usesForbidden ? "ForbiddenError" : null,
+    usesDisallowed || refersTo("DisallowedError") ? "DisallowedError" : null,
+    usesDomainError || refersTo("DomainError") ? "DomainError" : null,
+    usesForbidden || refersTo("ForbiddenError") ? "ForbiddenError" : null,
   ].filter((n): n is string => n != null);
 
   const emittedEvents = [

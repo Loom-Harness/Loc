@@ -59,8 +59,9 @@ export type ReactBundleStatus =
  *  `x-loom-dev-claims` header (base64 JSON), which the generated Hono
  *  dev-stub verifier merges over its built-in identity — so an
  *  `auth: required` system is explorable in the sandbox as different
- *  users without a reachable IdP.  No-op for systems with a real
- *  `auth { oidc }` block (the OIDC verifier is active instead). */
+ *  users without a reachable IdP.  Applies to `auth { oidc }` systems too:
+ *  the preview registers their emitted dev stub, since no IdP is reachable
+ *  from the worker (the generated app registers the OIDC verifier). */
 export interface AuthStubConfig {
   enabled: boolean;
   /** A JSON object literal of claims, edited in the Auth panel. */

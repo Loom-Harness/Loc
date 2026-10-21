@@ -9,6 +9,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
@@ -21,6 +22,7 @@ import {
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";
+import { isValueObjectType, renderValueObjectEquality } from "./value-object-type-emit.js";
 
 /** Elixir leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).
@@ -544,6 +546,16 @@ export function vtExpr(e: ExprIR, env: Env): string {
       return `-${vtExpr(e.operand, env)}`;
     }
     case "binary":
+      // Value-object `==` / `!=` (and `.equals`, which lowers to it) is VALUE
+      // equality across the shapes a VO takes — the same leaf the domain
+      // renderer uses (`render-expr.ts`).
+      if (
+        (e.op === "==" || e.op === "!=") &&
+        (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
+      ) {
+        const eq = renderValueObjectEquality(e.op, vtExpr(e.left, env), vtExpr(e.right, env));
+        return e.op === "==" ? eq : `(${eq})`;
+      }
       return `${vtExpr(e.left, env)} ${binOp(e.op)} ${vtExpr(e.right, env)}`;
     default:
       throw new UnsupportedTestShapeError(
@@ -696,12 +708,12 @@ function isMoneyLike(inner: ExprIR, arg: ExprIR | undefined): boolean {
 
 function usedRefNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
-  const collect = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    for (const c of childExprs(e)) collect(c);
-  };
   for (const s of statements) {
-    for (const e of stmtExprs(s)) collect(e);
+    for (const e of stmtExprs(s)) {
+      walkExprDeep(e, (n) => {
+        if (n.kind === "ref") used.add(n.name);
+      });
+    }
   }
   return used;
 }
@@ -711,32 +723,4 @@ function stmtExprs(s: TestStmtIR): ExprIR[] {
   if (s.kind === "expression") return [s.expr];
   if (s.kind === "call") return s.args;
   return [];
-}
-
-function childExprs(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "new":
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    case "list":
-      return e.elements;
-    default:
-      return [];
-  }
 }

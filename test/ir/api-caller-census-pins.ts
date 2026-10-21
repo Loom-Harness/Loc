@@ -809,6 +809,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -854,6 +860,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
