@@ -55,13 +55,14 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   ungated list read raises `loom.default-deny-list-ungated` (ruling D5 —
   same tier as the by-id warning, so existing models keep building).  The
   warning names its remedy: declaring an explicit
-  `find all(): T[] requires <expr>` replaces the injected find and gates that
-  route (`requires true` marks it intentionally public), and does so on **all
-  five** backends — node/Hono and .NET emit a route per repository find and so
-  always honoured it, while java, python and elixir each special-case `all` out
-  of their named-find loop and used to emit the list route without reading its
-  gate.  All five now resolve the list read through one shared derivation
-  (`src/ir/util/read-gates.ts`).
+  `find all(): T paged requires <expr>` replaces the injected find and gates
+  that route (`requires true` marks it intentionally public).  Spell the
+  return type the way the warning does: the injected read is `T paged` (the
+  `Paged<T>` envelope) on every aggregate whose rows page, and a declared
+  `all` answers exactly the type it names — `T[]` is a bare JSON array, so
+  writing it to add a gate changes the response shape every client parses.
+  The gate is enforced on **all five** backends, which resolve the list read
+  through one shared derivation (`src/ir/util/read-gates.ts`).
 - **the synthesised by-id read is the second warning — and unlike the list
   read it has NO recourse yet.**  `GET /api/<plural>/{id}` is compiler-derived
   on all five backends and carries no gate on any of them, so gating an
@@ -71,9 +72,21 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   `loom.default-deny-by-id-ungated` (a **warning**, because there is nothing
   the author can write to satisfy it — the by-id gate surface
   (`find byId(id: T id): T? requires <expr>`) is mission M-T3.19).  What DOES
-  still apply to the by-id route: the tenancy filter (a foreign tenant's row
-  reads 404) and `mask unless` field redaction.  What does not: role
-  separation within a tenant.
+  still apply to the by-id route: every capability `filter` on the aggregate
+  (the tenancy filter — a foreign tenant's row reads 404 — and any row filter
+  the author writes) and `mask unless` field redaction.  So role separation
+  within a tenant is written as a row filter that tests the principal:
+
+  ```ddd
+  aggregate Ticket {
+    customer: Customer id
+    // agents read every ticket; a customer reads only their own — by id too
+    filter currentUser.role == "agent" || this.customer == currentUser.customerId
+  }
+  ```
+
+  A filtered-out row reads 404 on the by-id route, exactly like a foreign
+  tenant's.  See [capabilities.md § Principal terms](capabilities.md#principal-terms).
 - **an event-sourced `create` is the third exception — on the four backends that
   cannot gate it.**  A `persistedAs: eventLog` aggregate's create body renders
   into the domain `_init`, which has no principal in scope, so a `requires` there
@@ -1257,6 +1270,26 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"
   http://localhost:8080/api/orders
 ```
 
+> **The stub exists only without an `auth { oidc … }` block.** Declaring one
+> replaces the stub with the generated OIDC verifier on every backend
+> (D-AUTH-OIDC): there is no `x-loom-dev-claims` path and no env switch that
+> brings it back, so every request needs a real bearer token. Local
+> development with an `oidc` block therefore needs an IdP:
+>
+> - **Self-hosted provider** (`provider: keycloak`, `provider: custom`, or a
+>   bare `oidc { issuer … }`) — `docker compose up` starts the bundled dev
+>   Keycloak (realm import from the emitted `keycloak/realm.json`, demo user
+>   included), and the backends are wired to its issuer. Running a single
+>   deployable outside compose still needs that Keycloak: start it with
+>   `docker compose up -d keycloak` and point `OIDC_ISSUER` / `OIDC_CLIENT_ID`
+>   at it.
+> - **Hosted preset** (`google`, `auth0`, …) — no bundled service; set the
+>   `OIDC_*` variables to your tenant.
+>
+> To exercise gates with hand-written claims instead, generate a copy of the
+> model without the `oidc` block (keep `auth: required` and the `user { … }`
+> block) — that build gets the stub.
+
 > **The encoding is load-bearing.** A header that is **present but does not
 > decode to a JSON object** — raw JSON, broken base64, a JSON array or string —
 > is refused on all five backends with **400**, before any route runs
@@ -1425,7 +1458,10 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.  The block's fields are documented in
+  `auth { oidc { … } }` block.  An `auth: ui` frontend's **Sign out** control
+  redirects to `/api/auth/logout`; it sits in the design pack's app-shell
+  header/toolbar (the Spartan pack, which has no header, puts it at the foot of
+  the sidebar), never as an overlay on the page.  The block's fields are documented in
   [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
   the one worth reading before you ship is **`audience:`, which is optional and
   whose absence turns the `aud` check off** — the verifier then accepts any

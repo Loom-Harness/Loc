@@ -7,7 +7,8 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
 import { plural, snake } from "../../../util/naming.js";
-import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
+import { pagedReturn } from "../../stdlib/generics.js";
+import type { FindIR, SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
@@ -219,15 +220,22 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // about it.  A warning turns a SILENT hole into an honest, visible one
       // today; when the surface lands, the check gains its `if (gated)
       // continue;` and can be promoted to an error under the same code.
+      const aggregateOrigin = (name: string) =>
+        c.aggregates.find((a) => a.name === name)?.origin ?? c.origin;
       for (const op of deriveContextOperations(c)) {
         // The aggregate LIST read, `GET /api/<aggs>` (eval item 22, ruling
         // D5).  It is backed by the repository find named `all` — usually the
         // one enrichment injects, which carries no gate, so under
         // denyByDefault it serves every row to any authenticated caller.
         // Unlike the by-id read the author HAS recourse here: an explicit
-        // `find all(): T[] requires <expr>` overrides the injected one and is
-        // enforced on all five backends (`listReadGate`).  Ruled a WARNING,
-        // the same tier as the by-id read, so existing models keep building;
+        // `find all(): T paged requires <expr>` overrides the injected one and
+        // is enforced on all five backends (`listReadGate`).  The suggested
+        // return type is the one the read ALREADY has (`listReadSpelling`):
+        // a declared `all` keeps the wire contract its signature names, so
+        // suggesting `T[]` over the paged injected read would silently swap the
+        // `Paged<T>` envelope for a bare array the moment the gate is added.
+        // Ruled a WARNING, the same tier as the by-id read, so existing models
+        // keep building;
         // the message names the line that silences it.  An author-declared
         // ungated `find all` reports here too — the declared-find loop below
         // skips `all`, so it is this warning or nothing.
@@ -241,8 +249,12 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               name: op.aggregate,
               path: op.path,
               repo: repo?.name ?? `${op.aggregate}s`,
+              listType: listReadSpelling(op.aggregate, op.find),
             }),
             source: `${c.name}/${op.aggregate}/all`,
+            // The repository is where the silencing `find all … requires`
+            // goes; an aggregate with no declared repository points at itself.
+            origin: repo?.origin ?? aggregateOrigin(op.aggregate),
           });
           continue;
         }
@@ -255,7 +267,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             path: op.path,
           }),
           source: `${c.name}/${op.aggregate}`,
-          origin: c.origin,
+          // The aggregate whose synthesised read this is — not the context,
+          // which would put every aggregate's warning on one line.
+          origin: aggregateOrigin(op.aggregate),
         });
       }
       // Repository finds: each author-declared named find is its own GET route
@@ -295,6 +309,10 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               aggregateName: repo.aggregateName,
               aggregateName2: snake(plural(repo.aggregateName)),
               name: repo.name,
+              listType: listReadSpelling(
+                repo.aggregateName,
+                repo.finds.find((f) => f.name === "all"),
+              ),
             }),
             source: `find/${repo.name}.history`,
             origin: repo.origin,
@@ -442,4 +460,14 @@ function workflowCommandEntries(
     entries.push({ label: `${wf.name}.${h.name}`, key: h.name, statements: h.statements });
   }
   return entries;
+}
+
+/** The return type to spell in a suggested `find all(): <T> requires …` — the
+ *  shape the aggregate's list read has NOW.  The injected read is `T paged` on
+ *  every aggregate whose rows page (and a bare `T[]` on the shapes that cannot),
+ *  and a declared `all` keeps the type its author wrote; echoing that type back
+ *  means following the suggestion adds the gate without changing the wire
+ *  contract the clients already consume. */
+function listReadSpelling(aggregate: string, all: FindIR | undefined): string {
+  return all && pagedReturn(all.returnType) !== null ? `${aggregate} paged` : `${aggregate}[]`;
 }

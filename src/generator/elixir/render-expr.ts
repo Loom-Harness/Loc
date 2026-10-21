@@ -1,4 +1,11 @@
-import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  BinOp,
+  DerivedIR,
+  EnrichedAggregateIR,
+  ExprIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
+import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -22,6 +29,7 @@ import {
 } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { elixirCodePointLength } from "../_expr/code-point.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -175,6 +183,16 @@ export interface RenderCtx {
    *  (`snake(field)`), not struct-dot on an unbound `cmd`.  Set only by the
    *  handler emitter; empty/undefined everywhere else (byte-identical). */
   recordParams?: ReadonlySet<string>;
+  /** Render an aggregate `function` call module-qualified on `contextModule`
+   *  (`Api.Ticketing.sla_hours(record)`) instead of bare.  The facade module
+   *  defines every aggregate function, so a bare call only resolves inside it;
+   *  a stamp value rendered into the repository module (`stamp-emit.ts`) sets
+   *  this.  Unset everywhere else (bare call). */
+  qualifyFunctions?: boolean;
+  /** The host aggregate's `derived` definitions, for inlining a `this-derived`
+   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
+   *  only when `agg` is unset. */
+  derivedDefs?: readonly DerivedIR[];
 }
 
 const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
@@ -477,7 +495,7 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // key that raises `KeyError` at runtime (#1765).  Recurse into a
       // derived-of-derived; the `derivedStack` guard breaks a cycle (validator
       // -prevented) and the fallback covers a ctx with no aggregate index.
-      const d = ctx.agg?.derived.find((x) => x.name === e.name);
+      const d = (ctx.agg?.derived ?? ctx.derivedDefs)?.find((x) => x.name === e.name);
       if (d && !ctx.derivedStack?.has(e.name)) {
         const inner: RenderCtx = {
           ...ctx,
@@ -1145,9 +1163,8 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // Elixir.  On the document path (Route A) the receiver is the rehydrated
       // `%<Agg>.Data{}` embed, still bound as `record` (`ctx.thisName`).
       const recv = ctx.thisName;
-      return args.length > 0
-        ? `${snake(e.name)}(${recv}, ${args.join(", ")})`
-        : `${snake(e.name)}(${recv})`;
+      const fn = ctx.qualifyFunctions ? `${ctx.contextModule}.${snake(e.name)}` : snake(e.name);
+      return args.length > 0 ? `${fn}(${recv}, ${args.join(", ")})` : `${fn}(${recv})`;
     }
     case "workflow-fn":
       // A workflow's own `function` — a `defp <snake(fn)>(params)` in the
@@ -1413,6 +1430,28 @@ function isStringType(e: ExprIR): boolean {
   return false;
 }
 
+/** The Elixir boolean for a principal term, over a NON-nil `current_user`
+ *  (the caller guards the actor).  Enum claims compare as their declared name
+ *  through `to_string/1`, so an atom-valued and a string-valued claim agree. */
+function renderEctoPrincipalTest(pt: PrincipalTerm): string | null {
+  const hasEnum = [pt.left, pt.right].some(
+    (o) => o.kind === "value" && o.expr.kind === "ref" && o.expr.refKind === "enum-value",
+  );
+  return renderPrincipalTest(pt, {
+    claim: (field) =>
+      hasEnum ? `to_string(current_user.${snake(field)})` : `current_user.${snake(field)}`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value") return JSON.stringify(v.name);
+      if (v.kind === "literal") return renderLiteral(v.lit, v.value);
+      return null;
+    },
+    isNull: (x) => `is_nil(${x})`,
+    isNotNull: (x) => `not is_nil(${x})`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+}
+
 function renderBinary(
   l: string,
   r: string,
@@ -1431,6 +1470,17 @@ function renderBinary(
   if (ectoQuery) {
     if (isNowLiteral(e.left)) l = "^DateTime.utc_now()";
     if (isNowLiteral(e.right)) r = "^DateTime.utc_now()";
+  }
+  // A principal term (`currentUser.role == "agent"`) reads no column: its
+  // truth is fixed for the request, so it is decided in Elixir — false without
+  // an actor — and pinned as ONE boolean, which Ecto casts as `:boolean`
+  // inside `and` / `or` / `not`.
+  if (ectoQuery) {
+    const pt = principalTerm(e);
+    if (pt) {
+      const test = renderEctoPrincipalTest(pt);
+      if (test !== null) return `^(not is_nil(current_user) and ${test})`;
+    }
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  `duration ± duration` and `duration * int` stay native integer

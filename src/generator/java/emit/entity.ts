@@ -16,6 +16,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -217,27 +218,43 @@ export interface JavaEntityOptions {
   opFragments?: OpFragment[];
 }
 
-/** Claim-valued principal stamps (`tenantId := currentUser.tenantId`) for one
- *  lifecycle event.  A BARE `currentUser` value is excluded — it rides the
- *  @CreatedBy/@LastModifiedBy annotation path instead.
+/** The Spring Data auditing annotation a stamp value can ride, or `null` when
+ *  the value needs an explicit lifecycle hook.  Only the two values Spring's
+ *  AuditingEntityListener actually produces qualify: a bare `now()` (its clock →
+ *  @CreatedDate/@LastModifiedDate) and a bare `currentUser` (the
+ *  AuditorAware<UUID> actor → @CreatedBy/@LastModifiedBy).  Anything else — a
+ *  claim read (`currentUser.tenantId`), or a computed value such as
+ *  `now() + hours(slaHours())` — would be silently replaced by the listener's
+ *  value, so it is evaluated in `_stampOnCreate` / `_stampOnUpdate` instead. */
+function auditAnnotationOf(value: ExprIR, createEvent: boolean): string | null {
+  if (value.kind === "literal" && value.lit === "now") {
+    return createEvent ? "CreatedDate" : "LastModifiedDate";
+  }
+  if (value.kind === "ref" && value.refKind === "current-user") {
+    return createEvent ? "CreatedBy" : "LastModifiedBy";
+  }
+  return null;
+}
+
+/** The stamps for one lifecycle event that are evaluated in an explicit
+ *  `_stampOnCreate()` / `_stampOnUpdate()` hook rather than by a Spring auditing
+ *  annotation ({@link auditAnnotationOf}): claim-valued principal stamps
+ *  (`tenantId := currentUser.tenantId`) and computed values
+ *  (`dueAt := now() + hours(slaHours())`).
  *
  *  THE SINGLE SOURCE both halves of the document-stamp contract read: this file
  *  emits `_stampOnCreate()` / `_stampOnUpdate()` when it returns non-empty, and
  *  `service.ts` emits the call when it does.  Computing that predicate twice is
  *  how the two halves drift apart (experience_gathered.md §89) — a method with
  *  no caller stamps nothing, a caller with no method does not compile. */
-export function claimStampsFor(
+export function hookStampsFor(
   agg: { contextStamps?: ContextStampIR[] },
   event: "create" | "update",
 ): { field: string; value: ExprIR }[] {
   return (agg.contextStamps ?? [])
     .filter((r) => r.event === event)
     .flatMap((r) => r.assignments)
-    .filter(
-      (a) =>
-        exprUsesCurrentUser(a.value) &&
-        !(a.value.kind === "ref" && a.value.refKind === "current-user"),
-    )
+    .filter((a) => auditAnnotationOf(a.value, event === "create") === null)
     .map((a) => ({ field: a.field, value: a.value }));
 }
 
@@ -330,6 +347,14 @@ export function renderJavaEntity(
     if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
   }
   for (const ap of appliers) collectJavaStmtImports(ap.statements, javaImports);
+  // A hook-evaluated stamp value renders into `_stampOnCreate` /
+  // `_stampOnUpdate` (`Instant.now().plus(Duration.ofHours(…))`), so it pulls
+  // imports like any other entity expression.
+  if (isAgg(entity)) {
+    for (const rule of entity.contextStamps ?? []) {
+      for (const a of rule.assignments) collectJavaExprImports(a.value, javaImports);
+    }
+  }
   if (esCreate) {
     collectJavaStmtImports(esCreate.statements, javaImports);
     for (const p of esCreate.params) collectJavaTypeImports(p.type, javaImports);
@@ -406,6 +431,10 @@ export function renderJavaEntity(
   // CurrentUserAccessor (the same holder the repository's SpEL principal
   // filter resolves through), null-safe so a non-request (seed / system) save
   // stays unstamped.  Bare `currentUser` keeps the annotation path unchanged.
+  // A COMPUTED stamp value (`dueAt := now() + hours(slaHours())`) cannot ride
+  // @CreatedDate either — the listener would overwrite it with the bare clock —
+  // so it joins the same hooks, evaluated against `this` (the entity being
+  // persisted) and independent of the principal.
   const auditAnnotationFor = new Map<string, { annotation: string; createEvent: boolean }>();
   const claimStampColumnFor = new Map<string, { createEvent: boolean }>();
   const claimStamps: { field: string; value: ExprIR; createEvent: boolean }[] = [];
@@ -413,20 +442,12 @@ export function renderJavaEntity(
     for (const rule of entity.contextStamps ?? []) {
       const createEvent = rule.event === "create";
       for (const a of rule.assignments) {
-        const principal = exprUsesCurrentUser(a.value);
-        const bare = a.value.kind === "ref" && a.value.refKind === "current-user";
-        if (principal && !bare) {
+        const annotation = auditAnnotationOf(a.value, createEvent);
+        if (annotation === null) {
           claimStampColumnFor.set(a.field, { createEvent });
           claimStamps.push({ field: a.field, value: a.value, createEvent });
           continue;
         }
-        const annotation = principal
-          ? createEvent
-            ? "CreatedBy"
-            : "LastModifiedBy"
-          : createEvent
-            ? "CreatedDate"
-            : "LastModifiedDate";
         auditAnnotationFor.set(a.field, { annotation, createEvent });
       }
     }
@@ -653,7 +674,7 @@ export function renderJavaEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
-          `operation '${op.name}' is not allowed in the current state of ${entity.name}.`,
+          disallowedDetail(op.name, entity.name, op.whenSource),
         )});`
       : null;
   const opLines: string[] = [];
@@ -1056,22 +1077,25 @@ export function renderJavaEntity(
       // fully-qualified on parts so neither import shadows the other.
       "@org.jmolecules.ddd.annotation.Entity";
 
-  // Claim-valued principal stamps → explicit JPA lifecycle callbacks.  The
-  // @PrePersist arm applies create + update assignments (a fresh row is both
-  // created and current, matching the @LastModified* fill-on-insert semantics
-  // and the node insert branch); the @PreUpdate arm re-applies only the
-  // update-event ones.  The principal is read statically off
-  // CurrentUserAccessor (entity callbacks can't inject beans) and a
-  // principal-less save (seed / system) returns unstamped — the write-side
-  // analogue of the repository filter's null-safe SpEL accessor.
+  // Hook-evaluated stamps (claim-valued principal reads and computed values)
+  // → explicit JPA lifecycle callbacks.  The @PrePersist arm applies create +
+  // update assignments (a fresh row is both created and current, matching the
+  // @LastModified* fill-on-insert semantics and the node insert branch); the
+  // @PreUpdate arm re-applies only the update-event ones.  A computed value
+  // reads `this` — the entity about to be written — and is assigned
+  // unconditionally, exactly like the clock the auditing listener supplies.  A
+  // principal read goes through CurrentUserAccessor (entity callbacks can't
+  // inject beans) and a principal-less save (seed / system) leaves those
+  // columns unstamped — the write-side analogue of the repository filter's
+  // null-safe SpEL accessor.
   const claimStampHookLines: string[] = [];
+  let hooksReadPrincipal = false;
   // A document root has no persistence context, so the methods emit WITHOUT the
   // JPA annotations and the service calls them directly (see documentClaimStamps).
   const plainStampHooks = !persistence && options.documentClaimStamps === true;
   if ((persistence || plainStampHooks) && claimStamps.length > 0) {
-    const claimAssign = (s: { field: string; value: ExprIR }): string =>
+    const assign = (s: { field: string; value: ExprIR }): string =>
       `        this.${s.field} = ${renderJavaExpr(s.value, renderCtx)};`;
-    const updateClaims = claimStamps.filter((s) => !s.createEvent);
     // F-018 — refuse a principal whose claim is absent BEFORE assigning.  After
     // the assignment the null is on the entity and the NOT NULL violation is
     // Hibernate's to report at flush, as an opaque 500.
@@ -1083,24 +1107,38 @@ export function renderJavaEntity(
             `        }`,
           ])
         : [];
+    const hookBody = (
+      stamps: readonly { field: string; value: ExprIR }[],
+      event: "create" | "update",
+    ): string[] => {
+      const computed = stamps.filter((s) => !exprUsesCurrentUser(s.value));
+      const principal = stamps.filter((s) => exprUsesCurrentUser(s.value));
+      if (principal.length > 0) hooksReadPrincipal = true;
+      return [
+        ...computed.map(assign),
+        ...(principal.length > 0
+          ? [
+              `        var currentUser = CurrentUserAccessor.currentOrNull();`,
+              `        if (currentUser == null) return;`,
+              ...claimGuards(event),
+              ...principal.map(assign),
+            ]
+          : []),
+      ];
+    };
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @PrePersist`]),
       `    void _stampOnCreate() {`,
-      `        var currentUser = CurrentUserAccessor.currentOrNull();`,
-      `        if (currentUser == null) return;`,
-      ...claimGuards("create"),
-      ...claimStamps.map(claimAssign),
+      ...hookBody(claimStamps, "create"),
       `    }`,
       ``,
     );
-    if (updateClaims.length > 0) {
+    const updateStamps = claimStamps.filter((s) => !s.createEvent);
+    if (updateStamps.length > 0) {
       claimStampHookLines.push(
         ...(plainStampHooks ? [] : [`    @PreUpdate`]),
         `    void _stampOnUpdate() {`,
-        `        var currentUser = CurrentUserAccessor.currentOrNull();`,
-        `        if (currentUser == null) return;`,
-        ...claimGuards("update"),
-        ...updateClaims.map(claimAssign),
+        ...hookBody(updateStamps, "update"),
         `    }`,
         ``,
       );
@@ -1207,7 +1245,7 @@ export function renderJavaEntity(
     anyOpUsesCurrentUser ? `import ${basePkg}.auth.User;` : null,
     // Claim-valued stamps read the ambient principal statically off the
     // request-scoped holder (the same one the SpEL principal filter uses).
-    claimStampHookLines.length > 0 ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
+    hooksReadPrincipal ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     superType?.pkg && superType.pkg !== pkg ? `import ${superType.pkg}.${superType.name};` : null,
     ``,
     // TPH concretes (sharesIdentity) inherit the base's shared @Table —

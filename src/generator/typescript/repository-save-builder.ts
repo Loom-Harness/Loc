@@ -20,7 +20,7 @@ import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
-import { aggregateIsAudited } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
 
@@ -188,8 +188,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
       ...baseEntries,
       { fieldName: "version", expr: "expected + 1" },
     ]);
-    const insertValues = audited ? `stampInsert(${insertRow})` : insertRow;
-    const updateSet = audited ? `stampUpdate(${updateRow})` : updateRow;
+    const insertValues = audited ? stampInsertCall(agg, insertRow) : insertRow;
+    const updateSet = audited ? stampUpdateCall(agg, updateRow) : updateRow;
     return [
       `      const expected = expectedVersion ?? aggregate.version;`,
       `      const existingRow = await tx.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
@@ -205,8 +205,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     ];
   }
 
-  const insertValues = audited ? "stampInsert(rootRow)" : "rootRow";
-  const updateSet = audited ? "stampUpdate(rootRow)" : "rootRow";
+  const insertValues = audited ? stampInsertCall(agg, "rootRow") : "rootRow";
+  const updateSet = audited ? stampUpdateCall(agg, "rootRow") : "rootRow";
   return [
     `      const rootRow = ${rootProjection(agg, "aggregate", ctx)};`,
     // NOTE: this unversioned arm is UNREACHABLE today and deliberately carries

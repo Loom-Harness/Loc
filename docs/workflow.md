@@ -84,6 +84,36 @@ context Sales {
 Every `Repo.…` form above names a repository of the workflow's **own
 context** — see below.
 
+### A `when`-gated operation in a `for` loop is gated per row
+
+An operation's `when` state gate runs inside the generated domain method on
+every backend (D-WHEN-GATE-DOMAIN), so a workflow — or a timer's handler —
+calling it on a loop element is refused exactly as an HTTP caller would be.
+There is no per-element isolation: the refusal throws out of the loop, the
+elements after it are never visited, and the run fails (a `transactional`
+workflow also rolls back the iterations before it; otherwise each earlier
+iteration's save has already committed).  So the retrieval being iterated
+must select only rows the gate admits — make its criterion imply the `when`
+predicate:
+
+```ddd
+aggregate Ticket {
+  status: Status
+  dueAt: datetime
+  operation flagBreached() when status == Open { status := Breached }
+}
+// Overdue, AND still Open — so every row satisfies flagBreached's gate.
+criterion DueOpen(asOf: datetime) of Ticket = dueAt < asOf && status == Open
+retrieval Due(asOf: datetime) of Ticket { where: DueOpen(asOf) }
+
+// in the workflow / timer body
+let due = Tickets.run(Due(now()))
+for t in due { t.flagBreached() }
+```
+
+A criterion that selects only `dueAt < asOf` would also pick up tickets
+already `Breached`, and the first of them would abort the sweep.
+
 ### Repositories are context-local — `loom.workflow-cross-context-repository`
 
 A workflow orchestrates the aggregates of ONE bounded context.  Naming a

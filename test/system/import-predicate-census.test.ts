@@ -57,7 +57,7 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 296, // main's 293 (SYSTEM-principal import, dispatch-builder `ids` / `voEnum` lines, +2 slice lines) + 3 train sites
-  typescript: 237,
+  typescript: 233,
   dotnet: 26,
   java: 52, // +1: workflow route `PostCommitDispatcher` import (#3262) — keyed off the rendered body
   elixir: 2,

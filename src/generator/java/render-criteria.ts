@@ -5,6 +5,7 @@ import type {
   FieldIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { principalTerm } from "../../ir/util/principal-term.js";
 import { type DurationExprIR, durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -19,6 +20,7 @@ import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util
 import { javaSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { jid } from "./java-ident.js";
 import { boxedJavaType, collectJavaExprImports, renderJavaExpr } from "./render-expr.js";
+import { javaPrincipalTest } from "./render-jpql.js";
 
 // ---------------------------------------------------------------------------
 // Criterion body → JPA Criteria predicate renderer, the engine behind the
@@ -275,6 +277,18 @@ function criteriaPathExpr(e: ExprIR, ctx: CriteriaCtx): string | null {
 function binary(e: Extract<ExprIR, { kind: "binary" }>, ctx: CriteriaCtx): string {
   if (e.op === "&&") return `cb.and(${bool(e.left, ctx)}, ${bool(e.right, ctx)})`;
   if (e.op === "||") return `cb.or(${bool(e.left, ctx)}, ${bool(e.right, ctx)})`;
+  // A principal term (`currentUser.role == "agent"`) reads no path: decided in
+  // Java against the factory's `currentUser` (false without one), it becomes
+  // the always-true / always-false Criteria predicate.
+  {
+    const pt = principalTerm(e);
+    if (pt) {
+      collectJavaExprImports(e, ctx.imports);
+      const test = javaPrincipalTest(pt, "currentUser", (en, v) => `${en}.${v}`);
+      if (test === null) throw unsupported("principal term operand");
+      return `(${test} ? cb.conjunction() : cb.disjunction())`;
+    }
+  }
   // Registry self-scope against a `string` tenancy claim (M-T3.7(c)), the
   // Criteria twin of the @Query SpEL in render-jpql.ts.  Two things the generic
   // path below gets wrong here: the entity key is an `@EmbeddedId` record, so

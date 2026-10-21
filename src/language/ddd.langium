@@ -1504,8 +1504,9 @@ Workflow:
 WorkflowMember:
     WorkflowCreateDecl | Apply | OnDecl | HandleDecl | Property | FunctionDecl;
 
-// A workflow starter.  Param-shape discriminates the trigger (resolved at
-// lowering, not parse time):
+// A workflow starter.  The body is optional — a bodyless starter is the
+// same AST as one with `{ }`.  Param-shape discriminates the trigger
+// (resolved at lowering, not parse time):
 //   create(event: E) by <expr>  → event-triggered (allocate-if-correlation-misses)
 //   create(c: Command)          → explicit command-triggered
 //   create(p1: T1, p2: T2, …)   → implicit command sugar (legacy paren-body lands here)
@@ -1517,9 +1518,9 @@ WorkflowCreateDecl:
         CallableSigModifiers
         ('by' correlation=CorrelationExpr)?
         CallableGates
-    '{'
+    ('{'
         body+=Statement*
-    '}';
+    '}')?;
 
 
 // A named orchestration command handler on a workflow: `handle
@@ -1993,14 +1994,16 @@ Operation:
 // body populates a pre-bound fresh `this`; the framework owns
 // persistence (allocate id → persist → return the populated
 // instance).  Parens are required — a factory almost always takes
-// arguments.  An unnamed `create(...)` is the aggregate's canonical
+// arguments.  The body is optional: params that name fields populate
+// them without one, so a bodyless `create(title: string)` is the same
+// AST as `create(title: string) { }`.  An unnamed `create(...)` is the aggregate's canonical
 // creator.  Lowers to an `OperationIR` with `kind: "create"`; never
 // joins `agg.operations` (which stays mutate-only).
 Create:
     CallableLeadModifiers 'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers CallableGates '{'
+        CallableSigModifiers CallableGates ('{'
         body+=Statement*
-    '}';
+    '}')?;
 
 // Lifecycle terminator — `destroy [name][(params)] { body }`.  The
 // instance is loaded by id; the body runs (cleanup / soft-delete

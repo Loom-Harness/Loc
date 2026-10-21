@@ -496,8 +496,12 @@ the conforming backends, and the fix that established it.
 ### RS-17 · A `when` state-gate rejection names the operation it refused
 - **Guarantee.** An `operation … when <pred>` invoked in a state the predicate
   refuses answers **409** with title `"Disallowed"` and the occurrence-specific
-  detail `operation '<op>' is not allowed in the current state of <Agg>.` on
-  every backend.
+  detail `operation '<op>' is not allowed in the current state of <Agg> (when
+  <pred>).` on every backend — `<pred>` is the predicate's `.ddd` source, the
+  way the 422 detail names a `precondition`. One function builds the sentence
+  for all five (`disallowedDetail`, `src/ir/util/denial-detail.ts`). Unlike the
+  403 detail it is echoed under every verifier: a `when` gate is a lifecycle
+  rule, not an authorization predicate.
 - **Trigger.** The 409 rung of the denial ladder.
 - **Why the title is the error NAME, not `"Conflict"`.** `errorTitle`
   (`src/util/error-defaults.ts`) derives a 7807 title by humanising the **error

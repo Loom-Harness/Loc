@@ -8,6 +8,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
+import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -22,6 +23,7 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { pySubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { columnsForFields, joinRowClassName, rowClassName } from "./py-columns.js";
@@ -329,6 +331,26 @@ function lower(
         if (selfScope) {
           const claim = JSON.stringify(snake(selfScope.claim));
           return `${row}.id == ${principalAccessor}.guid_claim(${claim})`;
+        }
+      }
+      // A principal term (`currentUser.role == "agent"`) reads no column: its
+      // truth is fixed for the request, so Python decides it against the
+      // principal and binds the result as a boolean (`literal(True)`), a
+      // `ColumnElement[bool]` that composes with `or_` / `and_` / `not_`.
+      {
+        const pt = principalTerm(e);
+        if (pt) {
+          const test = renderPrincipalTest(pt, {
+            claim: (field) => `${principalAccessor}.${snake(field)}`,
+            value: (v) => renderPyExpr(v),
+            isNull: (x) => `${x} is None`,
+            isNotNull: (x) => `${x} is not None`,
+            eq: (l, r) => `${l} == ${r}`,
+            ne: (l, r) => `${l} != ${r}`,
+          });
+          if (test === null) return null;
+          ops.add("literal");
+          return `literal(${test})`;
         }
       }
       // A5 temporal — `datetime ± days/hours/minutes(n)` renders as

@@ -84,6 +84,14 @@ export const svelteTarget: WalkerTarget = {
     return `${segments.join(".")} = ${valueJs}`;
   },
 
+  /** `currentUser.<claim>` reads the verified session user the component
+   *  shell binds in `<script>` (`const currentUser = useSession().user as
+   *  Record<string, any>`).  The walker sets `usesCurrentUser` on entering
+   *  this seam, which is what makes the shell emit that binding. */
+  renderCurrentUserAccess(field: string): string {
+    return `currentUser.${field}`;
+  },
+
   // --- Interactive-table seam (M-T1.1) ------------------------------------
 
   /** An `onclick` header driving client-side sort.  Svelte 5 `$state`

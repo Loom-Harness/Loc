@@ -59,6 +59,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../util/test-reset.js";
+import { UUID_WIRE_MESSAGE, UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -2221,6 +2222,24 @@ def _pointer(loc: tuple[object, ...]) -> str:
     return "/" + "/".join(segments) if segments else ""
 
 
+_UUID_PATTERN = r"${UUID_WIRE_PATTERN}"
+
+
+def _wire_message(e: dict[str, object]) -> str:
+    """The errors[] message for one validation error.  A value that misses the
+    shared uuid pattern (a path {id}, a body \`X id\` field) answers the same
+    sentence as the other backends rather than pydantic's default, which would
+    put the server's regex on the wire."""
+    ctx = e.get("ctx")
+    if (
+        e.get("type") == "string_pattern_mismatch"
+        and isinstance(ctx, dict)
+        and ctx.get("pattern") == _UUID_PATTERN
+    ):
+        return ${JSON.stringify(UUID_WIRE_MESSAGE)}
+    return str(e.get("msg", ""))
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ForbiddenError)
     async def _forbidden(request: Request, err: ForbiddenError) -> JSONResponse:
@@ -2271,7 +2290,7 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
             entry: dict[str, str] = {
                 "pointer": _pointer(tuple(e["loc"])),
                 # An absent required field reads the same on every backend (RS-39).
-                "message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),
+                "message": MISSING_FIELD if e.get("type") == "missing" else _wire_message(e),
             }
             # A messaged rule raises PydanticCustomError with a "msg.<hash>"
             # type — the stable content-hash wire code (i18n key). A message-less

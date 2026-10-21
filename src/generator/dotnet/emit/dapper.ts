@@ -36,6 +36,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
@@ -54,6 +55,7 @@ import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
+import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
@@ -743,6 +745,12 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     const idCol = sqlIdent("id");
     return selfScope.idOnLeft ? `(${idCol} = ${claimParam})` : `(${claimParam} = ${idCol})`;
   }
+  // A principal term (`currentUser.role == "agent"`) reads no column: it is
+  // decided in C# against the principal (Loom null semantics, which a SQL
+  // `@claim <> 'agent'` over a null claim would not give) and bound as ONE
+  // boolean parameter — see `collectFilterPrincipalRefs`.
+  const pt = principalTerm(e);
+  if (pt) return `@${principalTermParam(pt)}`;
   switch (e.kind) {
     case "paren":
       return `(${whereToSql(e.inner, sqlCtx)})`;
@@ -1112,6 +1120,22 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
   const unparen = (x: ExprIR): ExprIR => (x.kind === "paren" ? unparen(x.inner) : x);
   for (const f of filters)
     walkExprDeep(f, (e) => {
+      // A principal term binds one C# boolean (see `whereToSql`); its claim
+      // operands are read inside that value, not bound as `@__cu_<claim>`.
+      const pt = principalTerm(e);
+      if (pt) {
+        if (e.kind === "binary" || e.kind === "paren") {
+          walkExprDeep(e, (x) => {
+            if (x !== e) consumed.add(x);
+          });
+        }
+        add({
+          param: principalTermParam(pt),
+          claimProp: "",
+          valueExpr: (base) => principalTermValue(pt, base),
+        });
+        return;
+      }
       if (
         e.kind === "member" &&
         e.receiver.kind === "ref" &&
@@ -1156,6 +1180,33 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
       }
     });
   return [...byParam.values()];
+}
+
+/** The C# boolean a principal term binds, read off the accessor `base`. */
+function principalTermValue(pt: PrincipalTerm, base: string): string {
+  const test = renderPrincipalTest(pt, {
+    claim: (field) => `${base}.${upperFirst(field)}`,
+    value: (v) => renderCsExpr(v),
+    isNull: (x) => `${x} == null`,
+    isNotNull: (x) => `${x} != null`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+  if (test === null) return refuseOutOfVocabulary("sql-dapper", "principal term in filter");
+  return `(${test})`;
+}
+
+/** The Dapper parameter a principal term binds.  Derived from the term's own
+ *  text, so the SQL renderer and the binding collector name it identically
+ *  and two references to the same term share one parameter. */
+function principalTermParam(pt: PrincipalTerm): string {
+  const text = principalTermValue(pt, "u");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `__pt_${h.toString(16).padStart(8, "0")}`;
 }
 
 /** Dedup principal refs by param name (a claim referenced by both a capability

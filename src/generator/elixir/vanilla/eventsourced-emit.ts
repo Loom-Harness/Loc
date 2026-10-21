@@ -925,7 +925,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // Only an operation carries `when` (a create has no prior state to gate on).
   if (c.kind === "operation" && c.op.when) {
     clauses.push(
-      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op.name)})`,
+      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op)})`,
     );
   }
   const lets: string[] = [];
