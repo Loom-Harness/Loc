@@ -128,7 +128,7 @@ describe("java generator — reading-tier domainService", () => {
     // Constructor-injected bean (field name lowerFirst(service)).
     expect(wf).toContain("private final Registration registration;");
     expect(wf).toContain(
-      "AccountsWorkflows(AccountRepository accountsRepository, Registration registration)",
+      "AccountsWorkflows(ApplicationEventPublisher eventPublisher, AccountRepository accountsRepository, Registration registration)",
     );
     expect(wf).toContain("this.registration = registration;");
     expect(wf).toContain("import com.loom.api.domain.services.Registration;");

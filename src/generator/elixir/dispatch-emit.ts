@@ -460,7 +460,13 @@ defmodule ${contextModule}.Dispatcher.AfterCommit do
   """
   require Logger
 
+  # Inside a transactional workflow the event waits for the workflow's commit
+  # (\`${contextModule.split(".")[0]}.PostCommit\`) and is dropped on its rollback.
   def dispatch(event) do
+    ${contextModule.split(".")[0]}.PostCommit.run(fn -> deliver(event) end)
+  end
+
+  defp deliver(event) do
     ${contextModule}.Dispatcher.dispatch(event)
   rescue
     e -> reactor_failed(event, Exception.message(e))

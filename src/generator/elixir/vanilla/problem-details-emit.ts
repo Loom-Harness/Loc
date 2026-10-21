@@ -50,7 +50,8 @@ export function renderVanillaProblemDetailsModule(
   localizeMessages = false,
   /** True when some aggregate operation carries a WIRE-RUNG denial — a messaged
    *  `precondition` over the op's own request params, which the other four
-   *  backends lift into the request validator (M-T6.20).  Gates the extra
+   *  backends lift into the request validator (M-T6.20) — or a command
+   *  workflow takes params (its missing-param 422, L1-E / E7).  Gates the extra
    *  `validation_errors_response/2` entry point + its private renderer, so an
    *  app without one is byte-identical (an unused `defp` is a `mix compile
    *  --warnings-as-errors` failure). */
@@ -342,6 +343,12 @@ export function renderVanillaProblemDetailsModule(
 
   defp render_wire_error(%{pointer: pointer, message: message, code: code}) do
     %{pointer: pointer, message: ${localizeMessages ? "localize(code, message)" : "message"}, code: code}
+  end
+
+  # A STRUCTURAL error (a workflow request missing a param) carries no code —
+  # the same shape zod's structural issues take on node.
+  defp render_wire_error(%{pointer: pointer, message: message}) do
+    %{pointer: pointer, message: message}
   end`
     : "";
   // A `unique (...)` breach surfaces as a changeset `constraint: :unique` error

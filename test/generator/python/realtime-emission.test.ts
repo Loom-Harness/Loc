@@ -104,9 +104,11 @@ describe("realtime SSE wire — Python (delivery: broadcast)", () => {
     expect(rt).toContain("class RealtimeDispatcher:");
     expect(rt).toContain("        publish_realtime(event)");
     const dispatch = get(files, "app/dispatch.py");
-    expect(dispatch).toContain("def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:");
     expect(dispatch).toContain(
-      "return RealtimeDispatcher(InProcessDispatcher(session, isolate=True))",
+      "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    );
+    expect(dispatch).toContain(
+      "return PostCommitDispatcher(RealtimeDispatcher(InProcessDispatcher(session, isolate=True)))",
     );
     const main = get(files, "app/main.py");
     expect(main).toContain("from app.realtime import realtime_router");
@@ -118,7 +120,9 @@ describe("realtime SSE wire — Python (delivery: broadcast)", () => {
     expect([...files.keys()].some((k) => k.endsWith("app/realtime.py"))).toBe(false);
     const dispatch = get(files, "app/dispatch.py");
     expect(dispatch).not.toContain("RealtimeDispatcher");
-    expect(dispatch).toContain("return InProcessDispatcher(session, isolate=True)");
+    expect(dispatch).toContain(
+      "return PostCommitDispatcher(InProcessDispatcher(session, isolate=True))",
+    );
     const main = get(files, "app/main.py");
     expect(main).not.toContain("realtime_router");
   });

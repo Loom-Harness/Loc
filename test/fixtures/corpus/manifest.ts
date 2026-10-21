@@ -78,10 +78,17 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    `detail` waiver.
  *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
  *    the workflow's `Repo.transaction` rolled back but answered 500: the
- *    workflows controller's `respond/2` had no `{:error, :conflict}` arm.
- *  - java (per #3142, not re-booted): the inverse defect — its workflow route never publishes a
- *    workflow-raised event at all, so `audits.total` reads 0 and the e2e
- *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
+ *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
+ *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
+ *    Same 409 `detail` waiver (M-T6.91).
+ *  - java: FAILS on `debitTwice`, for the reason EF had before M-T6.90 — JPA's
+ *    persistence context hands both `getById` loads the SAME managed entity,
+ *    so the second save is never stale and the double debit commits (booted:
+ *    `expected the call to reject, but it resolved`; java's half of M-T6.90).
+ *    Its dispatch half is FIXED (M-T4.3 item 6 — the workflow route now
+ *    publishes, after the commit) and gated by
+ *    `transactional-workflow-post-commit-dispatch`, which runs on every
+ *    backend. */
 const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
 
 /** The backends where two `getById` loads of one row inside a workflow are two
@@ -291,6 +298,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
     note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
+  },
+  {
+    id: "transactional-workflow-post-commit-dispatch",
+    title:
+      "WHEN a transactional workflow's aggregate event reaches its reactor — after the commit, never inside the transaction, and not at all after a rollback",
+    doc: "workflow",
+    backends: ALL,
+    note: "Minted by M-T4.3 item 6 (banking-eval B-04, #3137) to give the post-commit rule a discriminating runtime gate on EVERY backend.  The sibling `transactional-workflow-event-rollback` counts the reactor's Audit rows, which only tells the two orders apart where the reactor runs outside the workflow's transaction (node); on python / elixir / .NET the reactor joined the open transaction, so its row rolled back either way and the count was blind.  Here both workflows save `src` inside an `if let` branch (mid-body, so its `Debited` is drained there) and the reactor records the balance it reads for the PEER account the workflow credits only AFTER that branch: 100 means it ran inside the transaction, 110 after the commit — true even where the reactor shares the workflow's identity map (EF Core, JPA).  Pre-fix measured: python `expected 100 to be 110`; java ran no reactor at all (its workflow route never published).  The rollback run drains the same way and then trips the overdraft precondition (422 on every backend, unlike the sibling's two-handle 409 that JPA / EF Core cannot reach, M-T6.90); a deferral that survived the rollback runs the reactor and writes a second Audit (python, mutation-proved: `expected 2 to be 1`).",
   },
   {
     id: "workflow-create-state",

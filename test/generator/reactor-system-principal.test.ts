@@ -132,9 +132,7 @@ system S {
 }`);
     const u = files.get("api/app/auth/user.py") ?? "";
     expect(u).toContain("    user = User(");
-    expect(u).toContain(
-      '    object.__setattr__(user, "org_path", "" if origin is None else origin.org_path)',
-    );
+    expect(u).toContain('    object.__setattr__(user, "org_path", org_path)');
   });
 
   it("elixir: binds `system_principal/0` and threads it to the gated context fn", async () => {
@@ -142,7 +140,9 @@ system S {
     expect(s).toContain("current_user = ApiWeb.Auth.system_principal()");
     expect(s).toContain("Api.Ord.finish_order(o, %{}, current_user)");
     const auth = await file("elixir", "api_web/auth.ex");
-    expect(auth).toContain("def system_principal do");
+    expect(auth).toContain(
+      "  def system_principal, do: system_principal_for(current_event_origin())",
+    );
     expect(auth).toContain("Process.put(:loom_current_user, user)");
   });
 
