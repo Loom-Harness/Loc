@@ -35,6 +35,8 @@ export const PY = {
   // first-party, fixed
   FileRef: pyRef("app.domain.file_ref", "FileRef"),
   system_principal: pyRef("app.auth.user", "system_principal"),
+  current_event_origin: pyRef("app.auth.user", "current_event_origin"),
+  event_origin_frame: pyRef("app.auth.user", "event_origin_frame"),
   DomainError: pyRef("app.domain.errors", "DomainError"),
   ForbiddenError: pyRef("app.domain.errors", "ForbiddenError"),
   DisallowedError: pyRef("app.domain.errors", "DisallowedError"),
