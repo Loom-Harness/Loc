@@ -1,5 +1,5 @@
 // An EMPTY OIDC audience skips the `aud` check on every backend, and every
-// verifier says why it rejected a token (D7 of `eval-claims/FIX-PLAN.md`).
+// verifier says why it rejected a token.
 //
 // docs/auth.md § "Token audience": when the audience resolves to nothing
 // (`OIDC_AUDIENCE` unset or `""`) the `aud` check is skipped.  Node and elixir

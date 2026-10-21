@@ -200,7 +200,7 @@ describe("NON-optional id claim — the dev-stub principal CONSTRUCTS the id", (
 
 // ---------------------------------------------------------------------------
 // The FOREIGN twin — `agentId: Agent id?` on a deployable that does NOT host
-// `Agent` (D6 of `eval-claims/FIX-PLAN.md`).  The `user { … }` shape is
+// `Agent`.  The `user { … }` shape is
 // system-wide, so `payments` emits the same `User` type as `agents`, naming the
 // `AgentId` brand — which its ids module only declared for HOSTED aggregates.
 // node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim

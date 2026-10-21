@@ -1,6 +1,6 @@
 // An `X id` on a hosted declaration whose target lives in a sibling context
 // the deployable does NOT host declares its brand locally, on every typed
-// backend (D18 of `eval-claims/FIX-PLAN.md`).
+// backend.
 //
 // `desk` hosts `Claims` only, and names `PolId` from a field, an optional and
 // a list field, an operation param, an event field and a find param.  The ids

@@ -423,7 +423,7 @@ has) — return the id and read the record back, or use a `commandHandler`.
 > Phoenix PubSub / LiveView, realtime push, mail — escapes before
 > commit.  **java** does not publish workflow-raised events at all
 > (neither aggregate-level nor workflow-level).  Tracked in
-> `docs/new-plan/T4-eventing-temporal.md` (M-T4.3 item 6).
+> [`docs/new-plan/T4-eventing-temporal.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md) (M-T4.3 item 6).
 
 ## Transactional vs non-transactional
 

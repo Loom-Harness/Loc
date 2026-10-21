@@ -120,7 +120,7 @@ field :meta,        :map
 
 ### Numeric representation rules
 
-The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](../audits/numeric-types-audit-2026-08-23.md)):
+The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)):
 
 | Type | Column | JSON wire | Domain representation — node / dotnet / java / python / elixir |
 |---|---|---|---|

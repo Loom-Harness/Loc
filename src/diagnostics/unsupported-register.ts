@@ -758,7 +758,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`queryHandler` or `function` — those lowerers pass `defaults: false`, so the default " +
       "would be silently dropped and every generated signature would still require the " +
       "argument.  Lifting it is a capability change on every target, not a fix at one site",
-    mission: "M-T5.42",
+    mission: "#3106",
     verified: true,
   },
   {

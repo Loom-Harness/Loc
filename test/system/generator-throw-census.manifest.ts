@@ -25,7 +25,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_imports/java.ts#finalizeJavaUnit$3": {
     deferred:
       "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
-    mission: "M-T9.86",
+    mission: "#3164",
     reviewUntil: "2027-01-31",
   },
 
@@ -61,13 +61,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_imports/python.ts#finalizePyModule$3": {
     deferred:
       "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "M-T9.84",
+    mission: "#3164",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_imports/python.ts#finalizePyModule$4": {
     deferred:
       "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "M-T9.84",
+    mission: "#3164",
     reviewUntil: "2027-01-31",
   },
 
