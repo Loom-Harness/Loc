@@ -56,7 +56,7 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
-  python: 292, // +1 system_principal dispatch-builder body-scan; +3 train sites
+  python: 294, // main's 291 (+1 SYSTEM-principal import, +2 dispatch-builder `ids` / `voEnum` lines) + 3 train sites
   typescript: 236,
   dotnet: 26,
   java: 51,

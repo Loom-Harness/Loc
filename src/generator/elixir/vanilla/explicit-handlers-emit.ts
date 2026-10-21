@@ -41,6 +41,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
@@ -710,7 +711,15 @@ ${
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
-${respondErrorTail("respond", "  ", contexts[0] ? denialOverrides(contexts[0]) : undefined, contextsHaveWireDenials(contexts), false, loadsById)}
+${respondErrorTail(
+  "respond",
+  "  ",
+  contexts[0] ? denialOverrides(contexts[0]) : undefined,
+  contextsHaveWireDenials(contexts),
+  false,
+  loadsById,
+  contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
+)}
 
 ${serializeBlock.clauses}${
   hasPaged
