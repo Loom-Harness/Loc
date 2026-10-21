@@ -6,7 +6,7 @@
 import type { ActionIR, ExprIR, StateFieldIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { felizRouteSegments } from "./feliz-target.js";
+import { FELIZ_ACTION_TOAST, felizRouteSegments } from "./feliz-target.js";
 import {
   type FsExprCtx,
   ROUTE_ID_FROM_MODEL,
@@ -694,6 +694,14 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
             ? (ctx.pageRoutes?.get(pageRef.name) ?? `/${snake(pageRef.name)}`)
             : "/";
         return { cmd: `Cmd.navigatePath(${felizRouteSegments(route).join(", ")})` };
+      }
+      // `toast(<msg>)` — the documented page effect, lowered as a
+      // `private-operation` call exactly like `navigate`.  It shows the same
+      // built-in DOM toast an `Action { …, then: toast(…) }` runs; `index.ts`
+      // declares that helper ahead of `update` once an arm calls it.
+      if (stmt.name === "toast") {
+        const msg = args[0] ?? `""`;
+        return { line: `      ${FELIZ_ACTION_TOAST} (string (${msg}))` };
       }
       // `private-operation`: a backend concept with no frontend arm.  Fail fast
       // rather than silently dropping it.
