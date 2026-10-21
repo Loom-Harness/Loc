@@ -8,14 +8,14 @@ name: Generated Angular build
 #
 # One job runs the selected cases, PARALLELISM (the runner's cores) at a
 # time.  Case policy (`<case>` = every pack, `<case>:<pack>` = one cell):
-#   - pull_request    → showcase (read + create-form + byId + action surface),
-#                       store (shared signal-store surface) and grid × Material
+#   - pull_request,   → showcase (read + create-form + byId + action surface),
+#     merge_group       store (shared signal-store surface) and grid × Material
 #                       + PrimeNG.  `grid` is in the PR slice because the
 #                       DataGrid's markup lands in a HOISTED SIBLING component
 #                       whose template — strictTemplates-checked, and resolving
 #                       every name against the CLASS — no other case reaches.
-#   - everything else → minimal, scaffold, showcase, store, file, grid,
-#                       optional × every pack.
+#   - nightly,        → minimal, scaffold, showcase, store, file, grid,
+#     workflow_dispatch optional × every pack.
 #   - ALWAYS          → `history:angularMaterial@v1`: an `audited` aggregate's
 #                       scaffolded History section is a template over an
 #                       `AuditEntry[]` typed `unknown` at the leaves, and
@@ -64,6 +64,10 @@ on:
       - '!src/platform/hono.ts'
   workflow_dispatch:
   merge_group:
+  # The full case × pack sweep runs nightly on main; PRs and the merge queue
+  # run the slice (see the header).
+  schedule:
+    - cron: '13 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -96,7 +100,7 @@ jobs:
       - name: ng build every selected case
         env:
           # See the header for the case policy.
-          LOOM_ANGULAR_BUILD_CASE: ${{ github.event_name == 'pull_request' && 'showcase:angularMaterial@v1,showcase:primeng@v1,store:angularMaterial@v1,store:primeng@v1,grid:angularMaterial@v1,grid:primeng@v1,history:angularMaterial@v1,optional:angularMaterial@v1' || 'minimal,scaffold,showcase,store,file,grid,optional,history:angularMaterial@v1' }}
+          LOOM_ANGULAR_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'showcase:angularMaterial@v1,showcase:primeng@v1,store:angularMaterial@v1,store:primeng@v1,grid:angularMaterial@v1,grid:primeng@v1,history:angularMaterial@v1,optional:angularMaterial@v1' || 'minimal,scaffold,showcase,store,file,grid,optional,history:angularMaterial@v1' }}
         run: npm run test:angular-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────

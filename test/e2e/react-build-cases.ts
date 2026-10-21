@@ -1,9 +1,8 @@
 // The example list AND the pack list the React build sweep runs, shared
 // between the slow sweep itself (generated-react-build.test.ts, excluded
-// from the fast `npm test`) and the always-on matrix drift guard
-// (react-build-matrix-sync.test.ts, which DOES run in the fast suite).
-// Keeping them in one place is what lets the guard pin the CI workflow
-// matrix against the exact set the build test would run.
+// from the fast `npm test`) and the always-on drift guard
+// (react-build-matrix-sync.test.ts, which DOES run in the fast suite and
+// pins the workflow's PR / queue slice against these names).
 //
 // Single-file examples only.  The build harness copies one .ddd into a
 // temp dir before injecting the design pack, so multi-file examples with

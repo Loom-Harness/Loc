@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,7 +9,8 @@ import {
   type ReactPackSpec as PackSpec,
   reactPackId as packId,
 } from "./react-build-cases.js";
-import { installGeneratedProject } from "./support/npm-install.js";
+import { installGeneratedProjectAsync } from "./support/npm-install.js";
+import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
 // Generator regression test for the React frontend: for each example
@@ -29,19 +29,18 @@ import { installGeneratedProject } from "./support/npm-install.js";
 // copies a single .ddd to a temp dir, which breaks relative imports.
 // Their parse/generate coverage lives in playground-feature-examples.
 //
-// Run modes (all keyed off `LOOM_REACT_BUILD_CASE`, which also implies
-// the suite is enabled even without `LOOM_REACT_BUILD=1`):
+// Run modes (keyed off `LOOM_REACT_BUILD_CASE`, which also implies the
+// suite is enabled even without `LOOM_REACT_BUILD=1`):
 //   1. Full sweep — `LOOM_REACT_BUILD=1 npx vitest run …` (no CASE) runs
-//      every example × every pack sequentially in one Node process.
-//   2. Single cell — `LOOM_REACT_BUILD_CASE=<ddd>:<pack>` filters to
-//      exactly one case.  The slim per-PR CI slice and local
-//      pack-authoring loops use this form.
-//   3. Pack batch — `LOOM_REACT_BUILD_CASE=<ddd>` (no `:` suffix) runs
-//      EVERY pack for that one example; `<ddd>:<packA>,<packB>` runs a
-//      named subset.  This is the shape the full CI sweep uses: one job
-//      per example amortises the ~4min checkout + `npm ci` + toolchain
-//      build over 8 cells instead of paying it 8 times, and drops the
-//      full sweep from 144 runners to 18.
+//      every example × every pack.
+//   2. `<ddd>:<pack>` — one cell; `<ddd>:<packA>,<packB>` — those packs;
+//      `<ddd>` (or `<ddd>:*`) — every pack for that example.
+//   3. Several of those joined with `;` — the union, e.g. the PR/queue
+//      slice `examples/showcase.ddd:mantine@v9,shadcn@v4;…`.
+//
+// Every selected cell runs in ONE job, PARALLELISM at a time
+// (support/parallel.ts): the checkout, `npm ci` and toolchain build are
+// paid once per run, not once per example.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -132,29 +131,27 @@ interface Case {
 
 const allCases: Case[] = examples.flatMap((e) => PACKS.map((pack) => ({ ...e, pack })));
 
-/** Resolve `LOOM_REACT_BUILD_CASE` to the cases to run:
+/** Resolve one `LOOM_REACT_BUILD_CASE` spec to its cases:
  *
  *    `<ddd>:<family>@<version>`            → that one cell
  *    `<ddd>:<packA>,<packB>`               → those cells, in that order
  *    `<ddd>`  (or `<ddd>:*`)               → every pack for that example
- *    unset                                 → every case
  *
- *  Throws on an unknown example or pack so the CI matrix surfaces typos
- *  loudly instead of silently skipping a case (a shard that matched
- *  nothing used to pass, which is how the whole workflow once went
- *  quietly green while testing nothing). */
-function selectCases(): Case[] {
-  if (SHARD === undefined) return allCases;
+ *  Throws on an unknown example or pack so a typo in a workflow's case
+ *  list surfaces loudly instead of silently skipping a case (a selection
+ *  that matched nothing used to pass, which is how the whole workflow once
+ *  went quietly green while testing nothing). */
+function selectSpec(spec: string): Case[] {
   // `.ddd` paths never contain a colon, so the FIRST colon splits
   // example from pack spec.
-  const colon = SHARD.indexOf(":");
-  const ddd = colon === -1 ? SHARD : SHARD.slice(0, colon);
-  const packSpec = colon === -1 ? "*" : SHARD.slice(colon + 1).trim();
+  const colon = spec.indexOf(":");
+  const ddd = colon === -1 ? spec : spec.slice(0, colon);
+  const packSpec = colon === -1 ? "*" : spec.slice(colon + 1).trim();
 
   const forExample = allCases.filter((c) => c.ddd === ddd);
   if (forExample.length === 0) {
     throw new Error(
-      `LOOM_REACT_BUILD_CASE="${SHARD}" names no known example.  Available: ${examples.map((e) => e.ddd).join(", ")}`,
+      `LOOM_REACT_BUILD_CASE "${spec}" names no known example.  Available: ${examples.map((e) => e.ddd).join(", ")}`,
     );
   }
   if (packSpec === "" || packSpec === "*") return forExample;
@@ -167,109 +164,110 @@ function selectCases(): Case[] {
     const match = forExample.find((c) => packId(c.pack) === want);
     if (!match) {
       throw new Error(
-        `LOOM_REACT_BUILD_CASE="${SHARD}" names unknown pack "${want}".  Available: ${PACKS.map(packId).join(", ")}`,
+        `LOOM_REACT_BUILD_CASE "${spec}" names unknown pack "${want}".  Available: ${PACKS.map(packId).join(", ")}`,
       );
     }
     return match;
   });
 }
 
+/** Every case, or the union of the `;`-separated specs in `LOOM_REACT_BUILD_CASE`. */
+function selectCases(): Case[] {
+  const specs = SHARD?.split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!specs || specs.length === 0) return allCases;
+  return [...new Set(specs.flatMap(selectSpec))];
+}
+
 const cases = ENABLED ? selectCases() : [];
+
+const limit = limiter(PARALLELISM);
 
 describe.skipIf(!ENABLED)(
   "generated React TSX compiles + bundles under strict tsc + vite build",
   () => {
-    it.each(
-      cases.map((c) => ({ ...c, packLabel: packId(c.pack) })),
-    )("$ddd × $packLabel → $reactDir type-checks and bundles", ({
-      ddd,
-      reactDir,
-      extraReactDirs,
-      pack,
-    }) => {
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-react-tsc-"));
-      try {
-        // Always materialise a mutated copy with `design: <pack>` set
-        // — even for mantine, since some sources (storybook-shadcn,
-        // …) declare a non-mantine pack as their canonical default
-        // and we need to override it.  `injectDesign` rewrites an
-        // existing slot in place rather than duplicating.
-        const original = fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
-        const mutated = injectDesign(original, packId(pack));
-        const dddPath = path.join(outDir, "_mutated.ddd");
-        fs.writeFileSync(dddPath, mutated);
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
-        const projectDir = path.join(outDir, reactDir);
-        if (!fs.existsSync(projectDir)) {
-          throw new Error(
-            `Expected React project at ${projectDir} after generating ${ddd} (pack=${pack})`,
-          );
-        }
-        // Frontend `function … extern from` impls are user-owned and never
-        // generated; stub them so the generated-only tree type-checks.
-        stubFrontendExterns(projectDir);
-        // The install runs through the shared helper: npm's own error text
-        // survives a failure, and one transient registry window is retried.
-        // The `--prefer-offline` reasoning that used to sit here — the flag
-        // serves stale packuments, so a floating range whose newest matching
-        // version postdates the cache entry dies with ETARGET — now lives on
-        // the helper, where it governs every caller rather than this one.
-        installGeneratedProject(projectDir, { timeout: 240_000 });
-        // `tsc --noEmit` honours the project's tsconfig.json `include`
-        // / `strict` settings.  References (tsconfig.node.json) are
-        // not built — Vite's config is only checked when `tsc -b` runs
-        // explicitly, which would require composite emit.
-        execSync(`npx tsc --noEmit`, {
-          cwd: projectDir,
-          stdio: "inherit",
-          timeout: 90_000,
-        });
-        // `vite build` — the production bundling step.  `tsc --noEmit`
-        // alone is a type-check; it doesn't catch class-shape issues
-        // that only surface when esbuild/rollup actually load the
-        // modules and resolve imports.  Example caught by adding
-        // this: the React-18 idiom `import ReactDOM from
-        // "react-dom/client"; ReactDOM.createRoot(...)` type-checks
-        // under React 19 (TS accepts the default-import as namespace-
-        // shaped) but bombs at runtime ("ReactDOM.createRoot is not
-        // a function") because React 19 dropped the namespace
-        // forwarding.  `vite build` short-circuits that gap.
-        execSync(`npx vite build --logLevel warn`, {
-          cwd: projectDir,
-          stdio: "inherit",
-          timeout: 120_000,
-        });
-        // Extra web deployables (e.g. a scaffold UI): install + `tsc --noEmit`
-        // only — the tsc pass is what catches an off-wire field reference; a
-        // second vite build would add cost without new coverage.  Built once,
-        // on the first pack cell, because injectDesign only rewrites the
-        // primary (console_web) design slot — every extra dir builds
-        // identically under every pack, so ×N packs would be pure redundancy.
-        const isFirstPackCell = packId(pack) === packId(PACKS[0]);
-        if (isFirstPackCell) {
-          for (const extra of extraReactDirs ?? []) {
-            const extraDir = path.join(outDir, extra);
-            if (!fs.existsSync(extraDir)) {
+    it.concurrent.each(cases.map((c) => ({ ...c, packLabel: packId(c.pack) })))(
+      "$ddd × $packLabel → $reactDir type-checks and bundles",
+      ({ ddd, reactDir, extraReactDirs, pack }) =>
+        limit(async () => {
+          const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-react-tsc-"));
+          try {
+            // Always materialise a mutated copy with `design: <pack>` set
+            // — even for mantine, since some sources (storybook-shadcn,
+            // …) declare a non-mantine pack as their canonical default
+            // and we need to override it.  `injectDesign` rewrites an
+            // existing slot in place rather than duplicating.
+            const original = fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
+            const mutated = injectDesign(original, packId(pack));
+            const dddPath = path.join(outDir, "_mutated.ddd");
+            fs.writeFileSync(dddPath, mutated);
+            await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
+              cwd: repoRoot,
+              timeout: 300_000,
+            });
+            const projectDir = path.join(outDir, reactDir);
+            if (!fs.existsSync(projectDir)) {
               throw new Error(
-                `Expected extra React project at ${extraDir} after generating ${ddd}`,
+                `Expected React project at ${projectDir} after generating ${ddd} (pack=${pack})`,
               );
             }
-            stubFrontendExterns(extraDir);
-            installGeneratedProject(extraDir, { timeout: 240_000 });
-            execSync(`npx tsc --noEmit`, { cwd: extraDir, stdio: "inherit", timeout: 90_000 });
+            // Frontend `function … extern from` impls are user-owned and never
+            // generated; stub them so the generated-only tree type-checks.
+            stubFrontendExterns(projectDir);
+            // The install runs through the shared helper: npm's own error text
+            // survives a failure, and one transient registry window is retried.
+            // The `--prefer-offline` reasoning that used to sit here — the flag
+            // serves stale packuments, so a floating range whose newest matching
+            // version postdates the cache entry dies with ETARGET — now lives on
+            // the helper, where it governs every caller rather than this one.
+            await installGeneratedProjectAsync(projectDir, { timeout: 240_000 });
+            // `tsc --noEmit` honours the project's tsconfig.json `include`
+            // / `strict` settings.  References (tsconfig.node.json) are
+            // not built — Vite's config is only checked when `tsc -b` runs
+            // explicitly, which would require composite emit.
+            await sh("npx tsc --noEmit", { cwd: projectDir, timeout: 180_000 });
+            // `vite build` — the production bundling step.  `tsc --noEmit`
+            // alone is a type-check; it doesn't catch class-shape issues
+            // that only surface when esbuild/rollup actually load the
+            // modules and resolve imports.  Example caught by adding
+            // this: the React-18 idiom `import ReactDOM from
+            // "react-dom/client"; ReactDOM.createRoot(...)` type-checks
+            // under React 19 (TS accepts the default-import as namespace-
+            // shaped) but bombs at runtime ("ReactDOM.createRoot is not
+            // a function") because React 19 dropped the namespace
+            // forwarding.  `vite build` short-circuits that gap.
+            await sh("npx vite build --logLevel warn", { cwd: projectDir, timeout: 240_000 });
+            // Extra web deployables (e.g. a scaffold UI): install + `tsc --noEmit`
+            // only — the tsc pass is what catches an off-wire field reference; a
+            // second vite build would add cost without new coverage.  Built once,
+            // on the first pack cell, because injectDesign only rewrites the
+            // primary (console_web) design slot — every extra dir builds
+            // identically under every pack, so ×N packs would be pure redundancy.
+            const isFirstPackCell = packId(pack) === packId(PACKS[0]);
+            if (isFirstPackCell) {
+              for (const extra of extraReactDirs ?? []) {
+                const extraDir = path.join(outDir, extra);
+                if (!fs.existsSync(extraDir)) {
+                  throw new Error(
+                    `Expected extra React project at ${extraDir} after generating ${ddd}`,
+                  );
+                }
+                stubFrontendExterns(extraDir);
+                await installGeneratedProjectAsync(extraDir, { timeout: 240_000 });
+                await sh("npx tsc --noEmit", { cwd: extraDir, timeout: 180_000 });
+              }
+            }
+            expect(true).toBe(true);
+          } finally {
+            try {
+              fs.rmSync(outDir, { recursive: true, force: true });
+            } catch {
+              /* ignore */
+            }
           }
-        }
-        expect(true).toBe(true);
-      } finally {
-        try {
-          fs.rmSync(outDir, { recursive: true, force: true });
-        } catch {
-          /* ignore */
-        }
-      }
-    }, 420_000);
+        }),
+      3_600_000,
+    );
   },
 );
