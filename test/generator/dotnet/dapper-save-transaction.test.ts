@@ -67,9 +67,7 @@ describe("Dapper SaveAsync is transactional", () => {
     const save = repo.slice(repo.indexOf("public async Task SaveAsync"));
 
     // A transaction opens right after the connection.
-    expect(save).toContain(
-      "await using var __tx = await conn.BeginTransactionAsync(cancellationToken);",
-    );
+    expect(save).toContain("var __tx = await __lease.BeginTransactionAsync(cancellationToken);");
 
     // Every write in the save path is enrolled in it — the root upsert, the
     // join-table DELETE + INSERT, and the containment DELETE + INSERT.
@@ -92,11 +90,11 @@ describe("Dapper SaveAsync is transactional", () => {
     expect(save).toContain(
       "var __deferred = await _events.RecordDurableAsync(__pending, __tx, cancellationToken);",
     );
-    const commitIdx = save.indexOf("__tx.CommitAsync(cancellationToken)");
+    const commitIdx = save.indexOf("__lease.CommitAsync(cancellationToken)");
     expect(cut).toBeLessThan(commitIdx);
 
     // Commit happens before events are dispatched (a rolled-back save must not fire events).
-    const eventsIdx = save.indexOf("_events.DispatchAsync");
+    const eventsIdx = save.indexOf("DomainEventDeferral.DispatchAsync(_events");
     expect(commitIdx).toBeGreaterThan(0);
     expect(commitIdx).toBeLessThan(eventsIdx);
   });
@@ -111,9 +109,7 @@ describe("Dapper SaveAsync is transactional", () => {
     const del = repo.slice(repo.indexOf("public async Task DeleteAsync"));
     const body = del.slice(0, del.indexOf("\n    }"));
 
-    expect(body).toContain(
-      "await using var __tx = await conn.BeginTransactionAsync(cancellationToken);",
-    );
+    expect(body).toContain("var __tx = await __lease.BeginTransactionAsync(cancellationToken);");
     // The join table, the child table and the root all ride the transaction.
     expect(body).toContain("DELETE FROM order_tags");
     expect(body).toContain("DELETE FROM line_items");
@@ -122,7 +118,7 @@ describe("Dapper SaveAsync is transactional", () => {
     const withTx = body.match(/transaction: __tx, cancellationToken/g) ?? [];
     expect(execs.length).toBeGreaterThan(1);
     expect(withTx.length).toBe(execs.length);
-    expect(body).toContain("__tx.CommitAsync(cancellationToken)");
+    expect(body).toContain("__lease.CommitAsync(cancellationToken)");
   });
 
   // Strict additivity: an aggregate with no children and no associations still

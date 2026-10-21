@@ -13,8 +13,9 @@
 // on 100% of its main pushes for two days with nobody listening (#2434).
 //
 // So: a flake is a bug report with a probability attached. Budget it like one.
-// This script reads each monitored workflow's recent run history on `main`
-// through the Actions API and classifies the leg. `.github/workflows/
+// This script reads each monitored workflow's recent run history (on `main`,
+// plus its merge-queue runs for a queue leg) through the Actions API and
+// classifies the leg. `.github/workflows/
 // flake-budget.yml` runs it daily and turns each flagged leg into ONE deduped
 // claiming issue (label `flaky-gate`), reusing the dedupe-by-label machinery
 // from `ci-red-alarm.yml`.
@@ -32,8 +33,11 @@
 //
 // WHICH LEGS ARE MONITORED is derived from `.github/workflows/`, never
 // hand-curated — hand-curation is exactly what let #2434 rot unwatched. Any
-// workflow that can run on `main` (an unscoped or path-scoped `push: [main]`,
-// or a `schedule:`) is in scope, minus the small `NOT_A_GATE` set below.
+// workflow that runs on `main` (a `push: [main]` or a `schedule:`) or in the
+// merge queue (`merge_group:`) is in scope, minus the small `NOT_A_GATE` set
+// below. A queue run tests exactly the tree that lands on `main`, so for a
+// queue leg its `merge_group` runs ARE its main history; they are read
+// alongside the leg's runs on `main`.
 //
 // Pure core (`parseTriggers` / `classify` / `renderReport` / `buildReport`) is
 // exported and pinned by `test/system/flake-budget.test.ts`; only `main()`
@@ -93,6 +97,10 @@ export const NOT_A_GATE = new Map([
   ["ci-red-alarm.yml", "an alarm, not a gate — it 'fails' only if the alarm itself breaks"],
   ["pr-gate.yml", "the aggregate check; its verdict mirrors other legs by construction"],
   ["cleanup-artifacts.yml", "housekeeping cron, no product signal"],
+  [
+    "cancel-dead-queue-runs.yml",
+    "housekeeping cron that cancels dead queue runs, no product signal",
+  ],
   ["flake-budget.yml", "this budget itself"],
 ]);
 
@@ -140,7 +148,7 @@ export function workflowName(source) {
  * The `on:` triggers that decide whether a workflow can run on `main`.
  *
  * @param {string} source
- * @returns {{pushMain: boolean, pushMainPaths: boolean, crons: string[]}}
+ * @returns {{pushMain: boolean, pushMainPaths: boolean, mergeGroup: boolean, crons: string[]}}
  */
 export function parseTriggers(source) {
   const lines = source.split("\n").map((l) => l.replace(/\r$/, ""));
@@ -149,6 +157,7 @@ export function parseTriggers(source) {
   let block;
   let pushMain = false;
   let pushMainPaths = false;
+  let mergeGroup = false;
   /** @type {string[]} */
   const crons = [];
 
@@ -161,6 +170,7 @@ export function parseTriggers(source) {
     }
     if (!inOn) continue;
     if (/^ {2}\S/.test(line)) {
+      if (/^ {2}merge_group:/.test(line)) mergeGroup = true;
       block = /^ {2}push:/.test(line)
         ? "push"
         : /^ {2}schedule:/.test(line)
@@ -179,19 +189,19 @@ export function parseTriggers(source) {
       if (m) crons.push(stripQuotes(m[1].trim()));
     }
   }
-  return { pushMain, pushMainPaths, crons };
+  return { pushMain, pushMainPaths, mergeGroup, crons };
 }
 
 /**
  * How long silence is tolerable before the leg is "never-scheduled" (class c).
  *
  * `null` means the question is unanswerable and the leg is EXEMPT from the
- * stale class: a path-scoped `push: [main]` gate legitimately sits idle for
- * weeks when nothing under its paths changes, and flagging that is the kind of
+ * stale class: a path-scoped `push: [main]` gate, or a path-scoped queue leg,
+ * legitimately sits idle for weeks when nothing under its paths changes, and flagging that is the kind of
  * false positive that gets a bot muted — which would cost more than the class
  * is worth.
  *
- * @param {{pushMain: boolean, pushMainPaths: boolean, crons: string[]}} triggers
+ * @param {{pushMain: boolean, pushMainPaths: boolean, mergeGroup?: boolean, crons: string[]}} triggers
  * @returns {number | null}
  */
 export function staleAfterDays(triggers) {
@@ -229,7 +239,7 @@ export function monitoredWorkflows(dir) {
         staleAfterDays: staleAfterDays(triggers),
       };
     })
-    .filter((w) => w.triggers.pushMain || w.triggers.crons.length > 0);
+    .filter((w) => w.triggers.pushMain || w.triggers.mergeGroup || w.triggers.crons.length > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -488,13 +498,13 @@ function arg(flag, fallback) {
   return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-async function fetchRuns(repo, file, token) {
+async function fetchRunPage(repo, file, token, query) {
   // No `status=completed` filter: whether a `startup_failure` counts as
   // "completed" to the API is exactly the semantics this script must not
   // guess at, so it over-fetches and filters on `conclusion != null` locally.
   const url =
     `https://api.github.com/repos/${repo}/actions/workflows/${file}/runs` +
-    `?branch=main&per_page=${WINDOW * 2}&exclude_pull_requests=true`;
+    `?${query}&per_page=${WINDOW * 2}&exclude_pull_requests=true`;
   const res = await fetch(url, {
     headers: {
       accept: "application/vnd.github+json",
@@ -511,6 +521,19 @@ async function fetchRuns(repo, file, token) {
   return body.workflow_runs ?? [];
 }
 
+/**
+ * A leg's recent history, newest first: its runs on `main` plus, for a queue
+ * leg, its `merge_group` runs (each queue branch is a throwaway
+ * `gh-readonly-queue/main/…` ref, so `branch=main` alone never sees them).
+ */
+async function fetchRuns(repo, leg, token) {
+  const runs = await fetchRunPage(repo, leg.file, token, "branch=main");
+  if (leg.triggers.mergeGroup) {
+    runs.push(...(await fetchRunPage(repo, leg.file, token, "event=merge_group")));
+  }
+  return runs.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
 async function main() {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const workflowsDir = path.resolve(here, "../.github/workflows");
@@ -521,7 +544,7 @@ async function main() {
   const legs = monitoredWorkflows(workflowsDir);
   const summaries = [];
   for (const leg of legs) {
-    const runs = await fetchRuns(repo, leg.file, token);
+    const runs = await fetchRuns(repo, leg, token);
     summaries.push(classify({ ...leg, runs }, now));
   }
   // Worst first: the flagged legs are the point of the report.

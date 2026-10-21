@@ -116,3 +116,27 @@ describe("a `let` in a workflow `for` body is in scope after it", () => {
     expect(all, `${platform}: mutation is never persisted`).toMatch(persist);
   }, 60_000);
 });
+
+// The same op-call binding check one level further down: a body nested inside
+// a `for` body (here a second `for`) is checked too, with its own loop
+// variable bound.  The nested-body check used to look only at its own top
+// level, so an op-call on an unbound name two levels down validated clean.
+describe("a body nested inside a `for` body is checked the same way", () => {
+  const nested = (inner: string) =>
+    sys("node").replace(
+      "for l in ls { let p = Parts.getById(l.partId)  p.consume(l.qty) }",
+      `for l in ls { for m in ls { ${inner} } }`,
+    );
+
+  it("an op-call on a name bound by the inner loop validates clean", async () => {
+    const src = nested("let p = Parts.getById(m.partId)  p.consume(m.qty)");
+    expect(src).toContain("for m in ls");
+    expect(await errorCodes(src)).not.toContain("loom.workflow-foreach-unknown-binding");
+  });
+
+  it("an op-call on an unbound name two levels down IS reported", async () => {
+    expect(await errorCodes(nested("q.consume(m.qty)"))).toContain(
+      "loom.workflow-foreach-unknown-binding",
+    );
+  });
+});
