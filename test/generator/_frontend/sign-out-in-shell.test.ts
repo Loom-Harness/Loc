@@ -45,15 +45,13 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  ...["mantine", "mui", "chakra", "shadcn"].map(
-    (design) => ({
-      platform: "react",
-      design,
-      shell: "web/src/App.tsx",
-      gate: "web/src/auth/AuthGate.tsx",
-      handler: "onClick={signOut}",
-    }),
-  ),
+  ...["mantine", "mui", "chakra", "shadcn"].map((design) => ({
+    platform: "react",
+    design,
+    shell: "web/src/App.tsx",
+    gate: "web/src/auth/AuthGate.tsx",
+    handler: "onClick={signOut}",
+  })),
   ...["vuetify", "shadcnVue"].map((design) => ({
     platform: "vue",
     design,
