@@ -173,6 +173,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
+    id: "implicit-find-filter",
+    title:
+      "a clause-less find (`find byReference(reference: string): WorkOrder?`) filters by the fields its parameters name — single, multi-parameter, paged",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
+  },
+  {
     id: "envelope",
     title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
     doc: "payloads",
@@ -366,6 +374,26 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "D6/P2 of docs/audits/2026-09-10-eshop-dev-experience.md — a claim naming a generated domain symbol broke four of five backends at once (doubled optional marker: `Ids.CustomerId | null | null` / `CustomerId | None | None` / a .NET `CustomerId??` that does not parse; plus a missing id import on node, java and python's OIDC verifier, where it is a per-call NameError rather than a type error).  The compile tier is the point of this fixture: java's leg is one line and catches the missing import outright.",
   },
   {
+    id: "foreign-id-field",
+    title: "an `X id` on a hosted declaration whose aggregate lives in a sibling context the deployable does NOT host",
+    doc: "language",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the id's target aggregate.
+    deployables: ["policies", "desk"],
+    note: "D18 of eval-claims/FIX-PLAN.md — `pol: Pol id` (field / optional / list / op param / event field / find param) on a deployable hosting only `Claims`: the ids module declared hosted aggregates' brands plus foreign event / workflow / claim ids, so `PolId` was referenced and declared nowhere (node TS2694, python name-defined, .NET CS0246 x52, javac cannot find symbol).  The hosted declaration surface is now a foreign-id source in `src/ir/util/foreign-ids.ts`.  On elixir the list position also emitted `many_to_many :others, Desk.Claims.Pol, …` — an association to a schema module that does not exist (`invalid association`); a foreign-target `X id[]` is now a `has_many` onto a join-row schema holding the raw ids (`ref-collection-emit.ts` `isForeignRefColl`).",
+  },
+  {
+    id: "auth-id-claim-foreign",
+    title: "id-typed user claim naming an aggregate the deployable does NOT host",
+    doc: "auth",
+    backends: ALL,
+    // Two services on purpose — the defect is only reachable on the deployable
+    // that does not host the claim's aggregate.
+    deployables: ["agents", "payments"],
+    note: "D6 of eval-claims/FIX-PLAN.md — the system-wide `user { agentId: Agent id? }` shape is emitted on every `auth: required` deployable, but the ids module declared only the hosted aggregates' brands (+ foreign event/workflow ids), so `payments` named an `AgentId` nothing emitted: node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim shape is now a foreign-id source in `src/ir/util/foreign-ids.ts`.",
+  },
+  {
     id: "auth-id-claim-stub",
     title:
       "NON-optional id-typed user claim — `customerId: Customer id` with no `auth { … }` block, so every backend emits its DEV-STUB principal",
@@ -457,12 +485,29 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by eval-closure item 6 / ruling D2 — the python twin of `java-reserved-words` (M-T6.36).  `generate system` answered `0 error(s)` and the python project did not even PARSE: `def __init__(self, *, def: str, …)`, `def: Mapped[str]`, `class ThingResponse: def: str`, `aggregate.def`, `def class(self)`.  Fixed by ONE funnel (`pythonIdent` / `pythonWireIdent` in `src/util/naming.ts` → `def_`) at every identifier position, with the two outward names kept: the DB column via `mapped_column(\"def\", …)` and the wire key via a pydantic `Field(alias=\"def\")` / `Query(alias=\"def\")`.  The e2e block reads every key back off the wire, so a moved alias fails the behavioural leg, not only the compile tier.  `assertInvariants` is the second collision in the same item: .NET emitted a private `AssertInvariants()` next to the member's `AssertInvariants` property (CS0102), and the python aggregate's backing field `self._assert_invariants` overwrote its `_assert_invariants()` method (a runtime TypeError on the first invariant check) — both helpers now step aside only when a member takes their name, so every other model is byte-identical.  The names are python-reserved and NOT Postgres-reserved (`reserved-words.ddd` owns SQL quoting); the row is ALL so the other four backends keep compiling the same names.",
   },
   {
+    id: "target-reserved-words",
+    title:
+      "every word any target reserves (the TS / C# / Java / Python / Elixir / F# / Dart keyword tables in `src/util/target-identifiers.ts`) that the `.ddd` grammar admits, as a field, an enum value, an operation AND its parameter, plus value objects named after .NET BCL / UI-primitive / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, …)",
+    doc: "language",
+    backends: ALL,
+    note: "The adversarial gate of the generated-identifier legality class: a Loom-legal name that is fatal in a target.  A census proving every emitter routes every user-derived identifier through `escapeTargetIdent` is infeasible (thousands of interpolation sites), so this fixture names things after EVERY table entry at once and rides every backend's compile leg.  `target-identifiers.test.ts` fails when a table entry the grammar admits is missing from this file, so the table and the fixture cannot drift apart.",
+  },
+  {
     id: "dotnet-bcl-type-collision",
     title:
       "a domain type whose name is also a BCL type the .NET `using` set brings into scope (`aggregate Task` vs `System.Threading.Tasks.Task`, `aggregate Queue` vs `System.Collections.Generic.Queue`)",
     doc: "language",
     backends: ALL,
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
+  },
+  {
+    id: "context-named-like-app",
+    title:
+      "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",
+    doc: "language",
+    backends: ALL,
+    deployables: ["claims"],
+    note: "Minted by the claims developer-persona eval (wave 2).  Every elixir controller opened with `alias Claims.Claims`, which rebinds `Claims` itself, so the same file's `rescue guard_error in Claims.GuardError` resolved to `Claims.Claims.GuardError` and `mix compile --warnings-as-errors` failed — while `generate system` reported `0 error(s), 0 warning(s)`.  Repaired, not refused: when the context name equals the app module the controller drops the facade alias and calls `Claims.Claims.<fn>` fully qualified (`contextCallRef` in `src/generator/elixir/vanilla/denial.ts`), so every non-clashing model stays byte-identical.  Both controller emitters (relational + event-sourced) are exercised.  The row is ALL because the other four backends have no alias semantics here and must keep compiling the same names.",
   },
   {
     id: "vo-field-default",
@@ -494,7 +539,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a value object referenced ACROSS a context boundary (`Billing.Receipt.shipTo` → `valueobject Addr` in sibling context `Directory`) — the flattening must produce the same leaf columns from the sibling pool as from the local one",
     doc: "language",
     backends: ALL,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): a type shared between two contexts is the ordinary DDD move and the README's own Quick Example shape, and `BoundedContextIR.siblingValueObjects` exists to serve it — so every emitter that materialises a referenced VO has two lookup paths to keep in step, `ctx.valueObjects` for a local declaration and the sibling pool for a foreign one.  The call site comes from the aggregate's wire shape (which spans contexts); the definition must come from the pool.  The evaluation's F-008 is what a context-local lookup costs: the consuming context emits ONE column under the UNFLATTENED name while the owning context flattens, so migration and ORM disagree on column name AND type, observable only against a live database.  All five backends resolve through the pool and gate here: the flattened `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` columns on node/dotnet/java/python (python's `mypy --strict` reads the hydrate site; its two bind sites are untyped dict literals the compile tier cannot see), and elixir's sibling-context `serialize_addr/1` + nested `serialize_geo/1`, which only `mix compile --warnings-as-errors` catches missing — grade a backend here by compiling it, not by reading its schema.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.",
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): a type shared between two contexts is the ordinary DDD move and the README's own Quick Example shape, and `BoundedContextIR.siblingValueObjects` exists to serve it — so every emitter that materialises a referenced VO has two lookup paths to keep in step, `ctx.valueObjects` for a local declaration and the sibling pool for a foreign one.  The call site comes from the aggregate's wire shape (which spans contexts); the definition must come from the pool.  The evaluation's F-008 is what a context-local lookup costs: the consuming context emits ONE column under the UNFLATTENED name while the owning context flattens, so migration and ORM disagree on column name AND type, observable only against a live database.  All five backends resolve through the pool and gate here: the flattened `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng` columns on node/dotnet/java/python (python's `mypy --strict` reads the hydrate site; its two bind sites are untyped dict literals the compile tier cannot see), and elixir's sibling-context `serialize_addr/1` + nested `serialize_geo/1`, which only `mix compile --warnings-as-errors` catches missing — grade a backend here by compiling it, not by reading its schema.  `Addr.geo: Geo` keeps the NESTING in play, because a cross-context lookup that succeeds at the first level and fails at the second is the likelier bug.  It also carries the CROSSING of two axes the fixture-shape audit measured only separately: `Shipper extends Party` is a TPH concrete whose OWN required field (`ship: Addr`) resolves from the SIBLING pool.  `inheritance.ddd` has a VO on an inheriting aggregate's own field but declares it in the SAME context, so its lookup never leaves `ctx.valueObjects`; this file had the sibling pool but no `extends`, so the TPH column path was never on it; and NO corpus fixture crossed them.  The crossing is load-bearing because a TPH concrete's own fields become nullable columns on the shared base table and the emitter narrows them back on read — it must narrow the FLATTENED leaves the pool produces, not the field name.  Proved two-armed by swapping `py-columns.ts`'s two `findValueObjectInScope` calls back to a bare `ctx.valueObjects.find` (a no-op for a local VO, since own names shadow): THIS cell goes red with `PartyRow` has no attribute `ship` (mypy `attr-defined`) while `inheritance` stays GREEN, so the crossing and not either axis alone is what this gates.",
   },
   {
     id: "nested-valueobject",
@@ -537,6 +582,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
+  },
+  {
+    id: "handler-aggregate-ops",
+    title:
+      "routed command/query handlers over a live row — load/mutate/save, scalar + aggregate return, value-object body param, repository delete, not-found",
+    doc: "language",
+    backends: ALL,
+    note: "Promoted from the five per-backend `explicit-handlers.test.ts` string copies (M-T9.42 slice 2), which pinned each emitter's spelling of the handler body — `await orders.save(o)`, `new OrderResponse(...)`, `@RequestBody` record splits — and could not tell whether a handler that compiled actually saved, projected or deleted. `handler-triad` already drives mount + param binding on an EMPTY table; this fixture is the half that needs a row: every effect is read BACK through a different route (the derived getById, or a sibling handler), so a missed save, a raw-entity return, a dropped body param or a no-op delete is a wrong value, not a 200.",
   },
   { id: "seeding", title: "seed datasets — default / demo / wired-raw", doc: "language", backends: ALL },
   {
@@ -648,6 +701,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "stdlib",
     backends: ALL,
     note: "minted by the 2026-08-23 numeric-types audit (F7 / M-T6.44): the validator admits every one of these, but the TS and Elixir binary renderers gated money/decimal dispatch on `leftType` ALONE — node emitted native `*` on a decimal.js Decimal (TS2363, uncompilable), elixir emitted native arithmetic on a %Decimal{} (runtime ArithmeticError) and native `<` (Erlang TERM ordering: number < map is ALWAYS true, silently).  No corpus fixture had a right-hand money/decimal operand, so no compile gate could reach the arms.  The `test` block is the runtime value proof on every backend's unit tier; no `test e2e` — the derived decimal values sit inside the un-ruled F11/M-T5.22 cross-backend arithmetic divergence, so a wire golden here would pre-empt that owner ruling (literals are binary-exact so the unit assertions agree everywhere regardless)",
+  },
+  {
+    id: "money-nullable",
+    title:
+      "a NULLABLE `money?` in every comparison position — `== null` / `!= null`, bare money vs `money?` both ways, a guarded ordering over a stored field and a parameter, `money?` vs `money?` — null and present paths, `10` vs `10.00`",
+    doc: "language",
+    backends: ALL,
+    note: "minted by #3227 (follow-up to the banking eval #3137): money is an object on node / java / elixir and each compared it through a method with no null story — node `subtotal.eq(null)` threw a DecimalError (500 on the read), java `fee.compareTo(null)` NPE'd on every call, elixir `Decimal.compare(_, nil)` raised and a nullable left fell to struct `==` (10 ≠ 10.00) and Erlang term order (`setFee(-5)` accepted).  .NET and python were already right and ride as regression pins.  The `test` block is the in-memory proof (the scale difference survives only before storage); the `test e2e` block is the wire proof and carries this fixture's golden",
   },
   {
     id: "absent-optional",

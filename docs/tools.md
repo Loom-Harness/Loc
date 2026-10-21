@@ -33,6 +33,7 @@ ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
+ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
 ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
@@ -186,7 +187,7 @@ See the pipeline phases in [`technical.md`](technical.md).
 
 ### `verify` and `snapshot`
 
-`ddd verify` joins a JSON of test results onto the requirements graph
+`ddd verify` joins one or more test-results reports onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
 `.loom/verification.json` + `.loom/verification.md` under `--out`, and
 sets a non-zero exit code if any requirement is `FAILING`, if a declared
@@ -194,10 +195,12 @@ test produced **no result at all** (unless `--allow-missing` — "we have
 no result" is not "it passed"), if `--require-all` is set and any
 requirement remains unverified, or if `--min <pct>` is set and the
 verified percentage is below it.  `--json` also prints the verification
-JSON to stdout.  The results document is either Loom's own
-`{ version, results: [...] }` (`--results`) or a vitest / jest
-`--reporter=json` report (`--from-vitest`, which applies the
-`(suite, name)` join convention for you).  See [`verify.md`](verify.md)
+JSON to stdout.  A report is Loom's own `{ version, results: [...] }`
+(`--results`), a vitest / jest `--reporter=json` report (`--from-vitest`)
+or a Playwright `--reporter=json` report (`--from-playwright`) — the two
+adapters apply the `(suite, name)` join convention for you.  Every flag is
+repeatable and they mix: a generated tree's unit and e2e tiers each write
+their own report, and all of them are merged into one verdict.  See [`verify.md`](verify.md)
 for the full contract and [`traceability.md`](traceability.md) for the
 artefact format.
 
@@ -566,6 +569,29 @@ error NU1301:   The remote certificate is invalid because of errors in the certi
 ```
 
 which reads like a network outage rather than a missing trust anchor.
+
+To run the **whole** `test:dotnet` gate (vitest drives `generate` + `dotnet
+build` + `dotnet test`) with no host SDK, mount the repo and the host Node
+into the same image.  Mount the checkout that owns `node_modules` (a worktree
+under `.claude/worktrees/` resolves it from the parent), and pass the proxy
+through by name:
+
+```bash
+docker run --rm --network host -v /home/user/Loc:/home/user/Loc -w <worktree> \
+  -v /opt/node22:/opt/node22:ro -v /root/.ccr:/root/.ccr:ro \
+  -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY -e NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt \
+  -e LOOM_DOTNET_BUILD=1 -e PATH=/opt/node22/bin:/usr/share/dotnet:/usr/bin:/bin \
+  mcr.microsoft.com/dotnet/sdk:10.0 bash -c \
+  'cp /root/.ccr/ca-bundle.crt /usr/local/share/ca-certificates/proxy.crt \
+   && update-ca-certificates >/dev/null \
+   && npx vitest run test/e2e/generated-dotnet-build.test.ts'
+```
+
+The emitted xUnit project is its own csproj (`Tests/<Ns>.Tests/`), which the
+root `dotnet build` never compiles (`<Compile Remove="Tests/**" />`), and a
+`dotnet test` at the project root runs zero tests and exits 0.  Build and run
+it by path: `dotnet test Tests/<Ns>.Tests/<Ns>.Tests.csproj`.  The gate does
+exactly that and fails on zero tests run.
 
 ### Running `mix` on the HOST — for the suites that can't use a container
 
@@ -1189,8 +1215,18 @@ worktrees and `settings.local.json` stay local.
 
 ### The push preflight
 
-`pre-push-merge-check.sh` runs **two** gates on a `git push`, in order:
+`pre-push-merge-check.sh` runs **three** gates on a `git push`, in order:
 
+0. **Sync-only** — a push whose only new commits are merges of `origin/main`
+   (every non-merge commit it adds is already on `main`) is denied, unless the
+   old remote head conflicted with `main` or the push is marked deliberate
+   with `LOOM_ALLOW_SYNC=1` (in the environment or on the command line). Such
+   a push changes nothing a reviewer reads but re-runs the whole per-PR check
+   set; dozens at once starve the shared runner pool. The merge queue re-tests
+   every entry on current `main` anyway. Merging another PR's branch (a stack),
+   a rebase, or any push with a commit of its own passes. Pinned by
+   `test/system/pre-push-sync-gate.test.ts`. The rules behind it are in
+   `.claude/skills/steward/SKILL.md`.
 1. **Textual** — `git merge-tree --write-tree origin/main HEAD`. A definite
    conflict denies the push, listing the conflicting paths.
 2. **Semantic** — on a clean merge, the hook materialises `origin/main + HEAD`
@@ -1205,6 +1241,16 @@ worktrees and `settings.local.json` stay local.
 
    Either failing denies the push with the failing output attached.
 
+   Then, in the same worktree, the fast whole-tree **censuses and ratchets**
+   (`test/system/*census*.test.ts`, `*ratchet*.test.ts`,
+   `typing-differential.test.ts`) — every one except the three corpus-wide
+   censuses that take 1.5–5 min each (`diagnostic-firing`,
+   `openapi-component-uniqueness`, `ddd-source`), which stay CI-only.  A census
+   pins a whole-tree count, so two branches that each pass it can fail it
+   together; that is the commonest reason a green PR is ejected from the merge
+   queue, and an ejection discards the build of every entry queued behind it.
+   It denies only when vitest ran and reported failed tests.
+
 **Why the second gate exists.** A clean merge is necessary, not sufficient.
 Two branches merge textually and still fail to compile together — one renames a
 symbol the other starts using, one adds a field the other's new test constructs
@@ -1216,18 +1262,19 @@ slot; the hook moves it to ~1 minute before the push.
 **It fails open on everything else.** No `npx`, no borrowable `node_modules`,
 an unparsable merged-tree OID, a worktree that will not create, a 900 s
 timeout per gate, not a git repo, no `origin/main`, an offline fetch, git older
-than 2.38, or pushing trunk itself — all ALLOW. It denies on exactly two
-things: a definite conflict, and a gate that ran to completion on the merged
-tree and failed.
+than 2.38, or pushing trunk itself — all ALLOW. It denies on exactly three
+things: a sync-only push, a definite conflict, and a gate that ran to
+completion on the merged tree and failed.
 
 **Opting out deliberately:**
 
 ```bash
-LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 only; gate 1 still runs
+LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 (and the censuses); gate 1 still runs
+LOOM_SKIP_PUSH_CENSUS=1 git push …      # skips only the censuses
 ```
 
-**Cost, measured:** ~51 s for the full preflight on a warm `node_modules`;
-~1 s with the opt-out set. The throwaway worktree is removed by a top-level
+**Cost, measured:** ~51 s for the typecheck gates on a warm `node_modules`,
+plus ~85–100 s for the censuses on 4 cores; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
 `EXIT` trap — top-level rather than function-scoped `RETURN`, because the deny
 path `exit`s the script and an `exit` from inside a function never runs that
 function's `RETURN` trap.

@@ -809,6 +809,18 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -847,6 +859,20 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // exactly that fact), but nothing in this fixture reads `customerId`, so no
   // route answers differently for it.  Reasoned permanent entry.
   "auth-id-claim-stub",
+  // COMPILE-TIER WITNESS — the FOREIGN twin (claims eval D6): the same
+  // `agentId: Agent id?` claim on a deployable (`payments`) that does NOT host
+  // `Agent`, so its ids module never declared the brand its `User` names (node
+  // TS2694, python ImportError at boot, java/.NET missing symbol).  The defect is
+  // the existence of a declaration, which the compile tier reads directly; no
+  // route of the fixture reads the claim.  Reasoned permanent entry.
+  "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.

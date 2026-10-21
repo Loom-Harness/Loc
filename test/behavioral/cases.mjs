@@ -290,10 +290,14 @@ export const AUTHZ_LADDERS = {
     seed: { path: "/api/tickets", body: { subject: "authz ladder probe", open: true } },
     gated: [
       { label: "role gate", method: "POST", path: "/api/tickets/{id}/close", body: {} },
-      // H-10: the unauthorized token OMITS the optional `agentId` claim, so this
-      // arm is "an absent optional claim fails `!= null`" — 204 here is the
-      // bypass node shipped (`undefined !== null`).
+      // The unauthorized token OMITS the optional `agentId` claim, so this arm is
+      // "an absent optional claim fails `!= null`" — 204 here means an absent
+      // claim reached the principal as something other than null.
       { label: "absent optional claim", method: "POST", path: "/api/tickets/{id}/take", body: {} },
+      // The unauthorized token's `assignee` is present but not a UUID, so this
+      // arm is "a malformed identifier claim fails `!= null`" — 204 here means
+      // the raw value reached the principal.
+      { label: "malformed id claim", method: "POST", path: "/api/tickets/{id}/assign", body: {} },
     ],
     arms: { anonymous: 401, unauthorized: 403, authorized: 204 },
   },

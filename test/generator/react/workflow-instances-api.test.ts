@@ -49,8 +49,11 @@ describe("React workflows api module — instance hooks", () => {
     expect(mod).toContain("export function useFulfillmentInstanceById(id: string | undefined) {");
     expect(mod).toContain("await api.get(`/workflows/fulfillment/instances`)");
     expect(mod).toMatch(/await api\.get\(`\/workflows\/fulfillment\/instances\/\$\{seg\(id\)\}`\)/);
-    // useQuery is imported once an observable workflow exists.
-    expect(mod).toContain('import { useMutation, useQuery } from "@tanstack/react-query";');
+    // useQuery is imported once an observable workflow exists; this saga is
+    // event-only (no `POST /workflows/fulfillment` route), so it gets no
+    // mutation hook and `useMutation` would be a dead import.
+    expect(mod).toContain('import { useQuery } from "@tanstack/react-query";');
+    expect(mod).not.toContain("useFulfillmentWorkflow");
     // The enum schema the response references is BOUND — and here that means
     // declared in this module, not imported.
     //

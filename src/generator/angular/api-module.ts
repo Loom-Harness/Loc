@@ -24,7 +24,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
@@ -145,7 +145,7 @@ function baseType(t: TypeIR): TypeIR {
 /** The value objects + enums a response field set references, transitively
  *  (a VO field may reference another VO or an enum).  Their `<VO>Response` /
  *  `<Enum>` types must be emitted so the precise response interface resolves. */
-function collectResponseTypes(
+export function collectResponseTypes(
   types: readonly TypeIR[],
   bc: BoundedContextIR | undefined,
 ): { vos: ValueObjectIR[]; enums: EnumIR[] } {
@@ -156,7 +156,7 @@ function collectResponseTypes(
   // undeclared `MoneyResponse`.  `visit` still only walks what the wire shape
   // reaches, so an unreferenced sibling VO emits nothing.
   const voByName = new Map((bc ? valueObjectPool(bc) : []).map((v) => [v.name, v] as const));
-  const enumByName = new Map((bc?.enums ?? []).map((e) => [e.name, e]));
+  const enumByName = new Map((bc ? enumPool(bc) : []).map((e) => [e.name, e]));
   const vos = new Map<string, ValueObjectIR>();
   const enums = new Map<string, EnumIR>();
   const visit = (t: TypeIR): void => {
@@ -211,7 +211,7 @@ function emitEnumType(e: EnumIR): string {
 }
 
 /** `export interface <VO>Response { … }` over the VO's canonical wire shape. */
-function emitVoResponseInterface(vo: ValueObjectIR): string[] {
+export function emitVoResponseInterface(vo: ValueObjectIR): string[] {
   return [
     `export interface ${vo.name}Response {`,
     ...forApiRead(wireFieldsFor(vo)).map(

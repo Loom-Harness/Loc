@@ -68,8 +68,9 @@ describe("angular generator — walked pages", () => {
   it("mounts the page at its route + a wildcard NotFound (no synthetic Home when a page owns `/`)", async () => {
     const files = await angularFiles();
     const routes = files.get("src/app/app.routes.ts")!;
-    expect(routes).toContain('import { HomeComponent } from "./pages/home.component";');
-    expect(routes).toContain('{ path: "", component: HomeComponent }');
+    expect(routes).toContain(
+      '{ path: "", loadComponent: () => import("./pages/home.component").then((m) => m.HomeComponent) }',
+    );
     expect(routes).toContain('{ path: "**", component: NotFoundComponent }');
     // A page owns the index route, so no separate hand-rolled Home.
     expect(files.has("src/app/home.component.ts")).toBe(false);

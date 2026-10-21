@@ -17,13 +17,12 @@ import type { ActionIR, ExprIR, StateFieldIR } from "../../../src/ir/types/loom-
 
 describe("feliz fail-fast (M-T6.15)", () => {
   it("throws on an unsupported expression kind instead of emitting `(* unsupported *) ()`", () => {
-    // `this` — a domain-body receiver.  A page has no aggregate instance, so the
-    // frontend pipeline never produces it; it is one of the three kinds left at
-    // the `default` now that `id` / `duration` / `new` render (see
-    // `update-expr-arms.test.ts`, which pins those arms).
+    // `this` — a domain-body receiver.  A page has no aggregate instance, and
+    // `loom.ui-this-unbound` refuses it at validation; the renderer's arm is the
+    // internal-error backstop (see `update-expr-arms.test.ts`).
     const expr = { kind: "this" } as unknown as ExprIR;
     expect(() => renderFsExpr(expr, { stateNames: new Set(), locals: new Set() })).toThrow(
-      /unsupported expression 'this'/,
+      /loom\.ui-this-unbound/,
     );
   });
 

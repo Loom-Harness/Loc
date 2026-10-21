@@ -14,6 +14,8 @@ import {
 import {
   discriminatedUnionZod,
   findUnionSpec,
+  type OpUnionResponses,
+  opUnionResponses,
   type UnionMemberField,
   unionMemberObjects,
   unionMembers,
@@ -95,6 +97,7 @@ import {
   findValidatesRequest,
   isAllFind,
   relativeOpPath,
+  servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
@@ -143,6 +146,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -360,11 +364,20 @@ function honoPath(entry: ApiOperationIR): string {
  *  numbers come from `deriveAggregateOperations`; only the line idiom
  *  (description text via `httpStatusText`, ProblemDetails content) is
  *  Hono's. */
-function problemResponseLines(entry: ApiOperationIR, pad: string): string[] {
-  return entry.errorStatuses.map(
-    (s) =>
-      `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
+function problemResponseLines(
+  entry: ApiOperationIR,
+  pad: string,
+  /** An operation-return union's split (M-FT.24): a status one of its error
+   *  arms answers declares `ProblemDetails` OR that arm's problem body. */
+  split?: OpUnionResponses | null,
+): string[] {
+  return entry.errorStatuses.map((s) => {
+    const arms = split?.errorStatuses.find((e) => e.status === s)?.arms ?? [];
+    const schema = arms.length
+      ? `z.union([ProblemDetails, ${arms.map((a) => a.problemName).join(", ")}])`
+      : "ProblemDetails";
+    return `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
+  });
 }
 
 /** The STATIC one-segment sub-paths THIS aggregate router mounts, mapped to
@@ -686,9 +699,11 @@ export function buildRoutesFile(
   // derivation against, and that gate stayed non-tautological until four
   // independent implementations had agreed.  Kept local: schemas, handler
   // bodies, history + prepare (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not registered here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const derivedCreate = derivedOps.find((o) => o.kind === "create");
-  const derivedGetById = derivedOps.find((o) => o.kind === "getById")!;
+  const derivedGetById = derivedOps.find((o) => o.kind === "getById");
   const derivedDestroy = derivedOps.find((o) => o.kind === "destroy");
   const derivedFindByIR = new Map(
     derivedOps.filter((o) => o.kind === "find").map((o) => [o.find, o]),
@@ -926,11 +941,11 @@ export function buildRoutesFile(
     const unionReturns = [
       ...agg.operations.flatMap((op) => (op.returnType ? [unionForFind(op.returnType, ctx)] : [])),
     ];
+    const fieldZod = (f: UnionMemberField): string =>
+      f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
     for (const u of unionReturns) {
       if (!u || unionSeen.has(u.name)) continue;
       unionSeen.add(u.name);
-      const fieldZod = (f: UnionMemberField): string =>
-        f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
       const members = unionMemberObjects(
         unionMembers(u.variants, ctx),
         fieldZod,
@@ -939,6 +954,29 @@ export function buildRoutesFile(
       lines.push(
         `export const ${u.name} = ${discriminatedUnionZod(members)}.openapi("${u.name}");`,
       );
+    }
+    // The OpenAPI split of each inline op-return union (M-FT.24): the 200 body
+    // is the success arms only, and each error arm publishes its problem body.
+    const problemSeen = new Set<string>();
+    for (const op of agg.operations) {
+      if (op.returnType?.kind !== "union") continue;
+      const split = opUnionResponses(op.returnType.variants, ctx);
+      if (split.errors.length === 0) continue;
+      if (!unionSeen.has(split.successName)) {
+        unionSeen.add(split.successName);
+        const members = unionMemberObjects(split.success, fieldZod, zodForResponseInner);
+        lines.push(
+          `export const ${split.successName} = ${discriminatedUnionZod(members)}.openapi("${split.successName}");`,
+        );
+      }
+      for (const arm of split.errors) {
+        if (problemSeen.has(arm.problemName)) continue;
+        problemSeen.add(arm.problemName);
+        const body = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
+        lines.push(
+          `export const ${arm.problemName} = ProblemDetails.extend({ ${body} }).openapi("${arm.problemName}");`,
+        );
+      }
     }
   }
   // RFC 7807 ProblemDetails body — declared once for the project in
@@ -1177,69 +1215,71 @@ export function buildRoutesFile(
   }
 
   // Get by id.
-  lines.push(`  app.openapi(`);
-  lines.push(`    createRoute({`);
-  lines.push(`      method: "${derivedGetById.method}",`);
-  lines.push(`      path: "${honoPath(derivedGetById)}",`);
-  lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
-  lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-  lines.push(`      request: { params: z.object({ id: UuidString }) },`);
-  lines.push(`      responses: {`);
-  lines.push(
-    `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
-  );
-  lines.push(...problemResponseLines(derivedGetById, "        "));
-  lines.push(`      },`);
-  lines.push(`    }),`);
-  lines.push(`    async (c) => {`);
-  lines.push(`      const { id } = c.req.valid("param");`);
-  lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
-  // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
-  // every backend, and this route was the one place Hono answered a machine
-  // token instead.  The cause is structural, not cosmetic: the route reads
-  // through `repo.findById` (returns null) and raises its OWN error, bypassing
-  // `repo.getById`, whose throw already carries exactly this message
-  // (`typescript/repository-builder.ts`).  So the message is spelled to match
-  // what the bypassed producer would have said, which is also what
-  // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
-  // `"not_found"` token — that class agrees across backends already.)
-  lines.push(
-    `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-  );
-  lines.push(...maskUserBind(agg, "      "));
-  // The ETag half of optimistic concurrency (`versioned`).  The update route
-  // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
-  // conditional-write path was undiscoverable: a client had no value to echo,
-  // and `expectedVersion` always fell back to the version the SERVER had just
-  // loaded, which defeats the whole point (the race being guarded against is
-  // one that happens across the user's think time, between this read and that
-  // write).  Publishing it here closes the loop: read → hold the tag → send it
-  // back on `If-Match` → get a real 409 if someone else won the race.
-  //
-  // A response header only, deliberately not declared in the `responses`
-  // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
-  // conformance spec-diff, so declaring it on node alone would read as a
-  // contract divergence.  Declaring it belongs with emitting it on the other
-  // four backends, in one change.
-  if (aggregateIsVersioned(agg)) {
-    lines.push(`      c.header("etag", versionETag(found.version));`);
-  }
-  if (emitTrace) {
-    // toWire isn't trivial — bind once so it's not run twice between
-    // Object.keys and c.json.
-    lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+  if (derivedGetById) {
+    lines.push(`  app.openapi(`);
+    lines.push(`    createRoute({`);
+    lines.push(`      method: "${derivedGetById.method}",`);
+    lines.push(`      path: "${honoPath(derivedGetById)}",`);
+    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
+    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      responses: {`);
     lines.push(
-      `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
     );
-    lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
-  } else {
+    lines.push(...problemResponseLines(derivedGetById, "        "));
+    lines.push(`      },`);
+    lines.push(`    }),`);
+    lines.push(`    async (c) => {`);
+    lines.push(`      const { id } = c.req.valid("param");`);
+    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
+    // every backend, and this route was the one place Hono answered a machine
+    // token instead.  The cause is structural, not cosmetic: the route reads
+    // through `repo.findById` (returns null) and raises its OWN error, bypassing
+    // `repo.getById`, whose throw already carries exactly this message
+    // (`typescript/repository-builder.ts`).  So the message is spelled to match
+    // what the bypassed producer would have said, which is also what
+    // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
+    // `"not_found"` token — that class agrees across backends already.)
     lines.push(
-      `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
     );
+    lines.push(...maskUserBind(agg, "      "));
+    // The ETag half of optimistic concurrency (`versioned`).  The update route
+    // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
+    // conditional-write path was undiscoverable: a client had no value to echo,
+    // and `expectedVersion` always fell back to the version the SERVER had just
+    // loaded, which defeats the whole point (the race being guarded against is
+    // one that happens across the user's think time, between this read and that
+    // write).  Publishing it here closes the loop: read → hold the tag → send it
+    // back on `If-Match` → get a real 409 if someone else won the race.
+    //
+    // A response header only, deliberately not declared in the `responses`
+    // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
+    // conformance spec-diff, so declaring it on node alone would read as a
+    // contract divergence.  Declaring it belongs with emitting it on the other
+    // four backends, in one change.
+    if (aggregateIsVersioned(agg)) {
+      lines.push(`      c.header("etag", versionETag(found.version));`);
+    }
+    if (emitTrace) {
+      // toWire isn't trivial — bind once so it's not run twice between
+      // Object.keys and c.json.
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      lines.push(
+        `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else {
+      lines.push(
+        `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      );
+    }
+    lines.push(`    },`);
+    lines.push(`  );`);
+    lines.push("");
   }
-  lines.push(`    },`);
-  lines.push(`  );`);
-  lines.push("");
 
   // Canonical destroy → DELETE /{id} (hard delete).  Gated on the IR
   // lifecycle: emitted only when the aggregate has an unnamed `destroy`
@@ -1374,23 +1414,27 @@ export function buildRoutesFile(
 
   // Operations — the derived entries (public, non-canonical, in declaration
   // order), each carrying its path + resolved status set.
-  for (const [op, entry] of derivedOpByIR) {
-    lines.push(
-      ...emitOperationRoute(
-        agg,
-        op!,
-        ctx,
-        entry,
-        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
-        auditOps.includes(op!),
-        provOps.includes(op!),
-        emitTrace,
-        usingMikro,
-      ).map((l) => `  ${l}`),
-    );
+  // Keyed on the operation OR its probe: an explicit route can claim one of the
+  // pair and leave the other to this router.
+  for (const op of new Set([...derivedOpByIR.keys(), ...derivedProbeByIR.keys()])) {
+    const entry = derivedOpByIR.get(op);
+    if (entry)
+      lines.push(
+        ...emitOperationRoute(
+          agg,
+          op!,
+          ctx,
+          entry,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
+          auditOps.includes(op!),
+          provOps.includes(op!),
+          emitTrace,
+          usingMikro,
+        ).map((l) => `  ${l}`),
+      );
     const probe = derivedProbeByIR.get(op);
     if (probe) {
-      lines.push("");
+      if (entry) lines.push("");
       lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
     }
     lines.push("");
@@ -2045,7 +2089,7 @@ function emitOperationRoute(
   // so the operation method itself runs preconditions → hook → invariants —
   // the route calls it exactly like a non-extern op.
   const mutation = (pad: string): string[] => [
-    `${pad}aggregate.${lowerFirst(op.name)}(${callArgs});`,
+    `${pad}aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
   ];
 
   if (!audit && !prov) {
@@ -2133,12 +2177,15 @@ function emitReturningOperationRoute(
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
   const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
-  // Success 200 body schema: a union return declares the whole tagged union; a
+  // An inline union's OpenAPI split (M-FT.24): the 200 declares the success
+  // arms only; each error arm's status declares that arm's problem body.
+  const split = op.returnType?.kind === "union" ? opUnionResponses(variants, ctx) : null;
+  // Success 200 body schema: a union return declares its success arms; a
   // SCALAR return (BUG-003) declares that scalar's own field-wire schema (via
   // the shared `zodForResponse`, so money/enum/VO scalars stay wire-consistent
   // with a field of the same type); void ops don't reach here.
   const successSchema = u
-    ? u.name
+    ? (split?.successName ?? u.name)
     : op.returnType
       ? zodForResponse(op.returnType, false)
       : `${agg.name}Response`;
@@ -2158,13 +2205,12 @@ function emitReturningOperationRoute(
   out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
   out.push(`    },`);
   out.push(`    responses: {`);
-  // 200 declares the whole tagged union; only success variants actually reach
-  // it (error variants are intercepted below) — the documented shape is the
-  // closed set of outcomes, which a typed client narrows on `type`.
+  // 200 declares the tagged success arms; the error arms are intercepted
+  // below and answer their own status, which declares their problem body.
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${successSchema} } } },`,
   );
-  out.push(...problemResponseLines(entry, "      "));
+  out.push(...problemResponseLines(entry, "      ", split));
   out.push(`    },`);
   out.push(`  }),`);
   out.push(`  async (c) => {`);
@@ -2208,7 +2254,7 @@ function emitReturningOperationRoute(
         // returning op of the same name keeps the write-time CAS fallback.
         isVersionedUpdate: false,
         mutation: (pad) => [
-          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+          `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
         capture: true,
       }),
@@ -2219,7 +2265,9 @@ function emitReturningOperationRoute(
     out.push(...whenGateLine(agg, op, "    "));
     // Lifecycle stamps are applied persist-time in the drizzle save()
     // — the handler does not stamp.
-    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(
+      `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
+    );
     out.push(`    await repo.save(aggregate);`);
   }
   // Translate each error variant to a ProblemDetails before the success path.

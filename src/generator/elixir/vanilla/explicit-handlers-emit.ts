@@ -43,13 +43,14 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
+import {
+  walkExprDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "../../../ir/util/walk.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import {
-  derivedRouteSlots,
-  pathParamNames,
-  routeMountsUnderApiBase,
-} from "../../_api/explicit-route-mount.js";
+import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
@@ -85,133 +86,52 @@ function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string
   return new Set(h.params.filter((p) => requestRecordFor(p.type, ctx)).map((p) => p.name));
 }
 
-/** Collect every `<record>.<field>` member access on a RECORD param reachable
- *  from `e` into `acc` (record-param name → the field names read).  A record
- *  param is flattened into exactly the fields the body reads, so only referenced
- *  fields are destructured — an unused binding would trip
- *  `mix compile --warnings-as-errors`.  The receiver of a matched member is the
- *  bare record ref, so recursion stops there. */
+/** Record `e` into `acc` (record-param name → the field names read) when it is
+ *  a `<record>.<field>` member read off a RECORD param.  A record param is
+ *  flattened into exactly the fields the body reads, so only referenced fields
+ *  are destructured — an unused binding would trip
+ *  `mix compile --warnings-as-errors`. */
+function noteRecordFieldAccess(
+  e: ExprIR,
+  records: ReadonlySet<string>,
+  acc: Map<string, Set<string>>,
+): void {
+  if (
+    e.kind !== "member" ||
+    e.receiver.kind !== "ref" ||
+    e.receiver.refKind !== "param" ||
+    !records.has(e.receiver.name)
+  ) {
+    return;
+  }
+  let fields = acc.get(e.receiver.name);
+  if (!fields) {
+    fields = new Set<string>();
+    acc.set(e.receiver.name, fields);
+  }
+  fields.add(e.member);
+}
+
+/** Every record-field access reachable from `e`, at any depth.  A field read
+ *  only inside a `duration`, an interpolated `i18nFormat` hole or a
+ *  block-bodied lambda is still destructured — otherwise the emitted body
+ *  names a variable `run/1` never bound. */
 function collectRecordFieldAccess(
   e: ExprIR | undefined,
   records: ReadonlySet<string>,
   acc: Map<string, Set<string>>,
 ): void {
-  if (!e) return;
-  if (
-    e.kind === "member" &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "param" &&
-    records.has(e.receiver.name)
-  ) {
-    let fields = acc.get(e.receiver.name);
-    if (!fields) {
-      fields = new Set<string>();
-      acc.set(e.receiver.name, fields);
-    }
-    fields.add(e.member);
-    return;
-  }
-  switch (e.kind) {
-    case "member":
-      collectRecordFieldAccess(e.receiver, records, acc);
-      return;
-    case "method-call":
-      collectRecordFieldAccess(e.receiver, records, acc);
-      for (const a of e.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "lambda":
-      collectRecordFieldAccess(e.body, records, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectRecordFieldAccess(f.value, records, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectRecordFieldAccess(el, records, acc);
-      return;
-    case "paren":
-      collectRecordFieldAccess(e.inner, records, acc);
-      return;
-    case "unary":
-      collectRecordFieldAccess(e.operand, records, acc);
-      return;
-    case "binary":
-      collectRecordFieldAccess(e.left, records, acc);
-      collectRecordFieldAccess(e.right, records, acc);
-      return;
-    case "ternary":
-      collectRecordFieldAccess(e.cond, records, acc);
-      collectRecordFieldAccess(e.then, records, acc);
-      collectRecordFieldAccess(e.otherwise, records, acc);
-      return;
-    case "convert":
-      collectRecordFieldAccess(e.value, records, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectRecordFieldAccess(arm.cond, records, acc);
-        collectRecordFieldAccess(arm.value, records, acc);
-      }
-      collectRecordFieldAccess(e.otherwise, records, acc);
-      return;
-  }
+  walkExprDeep(e, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
-/** Statement driver for {@link collectRecordFieldAccess} — mirrors the shape of
- *  `collectWorkflowStmtParamRefs`, feeding every expression of every
- *  `WorkflowStmtIR` kind through the record-field walker. */
+/** Statement driver for {@link collectRecordFieldAccess}: every expression of
+ *  every workflow statement, descending the `for-each` / `if-let` bodies. */
 function collectRecordFieldsInStmt(
   st: WorkflowStmtIR,
   records: ReadonlySet<string>,
   acc: Map<string, Set<string>>,
 ): void {
-  switch (st.kind) {
-    case "precondition":
-    case "requires":
-    case "expr-let":
-      collectRecordFieldAccess(st.expr, records, acc);
-      return;
-    case "assign":
-      collectRecordFieldAccess(st.value, records, acc);
-      return;
-    case "factory-let":
-    case "emit":
-      for (const f of st.fields) collectRecordFieldAccess(f.value, records, acc);
-      return;
-    case "op-call":
-      for (const a of st.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-let":
-      for (const a of st.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-delete":
-      collectRecordFieldAccess(st.entity, records, acc);
-      return;
-    case "resource-call":
-      collectRecordFieldAccess(st.call, records, acc);
-      return;
-    case "domain-service-call":
-      if (st.call.kind === "call")
-        for (const a of st.call.args) collectRecordFieldAccess(a, records, acc);
-      return;
-    case "repo-run":
-      for (const a of st.retrievalArgs) collectRecordFieldAccess(a, records, acc);
-      collectRecordFieldAccess(st.page?.offset, records, acc);
-      collectRecordFieldAccess(st.page?.limit, records, acc);
-      return;
-    case "for-each":
-      collectRecordFieldAccess(st.iterable, records, acc);
-      for (const inner of st.body) collectRecordFieldsInStmt(inner, records, acc);
-      return;
-    case "if-let":
-      for (const a of st.retrievalArgs) collectRecordFieldAccess(a, records, acc);
-      for (const inner of st.thenBody) collectRecordFieldsInStmt(inner, records, acc);
-      for (const inner of st.elseBody ?? []) collectRecordFieldsInStmt(inner, records, acc);
-      return;
-  }
+  walkWorkflowStmtExprsDeep(st, (n) => noteRecordFieldAccess(n, records, acc));
 }
 
 /** The `run/1` params destructure of a handler, wire-preserving under the
@@ -370,6 +290,12 @@ function renderHandlerModule(
     contextModule: contextModuleFq,
     resourceModules,
     recordParams: records,
+    // A `getById` miss names the row ("Order <id> not found"), as on the other
+    // four backends and on this one's own GET-by-id route.  The routes
+    // controller below carries the matching `{:not_found, detail}` arm (gated on
+    // `handlerLoadsById`).  Was the generic "Resource not found" until the
+    // `handler-aggregate-ops` corpus fixture compared it to the golden.
+    tagGetByIdMiss: true,
     // Domain-service call wiring (domain-services.md rev. 4, Elixir decision B)
     // — the same two fields the workflow emitter threads, and for the same
     // reason.  Without them the `domain-service` render arm falls through to the
@@ -558,6 +484,18 @@ function pathParamCoercions(r: RouteIR, h: Handler): string {
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
+/** True when a handler body loads through `getById` at any depth — the load
+ *  whose miss `tagGetByIdMiss` tags with a row-naming detail. */
+function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
+  let found = false;
+  for (const top of h.statements) {
+    walkWorkflowStmtsDeep(top, (st) => {
+      if (st.kind === "repo-let" && st.method === "getById") found = true;
+    });
+  }
+  return found;
+}
+
 function phoenixPath(path: string): string {
   return path.replace(/\{(\w+)\}/g, (_, name: string) => `:${snake(name)}`);
 }
@@ -565,11 +503,8 @@ function phoenixPath(path: string): string {
 /** Emit one `<Api>RoutesController` per served api whose route list is
  *  non-empty: each `route` becomes a `def <snake(handler)>(conn, params)` that
  *  runs the target handler's `run/1` through the shared `respond/2`.  Returns
- *  the `ApiRoute`s to splice into the router: ordinarily into `scope "/api"` as
- *  `first` entries (a domain route serves under the api base — M-T6.73), and,
- *  for a route whose `/api` slot an auto-derived aggregate route already
- *  occupies, at the router root behind the `!root:` sentinel it has always used.
- *  A no-op (empty route list) for an api that declares no explicit `route`s. */
+ *  the `ApiRoute`s to splice into `scope "/api"` (a domain route serves under
+ *  the api base); see `routeEntry` below for their order.  A no-op (empty route list) for an api that declares no explicit `route`s. */
 export function emitExplicitRoutesController(
   appName: string,
   appModule: string,
@@ -581,36 +516,31 @@ export function emitExplicitRoutesController(
 ): ApiRoute[] {
   if (routes.length === 0) return [];
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
-  const derivedSlots = derivedRouteSlots(contexts);
   const webModule = `${appModule}Web`;
   const controller = `${upperFirst(apiName)}RoutesController`;
-  // Where each route lands in router.ex.  An ordinary explicit route is a DOMAIN
-  // route, so it is spliced into `scope "/api"` (as `first`, ahead of the
-  // derived aggregate routes it may out-specify).  A route that would COLLIDE
-  // with an auto-derived route there keeps the `!root:` mounting it has always
-  // had — see `_api/explicit-route-mount.ts`; on this backend the collision is
-  // not a 500 but a `mix compile --warnings-as-errors` failure, because the
-  // second `do_match` clause is unreachable.
-  const routeEntry = (r: RouteIR, action: string): ApiRoute =>
-    routeMountsUnderApiBase(r, derivedSlots)
-      ? {
-          method: r.method.toLowerCase() as ApiRoute["method"],
-          path: phoenixPath(r.path),
-          controller,
-          action: `:${action}`,
-          first: true,
-        }
-      : {
-          method: r.method.toLowerCase() as ApiRoute["method"],
-          path: `!root:${phoenixPath(r.path)}`,
-          controller,
-          action: `:${action}`,
-        };
+  // Every explicit route is a DOMAIN route, spliced into `scope "/api"`.  An
+  // ordinary one goes `first`, ahead of the derived aggregate routes it may
+  // out-specify.  One that takes over a derived slot (the derived surface
+  // yields it — `_api/explicit-route-mount.ts`) goes where the derived route
+  // would have: after the derived static finds, because Phoenix matches in
+  // registration order and `GET /orders/:order_id` registered first would
+  // swallow `GET /orders/by_status`.
+  const routeEntry = (r: RouteIR, action: string): ApiRoute => ({
+    method: r.method.toLowerCase() as ApiRoute["method"],
+    path: phoenixPath(r.path),
+    controller,
+    action: `:${action}`,
+    ...(claimsDerivedSlot(r, contexts) ? {} : { first: true }),
+  });
   const apiRoutes: ApiRoute[] = [];
   const actions: string[] = [];
   // Set when any route is a paged-run queryHandler — the controller then carries
   // a `page_param/3` coercion helper (Phoenix delivers query params as strings).
   let hasPaged = false;
+  // Set when a routed handler loads through `getById` (its miss carries a
+  // detail — see `tagGetByIdMiss`), and when one returns nothing (204).
+  let loadsById = false;
+  let hasVoid = false;
   for (const r of routes) {
     const resolved = resolveRoute(r, byName);
     if (!resolved) continue;
@@ -647,6 +577,10 @@ ${pagingElseArm("ProblemDetails", "    ")}
   end`);
       apiRoutes.push(routeEntry(r, action));
       continue;
+    }
+    if (!handler.extern) {
+      if (handlerLoadsById(handler)) loadsById = true;
+      if (!handler.returnType) hasVoid = true;
     }
     const handlerMod = `${appModule}.${upperFirst(ctx.name)}.Handlers.${upperFirst(handler.name)}`;
     const coercions = pathParamCoercions(r, handler);
@@ -699,7 +633,15 @@ ${actions.join("\n\n")}
   # — the oracle the behavioural goldens are captured from — answers \`"hi"\`.  It
   # was invisible until the route moved under \`/api\`: before that every request
   # to it 404'd, so no caller ever saw the body.
-  def respond(conn, {:ok, result}) do
+${
+  hasVoid
+    ? `  # A handler with no return type closes its body with \`{:ok, :ok}\` and answers
+  # 204 with an empty body, like the other four backends — not \`200 "ok"\`.
+  def respond(conn, {:ok, :ok}), do: send_resp(conn, 204, "")
+
+`
+    : ""
+}  def respond(conn, {:ok, result}) do
     conn
     |> put_status(200)
     |> json(serialize(result))
@@ -714,7 +656,7 @@ ${respondErrorTail(
   contexts[0] ? denialOverrides(contexts[0]) : undefined,
   contextsHaveWireDenials(contexts),
   false,
-  false,
+  loadsById,
   contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
 )}
 

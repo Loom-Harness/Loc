@@ -119,6 +119,25 @@ export function matchFindCall(
   return { repo, criterionName: critRef.name, criterionArgs: critRef.args };
 }
 
+/** Recognise `<Repo>.<find>(args)` where `<find>` is a DECLARED find whose
+ *  return type is optional (`find byCode(c: string): Order?`) — the second
+ *  `if let` source form beside `Repo.find(<Criterion>)`.  A built-in verb
+ *  (`getById` / `findById` / `findAll`) or a find declared non-optional,
+ *  array-valued or union-valued declines: only a declared nullable find is
+ *  emitted under its own name, returning the aggregate or absence, on every
+ *  backend. */
+export function matchOptionalFindCall(
+  expr: Expression | undefined,
+  reposByName: Map<string, Repository>,
+  env?: Env,
+): RepoMatch | undefined {
+  const call = matchRepoCall(expr, reposByName);
+  if (!call) return undefined;
+  const decl = call.repo.finds.find((f) => f.name === call.method);
+  if (!decl) return undefined;
+  return lowerType(decl.returnType, env).kind === "optional" ? call : undefined;
+}
+
 export interface FindAllMatch {
   repo: Repository;
   /** The referenced criterion name. */

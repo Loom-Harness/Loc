@@ -112,7 +112,11 @@ import {
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../../ir/util/foreign-event-types.js";
-import { foreignIdBrandNames, workflowIdTypeSources } from "../../../ir/util/foreign-ids.js";
+import {
+  foreignIdBrandNames,
+  hostedContextIdTypeSources,
+  userClaimIdTypeSources,
+} from "../../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
   isTphBase,
@@ -802,7 +806,8 @@ export function generateTypeScriptForContexts(
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
     ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-    ...workflowIdTypeSources(merged.workflows),
+    ...hostedContextIdTypeSources([merged]),
+    ...userClaimIdTypeSources(system?.sys.user),
   ]);
   out.set("domain/ids.ts", renderIds(merged, foreignIdNames));
   out.set("domain/value-objects.ts", renderEnumsAndValueObjects(merged));
@@ -1245,7 +1250,14 @@ export function generateTypeScriptForContexts(
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
     // repository-backed cross-aggregate test file reading a PG_URL, no HTTP.
-    const integrationTests = renderContextIntegrationTest(ctx);
+    // Its dispatcher is the one `http/workflows.ts` actually exports: that file
+    // emits `createInProcessDispatcher` only for a deployable with event
+    // subscriptions or durable events, not for every workflow-hosting one.
+    const integrationTests = renderContextIntegrationTest(ctx, {
+      inProcessDispatcher: /^export function createInProcessDispatcher\(/m.test(
+        out.get("http/workflows.ts") ?? "",
+      ),
+    });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
     }
@@ -1560,6 +1572,9 @@ export function generateTypeScriptForContexts(
       // loop feeding the in-process dispatcher.
       hasChannels,
       hasChannelConsumers,
+      // A native run (`npm run dev`) listens on the deployable's declared
+      // port; the image sets PORT to its container port.
+      system?.deployable.port ?? 3000,
     ),
   );
   if (!usingMikro) out.set("drizzle.config.ts", DRIZZLE_CONFIG);
@@ -1946,6 +1961,7 @@ function renderProjectIndexTs(
   hasTimers = false,
   hasChannels = false,
   hasChannelConsumers = false,
+  nativePort = 3000,
 ): string {
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
@@ -2072,7 +2088,7 @@ ${importHeader}
 ${resourceImportBlock}
 ${connectionBlock}
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? ${nativePort});
 baseLogger.info({ event: "server_starting", port, env: process.env.NODE_ENV ?? "development" });
 ${effectiveMigCall}${seedCall}${authStubCall}${orgPathRegistration}${
   needsDispatcher

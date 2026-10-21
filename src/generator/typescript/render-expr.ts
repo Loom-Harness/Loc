@@ -1,9 +1,11 @@
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
+import { escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -278,7 +280,9 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
     case "this-derived":
       return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
     case "helper-fn":
-      return fromOutside ? `${ctx.thisName}.${lowerFirst(e.name)}` : `this.${lowerFirst(e.name)}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}`;
     case "workflow-fn":
       // A bare (uncalled) reference to a workflow helper — the module-scoped name.
       return workflowFnCamel(e.wfScope!, e.name);
@@ -305,6 +309,10 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
 }
 
 function renderMember(recv: string, e: MemberExpr): string {
+  // `currentUser.isSystem` (ruling D1) — the slot is OPTIONAL on `User` (a
+  // request principal never carries it), so compare rather than read it bare:
+  // the expression stays a real `boolean` wherever it lands.
+  if (isPrincipalIsSystem(e)) return `(${recv}.isSystem === true)`;
   // Arrays expose collection ops without parentheses too — `lines.count`
   // should compile to `.length`.
   if (e.receiverType.kind === "array" && e.member === "count") return `${recv}.length`;
@@ -461,8 +469,8 @@ function renderCall(
     case "function":
     case "private-operation":
       return fromOutside
-        ? `${ctx.thisName}.${lowerFirst(e.name)}(${argList})`
-        : `this.${lowerFirst(e.name)}(${argList})`;
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` helper — a module-scoped function named by
       // its workflow (workflows share the generated file).  Call and def sites
@@ -567,6 +575,12 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const arg = decimalChainOperand(right, e.right) ?? right;
     return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
   }
+  // A `money?` operand (or the `null` literal) in a comparison: null-safe
+  // before the `Decimal` method dispatch below, which would render
+  // `x.eq(null)` — a decimal.js throw — or fall a nullable left to reference
+  // `===` / native `>` on a Decimal.
+  const moneyCmp = renderNullableMoneyComparison(left, right, e);
+  if (moneyCmp !== null) return moneyCmp;
   // Money operands carry through as decimal.js `Decimal` instances —
   // their JS operators don't do precise math, so dispatch through the
   // class's method API.  Other primitives use native operators.  A decimal
@@ -598,9 +612,117 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporal = renderTemporalBinary(left, right, e);
     if (temporal !== null) return temporal;
   }
+  // B-13: datetime equality.  A `datetime` is a JS `Date` on this backend, so
+  // native `===` is REFERENCE equality — `a.startOfDay() == b.startOfDay()`
+  // was `new Date(…) === new Date(…)`, always false.  Compare the instants.
+  if (e.op === "==" || e.op === "!=") {
+    const temporalEq = renderTemporalEquality(left, right, e);
+    if (temporalEq !== null) return temporalEq;
+  }
+  // VALUE equality on value objects.  A VO is a class instance here, so `===`
+  // compares REFERENCES — `berth == Berth { … }` was always false, while every
+  // other backend compares by value (python dataclass `==`, java
+  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
+  // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
+  // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
+  // same `binary ==` node.  A nullable operand keeps the native comparison
+  // (`equals` takes a non-null VO; the null test is what `===` answers).
+  if ((e.op === "==" || e.op === "!=") && isValueObjectEquality(e)) {
+    const recv = /^[\w$.]+$/.test(left) ? left : `(${left})`;
+    const eq = `${recv}.equals(${right})`;
+    return e.op === "==" ? eq : `!${eq}`;
+  }
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
   return `${left} ${opPrint} ${right}`;
+}
+
+/** `datetime ==/!= datetime` by instant (B-13), or null to fall through.
+ *  Ordering (`<`/`>`) needs no arm — `Date#valueOf` already coerces.  A side
+ *  that is the `null` literal keeps the native null check (`x == null`).  A
+ *  nullable operand compares through `?.getTime()`: both absent → equal, one
+ *  absent → unequal, both present → same instant. */
+function renderTemporalEquality(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (isNullLiteral(e.left) || isNullLiteral(e.right)) return null;
+  const lt = temporalOperand(e.leftType);
+  const rt = temporalOperand(e.rightType);
+  if (lt === null || rt === null) return null;
+  const opPrint = e.op === "==" ? "===" : "!==";
+  return `(${left})${lt}.getTime() ${opPrint} (${right})${rt}.getTime()`;
+}
+
+/** A money comparison with a nullable side, or null to fall through to the
+ *  `Decimal` method dispatch (both sides a plain `money`).
+ *  - `x == null` / `x != null` (either side the `null` literal) is a plain null
+ *    check, never `x.eq(null)` — decimal.js throws on a null argument.
+ *  - `==` / `!=` with a `money?` side compares canonical text: decimal.js
+ *    keeps no trailing zeros, so equal values print equal (`10.00` → `"10"`).
+ *    Both absent → equal, one absent → unequal, both present → same value —
+ *    the datetime arm's (B-13) null semantics.
+ *  - `<` / `<=` / `>` / `>=` with a `money?` side asserts presence (`!`) and
+ *    dispatches through the Decimal method (native `>` on a Decimal compares
+ *    `valueOf()` STRINGS — `"10" > "9"` is false); a guarded
+ *    `x == null || x > …` never reaches it absent. */
+function renderNullableMoneyComparison(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  const lt = moneyOperand(e.leftType);
+  const rt = moneyOperand(e.rightType);
+  if (e.op === "==" || e.op === "!=") {
+    const opPrint = e.op === "==" ? "===" : "!==";
+    if (isNullLiteral(e.left) || isNullLiteral(e.right)) {
+      return lt === null && rt === null ? null : `${left} ${opPrint} ${right}`;
+    }
+    if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+    return `(${left})${lt}.toString() ${opPrint} (${right})${rt}.toString()`;
+  }
+  const method = RELATIONAL_MONEY_METHOD[e.op];
+  if (method === undefined || lt === null || rt === null || (lt === "" && rt === "")) return null;
+  const present = (text: string, t: "" | "?") => (t === "?" ? `(${text})!` : text);
+  return `${present(left, lt)}.${method}(${present(right, rt)})`;
+}
+
+const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
+  "<": "lt",
+  "<=": "lte",
+  ">": "gt",
+  ">=": "gte",
+};
+
+/** `""` for a `money`, `"?"` for a `money?`, null for anything else. */
+function moneyOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "money") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
+    return "?";
+  return null;
+}
+
+/** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null
+ *  for anything else. */
+function temporalOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "datetime") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "datetime")
+    return "?";
+  return null;
+}
+
+function isNullLiteral(e: ExprIR): boolean {
+  return e.kind === "literal" && e.lit === "null";
+}
+
+/** True iff a `==` / `!=` compares two NON-null value objects — the left
+ *  operand typed as a (non-optional) value object, the right neither an
+ *  optional nor the `null` literal. */
+function isValueObjectEquality(e: Extract<ExprIR, { kind: "binary" }>): boolean {
+  if (e.leftType?.kind !== "valueobject") return false;
+  if (e.rightType?.kind === "optional") return false;
+  return !(e.right.kind === "literal" && e.right.lit === "null");
 }
 
 /** The datetime-involving `+`/`-` arms (A5 temporal), or null to fall

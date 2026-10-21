@@ -18,6 +18,7 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -103,6 +104,41 @@ export function emittableFinds(repo: RepositoryIR | undefined): FindIR[] {
   return (repo?.finds ?? []).filter((f) => f.name !== "all");
 }
 
+/** The paramless `all` find a repository declares (or the enrichment
+ *  synthesises) — the read the dedicated `all()` method serves. */
+export function allFindOf(repo: RepositoryIR | undefined): FindIR | undefined {
+  return repo?.finds.find((f) => f.name === "all" && f.params.length === 0);
+}
+
+/** The lowered `where` of a DECLARED `find all(): X[] where <pred>`, or null
+ *  when `all` carries no filter.  Refuses (throws) on a predicate the
+ *  SQLAlchemy lowering cannot express, rather than dropping it. */
+export function declaredAllFilterPredicate(
+  agg: EnrichedAggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+): PyPredicate | null {
+  const filter = allFindOf(repo)?.filter;
+  if (!filter) return null;
+  return requireLowered(
+    `find 'all' on '${agg.name}'`,
+    lowerToSqlAlchemy(filter, agg, ctx, principalOpts(filter)),
+  );
+}
+
+/** The capability-filter predicate the `all()` read conjoins — the shared one,
+ *  unless the `all` find declares an `ignoring` bypass. */
+export function allFindCapabilityFilter(
+  agg: EnrichedAggregateIR,
+  repo: RepositoryIR | undefined,
+  ctx: EnrichedBoundedContextIR,
+  filterPred: PyPredicate | null,
+): PyPredicate | null {
+  const all = allFindOf(repo);
+  if (!all || !(all.bypassAll || (all.bypassCaps?.length ?? 0) > 0)) return filterPred;
+  return contextFilterPredicate(agg, ctx, { bypassAll: all.bypassAll, bypassCaps: all.bypassCaps });
+}
+
 /** The `from app.auth.user import …` line for a repository module, or null when
  *  it references no symbol.  `User` is needed for a per-find currentUser param;
  *  `require_current_user` is the ambient accessor a principal capability filter
@@ -161,6 +197,9 @@ export function aggUsesPrincipalParamlessRead(
   ctx: EnrichedBoundedContextIR,
 ): boolean {
   return (
+    exprUsesCurrentUser(
+      allFindOf(ctx.repositories.find((r) => r.aggregateName === agg.name))?.filter,
+    ) ||
     aggregateRetrievals(agg, ctx).some((r) => exprUsesCurrentUser(r.where)) ||
     queryProjectionViews(agg, ctx).some((v) => exprUsesCurrentUser(v.filter))
   );
@@ -299,7 +338,16 @@ export function buildPyRepositoryFile(
     (f) => f.name === "all" && f.params.length === 0 && !f.filter,
   );
   const pagedAll = autoAllFind ? !!pagedReturn(autoAllFind.returnType) : false;
-  const allWhere = rootWhere(null, root, kind, filterPred);
+  // A DECLARED `find all(): X[] where <pred>` keeps its predicate: the `all`
+  // read is excluded from `emittableFinds` (it is this dedicated method), so
+  // its `where` must be AND-ed in here or the list silently returns every row
+  // (eval-closure item 2).  A failed lowering refuses (`requireLowered`), and a
+  // principal read weaves the ambient accessor in — `all()` takes no
+  // `current_user` parameter.  Its `ignoring` stance narrows the capability
+  // filter exactly as a declared find's does.
+  const allPred = declaredAllFilterPredicate(agg, repo, ctx);
+  const allFilterPred = allFindCapabilityFilter(agg, repo, ctx, filterPred);
+  const allWhere = rootWhere(allPred, root, kind, allFilterPred);
   const allSortMap = sortableFields(agg)
     .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
     .join(", ");
@@ -392,6 +440,13 @@ export function buildPyRepositoryFile(
   // Import narrowing via body scan (string literals stripped).
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
+  // A module-level FUNCTION (SQLAlchemy's `and_`/`select`/`func`, the
+  // `app.db.wire` helpers) is used only when CALLED or used as a receiver
+  // (`and_(`, `func.`).  A bare word match is not enough: a member named
+  // `and` / `or` / `not` escapes to `and_` / `or_` / `not_` (the shared python
+  // funnel, src/util/target-identifiers.ts), and `self.and_` / `and_=and_`
+  // would otherwise import an unused SQLAlchemy name (ruff F401).
+  const calls = (n: string): boolean => new RegExp(`(?<![.\\w])${n}(?=\\s*[(.])`).test(scan);
   const domainNames = [agg.name, ...agg.parts.map((p) => p.name)].filter(refersTo);
   const idNames = [
     ...new Set(
@@ -438,7 +493,7 @@ export function buildPyRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(refersTo);
+  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(calls);
 
   const hasProv = provenancedFieldsOf(agg).length > 0;
   const hasAudit = aggHasAuditedTarget(agg);
@@ -507,7 +562,7 @@ export function buildPyRepositoryFile(
     refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     hasProv ? "from app.db.provenance import ProvenanceRecord" : null,
     rowNames.length > 0 ? `from app.db.schema import ${rowNames.join(", ")}` : null,
-    wireHelperImport(refersTo),
+    wireHelperImport(calls),
     aggregateIsVersioned(agg)
       ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
       : "from app.domain.errors import AggregateNotFoundError",
@@ -690,11 +745,8 @@ export function findExecutedLine(
 function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicate | null {
   const root = rowClassName(agg.name);
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };
@@ -1420,9 +1472,19 @@ export function persistField(
   f: FieldIR,
   ctx: EnrichedBoundedContextIR,
 ): Array<[string, string]> {
+  return persistFieldValue(`${ownerExpr}.${pythonIdent(f.name)}`, f, ctx);
+}
+
+/** {@link persistField} over an arbitrary value expression `access` (the
+ *  field's current value) rather than `<owner>.<field>` — the workflow-state
+ *  row's value-object property setter writes its leaves from `value`. */
+export function persistFieldValue(
+  access: string,
+  f: FieldIR,
+  ctx: EnrichedBoundedContextIR,
+): Array<[string, string]> {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const opt = f.optional || f.type.kind === "optional";
-  const access = `${ownerExpr}.${pythonIdent(f.name)}`;
   if (t.kind === "valueobject") {
     const pairs = persistVoLeaves(access, t.name, f.name, opt ? [access] : [], ctx);
     if (pairs !== undefined) return pairs;
@@ -1528,8 +1590,17 @@ function saveMethod(
 
   // Diff-sync each contained collection (recursing into nested part-in-part
   // containments, each keyed by its DIRECT parent's id).
+  // Every level's locals share one function scope and are named by DEPTH
+  // (`child` at the root, `__c<depth>` below), so two containment edges at
+  // the same depth rebind one name across part types — a `child` rebound from
+  // `Line` to `Photo` is a mypy --strict `Incompatible types in assignment`
+  // (eval-closure item 15a).  Such a tree names each level by its containment
+  // PATH instead; a single chain keeps the historical names byte-identical.
+  const pathNames = containmentDepthCollides(agg);
   for (const c of agg.contains) {
-    out.push(...syncContainment(agg, c, ctx, aggVar, `${aggVar}.id`, "        ", 0));
+    out.push(
+      ...syncContainment(agg, c, ctx, aggVar, `${aggVar}.id`, "        ", 0, pathNames ? "" : null),
+    );
   }
   // Diff-sync each reference-collection join table.
   for (const f of agg.fields.filter(isRefCollectionField)) {
@@ -1609,15 +1680,24 @@ function syncContainment(
   ownerIdExpr: string,
   indent: string,
   depth: number,
+  /** The enclosing containment path (`""` at the root) when the aggregate has
+   *  more than one containment edge — every local this level binds is then
+   *  prefixed by it, so two sibling collections (or two same-named ones under
+   *  different parents) never rebind one name to a different part type.
+   *  `null` keeps the historical names (a single edge: byte-identical). */
+  pathPrefix: string | null = null,
 ): string[] {
   const partRow = rowClassName(c.partName);
   const part = agg.parts.find((p) => p.name === c.partName);
-  const v = snake(c.name);
+  const path =
+    pathPrefix === null ? null : pathPrefix ? `${pathPrefix}_${snake(c.name)}` : snake(c.name);
+  const v = path ?? snake(c.name);
   // Depth 0 keeps the historical `child` / `child_row` / `__<v>_items` names so
   // single-level containment output is byte-identical; nested levels uniquify.
-  const loopVar = depth === 0 ? "child" : `__c${depth}`;
-  const rowVar = depth === 0 ? "child_row" : `__c${depth}_row`;
-  const itemsVar = depth === 0 ? `__${v}_items` : `__${v}_items${depth}`;
+  const loopVar = path !== null ? `__${path}` : depth === 0 ? "child" : `__c${depth}`;
+  const rowVar = path !== null ? `__${path}_row` : depth === 0 ? "child_row" : `__c${depth}_row`;
+  const itemsVar =
+    path !== null ? `__${path}_items` : depth === 0 ? `__${v}_items` : `__${v}_items${depth}`;
   // FK column = the child's DIRECT parent (`shipment_id` for a nested Label,
   // `order_id` for a root-level Shipment) — matching the shared migration DDL.
   const fkCol = `${snake(directParentName(agg, c.partName, tableOwnerName(agg, ctx.aggregates)))}_id`;
@@ -1633,11 +1713,12 @@ function syncContainment(
     if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
     childPairs.push(...persistField(loopVar, f, ctx));
   }
-  const items = c.collection ? `${ownerExpr}.${pythonIdent(c.name)}` : itemsVar;
+  const field = pythonIdent(c.name);
+  const items = c.collection ? `${ownerExpr}.${field}` : itemsVar;
   const out: string[] = [];
   if (!c.collection) {
     out.push(
-      `${indent}${itemsVar} = [${ownerExpr}.${pythonIdent(c.name)}] if ${ownerExpr}.${pythonIdent(c.name)} is not None else []`,
+      `${indent}${itemsVar} = [${ownerExpr}.${field}] if ${ownerExpr}.${field} is not None else []`,
     );
   }
   out.push(
@@ -1664,10 +1745,37 @@ function syncContainment(
   // Recurse: each part's OWN nested containments, keyed by this child's id.
   for (const nested of part?.contains ?? []) {
     out.push(
-      ...syncContainment(agg, nested, ctx, loopVar, `${loopVar}.id`, `${indent}    `, depth + 1),
+      ...syncContainment(
+        agg,
+        nested,
+        ctx,
+        loopVar,
+        `${loopVar}.id`,
+        `${indent}    `,
+        depth + 1,
+        path,
+      ),
     );
   }
   return out;
+}
+
+/** True when two containment edges sit at the same depth of the aggregate's
+ *  containment tree — the case the depth-named save locals collide on. */
+function containmentDepthCollides(agg: EnrichedAggregateIR): boolean {
+  let level: readonly ContainmentIR[] = agg.contains;
+  const seen = new Set<string>();
+  while (level.length > 0) {
+    if (level.length > 1) return true;
+    const next: ContainmentIR[] = [];
+    for (const c of level) {
+      if (seen.has(c.partName)) continue;
+      seen.add(c.partName);
+      next.push(...(agg.parts.find((p) => p.name === c.partName)?.contains ?? []));
+    }
+    level = next;
+  }
+  return false;
 }
 
 function syncJoinTable(assoc: AssociationIR, f: FieldIR, aggVar: string): string[] {

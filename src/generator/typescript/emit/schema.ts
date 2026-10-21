@@ -12,6 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -24,7 +25,7 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
 
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -491,11 +492,8 @@ function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string>
     if (find.filter) {
       collectColumnRefs(find.filter, out);
     } else {
-      for (const p of find.params) {
-        const matched = agg.fields.find(
-          (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-        );
-        if (matched) out.add(matched.name);
+      for (const { field: matched } of implicitFindMatches(find, agg)) {
+        out.add(matched.name);
       }
     }
   }
@@ -613,7 +611,7 @@ function emitEmbeddedTable(
  *  the same way an aggregate's are.  Reuses `drizzleColumnLines`, so column
  *  types stay in lockstep with aggregate tables. */
 function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: string): string {
-  const tableName = snake(plural(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
   lines.push(`export const ${lowerFirst(plural(wf.name))} = ${factory}("${tableName}", {`);

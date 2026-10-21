@@ -8,6 +8,7 @@
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -28,6 +29,7 @@ import {
   fsNumericBinary,
   fsString,
   fsTemporalBinary,
+  fsValueEquality,
   renderFsCollectionOp,
   renderFsIntrinsic,
   storeModelField,
@@ -109,7 +111,7 @@ function isStringType(type: TypeIR | undefined): boolean {
  *  enum field then renders as text — byte-identical to before enum-select). */
 function enumsFromBc(bc: BoundedContextIR | undefined): Map<string, string[]> {
   const m = new Map<string, string[]>();
-  if (bc) for (const e of bc.enums) m.set(e.name, e.values);
+  if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
   return m;
 }
 
@@ -964,6 +966,9 @@ export const felizTarget: WalkerTarget = {
 
   // --- Markup seams — F# flavoured ---------------------------------------
   renderComment: (text: string) => `(* ${text} *)`,
+  // A comment-only body leaves `let view … =` with no expression — follow the
+  // comment with `Html.none` so the view still returns an element.
+  wrapCommentOnlyRoot: (comment: string) => `${comment}\nHtml.none`,
   // A VISIBLE degradation notice — an F# comment inside a `children` list is
   // not an expression at all, so on this target the "honest skip" was neither
   // honest (the reader saw an empty card) nor safe.  `Html.p` renders through
@@ -1246,6 +1251,9 @@ export const felizTarget: WalkerTarget = {
   // action body.
   exprDuration: (unit, amount) => FS_LEAVES.duration(unit, amount),
   exprTemporalBinary: (left, right, e) => fsTemporalBinary(left, right, e),
+  // A record's `=` is structural already; the seam only lifts an optional /
+  // plain value-object pair into one type (`alt = Some shipTo`).
+  exprValueEquality: (left, right, e) => fsValueEquality(left, right, e),
   // `5 / 2` is `2.5` in Loom's type system, but F#'s integer `/` truncates —
   // and F# has NO implicit numeric conversion where Loom widens (`int + long`,
   // `qty * price`).  The seam converts the operands; it forwards to the SAME

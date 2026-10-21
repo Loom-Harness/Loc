@@ -49,6 +49,7 @@ import { renderTelemetry } from "../telemetry-emit.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderObanConfig } from "./scheduler-emit.js";
+import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
 export function emitVanillaShellFiles(
   appName: string,
@@ -101,6 +102,9 @@ export function emitVanillaShellFiles(
    *  `Application.start/2` after the supervision tree is up.  Empty ⇒ no
    *  seeding calls. */
   seedModules: readonly string[] = [],
+  /** The port `mix phx.server` listens on in dev when PORT is unset — the
+   *  deployable's declared port. */
+  devPort = 4000,
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -189,6 +193,9 @@ export function emitVanillaShellFiles(
   // The declared-`datetime` column type — a UTC instant at MILLISECOND
   // precision (RS-38).  Every datetime field of every schema is typed as it.
   out.set(`lib/${appName}/loom_datetime.ex`, renderLoomDatetimeModule());
+  // The single value-object column type + value-object equality — every VO
+  // column is typed as it and every VO `==` calls it.
+  out.set(`lib/${appName}/loom_value_object.ex`, renderLoomValueObjectModule());
   out.set(
     `lib/${appName}_web.ex`,
     // The TEMPLATE-side gate is the ui, not the merged catalog: `pgettext/2` in
@@ -318,7 +325,7 @@ export function emitVanillaShellFiles(
       hasLiveView,
     ),
   );
-  out.set("config/dev.exs", renderVanillaDev(appName, appModule));
+  out.set("config/dev.exs", renderVanillaDev(appName, appModule, devPort));
   out.set("config/prod.exs", renderVanillaProd(appName, appModule));
   out.set("config/runtime.exs", renderVanillaRuntime(appName, appModule));
   out.set("config/test.exs", renderVanillaTest(appName, appModule));
@@ -1588,7 +1595,7 @@ import_config "#{config_env()}.exs"
 `;
 }
 
-function renderVanillaDev(appName: string, appModule: string): string {
+function renderVanillaDev(appName: string, appModule: string, devPort: number): string {
   return `import Config
 
 # Honor DATABASE_URL when set (containerized dev + e2e harnesses point
@@ -1611,9 +1618,9 @@ else
 end
 
 config :${appName}, ${appModule}Web.Endpoint,
-  # PORT env var overrides the dev default so test harnesses + parallel
-  # dev workflows can avoid port collisions without editing this file.
-  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "4000")],
+  # The dev default is the deployable's declared port; PORT overrides it so
+  # test harnesses and parallel dev workflows avoid port collisions.
+  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "${devPort}")],
   check_origin: false,
   debug_errors: true,
   secret_key_base: "ZqJBpdEaAxQpgK0d63NydhxsP2VrZLgJ6mhJrShdWf6mYLRVy6Iuc1FdN5lW9bz9"

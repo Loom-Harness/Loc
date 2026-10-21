@@ -1,10 +1,10 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
-import { installGeneratedProject } from "./support/npm-install.js";
+import { installGeneratedProjectAsync } from "./support/npm-install.js";
+import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
 // Generator build gate for the Angular frontend (angular-frontend-plan.md
@@ -16,7 +16,12 @@ import { installGeneratedProject } from "./support/npm-install.js";
 //
 // Run modes:
 //   1. `LOOM_ANGULAR_BUILD=1 npx vitest run …` (or `npm run test:angular-build`).
-//   2. Single shard — `LOOM_ANGULAR_BUILD_CASE=<name>` filters to one case.
+//   2. `LOOM_ANGULAR_BUILD_CASE=<name|name:pack>[,…]` filters to those cases —
+//      a bare name selects it on every pack.
+//
+// CI runs the selected cases in ONE job, PARALLELISM at a time
+// (support/parallel.ts), so the toolchain install happens once rather than
+// once per case.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -720,75 +725,71 @@ function readAll(dir: string): string {
 }
 
 function selectCases(): MatrixCase[] {
-  if (SHARD === undefined) return allCases;
-  const match = allCases.find((c) => c.label === SHARD || c.name === SHARD);
-  if (!match) {
+  const wanted = SHARD?.split(",").filter(Boolean);
+  if (!wanted || wanted.length === 0) return allCases;
+  const unknown = wanted.filter((w) => !allCases.some((c) => c.label === w || c.name === w));
+  if (unknown.length > 0) {
     throw new Error(
-      `LOOM_ANGULAR_BUILD_CASE="${SHARD}" did not match any case.  Available: ${allCases
+      `LOOM_ANGULAR_BUILD_CASE names no case: ${unknown.join(", ")}.  Available: ${allCases
         .map((c) => c.label)
         .join(", ")}`,
     );
   }
-  return [match];
+  return allCases.filter((c) => wanted.includes(c.label) || wanted.includes(c.name));
 }
 
 const cases = ENABLED ? selectCases() : [];
 
+const limit = limiter(PARALLELISM);
+
 describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng build)", () => {
-  it.each(cases)("$label → ng build passes", ({ source, angularDir, pack, mustEmit }) => {
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-angular-build-"));
-    try {
-      const dddPath = path.join(outDir, "_case.ddd");
-      fs.writeFileSync(dddPath, injectDesign(source, pack));
-      execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
-      const projectDir = path.join(outDir, angularDir);
-      if (!fs.existsSync(projectDir)) {
-        throw new Error(`Expected Angular project at ${projectDir}`);
-      }
-      if (mustEmit) {
-        const src = readAll(path.join(projectDir, "src"));
-        const missing = mustEmit.filter((m) => !src.includes(m));
-        if (missing.length > 0) {
-          throw new Error(
-            `The generated project no longer emits ${missing.join(", ")} — this case ` +
-              `would build green while covering nothing.  Fix the emitter, or retire the case.`,
-          );
+  it.concurrent.each(cases)(
+    "$label → ng build passes",
+    ({ source, angularDir, pack, mustEmit }) =>
+      limit(async () => {
+        const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-angular-build-"));
+        try {
+          const dddPath = path.join(outDir, "_case.ddd");
+          fs.writeFileSync(dddPath, injectDesign(source, pack));
+          await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
+            cwd: repoRoot,
+            timeout: 300_000,
+          });
+          const projectDir = path.join(outDir, angularDir);
+          if (!fs.existsSync(projectDir)) {
+            throw new Error(`Expected Angular project at ${projectDir}`);
+          }
+          if (mustEmit) {
+            const src = readAll(path.join(projectDir, "src"));
+            const missing = mustEmit.filter((m) => !src.includes(m));
+            if (missing.length > 0) {
+              throw new Error(
+                `The generated project no longer emits ${missing.join(", ")} — this case ` +
+                  `would build green while covering nothing.  Fix the emitter, or retire the case.`,
+              );
+            }
+          }
+          await installGeneratedProjectAsync(projectDir, { timeout: 240_000 });
+          // `ng build` runs the Angular compiler (strict template typecheck) +
+          // esbuild bundle in one step.  The Angular CLI enforces a hard Node
+          // floor, and failing it fails every case at once — which reads exactly
+          // like a broken diff — so the failure carries the Node version.  It
+          // deliberately does NOT hardcode the floor: the CLI's own output (in the
+          // error) states its requirement, which cannot go stale.
+          try {
+            await sh("npx ng build", { cwd: projectDir, timeout: 240_000 });
+          } catch (e) {
+            throw new Error(
+              `npx ng build failed in ${projectDir} (running node ${process.version}).\n` +
+                `If the output names a minimum Node version, that is an environment limit, ` +
+                `not a code defect — every case fails together when the floor is unmet.\n` +
+                `${(e as Error).message}`,
+            );
+          }
+        } finally {
+          fs.rmSync(outDir, { recursive: true, force: true });
         }
-      }
-      installGeneratedProject(projectDir, { timeout: 240_000 });
-      // `ng build` runs the Angular compiler (strict template typecheck) +
-      // esbuild bundle in one step.
-      //
-      // `stdio: "inherit"` is the convention across the e2e harnesses (in CI each
-      // matrix cell is its own job, so the child's output IS the job log). The
-      // cost lands locally, where this file loops over ALL 21 cells: execSync
-      // throws a bare `Command failed: npx ng build`, and the reason is somewhere
-      // up in interleaved output. Re-throw with the one piece of context that is
-      // always relevant here and never in that output at the point of failure —
-      // the Node version — because the Angular CLI enforces a hard floor and
-      // failing it fails every cell at once, which reads exactly like a broken
-      // diff. Deliberately does NOT hardcode the floor: the CLI prints its own
-      // requirement, which cannot go stale.
-      try {
-        execSync(`npx ng build`, {
-          cwd: projectDir,
-          stdio: "inherit",
-          timeout: 240_000,
-        });
-      } catch (e) {
-        throw new Error(
-          `npx ng build failed in ${projectDir} (running node ${process.version}).\n` +
-            `See the build output above for the compiler's own message. If it names a ` +
-            `minimum Node version, that is an environment limit, not a code defect — ` +
-            `every cell in this matrix fails together when the floor is unmet.\n` +
-            `Original: ${(e as Error).message}`,
-        );
-      }
-    } finally {
-      fs.rmSync(outDir, { recursive: true, force: true });
-    }
-  }, 600_000);
+      }),
+    1_800_000,
+  );
 });
