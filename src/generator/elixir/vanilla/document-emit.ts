@@ -975,9 +975,7 @@ function docOpStructBody(
     .filter((c): c is string => c != null);
   const params = usedParams
     .filter((p) => !isDecimalParam(p.type))
-    .map(
-      (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
-    );
+    .map((p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`);
   const guardClauses = [...paramGuards, ...collectOpGuardClauses(agg.name, op, rc)];
   const lastIdx = op.statements.length - 1;
   const bodyStmts = op.statements.filter(

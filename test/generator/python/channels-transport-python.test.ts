@@ -70,7 +70,7 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
     for (const dep of ["sales_api", "ship_api"]) {
       const dispatch = files.get(`${dep}/app/dispatch.py`) ?? "";
       expect(dispatch).toContain("class ChannelTeeDispatcher:");
-      expect(dispatch).toContain("return ChannelTeeDispatcher(");
+      expect(dispatch).toContain("return PostCommitDispatcher(ChannelTeeDispatcher(");
       const main = files.get(`${dep}/app/main.py`) ?? "";
       expect(main).toContain("init_channel_transports()");
       expect(main).toContain("await close_channel_transports()");

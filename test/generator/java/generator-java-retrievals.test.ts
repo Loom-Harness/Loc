@@ -186,10 +186,13 @@ describe("java generator — workflow Repo.run + for loop", () => {
     expect(wf).toContain("        var top = customersRepository.runByRegion(rgn, 1, 5);");
   });
 
-  it("workflow-level emit constructs the event record (declared field order) and logs it", async () => {
+  it("workflow-level emit constructs the event record (declared field order), logs and PUBLISHES it after the saves", async () => {
     const wf = (await files()).get(`${ROOT}/application/workflows/CrmWorkflows.java`)!;
+    // M-T4.3 item 6: collected, then published once the saves ran — inside the
+    // service's @Transactional, so the AFTER_COMMIT reactors see it post-commit.
+    expect(wf).toContain("__events.add(new RegionDeactivated(rgn, Instant.now()));");
     expect(wf).toContain(
-      '{ var __ev = new RegionDeactivated(rgn, Instant.now()); CatalogLog.event("event_dispatched", "info", "event_type", __ev.getClass().getSimpleName()); }',
+      '                CatalogLog.event("event_dispatched", "info", "event_type", __ev.getClass().getSimpleName());\n                eventPublisher.publishEvent(__ev);',
     );
     expect(wf).toContain("import com.loom.crmapi.config.CatalogLog;");
     expect(wf).toContain("import com.loom.crmapi.domain.events.*;");

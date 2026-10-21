@@ -52,7 +52,7 @@ import type {
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -140,7 +140,7 @@ function pyDomainImportLines(signatureText: string, ctx: EnrichedBoundedContextI
     .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
     .sort();
   const voEnumNames = [
-    ...new Set([...ctx.enums.map((e) => e.name), ...valueObjectPool(ctx).map((v) => v.name)]),
+    ...new Set([...enumPool(ctx).map((e) => e.name), ...valueObjectPool(ctx).map((v) => v.name)]),
   ]
     .filter(refersTo)
     .sort();
@@ -358,7 +358,7 @@ function renderPagedRunHandlerModule(
     .map((a) => `${a.name}Id`)
     .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
     .sort();
-  const enumNames = ctx.enums
+  const enumNames = enumPool(ctx)
     .map((e) => e.name)
     .filter(refersTo)
     .sort();
@@ -529,7 +529,7 @@ function renderHandlerModule(
     .map((a) => `${a.name}Id`)
     .filter((n, i, arr) => refersTo(n) && arr.indexOf(n) === i)
     .sort();
-  const enumNames = ctx.enums
+  const enumNames = enumPool(ctx)
     .map((e) => e.name)
     .filter(refersTo)
     .sort();

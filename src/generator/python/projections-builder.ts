@@ -1,5 +1,6 @@
 import type { EnrichedBoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst } from "../../util/naming.js";
@@ -44,7 +45,7 @@ export function buildPyProjectionsFile(ctx: EnrichedBoundedContextIR): string | 
   // app.db.schema has no attribute OpenOrdersRow".  Any context declaring one of
   // each kind failed to compile on python; no fixture had that combination.
   const projRows = folded.map((p) => `${p.name}Row`).sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
 
