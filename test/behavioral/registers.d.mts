@@ -18,6 +18,9 @@ export function mountsFileRoutes(src: string): boolean;
 /** Per-backend-clause map of case name → the reason it is skipped. */
 export const BEHAVIOURAL_SKIP: Readonly<Record<string, Readonly<Record<string, string>>>>;
 
+/** Per-adapter-clause map of corpus case → reason it is armed beyond the manifest's backend set. */
+export const ADAPTER_ONLY_CASES: Readonly<Record<string, Readonly<Record<string, string>>>>;
+
 /** The shared `systems/*.ddd` case names, derived from the directory. */
 export function sharedSystemGoldenCases(): string[];
 

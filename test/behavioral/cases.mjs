@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 // The pure registers live in a dependency-free module so the fast suite can
 // read them without test/behavioral/node_modules (see registers.mjs).
-import { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
+import { ADAPTER_ONLY_CASES, BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
 
 export { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes };
 
@@ -84,8 +84,10 @@ export async function loadCorpusFeatures(workDir) {
 export async function featureCases(backendKey, platformClause, workDir) {
   const cases = [];
   const skip = BEHAVIOURAL_SKIP[platformClause] ?? {};
+  // Armed on this ADAPTER's leg beyond the manifest's backend set (registers.mjs).
+  const armed = ADAPTER_ONLY_CASES[platformClause] ?? {};
   for (const f of await loadCorpusFeatures(workDir)) {
-    if (!f.backends.includes(backendKey)) continue;
+    if (!f.backends.includes(backendKey) && !(f.id in armed)) continue;
     if (f.id in skip) continue; // known runtime gap on this backend — see the bug register
     const raw = readFileSync(join(CORPUS_DIR, `${f.id}.ddd`), "utf8");
     if (!hasBehaviouralBlock(raw)) continue;

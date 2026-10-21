@@ -118,12 +118,12 @@ gets attributed to a later, innocent commit.
 | **Nightly / label** (unchanged) | `conformance-full`, `generated-a11y`, `frontend-fullstack-e2e`, `k8s-e2e` | Broad, slow, low churn — post-hoc is fine. |
 
 Note: `generated-react-build`, `generated-vue-build` and
-`generated-angular-build` each emit a **slim** matrix on PRs and the **full**
-Cartesian everywhere else. Their `configure` job keys on
-`github.event_name == 'pull_request'`, so `merge_group` (like
-`workflow_dispatch`) falls through to the full sweep — the per-PR/pre-land
-split the tiers call for is already built in, and the queue gets the full
-Cartesian on the rebased candidate.
+`generated-angular-build` run a **slice** on PRs and in the merge queue, and
+the **full** example × pack Cartesian nightly on `main` (and on
+`workflow_dispatch`). The queue exists to catch two PRs green apart and red
+together; per-example or per-pack drift from an unrelated PR is rare and
+cheap to fix the next morning, and the full React sweep alone was ~50
+runner-minutes of every queue entry.
 
 The playground suite is split the same way. `playground-e2e` (the whole
 Playwright suite, including the network-gated bundle/boot specs) stays
