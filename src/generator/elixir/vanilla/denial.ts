@@ -405,6 +405,18 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
   return `${problemModule}.validation_errors_response(conn, errors)`;
 }
 
+/** The WIRE-VALIDATION 422 for a workflow request that omits a param its body
+ *  reads (L1-E / E7, #3017).  Node's request validator answers this with the
+ *  §3.2 `errors[]` extension — one `{pointer, message}` entry per missing
+ *  field, title "Validation failed" — and so does every other backend; elixir
+ *  answered the DOMAIN-FLOOR rung with the names folded into `detail`, so a
+ *  frontend ACL's `applyServerErrors` bound nothing.  The entries carry no
+ *  `code` (a structural error, like zod's), and go through the same
+ *  `validation_errors_response/2` sender the wire-rung precondition uses. */
+function missingParamsResponse(problemModule = "ProblemDetails"): string {
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))`;
+}
+
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,
  *  as `<head>` / `<body>` pairs so each call site can wrap them in its own
  *  `def respond(conn, …)` / `def <op>_<agg>_result(conn, …)` shape.
@@ -477,6 +489,17 @@ export function respondErrorTail(
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
    *  the term carries no arm for it. */
   notFoundDetail = false,
+  /** True when some aggregate this dispatcher can reach is `versioned` or
+   *  event-sourced (`aggregatesNeedConcurrency`) — the same predicate that
+   *  emits `ProblemDetails.conflict_response/1`.  A stale save inside a
+   *  workflow / handler body (`persist_change/1` / the document `update` rescue
+   *  `Ecto.StaleEntryError`, the event-log append rescues the
+   *  `(stream_id, version)` unique_violation, all to `{:error, :conflict}`)
+   *  rolls the transaction back and threads that term here; without the arm it
+   *  fell to the sanitized 500 catch-all where the single-aggregate route and
+   *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
+   *  project without concurrency never references a responder it didn't emit. */
+  conflict = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -497,11 +520,7 @@ export function respondErrorTail(
       ? [
           clause(
             `def ${fnName}(conn, {:error, {:invalid_params, missing}})`,
-            denialResponse(
-              "precondition",
-              '"missing required parameter(s): " <> Enum.join(missing, ", ")',
-              overrides,
-            ),
+            missingParamsResponse(),
           ),
         ]
       : []),
@@ -510,6 +529,14 @@ export function respondErrorTail(
           clause(
             `def ${fnName}(conn, {:error, {:validation_failed, errors}})`,
             wireValidationResponse(),
+          ),
+        ]
+      : []),
+    ...(conflict
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, :conflict})`,
+            "ProblemDetails.conflict_response(conn)",
           ),
         ]
       : []),

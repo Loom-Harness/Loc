@@ -175,14 +175,6 @@ Claimed by the #2861 author; #2874 and #2877 both defer to this mission by name.
 - **5. The scaffold list filter bar reads retrievals** (eval-closure item **#45**, eshop D7a). `filterFindsForAggregate` (`src/macros/stdlib/scaffold/_body-builders.ts:1190`) iterates `m.finds` only, so a `find bySku(sku)` gets a filter bar and a parameterised `criterion` + `retrieval` gets none. There is no endpoint to bind a bar to until slice 2 lands; after it, scan parameterised retrievals too. Pin with a `scaffold-body-builders` case. (The index-hint half of D7 is already fixed.) **S**
 - **6. Accept a retrieval run inside a paged `queryHandler`** (eval-closure item **#7** follow-up; Clinica F-009). A routed paged `queryHandler` whose body is `let r = Repo.run(<Retrieval>(args)); return r` crashed `generate system` on all five backends with `internal: … Please file a bug.`; eval-closure agent A5 (#3084) turns that into an honest refusal. Supporting the shape is this slice: once a retrieval has a route (slice 2), the handler can reuse its paging and delete the refusal. **M**
 
-**Slice added 2026-10-12 (helpdesk evaluation, finding A5; fleet slice H8, claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259)). It also waits on slice 2:**
-
-- **7. Server-side list filtering is spelled as a routed retrieval, not as an ad-hoc `?field=` query language.** The helpdesk's agents wanted `GET /tickets?status=Open&sort=priority`. Re-verified on `main` @ `801e0f2b`, the synthesised list route already takes `page`, `pageSize`, `sort` (a `z.enum` of the sortable columns) and `dir`. Any other query parameter is **silently stripped** by the zod object, so `?status=Open` returns the unfiltered page and nothing says why. (The helpdesk also lost paging and sort entirely once it declared `find all() requires …`. That is finding A4, fleet slice H4, which keeps D-ENVELOPE's `Paged<T>`.)
-  - **The Loom-shaped answer** is the route this mission builds. `criterion ByStatus(s: TicketStatus) of Ticket = status == s` plus `retrieval TicketsByStatus(s: TicketStatus) of Ticket = ByStatus(s)` becomes `GET /tickets/by_status?s=Open&page=…&sort=…` on all five backends, typed from the retrieval's params (an enum param validates as the enum). The scaffold's filter bar binds it (slice 5). That keeps every query a named, validated, gateable declaration, never a client-composed predicate.
-  - **The honest-gap half: an unknown list query parameter answers 400** with a problem detail naming the parameter and the accepted set, instead of being dropped. That means `.strict()` on node's query schema and the equivalent on the other four backends (.NET `[FromQuery]` binding with an unknown-key check, java `@RequestParam` map check, a FastAPI `extra="forbid"` query model, an elixir `Map.drop` diff). It is a wire-behaviour change, so take the owner's call on whether it ships behind a release note. **S** for the 400, the rest rides slice 2.
-
-  Verification: a five-backend case asserting `?status=` → 400 naming `status` (or, if the owner declines the strict half, a `docs/` note that list routes ignore unknown params); the retrieval-route behavioral case from slice 2 run with an enum param.
-
 ## M-T5.32 — A declared `create`'s parameter list is not the request contract, and `loom.create-params-not-wire` only says so — `open` (unblocked: [#2882](https://github.com/Loom-Harness/Loc/pull/2882) merged `1f25ff0c`; verified 2026-09-29, wave L0) · **M** · P1
 
 The honest gate shipped in #2861 slice 4. It is a diagnostic standing in for a missing capability, so it is not a terminal state: this mission is what deletes it.
@@ -194,16 +186,6 @@ Today `POST /<plural>` always takes the **field-derived** create input. A narrow
 **Why it was blocked (now cleared).** Narrowing the input widens an existing bug: a `managed`/`internal` field's declared default is currently discarded by the create input and replaced with the type's zero value (`tier: int managed = 7` arrives as `0`), which #2882 is fixing. Narrowing first would make every field dropped from the input silently zero rather than defaulted. Land #2882, then this.
 
 **Verification when it lands.** A create-with-narrowed-params case per backend asserting the emitted wire schema has exactly the declared fields; a defaulted `managed` field asserted to arrive at its declared value, not the zero value; and `loom.create-params-not-wire` deleted in the same PR, with its `FIRING_FIXTURES` entry and docs anchor removed (`test/system/diagnostic-firing-census.test.ts` fails on an orphan, which is the ratchet that keeps this mission honest).
-
-**Helpdesk evidence, appended 2026-10-12 (finding S5; fleet slice H8, claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259)). In flight as open PR [#3255](https://github.com/Loom-Harness/Loc/pull/3255): check it before building.** The same root cause blocks the create **guard**. Re-verified on `main` @ `801e0f2b`:
-
-```ddd
-aggregate Ticket { customer: Customer id  subject: string
-  create(customer: Customer id, subject: string) { requires currentUser.customerId == customer }
-}
-```
-
-This is refused with `loom.lifecycle-guard-unreadable`: *"the `create` guard reads `customer`, which the gate cannot see. A `create` guard may read `currentUser` only — there is no instance until the factory runs, and the emitted POST takes the field-derived create input, not the declared parameter list."* The rationale's second clause is exactly this mission's gap. Once the declared parameter list *is* the POST contract, the params are bound before the factory runs, so a create guard can read them as an ordinary pre-body 403, like a workflow `create` guard. Add to this mission's done criteria: the `#create` arm of `loom.lifecycle-guard-unreadable` (`src/diagnostics/messages.ts:284`) admits parameter refs (it still refuses `this`), and the five backends render the guard after binding and before the factory. Today the helpdesk works around it with a workflow plus a redundant param. The other two S5 items (an unconditional stamp, and `requires x != null` not narrowing) are [M-T3.26](T3-security-governance.md#m-t326).
 
 ## M-T5.33 — A page-body lambda parameter has no type, so every member off it resolves as `string` — `partial` (#3050 landed the `of:`-form half) · **M** · P1
 
@@ -430,57 +412,3 @@ Slices:
 Coordinates with #3125 (let census, the measuring instrument) and #3133 (fail-closed owns the `unknown` refusal policy).
 
 Design: [`M-T5.47-single-typing-pass-design.md`](missions/M-T5.47-single-typing-pass-design.md). Claim: [#3148](https://github.com/Loom-Harness/Loc/pull/3148).
-
-## M-T5.49 — A `derived` field cannot appear in a query, even when its expression is queryable — `open` · **M** · P2
-
-*Minted 2026-10-12 by fleet slice H8 of the helpdesk evaluation (claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259); finding **E2**), re-verified on `main` @ `801e0f2b`. (M-T5.48 is taken by open PR [#3140](https://github.com/Loom-Harness/Loc/pull/3140).)*
-
-```ddd
-aggregate Ticket { createdAt: datetime  hrs: int  derived dueAt: datetime = createdAt + hours(hrs) }
-criterion Overdue(at: datetime) of Ticket = dueAt < at
-retrieval OverdueTickets(at: datetime) of Ticket = Overdue(at)
-```
-
-→ `loom.retrieval-where-not-queryable: … where-clause is not queryable (ref to 'dueAt' (this-derived))`. The helpdesk had to turn its SLA deadline into a stored column, stamp it `onCreate`, and recompute it by hand in two operations. That is the denormalized-cache shape the "derive, don't stamp" rule warns against, and the compiler forced it.
-
-**The fix: inline, don't store.** A `this-derived` reference is queryable exactly when the derived expression is queryable after substitution, checked recursively and cycle-safe (derived-of-derived). `firstNonQueryableNode` (`src/ir/validate/checks/shared.ts:390`) gains that arm. Lowering of `criterion` / `retrieval` / `find … where` / `filter` predicates substitutes the derived body for the reference, the way named policies and criteria are already inlined. The five query renderers then see only column refs and need no change. Keep the origin span of the reference, so a diagnostic about the inlined expression still points at the author's `dueAt`.
-
-```ts
-// node, drizzle — OverdueTickets(at)
-.where(lt(sql`${tickets.createdAt} + make_interval(hours => ${tickets.hrs})`, at))
-```
-
-**Slices.**
-1. Derived bodies built only from the operators and intrinsics already in the queryable subset (comparisons, arithmetic, `startsWith`, the `pg-intrinsics.ts` table). Pure IR work, byte-identical for every model that does not reference a derived field in a query.
-2. `datetime ± duration` in a query. The helpdesk's actual case needs an interval in each dialect: drizzle `make_interval`, EF `AddHours` (LINQ-translatable), Ecto `datetime_add/3`, SQLAlchemy `func.make_interval`. JPQL/JPA Criteria has no portable interval arithmetic, so java either renders a native `function('make_interval', …)` or keeps an honest per-backend refusal. Decide at slice time; never leave it silent. Overlaps M-T5.5's storable `duration` row.
-3. Optionally, a derived field in `sort:` and in the scaffold's sortable columns (finding U2's list half).
-
-**Verification.** An IR test that the lowered predicate carries no `this-derived` ref; a corpus fixture with a queryable derived field in a retrieval, compiled on all five tiers; a behavioral case booted against Postgres that returns exactly the overdue rows. Mutation-prove by restoring the old refusal arm and watching the fixture refuse.
-
-Relates to M-T5.4 (criterion and retrieval tails), M-T5.31 (retrieval routes), and M-T2.20 (`find byNumber` over a derived display number).
-
-## M-T5.50 — `.contains` on a value collection (`tags: string[]`) is not queryable, though the column is a Postgres array — `open` · **M** · P3
-
-*Minted 2026-10-12 by fleet slice H8 of the helpdesk evaluation (claim [#3259](https://github.com/Loom-Harness/Loc/pull/3259); finding **E7**), re-verified on `main` @ `801e0f2b`.*
-
-```ddd
-aggregate Ticket { tags: string[] }
-criterion Tagged(tag: string) of Ticket = tags.contains(tag)
-```
-
-→ `loom.retrieval-where-not-queryable: … (collection op '.contains')`. Only `X id[]` reference collections get a queryable `.contains`, through their join table. A scalar value collection is stored as a column on node (`tags: text("tags").array().notNull()`), and the natural query is `$1 = ANY(tags)`, which a GIN index can serve.
-
-**The fix.** Admit `<valueCollectionField>.contains(<scalar>)` in the queryable subset when the collection is stored as a native array. Render it on every SQL path:
-
-| Backend | Rendering |
-|---|---|
-| drizzle | ``sql`${p} = ANY(${col})` `` |
-| EF Core (Npgsql) | `col.Contains(p)` (translated to `= ANY`) |
-| Dapper | `@p = ANY(col)` |
-| JPA Criteria / JPQL | `function('array_contains', col, :p)`, or `array_position(col, :p) IS NOT NULL` through a registered function |
-| SQLAlchemy | `col.any(p)` |
-| Ecto | `fragment("? = ANY(?)", ^p, field(t, :tags))` |
-
-**First step: verify the storage on each backend.** If any backend stores a value collection in a child table instead (elixir `{:array, …}` versus a `has_many`; a `shape: document` JSONB body), that backend renders `EXISTS (SELECT 1 FROM … WHERE value = $1)` or `col @> to_jsonb(…)`, or else refuses with a backend-named `loom.*` code. Do not admit the shape until every backend either renders it or refuses it. `M-T2.8` (auto-derived finder indexes) could add the GIN index when a criterion uses the shape.
-
-**Verification.** A corpus fixture (`tags.contains(param)` in a retrieval) compiled on all five tiers, plus a behavioral case returning exactly the tagged rows, including a tag containing a comma or a quote (values are data, not SQL). Mutation-prove by swapping in a `LIKE '%…%'` lowering and watching the comma case fail.

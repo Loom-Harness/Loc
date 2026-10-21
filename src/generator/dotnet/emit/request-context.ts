@@ -90,8 +90,11 @@ export function renderRequestContext(
     hasAuth && actorIdProp
       ? `
     /// <summary>The bound principal's id (audit / provenance "who computed"),
-    /// or null before authentication has run.</summary>
-    public string? ActorId => CurrentUser?.${actorIdProp}.ToString();
+    /// or null before authentication has run.  A reactor frame's system
+    /// principal answers its originating user (<c>CausedBy</c>, ruling D1).</summary>
+    public string? ActorId => CurrentUser is { IsSystem: true } system
+        ? system.CausedBy
+        : CurrentUser?.${actorIdProp}.ToString();
 `
       : `
     /// <summary>No principal slice on this carrier (no auth), so there is no

@@ -529,8 +529,10 @@ interface OneEmitParts {
    *  the `__loom_outbox` INSERT, so it MUST run inside the persist transaction:
    *  "row saved" and "event owed" commit or roll back as one. */
   dispatch: string[];
-  /** `Phoenix.PubSub.broadcast(...)` — the SSE / LiveView wire.  MUST run AFTER
-   *  the transaction commits.  Inside it, a commit failure still rolls the write
+  /** `<App>.PostCommit.broadcast(...)` — the SSE / LiveView wire.  MUST run AFTER
+   *  the transaction commits — the op's own persist transaction here, and the
+   *  enclosing transactional workflow's, which `PostCommit` waits for when one
+   *  is open (M-T4.3 item 6).  Inside it, a commit failure still rolls the write
    *  back, but the broadcast has already left: a subscriber observes an event
    *  whose write never happened, and there is no compensating "unsend". */
   broadcast: string[];
@@ -572,9 +574,7 @@ function emitParts(
     out.push({
       bind: [`${indents.bind}${evVar} = ${struct}`, `${indents.bind}${logCall}`],
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],
-      broadcast: [
-        `${indents.broadcast}Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${evVar})`,
-      ],
+      broadcast: [`${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`],
       origin: s.origin,
     });
     i++;
@@ -1328,7 +1328,7 @@ export function renderReturningStmt(
         { name: "event_type", valueExpr: `"${upperFirst(s.eventName)}"` },
         ...(rc.agg ? [{ name: "aggregate", valueExpr: `"${upperFirst(rc.agg.name)}"` }] : []),
       ]);
-      return `    ${logCall}\n    Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`;
+      return `    ${logCall}\n    ${appModule}.PostCommit.broadcast(${struct})`;
     }
     case "expression":
       return `    _ = ${renderExpr(s.expr, rc)}`;

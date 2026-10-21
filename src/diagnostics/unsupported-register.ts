@@ -771,7 +771,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "hours(slaHours())`) on a document-shaped aggregate hosted by elixir: that path merges " +
       "stamps into the request attrs before any record exists, so there is nothing to read.  " +
       "Every other backend and the relational elixir path evaluate it against the instance.",
-    mission: "M-T6.99",
+    mission: "#3840",
     verified: true,
   },
   {

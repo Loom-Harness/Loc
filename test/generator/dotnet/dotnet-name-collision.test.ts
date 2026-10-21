@@ -160,7 +160,7 @@ describe("loom.dotnet-name-collision", () => {
     expect(diags[0]).toContain("declares containment 'comment'");
   });
 
-  it("refuses a member shadowing an id class, an enum and an event", async () => {
+  it("refuses a member shadowing an id class and an enum", async () => {
     const diags = await collisions(
       system(
         `
@@ -173,12 +173,41 @@ describe("loom.dotnet-name-collision", () => {
          event IssueOpened { at: datetime }`,
       ),
     );
-    // `IssueId` (Api.Domain.Ids), `Severity` (…Enums) and `IssueOpened`
-    // (…Events) are all reachable by simple name from the aggregate class.
-    expect(diags).toHaveLength(3);
+    // `IssueId` (Api.Domain.Ids) and `Severity` (…Enums) are referenced in
+    // EXPRESSION position (`IssueId.New()`, `Severity.Low`).  An event is only
+    // ever named in TYPE position (`new IssueOpened(…)`), so `issueOpened()`
+    // compiles and is not refused (M-T6.69).
+    expect(diags).toHaveLength(2);
     expect(diags.join("\n")).toContain("'IssueId'");
     expect(diags.join("\n")).toContain("'Severity'");
-    expect(diags.join("\n")).toContain("'IssueOpened'");
+    expect(diags.join("\n")).not.toContain("'IssueOpened'");
+  });
+
+  // M-T6.69 — the independent completeness audit's F1 / the deep fuzz leg's
+  // seeds 45, 70, 115: a value object is only ever named in TYPE position by
+  // the emitted aggregate class (`public Amount Price`, `new Amount(…)`), so a
+  // member called `Amount` does not hide it.  Compiled clean under
+  // `dotnet build /warnaserror` (see name-collision-neighbours.ddd).
+  it("accepts a field, a function and an operation named after a value object or an event", async () => {
+    const diags = await collisions(
+      system(
+        `
+        amount: decimal
+        price: Amount
+        filed: string
+        function scale(): int = price.scale
+        operation total(s: int) {
+          price := Amount { scale: s }
+          emit Filed { amount: amount }
+        }`,
+        "dotnet",
+        `valueobject Amount { scale: int }
+         valueobject Total { n: int }
+         valueobject Scale { n: int }
+         event Filed { amount: decimal }`,
+      ),
+    );
+    expect(diags).toEqual([]);
   });
 
   it("reports one diagnostic per name, not one per hosting deployable", async () => {
