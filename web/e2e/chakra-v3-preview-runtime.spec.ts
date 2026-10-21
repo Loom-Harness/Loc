@@ -70,9 +70,7 @@ test("chakra@v3 preview boots without runtime errors", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
 
-  // Pick the pinned chakra@v3 storybook.  The bareword Chakra entry
-  // still maps to chakra@v2 until `BUILTIN_PACK_LATEST.chakra` flips
-  // in a follow-up promote PR.
+  // Pick the pinned chakra@v3 storybook.
   await page.getByTestId("workspace-new").click();
   await page.getByRole("textbox", { name: /Choose example/i }).click();
   await page.getByRole("option", { name: /Chakra v3 · aggregate-CRUD storybook/ }).click();

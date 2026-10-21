@@ -196,7 +196,7 @@ function readPackDir(packDir: string): PackRead {
     manifest.version !== builtinSegments[1]
   ) {
     throw new Error(
-      `loader: pack at ${packDir} has version="${manifest.version}" but lives under directory "${builtinSegments[1]}".  The two must match (e.g. designs/mantine/v7/pack.json must declare "version": "v7").`,
+      `loader: pack at ${packDir} has version="${manifest.version}" but lives under directory "${builtinSegments[1]}".  The two must match (e.g. designs/mantine/v9/pack.json must declare "version": "v9").`,
     );
   }
   for (const [logicalName, fileName] of Object.entries(manifest.emits)) {

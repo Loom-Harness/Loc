@@ -420,17 +420,16 @@ Nothing knows *when* one is due.
 **Measured.** `npm audit` → **11 advisories, 4 high** (`fast-uri`, `ip-address`, `nanoid`,
 `postcss`) — all transitive dev-tree, so no user is exposed today. No `dependabot.yml`, no
 Renovate config, and no `npm audit` / OSV / Trivy / CodeQL step in any of the 67 workflows. On
-the generated-app surface the hand-maintained pins have drifted apart: `stacks/v1` still emits
-**React 18.3 + zod 3.23** where `stacks/v3` emits React 19.2 + zod 4, and four shipping design
-packs — `chakra/v2`, `mantine/v7`, `mui/v5`, `shadcn/v3` — resolve to `v1`, so choosing one of
-them silently produces a two-major-old React app.
+the generated-app surface the hand-maintained pins drifted apart: `stacks/v1` emitted
+**React 18.3 + zod 3.23** where `stacks/v3` emits React 19.2 + zod 4. That instance is closed —
+`stacks/v1` and its four packs (`chakra@v2`, `mantine@v7`, `mui@v5`, `shadcn@v3`) were retired,
+and a pin to one is now `loom.design-pack-retired` — but nothing stops the next stack drifting.
 
 **Two halves, one per surface.** *Toolchain:* a Dependabot (or Renovate) config plus
 `npm audit --audit-level=high` as a failing step, with an explicit, **expiry-dated** waiver file
 for accepted dev-tree advisories (an undated waiver is the stale-row failure this repo already
 ratchets against). *Generated apps:* a freshness ratchet over `stacks/*/stack.json` and the
-backend-package pins that fails when a pinned major falls more than one behind latest — which
-would fire immediately on `stacks/v1` and name the four packs still on it.
+backend-package pins that fails when a pinned major falls more than one behind latest.
 
 Relates to [M-T9.5](#m-t95) (version-axis consolidation — the React `stacks/` fork this would
 put a clock on) and to the `dependency-upgrade` skill, which this feeds.
@@ -766,7 +765,47 @@ Owner of the `PINNED_HONO` (32 files / 58 call sites) and `PINNED_DOTNET` (38 fi
 
 **The drain:** move each file to `generateSystemFiles` — the path the CLI ships, and the only one that can host a capability (see the ratchet's header: the legacy path emits from loose contexts and so has no backend deployable) — deleting its pin in the same commit; the per-file counts are pinned exactly.
 
+## M-T9.77 — Paged `queryHandler` body shape crashes generate on all five backends — `open` · **S** · P1
 
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+Any `queryHandler H(…): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r`, e.g. `return Orders.run(InRegion(rgn))`, reaches `pagedRunStmt` (.NET / Java / Python / Elixir) or `emitPagedRunHandler` (node) and throws. **#3084 already adds the refusal** (`loom.paged-query-handler-shape`). When it merges, re-classify the five census entries `guardedBy: ["loom.paged-query-handler-shape"]` and close this mission.
+
+## M-T9.78 — An event-sourced workflow with no id-typed correlation field crashes .NET / Java / Elixir — `open` · **S** · P1
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+`workflow Tracker eventSourced { create(c: string) { emit … } apply(…) { … } }`: a command-only create, no `on`, no id-typed state field. `loom.workflow-correlation-required` returns early when there are no event consumers, so nothing refuses it. **node and python generate it**; .NET (`esCorrIdClass`), Java (`esWorkflowCorrIdClass`) and Elixir (a raw `TypeError … reading 'replace'`, not a census throw site) crash. Parity gap: port the node/python shape, or refuse target-neutrally if the instance-id stream key is not meant to exist.
+
+## M-T9.79 — Statement vocabulary of event-sourced and workflow bodies — `open` · **M** · P1
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+The Elixir `if` gate (`if-stmt-checks.ts`) and the applier-discipline checks cover aggregate operations, functions and `apply` blocks. They miss an event-sourced `create` body (an `if` crashes Elixir's `renderCommandRunner`), a workflow `function` (`if` with an early `return` crashes `renderFunctionBodyLines`), an aggregate `apply` with `return` (Elixir `renderFoldStatement`), a workflow `apply` with `let` / `if` (Python and node `renderApplierStmt`), a workflow `apply` constructing a same-context part (Elixir `renderFoldNewMap`), and a reactor `on(…)` body with `Repo.delete` (Elixir `dispatch-emit` `renderStmt`). The fix that closes the class: declare each body position's statement vocabulary per backend once, the way `UNIT_TEST_STMT_KINDS` does for test tiers, and add a position × backend × kind census like `test/system/test-statement-census.test.ts`.
+
+## M-T9.80 — Resource operations in positions with no resource mapping — `open` · **S** · P2
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+A resource op where the emitter has no resource class: in a workflow `function` (.NET `renderCall`), a projection fold assignment (Java `renderCall`), or a raw verb on a `kind: api` resource bound to an in-system api (Elixir `renderCall`). Each passes `loom.resource-op-outside-workflow` / `loom.projection-fold-impure`.
+
+## M-T9.81 — Frontend page- and store-action vocabulary (Feliz / Flutter, plus the shared JS walker) — `open` · **M** · P1
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+Eleven sites on the two self-hosting frontends: a page-action method outside F#'s small set (`reverse`, `indexOf`, …), an effect-free block lambda, `this` / an action-ref as a value, `toast(…)` (exempted as a builtin by `loom.unresolved-action-ref`, but Feliz renders only `navigate`), a nested `match await`, store action bodies never scanned (`foo()` / `match await`), and four Feliz find-read shapes (list param, non-aggregate return, unchecked arity, a row binding as the argument). Also: a union-typed payload field crashes both frontends' `wireTypeInfo` even when no page touches it. The shared JS walker (React / Vue / Svelte / Angular) has two more: `this` in a page or component body (`Text { this.name }`, `walker-core.ts` `emitExpr`), and a page action assigning to a name that is not a declared state field (`action bump() { other := 1 }`, `unsupportedPageStmt`). Only `if` / `precondition` / `requires` are gated.
+
+## M-T9.82 — Generate-crash residue — `open` · **M** · P2
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+One-off crashes with no shared root: JPA's optional / entity-part reference collection (`Tag id[]?`) and VO-array projection state; Java `group by` on a `json` column; a Java part builder-call inside an aggregate test; a folded projection with no `keyed by` whose handlers use `on(e) by …` (shared `migrations-builder.ts` `TypeError`, so every backend); MikroORM's VO-in-VO collection column; MikroORM `filter this.refs.contains(<id>)`; node's zod row for a `duration` select; HEEx `match await` on an aggregate this deployable doesn't serve; and HEEx store-action / component `handle_event` name collisions. Found while compile-checking #3133 (a COMPILE failure, not a throw site): a query-time projection named `Count` emits `OrderJpaRepository.count()`, which clashes with Spring Data's `CrudRepository.count()` (`javac: count() in OrderJpaRepository clashes with count() in CrudRepository`). `ddd parse` is clean. Add the inherited `CrudRepository` / `JpaRepository` method names to the Java reserved-surface check, or rename the emitted method.
+
+## M-T9.83 — A misconfigured custom design pack crashes generate with no diagnostic — `open` · **S** · P2
+
+*Minted 2026-10-04 by the fail-closed sweep (#3133), from `test/system/generator-throw-census.test.ts`. Each site below has a `.ddd` that `ddd parse` reports as `0 error(s)` and `ddd generate system` then crashes on; the per-site register with every repro is [`missions/M-T9.77-fail-closed-register.md`](missions/M-T9.77-fail-closed-register.md). Each site is a `deferred` entry in `generator-throw-census.manifest.ts` and expires 2027-01-31. **The fix closes the census entry:** add the `loom.*` refusal (and re-classify the site `guardedBy`) or make the emitter render the shape (and delete the throw).*
+
+`design: "<path>"` on a deployable is accepted with only the `loom.design-pack-custom-unchecked` warning, and every way the pack can be malformed then crashes generate with a descriptive but uncoded `Error`. The cases: no `pack.json`, no `emits`, an `emits` entry naming a missing `.hbs`, an unknown `stack`, a required primitive missing, an empty / `<`-carrying / brace-unbalanced chrome message, an undeclared chrome role used by a template, an ICU hole passed by a HEEx pack template, and a `shellFiles` key not in `emits` (`_packs/loader-fs.ts`, `loader.ts`, `pack-chrome.ts`, `shell-emits.ts`). Load and check the pack in phase ⑦ and raise a `loom.design-pack-invalid` error naming the defect. **Side bug, same mission:** a relative `design:` path resolves against the process working directory, not the `.ddd` file's directory (`resolvePackDir` is called without `referenceDir`, e.g. `react/index.ts:168`).
 
 ## M-T9.84 — Imports derived from use: the shared `ref(sym)` seam, the census ratchet, the python pilot — `in-flight` · **L** · P1
 
@@ -791,7 +830,6 @@ M-T9.84's slices for `src/generator/dotnet`. 26 census sites at minting, plus th
 ## M-T9.88 — Imports derived from use: Elixir — `open` · **S** · P3
 
 M-T9.84's slices for `src/generator/elixir`. 2 census sites at minting. The emitters mostly spell fully-qualified module names, which need no `alias`. Close by migrating the two sites and pinning the census at zero. Oracle: `npm run test:elixir-corpus`.
-
 ## M-T9.89 — Widen `ir-walk-census` to independent `if (x.kind === …)` statements — `open` · **M** · P2
 
 *Minted 2026-09-29 by wave B7 (docs sweep) of the 2026-09-28 evaluation-closure review, from its mission-only list: owner ruling **D12** or a plan item no wave builds. Every item was re-proved on `main` @ `cbda91658` by an adversarial re-verification (minimal repro, `parse` + `generate system`, generated `path:line`). Re-verify on fresh `main` before building.*

@@ -2,6 +2,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { forCreateInput, isConstructible } from "../../enrich/wire-projection.js";
 import type { BoundedContextIR, EnrichedAggregateIR, FieldIR } from "../../types/loom-ir.js";
 import { serverInitSeed } from "../../util/server-init-seed.js";
+import { stampedFields } from "../../util/stamped-fields.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -71,18 +72,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
  *  emits `null` into a non-nullable `Decimal` on every backend. */
 function hasLanguageDefinedAbsence(f: FieldIR): boolean {
   return serverInitSeed(f.type) !== null;
-}
-
-/** Every field any lifecycle stamp writes — `onCreate` AND `onUpdate`.
- *
- *  Both events count, and the `onUpdate` half is not laxity: `auditable`
- *  stamps `createdAt`/`createdBy` onCreate and `updatedAt`/`updatedBy`
- *  onUpdate, and the backends apply the stamp set at PERSIST time, so the
- *  very first insert writes the update columns too.  Keying on
- *  `event === "create"` alone would reject every `with auditable` aggregate in
- *  the repo. */
-function stampedFields(agg: EnrichedAggregateIR): ReadonlySet<string> {
-  return new Set((agg.contextStamps ?? []).flatMap((s) => s.assignments.map((a) => a.field)));
 }
 
 /** Fields that are server-owned but that nothing writes — see the module

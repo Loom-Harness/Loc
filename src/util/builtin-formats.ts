@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Single source of truth for the built-in design packs that ship under
 // `<repo>/designs/<family>/<version>/`.  Every built-in pack is
-// identified by a `family@version` pair (e.g. "mantine@v7"), with the
+// identified by a `family@version` pair (e.g. "mantine@v9"), with the
 // `family` half corresponding to a directory under `designs/` and the
 // `version` half corresponding to a subdirectory inside it.
 //
@@ -32,13 +32,9 @@
 export type PackFormat = "tsx" | "heex" | "svelte" | "vue" | "angular";
 
 export const BUILTIN_PACK_FORMATS = {
-  "mantine@v7": "tsx",
   "mantine@v9": "tsx",
-  "chakra@v2": "tsx",
   "chakra@v3": "tsx",
-  "mui@v5": "tsx",
   "mui@v7": "tsx",
-  "shadcn@v3": "tsx",
   "shadcn@v4": "tsx",
   "coreComponents@v3": "heex",
   "daisyui@v1": "heex",
@@ -51,37 +47,40 @@ export const BUILTIN_PACK_FORMATS = {
   "spartanNg@v1": "angular",
 } as const satisfies Record<string, PackFormat>;
 
+/** Built-in pack versions that shipped once and were removed, mapped to
+ *  the successor a pin should move to.  These are the React stack-v1
+ *  (React 18) packs; their stack-v3 successors are the current majors.
+ *  The validator turns an explicit pin of a retired ref into
+ *  `loom.design-pack-retired` naming the successor, rather than the
+ *  generic "unknown version" error — the pin was valid once, so the
+ *  diagnostic says what to move to. */
+const RETIRED_PACKS = {
+  "mantine@v7": "mantine@v9",
+  "chakra@v2": "chakra@v3",
+  "mui@v5": "mui@v7",
+  "shadcn@v3": "shadcn@v4",
+} as const satisfies Record<string, string>;
+
+/** The successor of a retired built-in pack ref (`"mantine@v7"` →
+ *  `"mantine@v9"`), or `undefined` when `qualified` was never retired. */
+export function retiredPackSuccessor(qualified: string): string | undefined {
+  return (RETIRED_PACKS as Record<string, string>)[qualified];
+}
+
 /** What bareword `design: mantine` (no `@version`) resolves to in
  *  this toolchain build.  When we ship a new major version of a pack,
  *  flip the entry here and every bareword consumer rolls forward
- *  automatically — explicit pins (`design: "mantine@v7"`) are the
+ *  automatically — explicit pins (`design: "mantine@v9"`) are the
  *  opt-out for projects that want determinism across toolchain
- *  upgrades.  Every default currently points at today's behaviour so
- *  the existing examples generate byte-identical output. */
+ *  upgrades. */
 export const BUILTIN_PACK_LATEST = {
-  // mantine promoted to v9 (Mantine 9 / React 19, stack v3) once the
-  // pinned v9 pack proved out live in the playground.  Bareword
-  // `design: mantine` now resolves to mantine@v9; the v7 pack stays
-  // loadable via the explicit pin `design: "mantine@v7"` for projects
-  // that want React 18.  This flip was paired with refreshing
-  // `test/fixtures/baseline-output/` (acme.ddd uses the bareword).
+  // The four React families resolve to their stack-v3 (React 19 +
+  // Router 7 + zod 4) majors: Mantine 9, Chakra UI 3, Material UI 7, and
+  // shadcn on Tailwind 4 (the playground routes its `@import "tailwindcss"`
+  // CSS through `@tailwindcss/browser`).
   mantine: "v9",
-  // Bareword `design: chakra` / `design: mui` resolve to the current majors
-  // (Chakra UI 3 / React 19 on stack v3; Material UI 7).  Earlier packs stay
-  // loadable via the explicit pins `design: "chakra@v2"` / `design: "mui@v5"`.
-  // acme.ddd (the baseline fixture source) has no `design:` slot, so it tracks
-  // mantine and these entries do not touch test/fixtures/baseline-output/.
   chakra: "v3",
   mui: "v7",
-  // shadcn promoted to v4 (Tailwind 4 CSS-first / React 19, stack
-  // v3).  The blocker — the in-browser playground only knew the
-  // Tailwind 3 Play CDN — was cleared: `iframe-html.ts`'s
-  // `tailwindFlavor` now routes `@import "tailwindcss"` CSS through
-  // `@tailwindcss/browser`, and the bundler externalises the v4
-  // `@import`s.  Bareword `design: shadcn` now resolves to
-  // shadcn@v4; the Tailwind-3 pack stays loadable via the explicit
-  // pin `design: "shadcn@v3"`.  acme.ddd has no `design:` slot so
-  // this doesn't touch test/fixtures/baseline-output/.
   shadcn: "v4",
   coreComponents: "v3",
   // The genuine-daisyUI HEEx pack ships its first version; bareword
@@ -129,9 +128,9 @@ export interface ParsedBuiltinDesignRef {
  *  those cases.
  *
  *  Accepted forms:
- *    "mantine"        → { family: "mantine", version: "v7",  qualified: "mantine@v7" }   // bareword, version from BUILTIN_PACK_LATEST
- *    "mantine@v7"     → { family: "mantine", version: "v7",  qualified: "mantine@v7" }   // explicit pin
- *    "mantine@v9"     → { family: "mantine", version: "v9",  qualified: "mantine@v9" }   // explicit pin (may not exist yet — caller checks via packFormatForBuiltin)
+ *    "mantine"        → { family: "mantine", version: "v9",  qualified: "mantine@v9" }   // bareword, version from BUILTIN_PACK_LATEST
+ *    "mantine@v9"     → { family: "mantine", version: "v9",  qualified: "mantine@v9" }   // explicit pin
+ *    "mantine@v8"     → { family: "mantine", version: "v8",  qualified: "mantine@v8" }   // explicit pin (may not exist — caller checks via packFormatForBuiltin)
  *    "./design/foo"   → null                                                              // custom pack
  *    "frobnicator"    → null                                                              // unknown family
  */

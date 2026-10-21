@@ -28,7 +28,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // Legacy single-context `generate ts` targets the default Hono
 // backend; the CLI (an entrypoint) supplies that package's pins to
 // the version-agnostic shared emitter.
-import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../platform/hono/v5/pins.js";
 import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
 import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
@@ -873,7 +873,7 @@ async function runGenerate(
       return { hadError: true };
     }
   } else if (target === "ts") {
-    files = generateTypeScript(model!, HONO_V4_PINS, { emitTrace: options.emitTrace });
+    files = generateTypeScript(model!, HONO_PINS, { emitTrace: options.emitTrace });
   } else {
     files = generateDotnet(model!, { emitTrace: options.emitTrace });
   }

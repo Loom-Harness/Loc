@@ -84,7 +84,10 @@ const PINNED: Record<string, number> = {
   // inserted one above the recorded watermark) and the post-boot
   // information_schema probes, and throws on a failed boot.
   "test/e2e/migration-evolution.test.ts": 5,
-  "test/e2e/migration-evolution-dotnet.test.ts": 1,
+  // dotnet: the EF evolution gate, then the Dapper leg's evolution gate and its
+  // legacy-bootstrap baseline gate (`runDapperLegacyBaselineGate`) — each
+  // delegates to a harness function that `expect`s the rows and the history.
+  "test/e2e/migration-evolution-dotnet.test.ts": 3,
   "test/e2e/migration-evolution-elixir.test.ts": 1,
   "test/e2e/migration-evolution-java.test.ts": 1,
   "test/e2e/migration-evolution-python.test.ts": 1,

@@ -375,12 +375,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/explicit-handlers-emit.ts
-  "src/generator/dotnet/explicit-handlers-emit.ts#pagedRunStmt": {
-    guardedBy: ["loom.paged-query-handler-shape"],
-    note: "A paged queryHandler body other than `let r = Repo.run(<Criterion>(args)); return r` — refused in phase ⑦ since #3084; the emitter reads the same shared `pagedRunStmt` predicate the check enforces.",
-  },
-
   // src/generator/dotnet/projection-emit.ts
   "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
     guardedBy: ["loom.projection-fold-impure"],
@@ -596,12 +590,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
     note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
-  },
-
-  // src/generator/elixir/vanilla/explicit-handlers-emit.ts
-  "src/generator/elixir/vanilla/explicit-handlers-emit.ts#pagedRunStmt": {
-    guardedBy: ["loom.paged-query-handler-shape"],
-    note: "A paged queryHandler body other than `let r = Repo.run(<Criterion>(args)); return r` — refused in phase ⑦ since #3084; the emitter reads the same shared `pagedRunStmt` predicate the check enforces.",
   },
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
@@ -1011,12 +999,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
-  // src/generator/java/explicit-handlers-emit.ts
-  "src/generator/java/explicit-handlers-emit.ts#pagedRunStmt": {
-    guardedBy: ["loom.paged-query-handler-shape"],
-    note: "A paged queryHandler body other than `let r = Repo.run(<Criterion>(args)); return r` — refused in phase ⑦ since #3084; the emitter reads the same shared `pagedRunStmt` predicate the check enforces.",
-  },
-
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
     guardedBy: [
@@ -1057,12 +1039,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
-  },
-
-  // src/generator/python/explicit-handlers-emit.ts
-  "src/generator/python/explicit-handlers-emit.ts#pagedRunStmt": {
-    guardedBy: ["loom.paged-query-handler-shape"],
-    note: "A paged queryHandler body other than `let r = Repo.run(<Criterion>(args)); return r` — refused in phase ⑦ since #3084; the emitter reads the same shared `pagedRunStmt` predicate the check enforces.",
   },
 
   // src/generator/python/find-predicate.ts
@@ -1315,12 +1291,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/emit.ts#generateTypeScriptForContexts": {
     invariant:
       "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/v4/emit.ts:638-644; src/platform/hono/v4/emit.ts:1403-1416)",
-  },
-
-  // src/platform/hono/v4/explicit-handlers-builder.ts
-  "src/platform/hono/v4/explicit-handlers-builder.ts#emitPagedRunHandler": {
-    guardedBy: ["loom.paged-query-handler-shape"],
-    note: "A paged queryHandler body other than `let r = Repo.run(<Criterion>(args)); return r` — refused in phase ⑦ since #3084; the emitter reads the same shared `pagedRunStmt` predicate the check enforces.",
   },
 
   // src/platform/hono/v4/projection-builder.ts

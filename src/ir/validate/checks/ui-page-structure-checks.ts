@@ -25,6 +25,7 @@ import type {
   TypeIR,
 } from "../../types/loom-ir.js";
 import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
+import type { PagedFindRoutes } from "../../util/paged-find-routes.js";
 import { typeLabel } from "../../util/type-label.js";
 import { walkExprChildren, walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -925,6 +926,63 @@ export function checkOfReadResolves(
         source: where,
         origin: host.origin,
       });
+    });
+  }
+}
+
+/** One framework a ui renders through, and the routes its backend serves for
+ *  synthesized paged finds (`pagedFindRoutes`).  `routes: undefined` means the
+ *  framework reads repositories in-process (Phoenix LiveView) and needs no
+ *  route; an empty map means it cannot reach any synthesized find. */
+export interface ReadHost {
+  framework: string;
+  deployable: string;
+  routes: PagedFindRoutes | undefined;
+}
+
+/** Reject a page read of a SYNTHESIZED paged find (the one a paged-run
+ *  queryHandler mints) on a frontend that can only reach it over HTTP, when the
+ *  host's backend serves no route for it.  The find has no derived
+ *  `/<plural>/<find>` route, so the client hook would call a path that 404s —
+ *  the frontends therefore emit no hook for it, and this gate is what keeps
+ *  that a diagnostic rather than a build error in the generated client. */
+export function checkOfReadRouted(
+  host: PageIR | ComponentIR,
+  where: string,
+  apiParamNames: ReadonlySet<string>,
+  aggNames: ReadonlySet<string>,
+  findsByAggregate: ReadonlyMap<string, ReadonlyMap<string, FindIR>>,
+  readHosts: readonly ReadHost[],
+  diags: LoomDiagnostic[],
+): void {
+  const seen = new Set<string>();
+  for (const root of walkerRenderedExprs(host)) {
+    walkExprDeep(root, (e) => {
+      if (e.kind !== "call" || !WALKER_READ_PRIMITIVES.has(e.name)) return;
+      const of = namedArg(e, "of");
+      if (!of) return;
+      const read = resolveOfRead(of, apiParamNames, aggNames);
+      if (!read) return;
+      const target = resolveAggregateRead(read.operation, findsByAggregate.get(read.aggregate));
+      if (target.kind !== "find" || !target.find.synthesized) return;
+      for (const h of readHosts) {
+        if (!h.routes || h.routes.get(read.aggregate)?.has(read.operation)) continue;
+        const key = `${read.aggregate}.${read.operation}@${h.framework}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        diags.push({
+          severity: "error",
+          code: "loom.ui-read-unresolved",
+          message: diagMessage("loom.ui-read-unresolved#unrouted", {
+            aggregate: read.aggregate,
+            operation: read.operation,
+            framework: h.framework,
+            deployable: h.deployable,
+          }),
+          source: where,
+          origin: host.origin,
+        });
+      }
     });
   }
 }

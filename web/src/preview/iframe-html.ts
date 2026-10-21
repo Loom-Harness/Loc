@@ -318,8 +318,7 @@ const SELECT_CONTROLLER = `
 //     'unsafe-inline'          the shim / hostScript / bundle module +
 //                              the importmap (all inline).
 //     'unsafe-eval'            the Tailwind in-browser JIT (shadcn).
-//     cdn.tailwindcss.com /
-//     cdn.jsdelivr.net         the Tailwind CDN scripts (shadcn v3 / v4).
+//     cdn.jsdelivr.net         the `@tailwindcss/browser` script (shadcn).
 //   - style-src 'self' 'unsafe-inline'   vendor.css link + inline <style>
 //                              + Mantine/Tailwind runtime-injected styles.
 //   - img-src / font-src       same-origin + data:/blob: (no web fonts
@@ -337,7 +336,7 @@ const PREVIEW_CSP = [
   // `blob:` is needed by the in-place reload controller, which mounts
   // each rebuilt bundle as a `<script type="module" src=blob:…>` so
   // the preview refreshes without re-writing the whole document.
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net",
   // jsdelivr allowed in style-src so the highlight.js github-dark
   // stylesheet (loaded by the CodeBlock primitive's injected head
   // tags) can apply — script-src already permits the matching
@@ -350,21 +349,13 @@ const PREVIEW_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-/** Which Tailwind dialect the bundled CSS is written in, or `null`
- *  for non-Tailwind (pre-compiled) CSS like Mantine's.
- *
- *  - `"v3"`: shadcn@v3 — globals.css opens with `@tailwind base;
- *    @tailwind components; @tailwind utilities;`.  Compiled by the
- *    Tailwind 3 Play CDN + an inlined `window.tailwind.config`.
- *  - `"v4"`: shadcn@v4 — Tailwind 4 is CSS-first; globals.css opens
- *    with `@import "tailwindcss";` and carries its config inline via
- *    `@theme` / `@custom-variant`.  Compiled by `@tailwindcss/browser`
- *    (the v4 successor to the Play CDN); no JS config object. */
-function tailwindFlavor(css?: string): "v3" | "v4" | null {
-  if (!css) return null;
-  if (/^\s*@tailwind\b/m.test(css)) return "v3";
-  if (/^\s*@import\s+["']tailwindcss["']/m.test(css)) return "v4";
-  return null;
+/** Whether the bundled CSS is Tailwind 4-authored (shadcn): Tailwind 4
+ *  is CSS-first, so globals.css opens with `@import "tailwindcss";` and
+ *  carries its config inline via `@theme` / `@custom-variant`.  Such CSS
+ *  is compiled in the browser by `@tailwindcss/browser`; anything else
+ *  (Mantine's pre-compiled CSS) is a plain stylesheet. */
+function isTailwindCss(css?: string): boolean {
+  return !!css && /^\s*@import\s+["']tailwindcss["']/m.test(css);
 }
 
 function styleTagFor(css?: string): string {
@@ -373,99 +364,21 @@ function styleTagFor(css?: string): string {
   // (esbuild-wasm's CSS loader is plain text), so Tailwind-authored
   // CSS is routed through an in-browser JIT compiler that processes
   // `<style type="text/tailwindcss">` blocks at load time and
-  // watches the DOM for new classes.  v3 → Play CDN; v4 →
-  // `@tailwindcss/browser`.  Mantine's pre-compiled CSS goes through
-  // a plain `<style>` tag — no JIT needed.
-  const flavor = tailwindFlavor(css);
-  if (flavor === "v3") {
-    return `<style id="loom-css" type="text/tailwindcss">\n${css}\n</style>`;
-  }
-  if (flavor === "v4") {
+  // watches the DOM for new classes (`@tailwindcss/browser`).
+  // Mantine's pre-compiled CSS goes through a plain `<style>` tag — no
+  // JIT needed.
+  if (isTailwindCss(css)) {
     // `@tailwindcss/browser` resolves `@import "tailwindcss"`
     // itself, but cannot fetch the third-party `@import
     // "tw-animate-css"` (bare specifier, no resolver) — strip it so
-    // the compile doesn't error.  Same intentional divergence as
-    // v3's `tailwindcss-animate`: animation utilities won't run in
-    // the preview but render fine in a real `vite build` deploy.
-    const v4 = css.replace(/^\s*@import\s+["']tw-animate-css["'];?\s*$/m, "");
-    return `<style id="loom-css" type="text/tailwindcss">\n${v4}\n</style>`;
+    // the compile doesn't error.  Intentional divergence: animation
+    // utilities won't run in the preview but render fine in a real
+    // `vite build` deploy.
+    const compilable = css.replace(/^\s*@import\s+["']tw-animate-css["'];?\s*$/m, "");
+    return `<style id="loom-css" type="text/tailwindcss">\n${compilable}\n</style>`;
   }
   return `<style id="loom-css">\n${css}\n</style>`;
 }
-
-/** Tailwind Play CDN configuration — mirrors `designs/shadcn/tailwind-
- *  config.hbs` so the JIT compiler sees the same theme extension
- *  (CSS-variable colour palette, custom radius scale) the generated
- *  build would have used at compile time.  Inlined as a `<script>`
- *  rather than fetched so first paint doesn't need a second network
- *  round-trip for an external config module.
- *
- *  Drift guard: `test/iframe-tailwind-drift.test.ts` asserts the
- *  `container`, `extend.colors`, and `extend.borderRadius` blocks
- *  here match the shadcn pack's `tailwind-config.hbs` byte-for-byte
- *  (after whitespace normalisation).  When updating one, update the
- *  other and the test stays green; if they drift, the test names
- *  the offending block.
- *
- *  Intentional divergence: the hbs ships `tailwindcss-animate` and
- *  `keyframes`/`animation` blocks the Play CDN can't run (no plugin
- *  loader available).  Animations on shadcn primitives that lean on
- *  `tailwindcss-animate` (e.g. accordion) won't animate in the
- *  preview but render fine in `npm run dev` of the generated app. */
-const TAILWIND_PLAY_CONFIG = `
-tailwind.config = {
-  darkMode: ["class"],
-  theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: { "2xl": "1400px" },
-    },
-    extend: {
-      colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
-        },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-      },
-    },
-  },
-};
-`.trim();
 
 export function makePreviewHtml(args: MakePreviewArgs): string {
   // A prebuilt-vendor bundle is externalised — every bare import
@@ -506,20 +419,12 @@ export function makePreviewHtml(args: MakePreviewArgs): string {
       : "";
   // In-browser Tailwind compiler — only when the bundle's CSS is
   // Tailwind-authored.  Must run BEFORE the bundle so the DOM
-  // observer is registered ahead of first paint.
-  //   - v3: inline `window.tailwind.config` (the CDN reads it on
-  //     init) then the Tailwind 3 Play CDN.
-  //   - v4: just `@tailwindcss/browser` — Tailwind 4 config lives
-  //     in the CSS (`@theme` / `@custom-variant`), so there is no
-  //     JS config object to inline.
-  const twFlavor = tailwindFlavor(args.css);
-  const tailwindScripts =
-    twFlavor === "v3"
-      ? `<script>${TAILWIND_PLAY_CONFIG}</script>\n` +
-        `<script src="https://cdn.tailwindcss.com"></script>`
-      : twFlavor === "v4"
-        ? `<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>`
-        : "";
+  // observer is registered ahead of first paint.  Tailwind 4 config
+  // lives in the CSS (`@theme` / `@custom-variant`), so there is no JS
+  // config object to inline.
+  const tailwindScripts = isTailwindCss(args.css)
+    ? `<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -80,7 +80,6 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
     for (const test of agg.tests) {
       checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
-        checkThrowKindReadable(stmt, agg, ctx, test.name, diags);
         const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS) ?? partBuilderRefusal(stmt);
         if (!reason) continue;
         diags.push({
@@ -114,112 +113,6 @@ function partBuilderRefusal(stmt: TestStmtIR): string | undefined {
   return part === undefined
     ? undefined
     : `the entity-part builder '${part} { … }' needs the owning aggregate's id, which a test body does not have.`;
-}
-
-/** `toThrow(<kind>)` against a rule that carries an authored `message "..."`.
- *
- *  Four of the five backends discriminate the rung by the MESSAGE PREFIX the
- *  domain layer emits — `"Precondition failed: "` / `"Invariant violated: "` —
- *  and an authored `message` REPLACES that whole string rather than extending
- *  it (`render-stmt.ts`'s `message ?? \`Precondition failed: …\`` on every one
- *  of them).  So the very clause that makes a rule's failure legible to a
- *  human is the clause that makes it illegible to this matcher.
- *
- *  Only elixir escapes it, because `GuardError` is `defexception [:message,
- *  :kind]` and the rung rides the struct instead of the text.  Giving the other
- *  four the same structural `kind` is the RIGHT long-term answer and is filed
- *  as its own mission — an error-shape change across five backends should not
- *  ride along on a matcher's first outing (design M-T5.36 § 2a, decision 7).
- *
- *  So: refuse, narrowly and at the source.  A unit `test` is emitted for ALL
- *  five backends from one `.ddd`, so a shape four of them cannot express is not
- *  writable portably — accepting it would mean the same assertion silently
- *  proving less on four legs than on one, which is the defect this whole packet
- *  exists to remove. */
-function checkThrowKindReadable(
-  stmt: TestStmtIR,
-  agg: AggregateIR,
-  ctx: BoundedContextIR,
-  testName: string,
-  diags: LoomDiagnostic[],
-): void {
-  if (stmt.kind !== "expect-throws" || !stmt.throwKind) return;
-  const offender = messagedRuleFor(stmt, agg, ctx);
-  if (!offender) return;
-  diags.push({
-    severity: "error",
-    code: "loom.throw-kind-custom-message",
-    message: diagMessage("loom.throw-kind-custom-message", {
-      kind: stmt.throwKind,
-      rule: offender.source,
-      message: offender.message,
-      subject: offender.subject,
-    }),
-    source: `${ctx.name}/${agg.name}.test:${testName}`,
-    origin: agg.origin,
-  });
-}
-
-/** The messaged rule a `toThrow(<kind>)` would have to read through, or
- *  undefined when every candidate rule still carries its derived prefix.
- *
- *  Resolution is by NAME, the same way the five test emitters resolve a test
- *  body's calls (receiver types are unreliable in test position — see
- *  `isAggOp` in the elixir emitter):
- *
- *    * `<local>.<op>()`       → that operation's `precondition` statements;
- *    * `<Agg>.create({...})`  → the canonical create's guards, plus — because a
- *                               create runs the invariant floor too — the
- *                               aggregate's invariants;
- *    * `<VO> { ... }`         → the value object's invariants.
- *
- *  A rung with NO candidate rule at all is left alone here: that is a different
- *  complaint (an assertion with no subject) and belongs to whichever gate grows
- *  to make it, not to this one. */
-function messagedRuleFor(
-  stmt: Extract<TestStmtIR, { kind: "expect-throws" }>,
-  agg: AggregateIR,
-  ctx: BoundedContextIR,
-): { source: string; message: string; subject: string } | undefined {
-  const kind = stmt.throwKind;
-  const e = stmt.expr;
-  if (kind === "invariant") {
-    // A value-object construction (`Money { amount: -1 }` / `Money(-1, "USD")`)
-    // trips the VO's own invariants, not the aggregate's.
-    const voName = valueObjectCtorName(e);
-    const vo = voName ? ctx.valueObjects.find((v) => v.name === voName) : undefined;
-    const invariants = vo ? vo.invariants : agg.invariants;
-    const subject = vo ? vo.name : agg.name;
-    const messaged = invariants.find((i) => i.message);
-    return messaged
-      ? { source: messaged.source, message: messaged.message!.text, subject }
-      : undefined;
-  }
-  // `precondition`: the guards of the operation (or create) under call.
-  const ops = [
-    ...agg.operations,
-    ...(agg.creates ?? []),
-    ...(agg.destroys ?? []),
-    ...(agg.canonicalCreate ? [agg.canonicalCreate] : []),
-  ];
-  if (e.kind !== "method-call") return undefined;
-  const op = ops.find((o) => o.name === e.member);
-  if (!op) return undefined;
-  for (const st of op.statements) {
-    if (st.kind === "precondition" && st.message) {
-      return { source: st.source, message: st.message.text, subject: `${agg.name}.${op.name}` };
-    }
-  }
-  return undefined;
-}
-
-/** `Money { amount: -1 }` / `Money(-1, "USD")` — the value-object construction
- *  a `toThrow(invariant)` can sit over.  BOTH source forms (builder and
- *  positional) lower to the same `callKind: "value-object-ctor"` call, so one
- *  branch covers them; returns undefined when the asserted expression is not a
- *  VO construction, and the aggregate's own invariants are then the subject. */
-function valueObjectCtorName(e: ExprIR): string | undefined {
-  return e.kind === "call" && e.callKind === "value-object-ctor" ? e.name : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +161,7 @@ export function validateContextIntegrationTests(
             testName: test.name,
           }),
           source: `${ctx.name}.test:${test.name}`,
-          origin: ctx.origin,
+          origin: stmt.origin ?? test.origin ?? ctx.origin,
         });
       }
       let inlineFind = false;

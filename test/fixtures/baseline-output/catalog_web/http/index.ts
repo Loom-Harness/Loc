@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { TrieRouter } from "hono/router/trie-router";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { frameworkProblemBody } from "./problem-details";
+import { emptyBodyAsEmptyObject, frameworkProblemBody } from "./problem-details";
 import { sql } from "drizzle-orm";
 import { requestIdMiddleware } from "../obs/request-id";
 import { recordDomainFault, registry } from "../obs/metrics";
@@ -63,6 +63,9 @@ export function createApp(
       credentials: true,
     }),
   );
+  // An empty request body reads as `{}` on every route (RS-39) — so a
+  // parameterless command answers a body-less POST the way it answers `{}`.
+  app.use("*", emptyBodyAsEmptyObject);
   // Liveness probe — cheap, no I/O.  K8s livenessProbe / docker-compose
   // healthcheck use this to decide "is the process alive?".  A DB blip
   // must NOT mark the pod not-alive (that restarts the container);

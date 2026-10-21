@@ -145,6 +145,25 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/attachments/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/title"
+          }
+        ],
+        "instance": "/api/attachments/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

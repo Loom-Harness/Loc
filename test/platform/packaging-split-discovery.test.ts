@@ -28,8 +28,6 @@ describe("manifest contract", () => {
 
 describe("in-tree discovery (default source)", () => {
   it("discovers node@v5 (default) with a real co-located manifest", () => {
-    // The node family ships two co-located packages — v5 (default,
-    // zod 4 / TS 6) and v4 (zod 3 / TS 5).  v5 is listed first.
     const node = discoverBackends().find((b) => b.manifest.family === "node");
     expect(node?.manifest).toMatchObject({
       kind: "backend",
@@ -44,16 +42,15 @@ describe("in-tree discovery (default source)", () => {
       discoverBackends()
         .map((b) => `${b.manifest.family}@${b.manifest.loomVersion}`)
         .sort(),
-    ).toEqual(["dotnet@v10", "elixir@v1", "java@v1", "node@v4", "node@v5", "python@v1"]);
+    ).toEqual(["dotnet@v10", "elixir@v1", "java@v1", "node@v5", "python@v1"]);
   });
 
   it("resolution: bareword resolves to the default (v5) surface", () => {
     expect(platformFor("node")).toBe(platformFor("node@v5" as never));
-    // v4 stays registered + distinct, pinnable via `platform: node@v4`.
-    expect(platformFor("node@v4" as never)).not.toBe(platformFor("node"));
     expect(platformFor("node").name).toBe("node");
-    expect(backendVersionsForFamily("node")).toEqual(["v4", "v5"]);
-    expect(isRegisteredBackendRef("node@v4")).toBe(true);
+    expect(backendVersionsForFamily("node")).toEqual(["v5"]);
+    // Retired: not registered, so a pin to it fails validation.
+    expect(isRegisteredBackendRef("node@v4")).toBe(false);
     expect(isRegisteredBackendRef("node@v5")).toBe(true);
     expect(isRegisteredBackendRef("node@v9")).toBe(false);
   });
@@ -71,7 +68,7 @@ describe("injectable source — resolver is discovery-agnostic", () => {
     };
     setBackendSource(() => [stub]);
     expect(isRegisteredBackendRef("node@v9")).toBe(true);
-    expect(isRegisteredBackendRef("node@v4")).toBe(false);
+    expect(isRegisteredBackendRef("node@v5")).toBe(false);
     expect(backendVersionsForFamily("node")).toEqual(["v9"]);
     expect(platformFor("node@v9" as never)).toBe(real.surface);
   });
@@ -79,13 +76,13 @@ describe("injectable source — resolver is discovery-agnostic", () => {
   it("resetBackendSource restores the in-tree set", () => {
     setBackendSource(() => []);
     resetBackendSource();
-    expect(isRegisteredBackendRef("node@v4")).toBe(true);
+    expect(isRegisteredBackendRef("node@v5")).toBe(true);
   });
 
   it("not-discovered ref errors with the discovered list", () => {
     setBackendSource(() => []);
-    expect(() => platformFor("node@v4" as never)).toThrow(
-      /Unknown backend platform version "node@v4"\. Discovered: \./,
+    expect(() => platformFor("node@v5" as never)).toThrow(
+      /Unknown backend platform version "node@v5"\. Discovered: \./,
     );
   });
 });

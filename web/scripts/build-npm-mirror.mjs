@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { createDddServices } from "../../out/language/ddd-module.js";
 import { generateSystems } from "../../out/system/index.js";
 import { generateTypeScript } from "../../out/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../out/platform/hono/v4/pins.js";
+import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { planInstall } from "../src/engine/npm/resolve-tree.ts";
 import { fetchTarball } from "../src/engine/npm/registry.ts";
 import { RUNTIME_VERSIONS } from "../src/bundle/plugin.ts";

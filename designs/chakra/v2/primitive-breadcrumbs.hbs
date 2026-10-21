@@ -1,3 +1,0 @@
-{{#if hasChildren}}<Breadcrumb{{{testidAttr}}}>
-{{#each children}}{{../indent}}<BreadcrumbItem{{#if @last}} isCurrentPage{{/if}}>{{{this}}}</BreadcrumbItem>
-{{/each}}{{closeIndent}}</Breadcrumb>{{else}}<Breadcrumb{{{testidAttr}}} />{{/if}}

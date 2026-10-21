@@ -51,7 +51,13 @@ import type {
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
-import { pagedRunStmt as sharedPagedRunStmt } from "../../ir/util/paged-run.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../ir/util/paged-run.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -59,8 +65,13 @@ import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
-import { CS_PAGED_QUERY_PARAMS } from "./emit/common.js";
-import { API_CLIENT_CLASS, renderCsType } from "./render-expr.js";
+import { csPagedQueryParams } from "./emit/common.js";
+import {
+  API_CLIENT_CLASS,
+  collectCsExprUsings,
+  renderCsExpr,
+  renderCsType,
+} from "./render-expr.js";
 import {
   buildResourceClasses,
   csWorkflowStmtTarget,
@@ -349,14 +360,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  // The one predicate phase ⑦ `loom.paged-query-handler-shape` enforces.
-  const run = sharedPagedRunStmt(h);
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -407,6 +411,42 @@ function renderPagedQueryHandlerClass(
   const callArgs = [...critArgs, "query.Page", "query.PageSize", "query.Sort", "query.Dir"].join(
     ", ",
   );
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a ForbiddenException (→ 403) before the read; a gate reading `currentUser`
+  // resolves the actor through the injected accessor.
+  const gates = pagedRunGates(h);
+  const usesUser = pagedRunGatesUseCurrentUser(h);
+  const paramNames = new Set(h.params.map((p) => p.name));
+  const gateCtx = {
+    thisName: "this",
+    paramExpr: (n: string) => (paramNames.has(n) ? `query.${upperFirst(n)}` : undefined),
+  };
+  const extraUsings = new Set<string>();
+  for (const g of gates) collectCsExprUsings(g.expr, extraUsings, ns);
+  if (usesUser) extraUsings.add(`${ns}.Auth`);
+  extraUsings.delete(`${ns}.Domain.Common`);
+  const gateLines = [
+    ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
+    ...gates.map(
+      (g) =>
+        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+    ),
+  ];
+  const repoParam = `I${agg}Repository ${field.slice(1)}`;
+  const ctor = usesUser
+    ? [
+        "    private readonly ICurrentUserAccessor _currentUser;",
+        `    public ${h.name}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
+        "    {",
+        `        ${field} = ${field.slice(1)};`,
+        "        _currentUser = currentUser;",
+        "    }",
+      ].join("\n")
+    : `    public ${h.name}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
+  const extraUsingLines = [...extraUsings]
+    .sort()
+    .map((u) => `using ${u};\n`)
+    .join("");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
@@ -418,17 +458,17 @@ using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
 using ${ns}.Domain.Enums;
 using ${ns}.Application.${plural(agg)}.Responses;
-
+${extraUsingLines}
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
 public sealed class ${h.name}Handler : IQueryHandler<${h.name}Query, Paged<${agg}Response>>
 {
     private readonly I${agg}Repository ${field};
-    public ${h.name}Handler(I${agg}Repository ${field.slice(1)}) => ${field} = ${field.slice(1)};
+${ctor}
 
     public async ValueTask<Paged<${agg}Response>> Handle(${h.name}Query query, CancellationToken cancellationToken)
     {
-        var domain = await ${field}.${upperFirst(run.retrievalName)}(${callArgs}, cancellationToken);
+${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${upperFirst(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
     }
 }
@@ -749,7 +789,7 @@ export function emitExplicitRouteController(
       );
       const actionParams = [
         ...h.params.map((p) => bind.get(p.name)!.actionParam),
-        ...CS_PAGED_QUERY_PARAMS,
+        ...csPagedQueryParams(pagedRunSortDefault(h, ctx)),
       ].join(", ");
       const queryArgs = [
         ...h.params.map((p) => bind.get(p.name)!.commandArg),

@@ -231,7 +231,7 @@ export function renderEfAuditHistoryReader(ns: string): string {
 }
 
 /** The Dapper `IAuditHistoryReader` — the raw-Npgsql sibling.  Same rows, same
- *  order; `DbSchema` owns the table's DDL on this adapter.  The two JSONB
+ *  order; the migration chain owns the table's DDL on this adapter too.  The two JSONB
  *  columns are read `::text` so the reader hands the query handler the SAME
  *  serialized snapshot string the EF path does. */
 export function renderDapperAuditHistoryReader(ns: string): string {

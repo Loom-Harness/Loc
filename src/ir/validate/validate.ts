@@ -14,6 +14,7 @@ import {
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateDeclaredCreateParams } from "./checks/create-params-checks.js";
 import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
@@ -350,6 +351,7 @@ export function validateLoomModel(
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
     validateServerInitialisedFields(c, diags);
+    validateDeclaredCreateParams(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateApplierBodies(c, diags);
     validatePartConstructionOwner(c, diags);

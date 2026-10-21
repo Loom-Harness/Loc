@@ -20,6 +20,7 @@ export { validateUiPageIdentity } from "./ui-page-identity-checks.js";
 import type { AggregateIR, EnrichedLoomModel, FindIR, ProjectionIR } from "../../types/loom-ir.js";
 import { allAggregates, allContexts } from "../../types/loom-ir.js";
 import { classifyPage } from "../../util/page-kind.js";
+import { pagedFindRoutes } from "../../util/paged-find-routes.js";
 import { groupedProjectionNames, readableProjectionNames } from "../../util/projection-read.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import {
@@ -58,6 +59,7 @@ import {
   checkInstanceEffectRouteId,
   checkOfReadBinds,
   checkOfReadResolves,
+  checkOfReadRouted,
   checkOpFormRouteId,
   checkScaffoldFilterParams,
   checkSlotOutsideComponent,
@@ -65,6 +67,7 @@ import {
   checkUnknownPageElements,
   checkUnresolvedPageRefs,
   pageWhere,
+  type ReadHost,
 } from "./ui-page-structure-checks.js";
 
 export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
@@ -148,7 +151,32 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
     // JS arrow into the `.fs` file.  `WalkerTarget.exprLambda` closed that, so
     // the op set below is once again uniform across every frontend — which is
     // what makes this check target-agnostic in fact and not just in intent.)
+    // Per ui, every framework that renders it and the paged-find routes its
+    // backend serves — what a synthesized-find read needs to be reachable.
+    // LiveView reads in-process (no route needed); Feliz and Flutter build
+    // their read URLs from the derived find path, so no synthesized find is
+    // reachable there.
+    const readHostsByUi = new Map<string, ReadHost[]>();
+    for (const [uiName, byFw] of renderingHosts) {
+      const hosts: ReadHost[] = [];
+      for (const [framework, depName] of byFw) {
+        const dep = sys.deployables.find((d) => d.name === depName);
+        const backend = sys.deployables.find((d) => d.name === dep?.targetName) ?? dep;
+        hosts.push({
+          framework,
+          deployable: depName,
+          routes:
+            framework === "phoenixLiveView"
+              ? undefined
+              : framework === "feliz" || framework === "flutter"
+                ? new Map()
+                : pagedFindRoutes(sys, backend),
+        });
+      }
+      readHostsByUi.set(uiName, hosts);
+    }
     for (const ui of sys.uis) {
+      const readHosts = readHostsByUi.get(ui.name) ?? [];
       const handles = new Set<string>([
         ...ui.apiParams.map((p) => p.name),
         ...(ui.channelParams ?? []).map((p) => p.name),
@@ -249,6 +277,15 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           findsByAggregate,
           diags,
         );
+        checkOfReadRouted(
+          page,
+          pageWhere(page),
+          apiParamNames,
+          aggNames,
+          findsByAggregate,
+          readHosts,
+          diags,
+        );
         // Asked BEFORE the operation question above can even be meaningful:
         // does the `of:` read name anything at all?  (`#unbound`.)
         checkOfReadBinds(
@@ -312,6 +349,15 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           apiParamNames,
           aggNames,
           findsByAggregate,
+          diags,
+        );
+        checkOfReadRouted(
+          comp,
+          `component '${comp.name}'`,
+          apiParamNames,
+          aggNames,
+          findsByAggregate,
+          readHosts,
           diags,
         );
         checkOfReadBinds(

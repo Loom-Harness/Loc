@@ -42,10 +42,17 @@ export const BUILTIN_PLATFORM_LATEST = {
 export type BackendFamily = keyof typeof BUILTIN_PLATFORM_LATEST;
 
 // Older in-tree backend versions still registered (resolvable via an
-// explicit `family@version` pin) but not the family default.  `node@v4`
-// (zod 3 / TS 5) stays loadable alongside the v5 default.
-const BUILTIN_PLATFORM_EXTRA_VERSIONS: Partial<Record<BackendFamily, string[]>> = {
-  node: ["v4"],
+// explicit `family@version` pin) but not the family default.  Empty while
+// every family ships one version.
+const BUILTIN_PLATFORM_EXTRA_VERSIONS: Partial<Record<BackendFamily, string[]>> = {};
+
+/** Backend versions that were removed, mapped to the version that replaces
+ *  them.  A pin to one of these is still an unregistered version, but the
+ *  validator names the successor instead of only listing what exists. */
+export const RETIRED_BACKEND_VERSIONS: Readonly<Record<string, string>> = {
+  // zod 3 / TS 5.9 / vitest 2 — every line it pinned stopped receiving
+  // releases, and its vitest advisories have no fix inside those majors.
+  "node@v4": "node@v5",
 };
 
 /** Resolved view of a `platform:` value pointing at a backend family.
@@ -116,7 +123,7 @@ export function resetBackendVersionSource(): void {
   backendVersionSource = () => inTreeBackendVersions;
 }
 
-/** Versions registered for a backend family (e.g. `["v4"]` for `node`).
+/** Versions registered for a backend family (e.g. `["v5"]` for `node`).
  *  Used by the validator's "no such version" error to list available pins. */
 export function backendVersionsForFamily(family: BackendFamily): string[] {
   return backendVersionSource()
@@ -270,7 +277,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
  *
  *  Canonicalises legacy spellings and version pins exactly as registry's
  *  `resolvePlatformRef` does, so callers can pass a raw source value
- *  (`"node@v4"`, `"node"`) or a canonical `Platform` and get
+ *  (`"node@v5"`, `"node"`) or a canonical `Platform` and get
  *  the same descriptor — `platformFor(x).<field>` and `descriptorFor(x).<field>`
  *  agree for every input. */
 export function descriptorFor(name: Platform): PlatformDescriptor {

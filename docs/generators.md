@@ -31,6 +31,14 @@ mikroorm }` — see the "Realization axes" section of [`platforms.md`](platforms
 The alternates (`dapper`, `mikroorm`) share the domain layer below and only
 swap the repository/schema layer; both are now at full parity with their
 default (M-T6.9) — see [`platforms.md`](platforms.md) → "Realization axes".
+Schema evolution differs between them. **Dapper** applies the same versioned
+`MigrationsIR` chain as EF Core: `Migrations/*.cs`, run at boot by
+`DbSchema.EnsureAsync` behind `public.__loom_migrations`, projected onto its
+jsonb value-object layout. A database provisioned by the old `CREATE TABLE IF
+NOT EXISTS` bootstrap is baselined on its first migration-aware boot. See
+[`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
+self-provisions with `updateSchema()`, and declared `migration` steps are
+refused on it.
 
 > **Scope note.** The construct-by-construct matrix below tracks the three
 > reference platforms (TypeScript/Hono, .NET, React) for readability — it maps
@@ -457,6 +465,13 @@ unreadable one (RS-9's split).  `Program.cs` pairs it with
 a `CustomizeProblemDetails` hook that normalises the ProblemDetails the
 framework builds itself (415).
 
+**`Middleware/EmptyJsonBodyMiddleware.cs`** — an empty request body reads as
+`{}` (RS-39), so a parameterless operation answers a body-less `POST`.  It
+swaps the body, its framing headers *and* `IHttpRequestBodyDetectionFeature`
+— MVC's body binder reads the feature, not the stream.  The other backends'
+twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
+`EmptyJsonBodyFilter`, the Phoenix `BodyParser`.
+
 **`Program.cs`** — hosting entry:
 
 - `AddDbContext<AppDbContext>` over `ConnectionStrings:Default`
@@ -484,7 +499,7 @@ For a frontend `webApp` targeting `api` (which hosts Order + Product):
 
 ```
 web_app/
-├── package.json                     # deps: react, react-router-dom, @tanstack/react-query, zod,
+├── package.json                     # deps: react, react-router, @tanstack/react-query, zod,
 │                                    # @mantine/* (core, hooks, form, notifications, dates, modals),
 │                                    # mantine-form-zod-resolver
 ├── tsconfig.json + tsconfig.node.json
@@ -748,10 +763,10 @@ project (routing, RQ hooks, page objects, smoke tests) is identical.
 
 | Family | Path | Versions shipped | Component library | Latest (bareword resolves to) |
 |---|---|---|---|---|
-| `mantine` | `designs/mantine/` | v7, v9 | `@mantine/*` | `mantine@v9` |
-| `shadcn` | `designs/shadcn/` | v3, v4 | Tailwind + Radix primitives | `shadcn@v4` |
-| `mui` | `designs/mui/` | v5, v7 | `@mui/material` | `mui@v7` |
-| `chakra` | `designs/chakra/` | v2, v3 | `@chakra-ui/react` | `chakra@v3` |
+| `mantine` | `designs/mantine/` | v9 | `@mantine/*` | `mantine@v9` |
+| `shadcn` | `designs/shadcn/` | v4 | Tailwind + Radix primitives | `shadcn@v4` |
+| `mui` | `designs/mui/` | v7 | `@mui/material` | `mui@v7` |
+| `chakra` | `designs/chakra/` | v3 | `@chakra-ui/react` | `chakra@v3` |
 | `vuetify` | `designs/vuetify/` | v1 | Vuetify 3 — Vue only | `vuetify@v1` |
 | `shadcnVue` | `designs/shadcnVue/` | v1 | Tailwind + Radix Vue primitives — Vue only | `shadcnVue@v1` |
 | `flowbite` | `designs/flowbite/` | v1 | Flowbite Svelte — Svelte only | `flowbite@v1` |
@@ -778,11 +793,11 @@ Zod + Vite + TypeScript dep bundle).  Each pack version declares its
 stack in its `pack.json`; the bundler reads that declaration and
 emits the matching `package.json`.  See
 [`design-packs.md`](design-packs.md) for the full pack authoring
-surface, including the stack catalogue (v1/v2/v3) and the recipe for
+surface, including the stack catalogue and the recipe for
 adding a new pack version.
 
 A bareword `design: "mantine"` resolves to the family's current default
-version; pinning is via `family@version` (e.g. `design: "mui@v5"`).
+version; pinning is via `family@version` (e.g. `design: "mui@v7"`).
 The per-version folder under `designs/<family>/<vN>/` is what the
 bundler actually loads.
 
