@@ -156,9 +156,6 @@ type Waiver = { standing: string } | { deferred: string; reviewUntil: string };
  *  due, so it cannot be used to silence the expiry rule. */
 const MAX_DEFERRAL_DAYS = 180;
 
-/** The fleet's drain horizon for D1 — three weeks from the census landing. */
-const D1_DUE = "2026-11-01";
-
 const DECLARES_OWN = {
   standing:
     "emits THIS context's enum declarations (or keys this context's own declaration module); a sibling's enum is declared by the sibling, so the context's own list is exactly right",
@@ -167,11 +164,6 @@ const ALL_CONTEXTS = {
   standing:
     "unions `.enums` over EVERY context of the deployable/system, which already contains every sibling enum — not a per-context name resolution",
 };
-
-const p4 = (what: string): Waiver => ({
-  deferred: `D1 / P4 (frontends): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 
 const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
@@ -193,21 +185,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
-
-  // =========================================================================
-  // DEFERRED — fleet packet P4 (frontends) drains these.
-  // =========================================================================
-  "src/generator/_frontend/form-helpers.ts#initialValueTs": p4(
-    'form default (`""` instead of the first value)',
-  ),
-  "src/generator/_walker/form-fields-vm.ts#prepareFormFieldVM": p4(
-    "form field kind (TextInput instead of Select)",
-  ),
-  "src/generator/_frontend/workflows-module.ts#ensure": p4("workflows-module enum lookup"),
-  "src/generator/angular/form-fields.ts#fieldInput": p4("angular form field (empty option list)"),
-  "src/generator/angular/api-module.ts#collectResponseTypes": p4("angular response-type enum map"),
-  "src/generator/feliz/feliz-target.ts#enumsFromBc": p4("feliz form enum map"),
-  "src/generator/flutter/forms-emit.ts#enumsFromBc": p4("flutter form enum map"),
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {
