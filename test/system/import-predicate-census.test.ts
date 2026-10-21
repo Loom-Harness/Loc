@@ -59,7 +59,7 @@ const CEILING: Record<Backend, number> = {
   python: 294, // main's 291 (+1 SYSTEM-principal import, +2 dispatch-builder `ids` / `voEnum` lines) + 3 train sites
   typescript: 236,
   dotnet: 26,
-  java: 51,
+  java: 52, // +1: workflow route `PostCommitDispatcher` import (#3262) — keyed off the rendered body
   elixir: 2,
 };
 

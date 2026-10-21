@@ -80,9 +80,14 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
  *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
  *    Same 409 `detail` waiver (M-T6.91).
- *  - java (per #3142, not re-booted): the inverse defect — its workflow route never publishes a
- *    workflow-raised event at all, so `audits.total` reads 0 and the e2e
- *    FAILS; the key returns when M-T4.3 item 6 fixes it. */
+ *  - java: FAILS on `debitTwice`, for the EF reason above — JPA's
+ *    persistence context hands both `getById` loads the SAME managed entity,
+ *    so the second save is never stale and the double debit commits (booted:
+ *    `expected the call to reject, but it resolved`; java's half of M-T6.90).
+ *    Its dispatch half is FIXED (M-T4.3 item 6 — the workflow route now
+ *    publishes, after the commit) and gated by
+ *    `transactional-workflow-post-commit-dispatch`, which runs on every
+ *    backend. */
 const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
 
 /** The backends that import the regex machinery into EVERY file they lift a
@@ -269,6 +274,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
     note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
+  },
+  {
+    id: "transactional-workflow-post-commit-dispatch",
+    title:
+      "WHEN a transactional workflow's aggregate event reaches its reactor — after the commit, never inside the transaction, and not at all after a rollback",
+    doc: "workflow",
+    backends: ALL,
+    note: "Minted by M-T4.3 item 6 (banking-eval B-04, #3137) to give the post-commit rule a discriminating runtime gate on EVERY backend.  The sibling `transactional-workflow-event-rollback` counts the reactor's Audit rows, which only tells the two orders apart where the reactor runs outside the workflow's transaction (node); on python / elixir / .NET the reactor joined the open transaction, so its row rolled back either way and the count was blind.  Here both workflows save `src` inside an `if let` branch (mid-body, so its `Debited` is drained there) and the reactor records the balance it reads for the PEER account the workflow credits only AFTER that branch: 100 means it ran inside the transaction, 110 after the commit — true even where the reactor shares the workflow's identity map (EF Core, JPA).  Pre-fix measured: python `expected 100 to be 110`; java ran no reactor at all (its workflow route never published).  The rollback run drains the same way and then trips the overdraft precondition (422 on every backend, unlike the sibling's two-handle 409 that JPA / EF Core cannot reach, M-T6.90); a deferral that survived the rollback runs the reactor and writes a second Audit (python, mutation-proved: `expected 2 to be 1`).",
   },
   {
     id: "workflow-create-state",
@@ -489,6 +502,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by #3024.  `ddd new --platform dotnet --template crud` emits an aggregate named `Task`, and the generated project did not build AT ALL: `generate system` reported `0 error(s), 0 warning(s)` and `dotnet build` then produced 17 errors — CS0104 in every file that wildcard-imports the domain namespace, plus CS0535/CS0738 because the repository INTERFACE *declares* that namespace, so its bare `Task SaveAsync` return silently meant the DOMAIN type and disagreed with its own impl.  Repaired rather than refused (a file-scoped `using Task = <ns>.Domain.Tasks.Task;` outranks the wildcard import and, being non-generic, leaves `Task<…>` alone; only NON-GENERIC async returns are additionally qualified, and only for the name `Task`).  `Queue` is the second aggregate on purpose — it proves the alias is general, not `Task`-special-cased: aliasing only `Task` left `aggregate Type` failing with the identical triple against `System.Type`.  The row is ALL because the other four backends have no such ambiguity and must stay byte-identical — verified across 84 corpus/example models, where this shape is the only one whose output moves.",
   },
   {
+    id: "member-named-like-vo",
+    title:
+      "a member named after a VALUE OBJECT (`amount: decimal` beside `valueobject Amount`) — refused on .NET alone by an over-firing `loom.dotnet-name-collision`",
+    doc: "language",
+    backends: ALL,
+    note: "Minted by M-T6.69 (completeness-audit F1; the deep fuzz leg's seeds 45/70/115 all shrink to it).  The .NET aggregate class names a value object only in TYPE position (`public Amount Price`, `new Amount(…)`), so a member called `Amount` hides nothing — but the gate counted value objects and events among the types a member could hide, and refused the model on dotnet while the other four accepted it.  All five backends must now compile it.",
+    },
+    {
     id: "context-named-like-app",
     title:
       "a deployable named like the context it hosts (`deployable claims` hosting `context Claims`) — on elixir the app module and the context facade share a name (`Claims` / `Claims.Claims`)",

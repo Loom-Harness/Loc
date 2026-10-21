@@ -302,6 +302,13 @@ export function javaWorkflowStmtTarget(
    *  does not mutate it — so the `assign` arm renders nothing for it instead
    *  of `state.setOrderId(order)` (javac: cannot find symbol). */
   fixedKeyField?: string,
+  /** The injected `ApplicationEventPublisher` field, when this body runs on the
+   *  command path (`<Ctx>Workflows`).  Each save a `for` iteration or an
+   *  `if let` branch renders is then followed by publishing what that
+   *  aggregate drained — the same line the exit saves get (M-T4.3 item 6).
+   *  Omitted ⇒ the saves render bare, byte-identical (the reactor dispatcher
+   *  re-publishes on its own). */
+  publisher?: string,
 ): WorkflowStmtTarget {
   // The Java local a body binding (`let` / repo / factory / for-each / if-let
   // name) is declared under: the keyword-escaped `.ddd` spelling (`jid` —
@@ -309,6 +316,10 @@ export function javaWorkflowStmtTarget(
   // the caller's `withLetLocals` moved it off a name the enclosing method
   // spells itself.  Use sites follow through the same `letExpr` hook.
   const bound = (name: string): string => boundLocal(renderCtx, name);
+  const saveLines = (inner: string, save: { name: string; aggName: string }): string[] => [
+    `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
+    ...(publisher ? [`${inner}${publishDrainedLine(bound(save.name), publisher)}`] : []),
+  ];
   return {
     indentUnit: "    ",
     precondition: (s, indent) => {
@@ -467,9 +478,7 @@ export function javaWorkflowStmtTarget(
       // The spine renders `body` at `indent + indentUnit`; per-iteration
       // saves sit at the same depth.
       const inner = `${indent}    `;
-      const saves = s.savesPerIteration.map(
-        (save) => `${inner}${repoField(save.aggName)}.save(${bound(save.name)});`,
-      );
+      const saves = s.savesPerIteration.flatMap((save) => saveLines(inner, save));
       return [
         `${indent}for (var ${bound(s.var)} : ${renderJavaExpr(s.iterable, renderCtx)}) {`,
         ...body,
@@ -490,12 +499,8 @@ export function javaWorkflowStmtTarget(
         ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
         : `${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
       const inner = `${indent}    `;
-      const thenSaves = s.savesInThen.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
-      );
-      const elseSaves = s.savesInElse.map(
-        (sv) => `${inner}${repoField(sv.aggName)}.save(${bound(sv.name)});`,
-      );
+      const thenSaves = s.savesInThen.flatMap((sv) => saveLines(inner, sv));
+      const elseSaves = s.savesInElse.flatMap((sv) => saveLines(inner, sv));
       const out = [
         `${indent}var ${bound(s.var)} = ${lookup};`,
         `${indent}if (${bound(s.var)} != null) {`,
@@ -528,6 +533,50 @@ export function javaWorkflowStmtTarget(
   };
 }
 
+/** Publish what a just-saved aggregate drained (`pullEvents()`) on Spring's
+ *  in-process bus.  On the command path this runs inside the workflow
+ *  service's `@Transactional`, so the reactors' `@TransactionalEventListener
+ *  (AFTER_COMMIT)` entry (`ReactorListener`, dispatch.ts) delivers each event
+ *  only once the workflow commits and never on a rollback, while the durable
+ *  outbox's plain `@EventListener` still records its row inside the
+ *  transaction (D-WRITE-TX). */
+function publishDrainedLine(binding: string, publisher: string): string {
+  return `for (var __e : ${binding}.pullEvents()) ${publisher}.publishEvent(__e);`;
+}
+
+/** The `<Ctx>Workflows` field holding Spring's `ApplicationEventPublisher`. */
+const WORKFLOW_PUBLISHER = "eventPublisher";
+
+/** Does a command workflow's body raise anything the publisher must carry —
+ *  an aggregate save (whose drained events it publishes) or a workflow-level
+ *  `emit`?  Rides the exhaustive walker, so a save or an `emit` nested in an
+ *  `if let` / `for` branch counts. */
+function workflowPublishes(wf: WorkflowIR): boolean {
+  if (wf.savesAtExit.length > 0) return true;
+  return anyWorkflowStmt(
+    wf,
+    (s) =>
+      s.kind === "emit" ||
+      (s.kind === "for-each" && s.savesPerIteration.length > 0) ||
+      (s.kind === "if-let" && s.savesInThen.length + s.savesInElse.length > 0),
+  );
+}
+
+/** Does the body carry a workflow-level `emit` anywhere (branches included)? */
+function workflowEmitsDeepOnly(wf: WorkflowIR): boolean {
+  return anyWorkflowStmt(wf, (s) => s.kind === "emit");
+}
+
+function anyWorkflowStmt(wf: WorkflowIR, pred: (s: WorkflowStmtIR) => boolean): boolean {
+  let found = false;
+  for (const top of wf.statements) {
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (pred(s)) found = true;
+    });
+  }
+  return found;
+}
+
 /** Names every generated workflow / reactor / handler METHOD body may spell
  *  itself regardless of its shape: the per-dispatch child frame, the emit and
  *  catch temporaries, and the class names a body dereferences by SIMPLE name
@@ -537,6 +586,8 @@ export const WORKFLOW_BODY_FIXED_NAMES: readonly string[] = [
   "__frame",
   "__e",
   "__ev",
+  "__events",
+  "eventPublisher",
   "CatalogLog",
   "RequestContext",
   "DomainException",
@@ -859,6 +910,9 @@ export function renderJavaWorkflows(
       : [];
   const isSaga = new Set(sagaWorkflows.map((w) => w.name));
   const methods: string[] = [];
+  // Any command workflow publishes (M-T4.3 item 6) ⇒ the service injects
+  // Spring's `ApplicationEventPublisher`.
+  let anyPublishes = false;
 
   // VO `<Vo>Request` records no aggregate package emits (collected per
   // workflow below, emitted once into this package after the loop).
@@ -999,15 +1053,27 @@ export function renderJavaWorkflows(
     // No re-indent transform sits between here and the final
     // file, so the chunk texts collected here are already the exact text
     // that lands in `<Ctx>Workflows.java`.
+    // M-T4.3 item 6: the command path PUBLISHES what it raises.  It used to
+    // drop both halves — aggregate events were never `pullEvents()`-drained
+    // after the saves, and a workflow-level `emit` was only constructed and
+    // logged — so no reactor ever saw a workflow-raised event on java.  Each
+    // save is now followed by publishing its drained events, and the body's
+    // `emit`s collect into `__events`, published after the exit saves.  The
+    // service is `@Transactional`, so the reactors (AFTER_COMMIT) run after
+    // the commit and a rollback discards them.
+    const publishes = workflowPublishes(wf);
+    if (publishes) anyPublishes = true;
+    const wfEmits = workflowEmitsDeepOnly(wf);
     const bodyChunks = renderWorkflowStmtChunks(
       wf.statements,
       javaWorkflowStmtTarget(
         ctx,
         imports,
         bodyRenderCtx,
-        undefined,
+        wfEmits ? "__events" : undefined,
         collectUnionFindLets(wf.statements),
         corrParam ? wf.correlationField : undefined,
+        publishes ? WORKFLOW_PUBLISHER : undefined,
       ),
       "            ",
     );
@@ -1030,9 +1096,23 @@ export function renderJavaWorkflows(
           `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
         ]
       : [];
-    const saves = wf.savesAtExit.map(
-      (s) => `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
-    );
+    const saves = wf.savesAtExit.flatMap((s) => [
+      `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
+      `            ${publishDrainedLine(boundLocal(bodyRenderCtx, s.name), WORKFLOW_PUBLISHER)}`,
+    ]);
+    const eventsDecl = wfEmits
+      ? [
+          `            var __events = new java.util.ArrayList<${wctx.basePkg}.domain.events.DomainEvent>();`,
+        ]
+      : [];
+    const eventsPublish = wfEmits
+      ? [
+          `            for (var __ev : __events) {`,
+          `                CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", __ev.getClass().getSimpleName());`,
+          `                ${WORKFLOW_PUBLISHER}.publishEvent(__ev);`,
+          `            }`,
+        ]
+      : [];
     // Persist the row (a fresh allocation, or a `this.<stateField>` write) so a
     // later `on` reactor for the same key routes instead of dropping the event.
     const stateSave = corrParam ? [`            ${stateRepoField(wf)}.save(state);`] : [];
@@ -1057,9 +1137,11 @@ export function renderJavaWorkflows(
       `            CatalogLog.event(${javaLogEvent("workflowStarted")}, "workflow", ${JSON.stringify(wf.name)});`,
       ...paramLets,
       ...stateLoad,
+      ...eventsDecl,
       ...bodyLines,
       ...saves,
       ...stateSave,
+      ...eventsPublish,
       // `workflow_completed` on the success tail — a thrown guard / domain
       // exception short-circuits before reaching here.
       `            CatalogLog.event(${javaLogEvent("workflowCompleted")}, "workflow", ${JSON.stringify(wf.name)});`,
@@ -1221,6 +1303,7 @@ export function renderJavaWorkflows(
   // an instance call against (`registration.isEmailAvailable(...)`).
   const readingServices = [...readingSvcs].sort();
   const ctorParams = [
+    ...(anyPublishes ? [`ApplicationEventPublisher ${WORKFLOW_PUBLISHER}`] : []),
     ...repoFields.map((a) => `${a}Repository ${repoField(a)}`),
     ...sagaWorkflows.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
     ...readingServices.map((s) => `${s} ${lowerFirst(s)}`),
@@ -1233,6 +1316,7 @@ export function renderJavaWorkflows(
       ``,
       ...[...imports].sort().map((i) => `import ${i};`),
       imports.size > 0 ? `` : null,
+      anyPublishes ? `import org.springframework.context.ApplicationEventPublisher;` : null,
       `import org.springframework.stereotype.Service;`,
       `import org.springframework.transaction.annotation.Transactional;`,
       usesIsolation ? `import org.springframework.transaction.annotation.Isolation;` : null,
@@ -1288,6 +1372,7 @@ export function renderJavaWorkflows(
       `@Service`,
       `@Transactional`,
       `public class ${serviceName} {`,
+      anyPublishes ? `    private final ApplicationEventPublisher ${WORKFLOW_PUBLISHER};` : null,
       ...repoFields.map((a) => `    private final ${a}Repository ${repoField(a)};`),
       ...sagaWorkflows.map(
         (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
@@ -1296,6 +1381,7 @@ export function renderJavaWorkflows(
       anyUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
       ``,
       `    public ${serviceName}(${ctorParams}) {`,
+      anyPublishes ? `        this.${WORKFLOW_PUBLISHER} = ${WORKFLOW_PUBLISHER};` : null,
       ...repoFields.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
       ...sagaWorkflows.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
       ...readingServices.map((s) => `        this.${lowerFirst(s)} = ${lowerFirst(s)};`),

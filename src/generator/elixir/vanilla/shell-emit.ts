@@ -42,6 +42,7 @@ import {
   renderApplication,
   renderLiveNav,
   renderLogFormatter,
+  renderPostCommit,
   renderRequestContext,
 } from "../shell/runtime.js";
 import { renderLayouts } from "../shell/web.js";
@@ -182,6 +183,8 @@ export function emitVanillaShellFiles(
   // Ambient execution-context carrier (Logger.metadata) — the Plug is mounted
   // in the endpoint after Plug.RequestId.
   out.set(`lib/${appName}/request_context.ex`, renderRequestContext(appModule));
+  // Post-commit effect buffer a transactional workflow opens (M-T4.3 item 6).
+  out.set(`lib/${appName}/post_commit.ex`, renderPostCommit(appModule));
   // The typed guard denial a pure body (`function` / `domainService` /
   // pure-core op) raises — `<App>.GuardError`, with the rung in its `:kind`
   // field so the controller rescue routes on a FIELD rather than on the

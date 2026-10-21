@@ -69,6 +69,7 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -172,7 +173,7 @@ export function buildWorkflowsFile(
   // candidate that isn't actually referenced is dropped — keeping a
   // subscription-free project byte-identical.
   const usedVOs = valueObjectPool(ctx).map((v) => v.name);
-  const usedEnums = ctx.enums.map((e) => e.name);
+  const usedEnums = enumPool(ctx).map((e) => e.name);
   const valueObjectImport = [...usedVOs, ...usedEnums];
 
   const body: string[] = [];
@@ -1793,7 +1794,7 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   }
   if (t.kind === "array") return "[]";
   if (t.kind === "enum") {
-    const first = ctx.enums.find((e) => e.name === t.name)?.values[0];
+    const first = enumPool(ctx).find((e) => e.name === t.name)?.values[0];
     if (first !== undefined) return JSON.stringify(first);
   }
   return `""`;
@@ -2668,5 +2669,5 @@ function collectUsedValueObjects(ctx: BoundedContextIR) {
 
 function collectUsedEnums(ctx: BoundedContextIR) {
   const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), valueObjectPool(ctx));
-  return ctx.enums.filter((e) => enums.has(e.name));
+  return enumPool(ctx).filter((e) => enums.has(e.name));
 }

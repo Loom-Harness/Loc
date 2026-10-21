@@ -16,6 +16,8 @@
 #      see that, and neither can a green local `tsc` on the un-merged branch.
 #      That is what the merge queue re-runs the combined tree to catch, hours
 #      later and after a runner slot. `LOOM_SKIP_PUSH_TYPECHECK=1` opts out.
+#      Then the fast whole-tree censuses/ratchets in the same worktree (see
+#      census_merged); `LOOM_SKIP_PUSH_CENSUS=1` opts out of those alone.
 #
 # Design: this hook is conservative in both gates. It denies only on a DEFINITE
 # conflict or a gate that RAN and FAILED; on any uncertainty (not a git repo,
@@ -142,6 +144,37 @@ Your branch and origin/main are each green alone; together they are not.
 Rebase onto origin/main, fix, and push again (or set LOOM_SKIP_PUSH_TYPECHECK=1 to bypass deliberately).
     node scripts/test-typecheck.mjs   on (origin/main + HEAD):
 $(printf '%s' "$out" | tail -25)"
+  fi
+
+  census_merged "$dir"
+  return 0
+}
+
+# --- run the whole-tree censuses on the MERGED tree ------------------------
+# A census or ratchet counts something across the whole tree (unwaived sites,
+# untyped expressions, waivers naming code that is gone) and pins the count.
+# Two branches that each pass it alone can fail it together — the commonest
+# reason a green PR is ejected from the merge queue, which discards the build
+# of every entry queued behind it.  The three corpus-wide ones that take 1.5–5
+# minutes each are left to CI; the rest run in ~85 s on 4 cores.
+# `LOOM_SKIP_PUSH_CENSUS=1` opts out.  Denies only when vitest ran and reported
+# failed tests; a timeout or a vitest that never got that far allows.
+CENSUS_SLOW='diagnostic-firing-census|openapi-component-uniqueness-census|/ddd-source-census'
+census_merged() {
+  local dir="$1" files out rc
+  [ -n "${LOOM_SKIP_PUSH_CENSUS:-}" ] && return 0
+  files="$(cd "$dir" && ls test/system/*census*.test.ts test/system/*ratchet*.test.ts \
+    test/system/typing-differential.test.ts 2>/dev/null | grep -vE "$CENSUS_SLOW")"
+  [ -n "$files" ] || return 0
+  # shellcheck disable=SC2086  # one path per word, none with spaces
+  out="$(cd "$dir" && timeout 600 npx vitest run $files 2>&1)"; rc=$?
+  [ "$rc" -eq 124 ] && return 0
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qE 'Tests +[0-9]+ failed'; then
+    deny "git push blocked: '${branch}' merges cleanly into origin/main but the MERGED tree fails a census/ratchet test.
+The merge queue tests that same merged tree, so it would eject this PR (and rebuild every entry behind it).
+Rebase onto origin/main, fix, and push again (or set LOOM_SKIP_PUSH_CENSUS=1 to bypass deliberately).
+    npx vitest run <censuses>   on (origin/main + HEAD):
+$(printf '%s' "$out" | grep -E 'FAIL|AssertionError|Error:|expected|Tests ' | head -40)"
   fi
   return 0
 }

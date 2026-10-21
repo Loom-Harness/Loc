@@ -30,7 +30,7 @@ import {
   operationBodyUsesCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
@@ -118,7 +118,7 @@ export function renderAggregate(
   opFragments?: OpFragment[],
 ): string {
   const valueObjectAliases = valueObjectPool(ctx).map((v) => v.name);
-  const enumAliases = ctx.enums.map((e) => e.name);
+  const enumAliases = enumPool(ctx).map((e) => e.name);
   const hasProv =
     emitProvenance &&
     (agg.operations.some((op) => op.statements.some(stmtHasProv)) ||
