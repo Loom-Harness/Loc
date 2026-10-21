@@ -328,7 +328,7 @@ Item **V1** (#3031). A wrong-typed `toBe`, an unknown operation and an unknown f
 
 **Verification.** A negative validator case per shape (wrong-typed matcher, unknown op, unknown field); the corpus still validating after the repairs; mutation-proved by removing the dispatch.
 
-## M-T5.42 — The validator batch: silent shapes that validate clean and break codegen — `open` · **M** (a batch of S items + one M) · P1
+## M-T5.42 — The validator batch: silent shapes that validate clean and break codegen — `partial` (V2, V4, V7, V8, V9, V15 closed by #3106; V1, V3, V5, V6, V10–V12 open) · **M** (a batch of S items + one M) · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (leftover-waves-2026-09-28).**
 
@@ -350,16 +350,6 @@ One tree-fenced packet (`src/ir/validate/checks/`, `src/language/validators/`, `
 | V15 | `loom.locator-matcher-receiver` is re-derived in the AST validator; move it onto the resolved IR | `validators/match.ts:161` (#2789) | S |
 
 **Verification.** One negative validator test per row, every message in the catalog, each gate mutation-proved; the corpus still validating. V11 re-measures its denominator against the P3 sweep's 777 body keys rather than trusting the widening.
-
-## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `open` · **M** · P2
-
-*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
-
-Item **V14** (#2838). The expression form of a variant `match` carries its resolved union type; the statement form lowers with `subjectType` left as `string`, so the four shape gates keyed on the subject type (exhaustiveness, unknown variant, binding arity, the error-variant binding) are skipped for it. Pinned as a known gap at `test/ir/variant-match-subject-type.test.ts:70`.
-
-**The fix:** resolve the statement's subject through the same path as the expression form; flip the pinned `it.fails` in the same PR.
-
-**Verification.** The pinned case flips; one negative case per gate on the statement form.
 
 ## M-T5.44 — Only one `resource` per (context, kind), even for `api` / `objectStore` / `mailer` / `queue` — `open` · **M** · P3 (design first)
 

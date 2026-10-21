@@ -15,7 +15,7 @@
 //     ISO string for its own parser).
 //   - matchers → Python `assert ==`; Java `assertEquals` / BigDecimal
 //     `compareTo` for money-like comparisons.
-//   - toThrow → Python `with pytest.raises(Exception):`; Java
+//   - toThrow → Python `with pytest.raises((DisallowedError, DomainError, ForbiddenError)):`; Java
 //     `assertThrows(DomainException.class, () -> …)`.
 
 import { describe, expect, it } from "vitest";
@@ -117,7 +117,9 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     // value matcher → `assert ==`.
     expect(src).toContain("assert p.budget == 0.0");
     // toThrow → pytest.raises context manager wrapping the call.
-    expect(src).toContain("    with pytest.raises(Exception):");
+    expect(src).toContain(
+      "    with pytest.raises((DisallowedError, DomainError, ForbiddenError)):",
+    );
     expect(src).toContain('        p.rename("")');
   });
 
@@ -163,8 +165,11 @@ describe("Java domain-test emitter (renderJavaTestsFile)", () => {
     expect(create).toContain('Project.create("demo", null, new BigDecimal("0.0"))');
     // money-like value matcher routes through BigDecimal.compareTo.
     expect(src).toContain('assertEquals(0, (p.budget()).compareTo(new BigDecimal("0.0")))');
-    // toThrow → assertThrows(DomainException.class, …).
-    expect(src).toContain('assertThrows(DomainException.class, () -> p.rename(""))');
+    // A bare toThrow over an operation call → the domain-rejection family
+    // (`javaBareToThrow`): a `when` gate throws the sibling DisallowedException.
+    expect(src).toMatch(
+      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DomainException \|\| \1 instanceof DisallowedException/,
+    );
   });
 
   it("passes null for an omitted create-input and coerces the typed ones", async () => {

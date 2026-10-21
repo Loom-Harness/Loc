@@ -85,8 +85,7 @@ describe("vue generator — project shape", () => {
   it("router.ts mounts the declared page at its route + a catch-all NotFound", async () => {
     const files = await vueFiles();
     const router = files.get("src/router.ts")!;
-    expect(router).toContain(`import CustomerHome from "./pages/customer_home.vue";`);
-    expect(router).toContain(`{ path: "/", component: CustomerHome }`);
+    expect(router).toContain(`{ path: "/", component: () => import("./pages/customer_home.vue") }`);
     expect(router).toContain(`{ path: "/:pathMatch(.*)*", component: NotFound }`);
     expect(router).toContain("createWebHistory");
   });

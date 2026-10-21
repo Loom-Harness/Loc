@@ -76,7 +76,7 @@ context Sales {
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array or nullable result. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { ... } else { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
+| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.<find>(args) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row) or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
@@ -112,10 +112,34 @@ no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
 
 Reach the other context at its **public surface** instead — the same two
 sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
-names, both of which a workflow may use: call `Directory`'s api through a
-`resource { kind: api }` binding, or read a local projection folded over
-`Directory`'s published events.  If the two aggregates genuinely change
-together in one transaction, they belong in the same context.
+names: call `Directory`'s api through a `resource { kind: api }` binding, or
+consume `Directory`'s published events.  To use event-fed data **inside a
+workflow**, fold the events into a local **replica aggregate** and read that
+through its repository — a workflow loads data only through its own context's
+repositories:
+
+```ddd
+aggregate TechReplica { tech: Technician id immutable  unique (tech)  skills: string[] }
+repository TechReplicas for TechReplica { }
+criterion ForTech(t: Technician id) of TechReplica = tech == t
+
+workflow replicateTechs {
+  tech: Technician id                       // the correlation field
+  create(e: TechnicianRegistered) by e.tech { let r = TechReplica.create({ tech: e.tech, skills: e.skills }) }
+}
+workflow assign {
+  create(workOrderId: WorkOrder id, assignTo: Technician id) {
+    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition false message "unknown technician" }
+  }
+}
+```
+
+A `projection` folded over the same events is **not** readable from a
+workflow — it is a read model with no repository, served through its GET
+endpoint and pages.  `let s = Seen.byKey(k)` in a workflow body is refused with
+`loom.workflow-unknown-name` (before the gate, every backend emitted an
+undefined `Seen` receiver).  If the two aggregates genuinely change together in
+one transaction, they belong in the same context.
 
 ### `if let` — single-result criterion lookup
 
@@ -140,7 +164,29 @@ Both `find` and `findAll` over one criterion share a single internal
 `findAllBy<Criterion>` retrieval (no public endpoint is exposed — unlike a
 declared `find`).  The else-branch may create a fallback aggregate
 (`let s = Seat.create({...})`); branch-local creations / mutations save at the
-end of their branch.  `if let`'s source is a criterion `find` in this release.
+end of their branch.
+
+The source may also be a **declared optional find** — `if let o =
+Orders.byCode(c.code) { … }` over `find byCode(c: string): Order?`.  The
+generated code calls the repository's own find (no retrieval is synthesised)
+and branches on presence, exactly as above; the same form works in a
+`commandHandler` / `queryHandler` body.  Any other source (`getById`, a
+non-optional or union-valued find) is `loom.iflet-bad-source`.
+
+```ddd
+commandHandler BumpByCode(code: string, n: int) {
+  if let hit = Orders.byCode(code) { hit.bump(n) }
+}
+```
+
+```ts
+// node (Hono) — the handler body
+const hit = await orders.byCode(code);
+if (hit !== null) {
+  hit.bump(n);
+  await orders.save(hit);
+}
+```
 
 Own-state assignment (`field := value`) — writing one of the workflow's own
 declared state fields — is allowed inside a `create` / `handle` / `on` body; it
@@ -498,6 +544,13 @@ expression (`paid.amount == "x"` is a type error).  These transport
 types are in scope **only** in `create` / `handle` parameter positions —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
+
+> **Principal.** A reactor / event starter has no request, so it runs as the
+> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is
+> empty, and the tenant is the triggering event's.  Gates on the operations it
+> calls are evaluated against it — `requires currentUser.isSystem || …` admits
+> it; a gate that reads `currentUser` without that disjunct is warned
+> (`loom.reactor-gate-unsatisfiable`).  See [`language-reference/17-auth.md` § Reactors](language-reference/17-auth.md#reactors--the-system-principal-currentuserissystem).
 
 > **Status.** The parameter surface above parses, resolves, and
 > type-checks today.  **In-process dispatch ships on the Hono, .NET,

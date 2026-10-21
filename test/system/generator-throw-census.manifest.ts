@@ -645,6 +645,18 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "`slot` and `action` types are only legal on a component's parameter list, so they never reach a backend typespec.",
   },
 
+  // src/generator/elixir/vanilla/domain-core-emit.ts
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
+    deferred:
+      "The event-sourced pure core reads the same command body as the ES command runner, so it shares that runner's gap: an `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate.",
+    mission: "M-T9.79",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
+    invariant:
+      "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
+  },
+
   // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
@@ -675,7 +687,30 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/elixir/store-emit.ts
+  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
+    guardedBy: ["loom.ui-body-statement-kind"],
+    note: "precondition / requires / return / match await in a LiveView store action are refused by the #liveview-store arm of the gate.",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$2": {
+    guardedBy: ["loom.if-stmt-page-body-unsupported"],
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$3": {
+    invariant:
+      "Scope resolution gives a ui body no aggregate to emit from, so an `emit` never lowers into a store action. (src/language/ddd-scope.ts)",
+  },
+
   // src/generator/elixir/vanilla/function-emit.ts
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
+    guardedBy: ["loom.function-block-impure"],
+    note: "A call statement to anything but a pure function is #call-stmt.",
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$2": {
+    guardedBy: ["loom.function-block-impure"],
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$3": {
+    guardedBy: ["loom.variant-match-placement"],
+  },
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
     deferred:
       "A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.",
@@ -785,10 +820,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
-    deferred:
-      "'b := this.b' (kind 'this') or 'let f = say' (kind 'action-ref') in a page action parse with 0 errors and hit the default arm.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-this-unbound"],
+  },
+  "src/generator/feliz/fs-expr.ts#renderFsExpr$5": {
+    invariant:
+      "authz-filter is built only by enrichment into an aggregate's contextFilters / writeScopeFilter, never into a ui body. (src/ir/util/tenant-stance.ts)",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
     deferred:

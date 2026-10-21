@@ -14,72 +14,30 @@ name: Corpus compile gate (Elixir)
 # feature's generated plain-Ecto/Phoenix project is `mix compile
 # --warnings-as-errors`-checked inside the hexpm/elixir image, per PR.
 #
+# That compile is MIX_ENV=prod, which never reads `test/` — so the same cell
+# then runs the project's emitted ExUnit suite (the elixir half of the
+# fixture's `test` blocks) under `MIX_ENV=test mix test --warnings-as-errors`
+# against the Postgres sidecar.  Known-failing suites are ratcheting entries
+# in the test's ELIXIR_TEST_WAIVERS (a waived suite that passes fails as stale).
+#
 # The generate + compile loop lives in `test/e2e/corpus-elixir-build.test.ts`
 # (entrypoint `npm run test:elixir-corpus`); the feature list is computed inside
 # the test from the shared manifest (test/fixtures/corpus/manifest.ts, key
 # `vanilla`) minus that backend's ELIXIR_COMPILE_SKIP map — one source of truth.
 #
-# Sharded one feature per cell (like elixir-vanilla-build.yml): a cold docker
-# `mix deps.get` + compile per feature comfortably fits a per-cell timeout, and
-# a `configure` job enumerates the corpus fixtures dynamically so adding a
-# `<feature>.ddd` needs no workflow edit.  CI has direct hex.pm access, so
-# LOOM_HEX_MIRROR stays unset here (a no-op).
+# One job runs every feature, PARALLELISM (the runner's cores) at a time.  The
+# test builds each distinct dependency set ONCE into a template and starts
+# every project from a copy of it, so a feature costs its own compile, migrate
+# and suite rather than a cold `mix deps.get` + dependency build.  Sharded one
+# feature per job, the setup (toolchain install, image pull, dependency build)
+# was repeated a hundred times for under a minute of real work each.  CI has
+# direct hex.pm access, so LOOM_HEX_MIRROR stays unset here (a no-op).
 #
 # Triggers: any change to the elixir generator subtree, the shared expression
 # seam, the IR, the elixir platform surface / deployable validator, the corpus
 # fixtures, or this leg's test — plus push:main and manual dispatch.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/elixir/**'
-      - 'src/generator/_api/**'
-      - 'src/generator/_expr/**'
-      - 'src/generator/_openapi/**'
-      - 'src/platform/elixir.ts'
-      # Shared emission seams the platform tree above delegates into: `_stmt` is
-      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
-      # the one tagged-union wire shape, `_i18n` the validation-catalog
-      # collector.  The leading underscore means SHARED, not per-target -- a
-      # change confined to one of them changes what this gate compiles.  Derived
-      # from this block's platform claim and pinned by
-      # test/system/workflow-path-coverage.test.ts.
-      - 'src/generator/_adapters/**'
-      - 'src/generator/_api/**'
-      - 'src/generator/_auth/**'
-      - 'src/generator/_channels/**'
-      - 'src/generator/_docker/**'
-      - 'src/generator/_frontend/**'
-      - 'src/generator/_i18n/**'
-      - 'src/generator/_numeric/**'
-      - 'src/generator/_obs/**'
-      - 'src/generator/_openapi/**'
-      - 'src/generator/_packs/**'
-      - 'src/generator/_payload/**'
-      - 'src/generator/_persistence/**'
-      - 'src/generator/_stmt/**'
-      - 'src/generator/_test/**'
-      - 'src/generator/_trace/**'
-      - 'src/generator/_walker/**'
-      - 'src/generator/_workflow/**'
-      - 'test/fixtures/corpus/**'
-      - 'test/e2e/corpus-elixir-build.test.ts'
-      - 'test/e2e/support/hex-mirror.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/corpus-elixir-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -127,6 +85,8 @@ on:
       - 'test/fixtures/corpus/**'
       - 'test/e2e/corpus-elixir-build.test.ts'
       - 'test/e2e/support/hex-mirror.ts'
+      - 'test/e2e/support/mix-workspace.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/corpus-elixir-build.yml'
@@ -141,42 +101,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Enumerate the corpus feature fixtures dynamically so dropping a
-  # `<feature>.ddd` under test/fixtures/corpus/ extends the matrix with no
-  # workflow edit.  Output is JSON consumed by the matrix below via `fromJSON`.
-  # A feature excluded from `vanilla` (or listed in ELIXIR_COMPILE_SKIP) still
-  # gets a cell, but the test filters it out → 0 tests → `--passWithNoTests`
-  # keeps the cell green; the test stays the single source of truth for what
-  # actually compiles.
-  configure:
+  # Every corpus feature in one job — see the header.  The feature list is
+  # computed inside the test from the shared manifest, so adding a
+  # `<feature>.ddd` extends this job with no workflow edit.
+  corpus-elixir:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v6
-      - id: set
-        run: |
-          features=$(for f in test/fixtures/corpus/*.ddd; do
-            basename "$f" .ddd
-          done | jq -R . | jq -cs .)
-          echo "matrix={\"feature\":$features}" >> "$GITHUB_OUTPUT"
-
-  # One job PER corpus feature (sharded).  A fully cold cell is ONE feature:
-  # npm ci + toolchain build, generate, then a docker `mix deps.get` + `mix
-  # compile --warnings-as-errors` (~2-3 min) — always fits the timeout.
-  corpus-elixir:
-    needs: configure
-    runs-on: ubuntu-latest
-    strategy:
-      # Surface every broken feature rather than aborting on the first.
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    timeout-minutes: 20
-    name: ${{ matrix.feature }}
+    timeout-minutes: 60
+    name: corpus × elixir (Phoenix)
     steps:
       - uses: actions/checkout@v6
 
@@ -185,18 +120,14 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # `npm ci` runs the `prepare` lifecycle (langium:generate + build); the
-      # toolchain compiles before the test's `generate system` step needs it.
       # Docker Hub pulls flake: a registry timeout (Client.Timeout on
-      # registry-1.docker.io) killed an otherwise-green cell on #2380 with
-      # exit 125 before any compile ran. Pre-pull with backoff so a transient
-      # hiccup costs seconds, not the cell. The tag is grepped from the test
-      # file — the single source of truth — so a version bump cannot drift.
-      # The Postgres sidecar the test starts to APPLY each project's migrations
-      # (not just compile them — #3060) is pulled the same way.
+      # registry-1.docker.io) killed an otherwise-green run with exit 125
+      # before any compile ran. Pre-pull with backoff so a transient hiccup
+      # costs seconds, not the run. The tags are grepped from the test file —
+      # the single source of truth — so a version bump cannot drift.
       - name: Pre-pull the hexpm/elixir + postgres images (retries)
         run: |
-          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/corpus-elixir-build.test.ts | head -1)
+          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/support/mix-workspace.ts | head -1)
           PG=$(grep -ohE 'postgres:[0-9]+-alpine' test/e2e/corpus-elixir-build.test.ts | head -1)
           for img in "$IMG" "$PG"; do
             echo "pre-pulling $img"
@@ -208,25 +139,22 @@ jobs:
             [ "$ok" = 1 ] || exit 1
           done
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
-      # `--passWithNoTests` so a feature the manifest excludes from `vanilla`
-      # (or one in ELIXIR_COMPILE_SKIP) yields an empty `it.each` and still
-      # passes — the test's filter, not the matrix, decides what compiles.
-      - name: mix compile this corpus feature (Elixir/Phoenix)
-        env:
-          LOOM_ELIXIR_BUILD: "1"
-          LOOM_CORPUS_ELIXIR_CASE: ${{ matrix.feature }}
-        run: npx vitest run test/e2e/corpus-elixir-build.test.ts --passWithNoTests
+      - name: mix compile + migrate + mix test every corpus feature (Elixir/Phoenix)
+        run: npm run test:elixir-corpus
 
       - name: Surface failure context
         if: failure()
         run: |
-          echo "## Corpus Elixir compile failed: ${{ matrix.feature }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Corpus Elixir compile failed" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'See the "mix compile this corpus feature" step above for the captured `mix deps.get` + `mix compile --warnings-as-errors` diagnostics.' >> $GITHUB_STEP_SUMMARY
-          echo 'This cell generates `test/fixtures/corpus/${{ matrix.feature }}.ddd` on `platform: elixir` compiles it in the hexpm/elixir image and applies its migrations to a Postgres sidecar via `test/e2e/corpus-elixir-build.test.ts` (LOOM_CORPUS_ELIXIR_CASE=${{ matrix.feature }}).' >> $GITHUB_STEP_SUMMARY
+          echo 'The vitest report above names each failing feature and carries its captured `mix compile --warnings-as-errors`, `mix ecto.migrate` and `mix test --warnings-as-errors` output.' >> $GITHUB_STEP_SUMMARY
+          echo 'Reproduce one feature locally: `LOOM_ELIXIR_BUILD=1 LOOM_CORPUS_ELIXIR_CASE=<feature> npx vitest run test/e2e/corpus-elixir-build.test.ts` (add LOOM_HEX_MIRROR=1 behind a TLS-fingerprinting proxy).' >> $GITHUB_STEP_SUMMARY
+          echo 'A "STALE ELIXIR_TEST_WAIVERS entry" failure means a waived suite now passes: delete its line in that file (and lower the pin in test/platform/allowlist-ratchet.test.ts).' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
@@ -245,7 +173,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [configure, corpus-elixir]
+    needs: [corpus-elixir]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

@@ -1,6 +1,7 @@
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
@@ -305,6 +306,10 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
 }
 
 function renderMember(recv: string, e: MemberExpr): string {
+  // `currentUser.isSystem` (ruling D1) — the slot is OPTIONAL on `User` (a
+  // request principal never carries it), so compare rather than read it bare:
+  // the expression stays a real `boolean` wherever it lands.
+  if (isPrincipalIsSystem(e)) return `(${recv}.isSystem === true)`;
   // Arrays expose collection ops without parentheses too — `lines.count`
   // should compile to `.length`.
   if (e.receiverType.kind === "array" && e.member === "count") return `${recv}.length`;
@@ -598,9 +603,31 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporal = renderTemporalBinary(left, right, e);
     if (temporal !== null) return temporal;
   }
+  // VALUE equality on value objects.  A VO is a class instance here, so `===`
+  // compares REFERENCES — `berth == Berth { … }` was always false, while every
+  // other backend compares by value (python dataclass `==`, java
+  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
+  // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
+  // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
+  // same `binary ==` node.  A nullable operand keeps the native comparison
+  // (`equals` takes a non-null VO; the null test is what `===` answers).
+  if ((e.op === "==" || e.op === "!=") && isValueObjectEquality(e)) {
+    const recv = /^[\w$.]+$/.test(left) ? left : `(${left})`;
+    const eq = `${recv}.equals(${right})`;
+    return e.op === "==" ? eq : `!${eq}`;
+  }
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
   return `${left} ${opPrint} ${right}`;
+}
+
+/** True iff a `==` / `!=` compares two NON-null value objects — the left
+ *  operand typed as a (non-optional) value object, the right neither an
+ *  optional nor the `null` literal. */
+function isValueObjectEquality(e: Extract<ExprIR, { kind: "binary" }>): boolean {
+  if (e.leftType?.kind !== "valueobject") return false;
+  if (e.rightType?.kind === "optional") return false;
+  return !(e.right.kind === "literal" && e.right.lit === "null");
 }
 
 /** The datetime-involving `+`/`-` arms (A5 temporal), or null to fall
