@@ -123,9 +123,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     expect(filter).toContain("if (context.Exception is ConcurrencyConflictException)");
     expect(filter).not.toContain("DbUpdateConcurrencyException"); // no EF type on the dapper path
     // schema DDL + Npgsql/Dapper deps + connection wiring.
-    expect(dapperDdl(files)).toContain(
-      "create table orders",
-    );
+    expect(dapperDdl(files)).toContain("create table orders");
     expect(files.get("api/Api.csproj")).toContain('Include="Dapper"');
     expect(files.get("api/Api.csproj")).not.toContain("EntityFrameworkCore");
     expect(files.get("api/Program.cs")).toContain("DbSchema.EnsureAsync");
@@ -184,9 +182,7 @@ system D {
     expect(repo).toContain("WHERE stream_type = @st AND stream_id = @sid");
     expect(repo).toContain('"Opened" => System.Text.Json.JsonSerializer.Deserialize<Opened>');
     // The per-context event table ships in the self-applied schema.
-    expect(dapperDdl(files)).toContain(
-      "create table o_events",
-    );
+    expect(dapperDdl(files)).toContain("create table o_events");
   });
 
   // Wave 4: an event-sourced aggregate that ALSO declares `contains` parts is
@@ -259,9 +255,7 @@ system D {
     const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
     // The root row carries no tags column; the join table does.
     expect(repo).not.toContain("tags { get; set; }");
-    expect(dapperDdl(files)).toContain(
-      "create table order_tags",
-    );
+    expect(dapperDdl(files)).toContain("create table order_tags");
     // Reads funnel through the bulk loader, ordered by the target FK id.
     expect(repo).toContain(
       "SELECT order_id, tag_id FROM order_tags WHERE order_id = ANY(@ids) ORDER BY order_id, tag_id",
@@ -400,9 +394,7 @@ system D {
     expect(ports).toContain("public sealed class DapperUnitOfWork : IUnitOfWork");
     expect(ports).not.toContain("AppDbContext");
     // The saga-state table ships in DbSchema (not an EF migration).
-    expect(dapperDdl(files)).toContain(
-      "create table ws (",
-    );
+    expect(dapperDdl(files)).toContain("create table ws (");
     // Ephemeral channel → NO outbox (no durable events).
     expect(files.has("api/Infrastructure/Events/OutboxRelayService.cs")).toBe(false);
     // The workflow instances read controller reads through NpgsqlDataSource.
@@ -448,14 +440,10 @@ system D {
     expect(relay).not.toContain("Microsoft.EntityFrameworkCore");
     // The __loom_outbox DDL ships in DbSchema (not an EF migration); the EF
     // OutboxMessage POCO is NOT emitted on the Dapper path.
-    expect(dapperDdl(files)).toContain(
-      "create table __loom_outbox (",
-    );
+    expect(dapperDdl(files)).toContain("create table __loom_outbox (");
     expect(files.has("api/Infrastructure/Persistence/OutboxMessage.cs")).toBe(false);
     // The idempotent-consumer marker column rides the durable saga table.
-    expect(dapperDdl(files)).toContain(
-      "last_event_id text",
-    );
+    expect(dapperDdl(files)).toContain("last_event_id text");
     // Program.cs registers the same three dispatcher/relay lines the EF path uses.
     const program = files.get("api/Program.cs")!;
     expect(program).toContain("builder.Services.AddHostedService<OutboxRelayService>();");
@@ -500,9 +488,7 @@ system D {
       files.has("api/Infrastructure/Persistence/Configurations/OEventRecordConfiguration.cs"),
     ).toBe(false);
     // The <ctx>_events log ships in DbSchema.
-    expect(dapperDdl(files)).toContain(
-      "create table o_events (",
-    );
+    expect(dapperDdl(files)).toContain("create table o_events (");
   });
   it("accepts a part-in-part under shape: embedded — the nested subtree folds via snapshots", async () => {
     // Embedded folds each root containment into one JSONB column serialised
