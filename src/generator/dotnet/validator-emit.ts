@@ -15,7 +15,7 @@ import {
   singleFieldShape,
 } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -559,7 +559,7 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>): string {
     case "lambda":
       return e.name;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     default:
       return `false /* UNRENDERABLE-REF:${e.refKind} */`;
   }

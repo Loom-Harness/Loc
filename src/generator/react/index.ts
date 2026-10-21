@@ -36,6 +36,7 @@ import { buildProjectionsApiModule, readableProjections } from "../_frontend/pro
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import {
   allWorkflows,
   buildWorkflowsApiModule,
@@ -602,6 +603,10 @@ export function generateReactForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Path-prefix transform — applied once at the end so the per-page
   // emitters, pack shellFiles, shellGlobs, e2e harness, and every

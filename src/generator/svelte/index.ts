@@ -54,6 +54,7 @@ import {
   SVELTE_LIB_TOAST_EFFECT_PATH,
   uiUsesToastEffect,
 } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -489,6 +490,10 @@ export function generateSvelteForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Path-prefix transform — applied once at the end so every emitter
   // above stays path-agnostic (same shape as the react generator's).

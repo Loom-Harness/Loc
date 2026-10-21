@@ -26,7 +26,7 @@
 
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { renderCsType } from "../render-expr.js";
 
@@ -35,7 +35,7 @@ import { renderCsType } from "../render-expr.js";
  *  the op's domain-typed params, plus a trailing `User currentUser` when the
  *  op references `currentUser`. */
 function hookParams(op: AggregateIR["operations"][number]): string {
-  const base = op.params.map((p) => `${renderCsType(p.type)} ${p.name}`);
+  const base = op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
   return [...base, ...(operationBodyUsesCurrentUser(op) ? ["User currentUser"] : [])].join(", ");
 }
 

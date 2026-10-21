@@ -43,6 +43,7 @@ import {
   upperFirst,
   workflowFnSnake,
 } from "../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
@@ -1042,7 +1043,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)}, "precondition")`,
+      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

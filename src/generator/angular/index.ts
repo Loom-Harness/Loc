@@ -52,6 +52,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -785,6 +786,10 @@ export function generateAngularForContexts(
   if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
     out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
   }
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Fullstack embed: relocate the whole project under the host's prefix
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
