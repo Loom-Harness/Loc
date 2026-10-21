@@ -2862,6 +2862,30 @@ system P {
   deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
 }`,
 
+  // `this` in a page action on a walker frontend: no aggregate instance is in
+  // scope there.  Without the gate the model reports `0 error(s)` and then the
+  // shared walker / Feliz update renderer abort `ddd generate system`.
+  "loom.ui-this-unbound": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { label: string = "" }
+      action again() { label := string(this) }
+      body: Stack { Button { "Again", onClick: again } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
   // `display`/`inspect` are reserved derived names that only mean something on
   // an aggregate — on a value object they are rejected.
   "loom.reserved-derived-on-vo": repoOnly(`    valueobject Money {
@@ -3370,6 +3394,25 @@ system S {
   "loom.money-in-text-slot": uiPage(
     `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.price } } }`,
   ),
+  // --- M-T5.42 (packet L1-V2) ---------------------------------------------
+  // V7 — a value-object field read straight into a text slot.
+  "loom.valueobject-in-text-slot": uiPage(
+    `QueryView { of: Item.all, data: rows => For { each: rows, i => Text { i.place } } }`,
+  ).replace("price: money }", "price: money  place: Spot }\n    valueobject Spot { city: string }"),
+  // V8 — a `Button { icon: }` name the builtin registry lacks.
+  "loom.button-icon-unknown": uiPage(`Button { "Delete", icon: "trash" }`),
+  // V9 — a storage type that binds to no kind.
+  "loom.storage-type-unbound": `
+system S {
+  subdomain Sub { context C { } }
+  storage bus { type: nats }
+}`,
+  // V2 — a default on a callable site whose lowerer drops it.
+  "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
+    repository Things for Thing { }
+    domainService Calc {
+      operation twice(x: int = 3): int { return x * 2 }
+    }`),
   // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.
@@ -3715,6 +3758,13 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨, same reason (B-20b): a unique index added to a table the
+  // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
+  // file drives the warning, its `sql before` silencing, and the rebuild /
+  // new-table / first-generation exemptions.
+  "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // B-20: the AST validator rejects any `sql <placement>` other than `before`.
+  "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
 };
 

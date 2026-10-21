@@ -119,6 +119,37 @@ export const BEHAVIOURAL_SKIP = {
   },
 };
 
+/**
+ * The inverse of `BEHAVIOURAL_SKIP`, one level finer than a backend: corpus
+ * cases ARMED on one persistence ADAPTER's leg although the manifest does not
+ * (yet) declare that adapter's backend.  Keyed by the runner's platform clause,
+ * like `BEHAVIOURAL_SKIP`; each value is the reason plus the named exit.
+ *
+ * It exists for a case that discriminates on an alternate adapter but cannot be
+ * keyed for the whole backend, because the backend's DEFAULT adapter fails it
+ * for a separate, filed reason — keying the backend would turn that default leg
+ * red, and a `BEHAVIOURAL_SKIP` entry there is pinned at zero (and would read as
+ * "this backend does not boot the case" to the gate ledger, which is untrue for
+ * the adapter).  Arming here adds a gate and hides none.
+ *
+ * It RATCHETS DOWN: `test/behavioral/adapter-only-cases.test.ts` fails an entry
+ * whose case the manifest already declares for the clause's backend (stale — the
+ * exit landed, delete the entry), names a missing corpus case, or carries no
+ * mission / PR id.  Empty is the target state.
+ */
+export const ADAPTER_ONLY_CASES = {
+  "dotnet { persistence: dapper }": {
+    // #3224: a `transactional` Dapper workflow commits atomically.  Pre-fix the
+    // Dapper leg fails this case (`expected 80 to be 90` — the first handle's
+    // save had committed on its own connection); post-fix it passes.  The EF leg
+    // fails it for a different reason (two `getById` loads are one tracked
+    // entity, so `debitTwice` never conflicts), filed as M-T6.90; when that
+    // lands, `dotnet` joins the manifest set and this entry goes.
+    "transactional-workflow-event-rollback":
+      "M-T6.90 — EF's identity map makes the duplicate-handle conflict unreachable on the default .NET adapter; Dapper gates #3224's atomicity fix",
+  },
+};
+
 /** The shared `systems/*.ddd` cases, DERIVED from the directory rather than a
  *  hand-list — a new shared system is gated the moment it lands, and a golden
  *  can't be deleted to dodge the gate. */

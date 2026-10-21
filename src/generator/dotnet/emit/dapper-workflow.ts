@@ -14,7 +14,8 @@
 //   - closed-generic Dapper `ISagaStateStore<<Wf>State>` / `IReadModelStore<
 //     <Proj>Row>` implementations (load-all + in-memory predicate + upsert),
 //   - a per-context `IWorkflowEventStore<<Ctx>EventRecord>` over `<ctx>_events`,
-//   - a `DapperUnitOfWork` (real Npgsql transaction),
+//   - a `DapperUnitOfWork` (the ambient Npgsql transaction the repositories
+//     enlist in — dapper-session.ts),
 //   - an Npgsql-querying outbox dispatcher + relay BackgroundService,
 //   - the saga / projection / outbox table DDL (rendered into `DbSchema.cs`),
 //
@@ -43,6 +44,7 @@ import {
   workflowStateTable,
 } from "../workflow-state-emit.js";
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
+import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
 import { outboxOriginFrame, outboxPayloadExpr } from "./outbox.js";
 
@@ -214,6 +216,7 @@ function renderRowStore(
   table: string,
   pkCol: string,
   cols: DapperColumn[],
+  ns: string,
 ): string[] {
   const nonPk = cols.filter((c) => c.col !== pkCol);
   const insertCols = cols.map((c) => sqlIdent(c.col)).join(", ");
@@ -233,7 +236,7 @@ function renderRowStore(
     "",
     `    public async Task<${pocoClass}?> FindAsync(Expression<Func<${pocoClass}, bool>> predicate, CancellationToken cancellationToken = default)`,
     "    {",
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+    `        ${dapperOpenConn(ns)}`,
     `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT ${selectList(cols)} FROM ${table}", cancellationToken: cancellationToken));`,
     "        var match = rows.Select(Map).AsQueryable().FirstOrDefault(predicate);",
     "        if (match is not null) _pending.Add(match);",
@@ -245,7 +248,7 @@ function renderRowStore(
     "    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)",
     "    {",
     "        if (_pending.Count == 0) return;",
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+    `        ${dapperOpenConn(ns)}`,
     "        foreach (var s in _pending)",
     `            await conn.ExecuteAsync(new CommandDefinition("${upsert}", new { ${bind} }, cancellationToken: cancellationToken));`,
     "        _pending.Clear();",
@@ -271,7 +274,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "",
     `    public async Task<List<${rec}>> LoadStreamAsync(string streamType, string streamId, CancellationToken cancellationToken = default)`,
     "    {",
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+    `        ${dapperOpenConn(ns)}`,
     `        var rows = await conn.QueryAsync<${rec}>(new CommandDefinition(`,
     `            "SELECT seq AS Seq, stream_type AS StreamType, stream_id AS StreamId, version AS Version, type AS Type, data AS Data, occurred_at AS OccurredAt FROM ${table} WHERE stream_type = @streamType AND stream_id = @streamId ORDER BY version",`,
     "            new { streamType, streamId }, cancellationToken: cancellationToken));",
@@ -280,7 +283,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "",
     "    public async Task<int> MaxVersionAsync(string streamType, string streamId, CancellationToken cancellationToken = default)",
     "    {",
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+    `        ${dapperOpenConn(ns)}`,
     "        return await conn.ExecuteScalarAsync<int?>(new CommandDefinition(",
     `            "SELECT MAX(version) FROM ${table} WHERE stream_type = @streamType AND stream_id = @streamId",`,
     "            new { streamType, streamId }, cancellationToken: cancellationToken)) ?? 0;",
@@ -291,7 +294,7 @@ function renderEventStore(ns: string, ctxName: string): string[] {
     "    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)",
     "    {",
     "        if (_pending.Count == 0) return;",
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+    `        ${dapperOpenConn(ns)}`,
     "        foreach (var r in _pending)",
     "            await conn.ExecuteAsync(new CommandDefinition(",
     `                "INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@StreamType, @StreamId, @Version, @Type, @Data::jsonb, @OccurredAt)",`,
@@ -312,10 +315,11 @@ function renderDapperPersistencePorts(
   eventLogContextNames: readonly string[],
 ): string {
   const blocks: string[] = [];
-  // Unit of work — a real Npgsql transaction (the Dapper repositories open
-  // their own per-call connections, so this covers only work done on the
-  // returned transaction's connection; v1 correctness for the single-writer
-  // command handlers, byte-neutral otherwise).
+  // Unit of work — the ambient Npgsql transaction every Dapper repository and
+  // port adapter enlists in while it is open (dapper-session.ts), so a
+  // `transactional` workflow commits or rolls back as ONE unit.  Delegating,
+  // not `async`: the ambient registration must happen in the caller's flow.
+  const ambientTx = dapperAmbientTxClassFq(ns);
   blocks.push(
     [
       "public sealed class DapperUnitOfWork : IUnitOfWork",
@@ -323,29 +327,11 @@ function renderDapperPersistencePorts(
       "    private readonly NpgsqlDataSource _db;",
       "    public DapperUnitOfWork(NpgsqlDataSource db) => _db = db;",
       "",
-      "    public async Task<IDomainTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)",
-      "    {",
-      "        var conn = await _db.OpenConnectionAsync(cancellationToken);",
-      "        var tx = await conn.BeginTransactionAsync(cancellationToken);",
-      "        return new DapperDomainTransaction(conn, tx);",
-      "    }",
+      "    public Task<IDomainTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)",
+      `        => ${ambientTx}.BeginAsync(_db, null, cancellationToken);`,
       "",
-      "    public async Task<IDomainTransaction> BeginTransactionAsync(System.Data.IsolationLevel isolationLevel, CancellationToken cancellationToken = default)",
-      "    {",
-      "        var conn = await _db.OpenConnectionAsync(cancellationToken);",
-      "        var tx = await conn.BeginTransactionAsync(isolationLevel, cancellationToken);",
-      "        return new DapperDomainTransaction(conn, tx);",
-      "    }",
-      "}",
-      "",
-      "public sealed class DapperDomainTransaction : IDomainTransaction",
-      "{",
-      "    private readonly NpgsqlConnection _conn;",
-      "    private readonly System.Data.Common.DbTransaction _tx;",
-      "    public DapperDomainTransaction(NpgsqlConnection conn, System.Data.Common.DbTransaction tx) { _conn = conn; _tx = tx; }",
-      "    public Task CommitAsync(CancellationToken cancellationToken = default) => _tx.CommitAsync(cancellationToken);",
-      "    public Task RollbackAsync(CancellationToken cancellationToken = default) => _tx.RollbackAsync(cancellationToken);",
-      "    public async ValueTask DisposeAsync() { await _tx.DisposeAsync(); await _conn.DisposeAsync(); }",
+      "    public Task<IDomainTransaction> BeginTransactionAsync(System.Data.IsolationLevel isolationLevel, CancellationToken cancellationToken = default)",
+      `        => ${ambientTx}.BeginAsync(_db, isolationLevel, cancellationToken);`,
       "}",
     ].join("\n"),
   );
@@ -360,6 +346,7 @@ function renderDapperPersistencePorts(
         workflowStateTable(wf),
         snake(wf.correlationField as string),
         stateColumns(wf, durable),
+        ns,
       ).join("\n"),
     );
   }
@@ -375,6 +362,7 @@ function renderDapperPersistencePorts(
         projectionRowTable(proj),
         snake(proj.correlationField as string),
         projectionColumns(proj),
+        ns,
       ).join("\n"),
     );
   }

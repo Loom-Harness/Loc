@@ -205,3 +205,20 @@ Found 2026-09-03 by the language-docs audit ([F11](../../audits/2026-09-03-langu
 **Verification when it lands.** A negative validator test per shape; each gate mutation-proved by file-copy revert, reading *which* assertion fails.
 
 Sources: [language-docs-audit-2026-09-03](../../audits/2026-09-03-language-docs-audit-findings.md) F11/F17 + "Cross-cutting reading" §1, [wave plan](../../audits/2026-09-03-language-docs-audit-findings.waves.md) packet **W2.3**. Relates to M-T1.20 (the frontend per-target refusal register — a new code lands a row there).
+
+## M-T1.42 — Route-level code splitting on every static-bundle frontend — `done` (2026-10-11, [#3253](https://github.com/Loom-Harness/Loc/pull/3253)) · **S** · P2
+
+Found by the 2026-10 developer trial (clinic booking model): the generated React/Mantine app for three aggregates built as ONE 865 kB chunk (264 kB gzip), and vite warned "Some chunks are larger than 500 kB". The chunk grew with every page.
+
+**Landed.** Every routed page is now its own chunk, and only the shell stays eager:
+- **React** (all 8 packs): `const OrderList = React.lazy(() => import("./pages/orders/list"))`. Each layout's `<Outlet />` (and the whole `<Routes>`, for `layout: none`) sits inside `<React.Suspense fallback={<RouteLoading />}>`, which renders the pack's own loader with `data-testid="route-loading"`. Its aria label is the new shell chrome key `chrome.routeLoading`.
+- **Vue**: `component: () => import("./pages/….vue")`.
+- **Angular**: `loadComponent: () => import("./pages/….component").then((m) => m.X)`.
+- **Svelte**: SvelteKit already split per `+page.svelte`. That behaviour is now pinned.
+- Feliz and Flutter are untouched: neither is a static-bundle host, and Elmish/Dart have no comparable route-level import.
+
+The generated smoke spec now waits for `route-loading` to clear before it checks for the error boundary. Gate: `test/generator/_frontend/lazy-route-pages.test.ts`, mutation-proved per framework.
+
+**Booking trial model, initial-load JS (raw / gzip)**: mantine@v9 845 → 541 kB / 256 → 168 kB. shadcn@v4 723 → 398 / 219 → 123. shadcnVue 543 → 269 / 169 → 92. angularMaterial 1.05 MB → 758 kB (ng initial total). The full table is in the PR.
+
+**Vuetify:** `theme.ts` used to register all of `vuetify/components` + `directives`, which kept the whole library in the entry chunk (715 kB) whatever the routes did. Now each emitted `.vue` file imports exactly the Vuetify components its own template renders. The set is derived from the emitted markup (`src/generator/vue/component-imports.ts`, opted into by the pack manifest's `componentImports`), and no auto-import plugin is involved. Vuetify initial load: 898 → 324 KiB (276 → 110 gzip).

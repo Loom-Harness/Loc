@@ -65,10 +65,10 @@ describe("vanilla — Slice 3 enums + VOs + relationships in schema-emit", () =>
     );
   });
 
-  it("emits a valueobject field as `:map` (JSONB)", async () => {
+  it("emits a valueobject field as the canonical `Loom.ValueObject` jsonb type", async () => {
     const files = await generateSystemFiles(RICH_SOURCE);
     const schema = files.get([...files.keys()].find((k) => k.endsWith("/storefront/order.ex"))!)!;
-    expect(schema).toContain("field :total, :map");
+    expect(schema).toMatch(/field :total, Loom\.ValueObject, fields: \[\{:amount, "amount", /);
   });
 
   it("emits an `X id` foreign-key field as `:binary_id`", async () => {

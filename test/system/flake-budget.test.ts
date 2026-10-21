@@ -292,6 +292,18 @@ describe("flake budget — which legs are monitored", () => {
     }
   });
 
+  it("monitors a queue-only leg off its merge_group trigger", () => {
+    // hono-build.yml runs per-PR and in the merge queue, never on `main`; its
+    // queue runs are its main history, so dropping it would leave a gate that
+    // ejects queue entries with no pass rate anyone reads.
+    const leg = byFile.get("hono-build.yml") as
+      | (Monitored & { triggers: { mergeGroup: boolean; pushMain: boolean } })
+      | undefined;
+    expect(leg, "hono-build.yml is not monitored").toBeTruthy();
+    expect(leg!.triggers.mergeGroup).toBe(true);
+    expect(leg!.triggers.pushMain).toBe(false);
+  });
+
   it("reads a real nightly-cron workflow as cron-triggered", () => {
     const nightly = byFile.get("generated-a11y.yml");
     expect(nightly, "generated-a11y.yml is not monitored").toBeTruthy();
