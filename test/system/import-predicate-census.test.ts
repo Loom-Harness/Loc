@@ -59,7 +59,7 @@ const CEILING: Record<Backend, number> = {
   python: 291, // +1 reactor SYSTEM-principal import (`refersTo("system_principal")`, D1) +2 dispatch-builder `ids` / `voEnum` import lines — body-scan / usage-list keyed, not free predicates
   typescript: 236, // +1: hono workflow-builder `systemPrincipal(` import (same ruling) — keyed off the rendered body
   dotnet: 26,
-  java: 51,
+  java: 52, // +1: workflow route `PostCommitDispatcher` import (#3262) — keyed off the rendered body
   elixir: 2,
 };
 
