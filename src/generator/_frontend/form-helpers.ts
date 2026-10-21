@@ -1,5 +1,5 @@
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
 
@@ -186,7 +186,7 @@ function initialValueTs(t: TypeIR, ctx: BoundedContextIR, optional: boolean): st
   }
   if (inner.kind === "id") return `""`;
   if (inner.kind === "enum") {
-    const en = ctx.enums.find((e) => e.name === inner.name);
+    const en = enumPool(ctx).find((e) => e.name === inner.name);
     return en ? JSON.stringify(en.values[0]) : `""`;
   }
   if (inner.kind === "valueobject") {

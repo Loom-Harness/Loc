@@ -6,6 +6,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
@@ -479,7 +480,7 @@ export function fieldInput(
     return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
   }
   if (inner.kind === "enum") {
-    const en = bc.enums.find((e) => e.name === inner.name);
+    const en = enumPool(bc).find((e) => e.name === inner.name);
     if (style === "material") {
       addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
       addNg(ctx, "@angular/material/select", "MatSelectModule");

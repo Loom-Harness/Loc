@@ -4,7 +4,7 @@ import {
   type TypeIR,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
@@ -238,7 +238,7 @@ export function collectSchemaDeps(workflows: Array<{ wf: WorkflowIR; ctx: Bounde
       return;
     }
     if (t.kind === "enum") {
-      const e = ctx.enums.find((x) => x.name === t.name);
+      const e = enumPool(ctx).find((x) => x.name === t.name);
       if (e) enumLocals.push(...emitEnumSchema(e));
       return;
     }

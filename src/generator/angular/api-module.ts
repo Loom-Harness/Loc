@@ -24,7 +24,7 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
@@ -157,7 +157,7 @@ export function collectResponseTypes(
   // undeclared `MoneyResponse`.  `visit` still only walks what the wire shape
   // reaches, so an unreferenced sibling VO emits nothing.
   const voByName = new Map((bc ? valueObjectPool(bc) : []).map((v) => [v.name, v] as const));
-  const enumByName = new Map((bc?.enums ?? []).map((e) => [e.name, e]));
+  const enumByName = new Map((bc ? enumPool(bc) : []).map((e) => [e.name, e]));
   const vos = new Map<string, ValueObjectIR>();
   const enums = new Map<string, EnumIR>();
   const visit = (t: TypeIR): void => {
