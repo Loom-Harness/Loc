@@ -60,7 +60,6 @@ root `package.json` — they're Handlebars-template strings.
 
 | File | Pins |
 |---|---|
-| `stacks/v1/stack-package-deps.hbs` + `-devdeps.hbs` | React 18 + react-router-dom 6 + zod 3 + react-query 5 + react-hook-form 7 / resolvers 3; vite 8, **typescript 6** (devdeps) |
 | `stacks/v3/stack-package-deps.hbs` + `-devdeps.hbs` | React 19 + react-router 7 + zod 4 + resolvers 5; vite 8, typescript 6 |
 | `stacks/sv1/stack-package-deps.hbs` + `-devdeps.hbs` | Svelte 5 + SvelteKit 2 + adapter-static 3 + svelte-query 6 + zod 4 + vite 8 + **TS 6.0** + svelte-check 4 |
 | `stacks/vue1/stack-package-deps.hbs` + `-devdeps.hbs` | Vue 3.5 + vue-router 4 + @vitejs/plugin-vue 6 + vue-query 5 + vue-tsc 3 + zod 4 + vite 8 + **TS 6.0** |
@@ -115,7 +114,7 @@ bumped — never root `package.json`.
 
 | Backend | Manifest | Pin site | Notable current pins |
 |---|---|---|---|
-| **Hono / node** | `package.json` | **default = `src/platform/hono/v5/pins.ts`** (`BACKEND_PINS`); legacy `src/platform/hono/v4/pins.ts` stays pinnable via `platform: node@v4`. Both registered in `src/platform/registry.ts` (bareword `node` → v5). | **v5 (default):** hono ^4.12, @hono/zod-openapi ^1.0, **zod ^4.0**, drizzle-orm ^0.45, pg ^8.13, pino ^9.5; dev **typescript ^6.0**, vitest ^4.0, tsup ^8.3, pino-pretty ^13. **v4 (legacy):** @hono/zod-openapi ^0.19, zod ^3.25, typescript ^5.9, vitest ^2.1 — the zod-3 / TS-5 lane kept for reproducibility. The cross-major bumps (zod 4 / TS 6 / vitest 4) were the *reason* v5 forked, not deferred. |
+| **Hono / node** | `package.json` | **`src/platform/hono/v5/pins.ts`** (`BACKEND_PINS`) — the only registered version (`src/platform/registry.ts`, bareword `node` → v5). `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. | **v5:** hono ^4.12, @hono/zod-openapi ^1.0, **zod ^4.0**, drizzle-orm ^0.45, pg ^8.13, pino ^9.5; dev **typescript ^6.0**, vitest ^4.0, tsup ^8.3, pino-pretty ^13. A fresh cross-major set (like zod 4 / TS 6 / vitest 4 was) means a new package version, not an in-place edit. |
 | **.NET** | `<ns>.csproj` | `renderCsproj` in `src/generator/dotnet/emit/program.ts` (~line 575) | **TargetFramework net10.0**, EF Core 10.0.9, Npgsql.EFCore.PostgreSQL 10.0.2, Mediator.SourceGenerator 2.1.7, Swashbuckle 6.9; conditional FluentValidation 11.10, Ardalis.Specification 9.3, Microsoft.IdentityModel 8.0 (OIDC), Dapper 2.1 (dapper persistence) |
 | **Java / Spring** | `build.gradle.kts` | `renderGradleBuild` + `SPRING_BOOT_VERSION`/`JAVA_VERSION` consts in `src/generator/java/emit/program.ts` | **Spring Boot 4.1.0**, Java 21, jMolecules 1.10, springdoc 3.0.3, nimbus-jose-jwt 10.3 (OIDC); Flyway via `spring-boot-starter-flyway` + `flyway-database-postgresql` when migrations exist |
 | **Python / FastAPI** | `pyproject.toml` | `src/generator/python/pins.ts` (rendered by `renderPyproject` in `python/index.ts`) | **requires-python >=3.13**, fastapi >=0.115,<1, uvicorn[standard], sqlalchemy[asyncio] >=2.0.36,<3, asyncpg, pydantic >=2.10; dev mypy/ruff/pytest/pytest-asyncio; pyjwt (OIDC) |
@@ -148,7 +147,6 @@ and is exactly the narrow diff that path-filtered gates skip.
 
 | Stack | Family | React/FW | router | zod | TS | vite |
 |---|---|---|---|---|---|---|
-| `v1` | React (mantine@v7, chakra@v2, mui@v5, shadcn@v3) | 18 | react-router-dom 6 | 3 | 6 | 8 |
 | `v3` | React (mantine@v9, chakra@v3, mui@v7, shadcn@v4) | 19.2 | react-router 7 | 4 | 6 | 8 |
 | `sv1` | Svelte (shadcnSvelte, flowbite) | Svelte 5 / Kit 2 | — | 4 | 6 | 8 |
 | `vue1` | Vue (vuetify, shadcnVue) | Vue 3.5 | vue-router 4 | 4 | 6 | 8 |
@@ -172,7 +170,7 @@ the bump can land green then break `main`. Force those via the local gate +
 | toolchain typescript / vitest | A | root package.json | `test.yml` | n/a |
 | React/Vue/Svelte/Angular stack dep | B | `stacks/<id>/*.hbs` | `generated-{react,vue,svelte,angular}-build.yml` (path-filtered) | `generated-*-e2e.yml` — **path-filtered ✗** |
 | design-pack lib | B | `designs/<pack>/.../package-json.hbs` | same generated-build matrix | same |
-| hono / drizzle / TS-backend dep | B | `hono/v5/pins.ts` (default; `v4/pins.ts` is the legacy pinnable lane) | `hono-build.yml` (path-filtered) | `hono-obs-e2e.yml` — path-filtered per-PR + nightly ✗, `conformance-parity` path-filtered |
+| hono / drizzle / TS-backend dep | B | `hono/v5/pins.ts` (the only registered lane) | `hono-build.yml` (path-filtered) | `hono-obs-e2e.yml` — path-filtered per-PR + nightly ✗, `conformance-parity` path-filtered |
 | EF Core / .NET TFM | B | `dotnet/emit/program.ts` | `dotnet-build.yml` | `dotnet-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
 | Spring Boot / JDK / Flyway | B | `java/emit/program.ts` | `java-build.yml` | `java-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |
 | fastapi / sqlalchemy / py version | B | `python/pins.ts` | `python-build.yml` | `python-obs-e2e.yml` — path-filtered per-PR + nightly ✗ |

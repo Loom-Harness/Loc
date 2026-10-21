@@ -156,9 +156,6 @@ type Waiver = { standing: string } | { deferred: string; reviewUntil: string };
  *  due, so it cannot be used to silence the expiry rule. */
 const MAX_DEFERRAL_DAYS = 180;
 
-/** The fleet's drain horizon for D1 — three weeks from the census landing. */
-const D1_DUE = "2026-11-01";
-
 const DECLARES_OWN = {
   standing:
     "emits THIS context's enum declarations (or keys this context's own declaration module); a sibling's enum is declared by the sibling, so the context's own list is exactly right",
@@ -167,19 +164,6 @@ const ALL_CONTEXTS = {
   standing:
     "unions `.enums` over EVERY context of the deployable/system, which already contains every sibling enum — not a per-context name resolution",
 };
-
-const p1 = (what: string): Waiver => ({
-  deferred: `D1 / P1 (typescript+hono): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
-const p2 = (what: string): Waiver => ({
-  deferred: `D1 / P2 (python): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
-const p3 = (what: string): Waiver => ({
-  deferred: `D1 / P3 (elixir+java+dotnet): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 
 const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
@@ -201,149 +185,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
-
-  // =========================================================================
-  // DEFERRED — fleet packet P1 (typescript + hono) drains these.
-  // =========================================================================
-  "src/generator/typescript/emit/aggregate.ts#renderAggregate": p1(
-    "domain import candidates (tsc TS2304 on a sibling enum)",
-  ),
-  "src/generator/typescript/repository-imports-builder.ts#collectEnums": p1(
-    "repository import candidates",
-  ),
-  "src/generator/typescript/emit/tests.ts#renderTestsCore": p1("unit-test import candidates"),
-  "src/generator/typescript/emit/seed.ts#emitSeeds": p1("seed import candidates"),
-  "src/generator/typescript/emit/domain-service.ts#renderDomainServices": p1(
-    "domain-service import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-document.ts#renderMikroDocumentRepository": p1(
-    "MikroORM document repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-embedded.ts#renderMikroEmbeddedRepository": p1(
-    "MikroORM embedded repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-event-sourced.ts#renderMikroEventSourcedRepository": p1(
-    "MikroORM event-sourced repo import candidates",
-  ),
-  "src/generator/typescript/emit/mikroorm-relational.ts#renderMikroRepository": p1(
-    "MikroORM relational repo import candidates",
-  ),
-  "src/generator/typescript/emit/schema.ts#renderSchema": p1(
-    "drizzle `<enum>Values` consts — a column typed by a sibling enum names an undeclared const (verify; re-classify standing if the column already imports the sibling's const)",
-  ),
-  "src/generator/typescript/extern-builder.ts#buildExternSubclassFile": p1(
-    "extern subclass import candidates",
-  ),
-  "src/generator/typescript/repository-port-builder.ts#renderRepositoryPortsFile": p1(
-    "repository-port import candidates",
-  ),
-  "src/platform/hono/v4/explicit-handlers-builder.ts#renderExternHandlerImpl": p1(
-    "extern handler import candidates",
-  ),
-  "src/platform/hono/v4/projection-builder.ts#buildProjectionsFile": p1(
-    "projection `<E>Schema` z.enum decls",
-  ),
-  "src/platform/hono/v4/projection-builder.ts#buildProjectionsFile$2": p1(
-    "projection enum value imports",
-  ),
-  "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile": p1(
-    "query-projection enum name → values map",
-  ),
-  "src/platform/hono/v4/workflow-builder.ts#buildWorkflowsFile": p1("workflow import candidates"),
-  "src/platform/hono/v4/workflow-builder.ts#collectUsedEnums": p1("workflow used-enum collection"),
-  "src/platform/hono/v4/workflow-builder.ts#defaultLiteralFor": p1(
-    "workflow state default literal (first value)",
-  ),
-  "src/platform/hono/v4/workflow-eventsourced-builder.ts#initialValueFor": p1(
-    "event-sourced workflow initial value",
-  ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P2 (python) drains these.
-  // =========================================================================
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile": p2(
-    "dispatch (post-processing) import candidates",
-  ),
-  "src/generator/python/dispatch-builder.ts#buildPyDispatchFile$2": p2(
-    "dispatch import candidates",
-  ),
-  "src/generator/python/emit/aggregate.ts#renderPyAggregate": p2(
-    "domain import candidates (mypy name-defined)",
-  ),
-  "src/generator/python/emit/http-models.ts#renderPyWireModels": p2("wire-model import candidates"),
-  "src/generator/python/emit/integration-tests.ts#renderPyContextIntegrationTest": p2(
-    "integration-test import candidates",
-  ),
-  "src/generator/python/emit/seed.ts#buildPySeedFile": p2("seed import candidates"),
-  "src/generator/python/emit/tests.ts#renderPySubjectTests": p2("unit-test import candidates"),
-  "src/generator/python/explicit-handlers-emit.ts#pyDomainImportLines": p2(
-    "explicit-handler domain imports",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderHandlerModule": p2(
-    "handler-module import candidates",
-  ),
-  "src/generator/python/explicit-handlers-emit.ts#renderPagedRunHandlerModule": p2(
-    "paged handler import candidates",
-  ),
-  "src/generator/python/projections-builder.ts#buildPyProjectionsFile": p2(
-    "projection import candidates",
-  ),
-  "src/generator/python/query-projections-builder.ts#buildPyQueryProjectionsFile": p2(
-    "query-projection import candidates",
-  ),
-  "src/generator/python/repository-builder.ts#buildPyRepositoryFile": p2(
-    "repository import candidates",
-  ),
-  "src/generator/python/repository-document-builder.ts#buildPyDocumentRepositoryFile": p2(
-    "document repo import candidates",
-  ),
-  "src/generator/python/repository-embedded-builder.ts#buildPyEmbeddedRepositoryFile": p2(
-    "embedded repo import candidates",
-  ),
-  "src/generator/python/repository-eventsourced-builder.ts#buildPyEventSourcedRepositoryFile": p2(
-    "event-sourced repo import candidates",
-  ),
-  "src/generator/python/repository-port-builder.ts#renderRepositoryPortsFile": p2(
-    "repository-port import candidates",
-  ),
-  "src/generator/python/routes-builder.ts#buildPyRoutesFile": p2("routes import candidates"),
-  "src/generator/python/workflow-eventsourced-emit.ts#esZeroFor": p2(
-    "event-sourced workflow zero value",
-  ),
-  "src/generator/python/workflows-builder.ts#buildPyWorkflowsFile": p2(
-    "workflows import candidates",
-  ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P3 (elixir + java + dotnet) drains these.
-  // Also P3's, but INVISIBLE to this detector (the context is passed whole
-  // as a `{ enums?: EnumIR[] }` decls bag, so no `.enums` read happens on a
-  // context-typed receiver): `elixir/state-default.ts#stateDefault` called as
-  // `stateDefault(f.type, ctx)` from `vanilla/workflow-execution-emit.ts`.
-  // =========================================================================
-  "src/generator/elixir/vanilla/schema-emit.ts#emitVanillaSchemas": p3(
-    "Ecto schema enum lookup (`:string` instead of Ecto.Enum)",
-  ),
-  "src/generator/elixir/vanilla/projections-emit.ts#emitVanillaProjectionSchemas": p3(
-    "projection schema enum lookup",
-  ),
-  "src/generator/elixir/vanilla/value-collection-schema-emit.ts#emitVanillaValueCollectionSchemas":
-    p3("value-collection schema enum lookup"),
-  "src/generator/elixir/liveview-emit.ts#emitLiveViewPages": p3("LiveView enum name → decl map"),
-  "src/generator/elixir/dispatch-emit.ts#emitWorkflowStateSchemas": p3(
-    "workflow state schema enum lookup",
-  ),
-  "src/generator/elixir/dispatch-emit.ts#emitDispatch": p3("dispatch state schema enum lookup"),
-  "src/generator/java/emit/workflow-state.ts#javaStateDefault": p3(
-    "workflow state default (first enum value)",
-  ),
-  "src/generator/java/index.ts#emitAggregate": p3(
-    "mangled-enum codec lookup for a sibling-enum column",
-  ),
-  "src/generator/dotnet/emit/seed.ts#renderSeedFile": p3("seed `using …Domain.Enums` gate"),
-  "src/generator/dotnet/emit/tests.ts#renderSubjectTestsFile": p3(
-    "unit-test `using …Domain.Enums` gate (a sibling enum lives in the sibling's namespace)",
-  ),
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {
@@ -351,7 +192,10 @@ describe("enum-pool census — no name resolution of an enum through a context's
 
   it("finds a substantial surface, not an empty one", () => {
     // A broken detector reports zero sites, which reads as "all clean".
-    expect(sites.length).toBeGreaterThan(30);
+    // The floor sits just under the STANDING surface (17 sites) — what is
+    // left once the fleet's P1–P4 drains have all landed — so it holds on
+    // every combination of those branches.
+    expect(sites.length).toBeGreaterThanOrEqual(15);
   });
 
   it("every `ctx.enums` site is waived (standing = own declarations / all contexts; deferred = drain to enumPool)", () => {

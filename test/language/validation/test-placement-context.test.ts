@@ -56,7 +56,7 @@ describe("validator: context integration test placement (Phase 3-core)", () => {
       "    } }\n  }",
       `    } }\n    deployable d { platform: ${platform}, contexts: [Ordering], port: 4000 }\n  }`,
     );
-  for (const platform of ["node", "dotnet", "python", "java", "elixir", '"node@v4"']) {
+  for (const platform of ["node", "dotnet", "python", "java", "elixir", '"node@v5"']) {
     it(`no context-test warning when a ${platform} deployable hosts the context`, async () => {
       const { diagnostics } = await parseString(hosted(platform));
       expect(codes(diagnostics)).not.toContain("loom.context-test-unsupported");

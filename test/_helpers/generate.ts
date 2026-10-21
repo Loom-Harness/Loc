@@ -5,7 +5,7 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { assertLoomModelVerifies } from "../../src/ir/verify/verify-ir.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_V4_PINS } from "../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../../src/platform/hono/v5/pins.js";
 import {
   type GenerateSystemOptions,
   generateSystems,
@@ -13,7 +13,7 @@ import {
 } from "../../src/system/index.js";
 import { extractErrors, parseString } from "./parse.js";
 
-export { HONO_V4_PINS };
+export { HONO_PINS };
 
 /**
  * Phases ⑤/⑥/⑦ over an already-parsed AST Model — lower, merge, enrich, then
@@ -63,7 +63,7 @@ export function assertModelVerifies(model: Model, context = ".ddd fixture"): voi
  */
 export const generateHono = (model: Model): Map<string, string> => {
   assertModelVerifies(model);
-  return generateTypeScript(model, HONO_V4_PINS);
+  return generateTypeScript(model, HONO_PINS);
 };
 
 /**

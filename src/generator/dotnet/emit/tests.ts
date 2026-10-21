@@ -11,6 +11,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
@@ -147,7 +148,13 @@ function renderSubjectTestsFile(
   // surfaced by the Phase-2 VO/service tests, which a project may have without
   // any enum.)
   if (ctx.valueObjects.length > 0) lines.push(`using ${ns}.Domain.ValueObjects;`);
-  if (ctx.enums.length > 0) lines.push(`using ${ns}.Domain.Enums;`);
+  // Gated on the bodies actually spelling an enum from the context's POOL: a
+  // sibling-context enum lives in the same project-wide `Domain.Enums`
+  // namespace, so a body naming one needs the using even when this context
+  // declares no enum of its own (claims D1).  C# can't reach an enum type
+  // without spelling its name, so the scan is exact.
+  if (enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(bodyText)))
+    lines.push(`using ${ns}.Domain.Enums;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
   if (usesActor) lines.push(`using ${ns}.Auth;`);
   lines.push("");

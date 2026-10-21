@@ -8,33 +8,28 @@
 //
 //   efcore   builder.ToTable("as", "alpha")
 //   drizzle  pgSchema("alpha").table("as", …)
+//   dapper   CREATE TABLE "alpha"."as" (its migration) + search_path=public,alpha
 //
-// while the self-provisioning adapters name them unqualified:
+// while the self-provisioning adapter names them unqualified:
 //
-//   dapper   CREATE TABLE IF NOT EXISTS "as"          (→ public.as)
 //   mikroorm @Entity({ tableName: "as" })             (→ public.as)
 //
-// Both reproduced byte-for-byte before the gate: `generate system` on the
-// two-deployable model below wrote `reader/Infrastructure/Persistence/DbSchema.cs`
-// with `CREATE TABLE IF NOT EXISTS ""as""` next to
-// `writer/…/Configurations/AConfiguration.cs` line `builder.ToTable("as", "alpha")`
-// and a writer migration doing `CREATE SCHEMA IF NOT EXISTS ""alpha""`.  Two
-// physical tables, both deployables green, each reading an empty database.
+// So mikroorm beside any chain adapter is two physical tables, both deployables
+// green, each reading an empty database — refused.  A LONE mikroorm deployable
+// is self-consistent (it creates and reads `public.as`), but an EXPLICIT
+// `schema:` / `tablePrefix:` on its binding is a request it silently drops.
 //
-// Second arm: a LONE self-provisioning deployable is at least self-consistent
-// (it creates and reads `public.as`), so the default is not gated — but an
-// EXPLICIT `schema:` / `tablePrefix:` on its binding IS a request the adapter
-// silently drops, and that is gated too.
+// Dapper used to be on the mikroorm side of this line (`CREATE TABLE IF NOT
+// EXISTS "as"`).  Since it applies the migration chain (M-T2.17) its tables land
+// in the binding's schema and its connection's `search_path` finds them, so it
+// agrees with efcore — accepted — and honours an explicit `schema:`.  What it
+// still cannot do is a `tablePrefix:`: its repository SQL names every table
+// unprefixed.
 //
-// And the exemption BOTH arms need: `schema: "public"`.  There the two namings
-// converge on one physical table — `CREATE TABLE "public"."as"` from the
-// migration chain, and the unqualified `CREATE TABLE "as"` resolving through
-// Postgres's default `search_path` to the same place — so neither arm's claim
-// holds.  Verified by generating: the writer emits `builder.ToTable("as",
-// "public")` and `CREATE SCHEMA IF NOT EXISTS ""public""; CREATE TABLE
-// ""public"".""as""`, against the reader's unqualified DDL, and no emitted
-// connection string overrides `search_path`.  A `tablePrefix:` is NOT exempt
-// even beside `schema: "public"` — it renames the table rather than placing it.
+// And the exemption the mikroorm arms need: `schema: "public"`.  There the two
+// namings converge on one physical table, so neither arm's claim holds.  A
+// `tablePrefix:` is NOT exempt even beside `schema: "public"` — it renames the
+// table rather than placing it.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -102,14 +97,19 @@ const errorsWithCode = (diags: Awaited<ReturnType<typeof diagsFor>>, code: strin
   diags.filter((d) => d.severity === "error" && d.code === code);
 
 describe("self-provisioning adapters vs. the dataSource's Postgres schema", () => {
-  it("dapper beside efcore on one context is refused — the tables would not be the same tables", async () => {
+  it("dapper beside efcore on one context is accepted — both migrate the same schema-qualified table", async () => {
     const diags = await diagsFor(CO_HOSTED("dotnet", "dotnet { persistence: dapper }"));
-    const gate = errorsWithCode(diags, "loom.dapper-unsupported");
+    expect(errorsWithCode(diags, "loom.dapper-unsupported")).toEqual([]);
+  });
+
+  it("mikroorm beside DAPPER is refused — dapper qualifies its tables now, mikroorm does not", async () => {
+    const diags = await diagsFor(
+      CO_HOSTED("dotnet { persistence: dapper }", "node { persistence: mikroorm }"),
+    );
+    const gate = errorsWithCode(diags, "loom.mikroorm-unsupported");
     expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);
-    expect(gate[0]!.message).toContain("UNQUALIFIED (public)");
-    expect(gate[0]!.message).toContain("'writer' (efcore)");
-    expect(gate[0]!.message).toContain("persistence: efcore");
-    expect(gate[0]!.source).toBe("Adp3/reader");
+    expect(gate[0]!.message).toContain("'writer' (dapper)");
+    expect(errorsWithCode(diags, "loom.dapper-unsupported")).toEqual([]);
   });
 
   it("mikroorm beside drizzle is refused the same way — the limit is the adapter, not the platform", async () => {
@@ -126,20 +126,24 @@ describe("self-provisioning adapters vs. the dataSource's Postgres schema", () =
     expect(errorsWithCode(diags, "loom.mikroorm-unsupported")).toEqual([]);
   });
 
-  it("a LONE dapper deployable is fine — it creates and reads the same unqualified tables", async () => {
+  it("a LONE dapper deployable is fine — its migrations and its search_path name one schema", async () => {
     const diags = await diagsFor(LONE("dotnet { persistence: dapper }", ""));
     expect(errorsWithCode(diags, "loom.dapper-unsupported")).toEqual([]);
   });
 
-  it("...but an EXPLICIT `schema:` on its binding is refused — the request is dropped, not honoured", async () => {
+  it("...and an EXPLICIT `schema:` on its binding is honoured — accepted", async () => {
     const diags = await diagsFor(LONE("dotnet { persistence: dapper }", `, schema: "legacy"`));
-    const gate = errorsWithCode(diags, "loom.dapper-unsupported");
-    expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);
-    expect(gate[0]!.message).toContain(`declares 'schema: "legacy"'`);
-    expect(gate[0]!.message).toContain("land in 'public'");
+    expect(errorsWithCode(diags, "loom.dapper-unsupported")).toEqual([]);
   });
 
-  it("...and so is an explicit `tablePrefix:`, for the same reason", async () => {
+  it("...but the mikroorm twin still refuses an explicit `schema:` — it is dropped there", async () => {
+    const diags = await diagsFor(LONE("node { persistence: mikroorm }", `, schema: "legacy"`));
+    const gate = errorsWithCode(diags, "loom.mikroorm-unsupported");
+    expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);
+    expect(gate[0]!.message).toContain(`declares 'schema: "legacy"'`);
+  });
+
+  it("an explicit `tablePrefix:` is refused on dapper — its repositories name tables unprefixed", async () => {
     const diags = await diagsFor(LONE("dotnet { persistence: dapper }", `, tablePrefix: "t_"`));
     const gate = errorsWithCode(diags, "loom.dapper-unsupported");
     expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);

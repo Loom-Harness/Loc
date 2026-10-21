@@ -46,6 +46,7 @@ import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
+import { rerootLegacyDapperModules, withRerootedVersions } from "./dapper-legacy-reroot.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
@@ -231,9 +232,11 @@ export function generateSystemsFromLoom(
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
-  // Every system's migrations, folded into ONE source-side ledger below:
-  // the ledger is keyed by module and lives beside the `.ddd`, which may
-  // declare several systems.
+  // Every system's migrations, folded into ONE source-side ledger below: the
+  // ledger is keyed by module and lives beside the `.ddd`.  (A valid project
+  // declares exactly one system — `loom.multiple-systems` — so these loops run
+  // once; a second system would collide on the root files, which the
+  // write-once sink refuses.)
   const builtMigrations: MigrationsIR[] = [];
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
@@ -307,8 +310,7 @@ export function generateSystemsFromLoom(
   // which test projects exist, how each deployable's own project boots, which
   // `.loom/` artifacts this model produced (traceability is emitted above,
   // after `emitSystem`, so an earlier call would under-report it).  Written at
-  // the output root beside `docker-compose.yml`, and like that file the last
-  // system wins when a source declares several.  Scaffold-once, so it never
+  // the output root beside `docker-compose.yml`.  Scaffold-once, so it never
   // overwrites `ddd new`'s README at this same path nor a reader's own edits
   // — see the header of `readme.ts`.
   for (const sys of loom.systems) {
@@ -368,7 +370,7 @@ function emitSystem(
   // a baseline to diff against.  Modules without an owner are skipped
   // by `buildMigrations` — `migrations` only carries entries for
   // modules where `module.migrationsOwner` is set.
-  const migrations = buildMigrations(sys, options.snapshots, {
+  const built = buildMigrations(sys, options.snapshots, {
     allowDestructive: options.allowDestructive,
     renameIntents: loom.renameIntents,
     tableRenameIntents: loom.tableRenameIntents,
@@ -376,6 +378,15 @@ function emitSystem(
     sqlSteps: loom.sqlMigrationSteps,
     warnings: options.collectMigrationWarnings,
   });
+  // A Dapper output tree written before that adapter applied the chain holds a
+  // snapshot history with no files behind it; re-emit its Initial so the
+  // runner can baseline the database the old bootstrap provisioned
+  // (`dapper-legacy-reroot.ts`).  Needs the on-disk inventory to recognise it.
+  const { migrations, rerooted } = rerootLegacyDapperModules(
+    sys,
+    built,
+    options.existingMigrations,
+  );
   // Baseline-safety guards (M-T2.2): refuse a silent re-baseline when the
   // snapshot is missing but migration files exist, verify files ↔ recorded
   // history, and reject version-number reuse.  Skipped when no on-disk
@@ -385,9 +396,12 @@ function emitSystem(
   // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
   // skips (a)-(c).
   if (options.existingMigrations || options.recordedHistory) {
+    // Guarded on the DERIVED list: a re-emitted Initial is not a fresh
+    // "Initial" re-baselining a module (guard (a)), it is the file the
+    // snapshot history already names — which the index now shows on disk.
     checkMigrationBaseline(
-      migrations,
-      options.existingMigrations ?? memoryMigrationArtifactIndex(),
+      built,
+      withRerootedVersions(options.existingMigrations ?? memoryMigrationArtifactIndex(), rerooted),
       {
         allowRebaseline: options.allowRebaseline,
         recordedHistory: options.recordedHistory,
@@ -396,8 +410,11 @@ function emitSystem(
     );
   }
   options.collectMigrations?.push(...migrations);
-  for (const m of migrations) {
-    out.set(snapshotRelPath(m.module), serializeSnapshot(m.next));
+  // One snapshot per module — the LAST migration's (a re-rooted module carries
+  // its re-emitted Initial ahead of this run's delta).
+  const nextByModule = new Map(migrations.map((m) => [m.module, m.next] as const));
+  for (const [module, next] of nextByModule) {
+    out.set(snapshotRelPath(module), serializeSnapshot(next));
   }
 
   for (const d of sys.deployables) {
@@ -704,7 +721,7 @@ function emitDeployable(
   // dictates).
   const sub = serviceSlug(d.name);
   // Resolve the EMITTER surface by the fully-qualified `platformRef`
-  // (`node@v4` / `node@v5`) so a backend version pin selects the right
+  // (`node@v5`) so a backend version pin selects the right
   // dep-pin set.  Family-level facts (`needsDb`, adapters) stay keyed on
   // `d.platform` — they're version-independent.  (Before multiple node
   // versions existed, family→default coincided with the only version.)

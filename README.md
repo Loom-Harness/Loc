@@ -293,14 +293,14 @@ src/
     _walker/       # cross-framework walker registry + WalkerTarget contract
     _expr/ _type/ _workflow/   # shared dispatchers + per-backend leaf tables
     _obs/          # observability catalog + per-backend log renderers
-  platform/        # PlatformSurface registry + version pinning; Hono lives under platform/hono/v4 & v5
+  platform/        # PlatformSurface registry + version pinning; Hono: shared emitter in platform/hono/v4, registered node@v5 in platform/hono/v5
   system/          # multi-deployable orchestrator + docker-compose + .loom/ artifact bundle
   verify/          # ddd verify rollup (joins test results onto traceability)
   mcp/ dap-server/ # MCP + DAP stdio-server cores (Node-only islands over src/tools + src/dap)
   cli/             # bin entry point
   util/            # naming + code-building helpers
 
-packages/          # published workspaces: @loom/core · @loom/backend-hono-v4 · @loom/backend-hono-v5 · @loom/ui-test-driver · ddd-mcp · ddd-dap
+packages/          # published workspaces: @loom/core · @loom/backend-hono-v5 · @loom/ui-test-driver · ddd-mcp · ddd-dap
 web/               # browser playground (editor, system builder, live preview, test runner)
 vscode/            # VS Code extension (LSP client)
 designs/           # 13 design-pack families (versioned) — mantine, mui, chakra, shadcn (React); vuetify, shadcnVue (Vue); flowbite, shadcnSvelte (Svelte); angularMaterial, primeng, spartanNg (Angular); coreComponents, daisyui (HEEx)

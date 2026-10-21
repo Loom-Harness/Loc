@@ -41,6 +41,7 @@ import type {
   TypeIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import {
   walkExprDeep,
@@ -49,11 +50,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
-import {
-  derivedRouteSlots,
-  pathParamNames,
-  routeMountsUnderApiBase,
-} from "../../_api/explicit-route-mount.js";
+import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
@@ -506,11 +503,8 @@ function phoenixPath(path: string): string {
 /** Emit one `<Api>RoutesController` per served api whose route list is
  *  non-empty: each `route` becomes a `def <snake(handler)>(conn, params)` that
  *  runs the target handler's `run/1` through the shared `respond/2`.  Returns
- *  the `ApiRoute`s to splice into the router: ordinarily into `scope "/api"` as
- *  `first` entries (a domain route serves under the api base — M-T6.73), and,
- *  for a route whose `/api` slot an auto-derived aggregate route already
- *  occupies, at the router root behind the `!root:` sentinel it has always used.
- *  A no-op (empty route list) for an api that declares no explicit `route`s. */
+ *  the `ApiRoute`s to splice into `scope "/api"` (a domain route serves under
+ *  the api base); see `routeEntry` below for their order.  A no-op (empty route list) for an api that declares no explicit `route`s. */
 export function emitExplicitRoutesController(
   appName: string,
   appModule: string,
@@ -522,31 +516,22 @@ export function emitExplicitRoutesController(
 ): ApiRoute[] {
   if (routes.length === 0) return [];
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
-  const derivedSlots = derivedRouteSlots(contexts);
   const webModule = `${appModule}Web`;
   const controller = `${upperFirst(apiName)}RoutesController`;
-  // Where each route lands in router.ex.  An ordinary explicit route is a DOMAIN
-  // route, so it is spliced into `scope "/api"` (as `first`, ahead of the
-  // derived aggregate routes it may out-specify).  A route that would COLLIDE
-  // with an auto-derived route there keeps the `!root:` mounting it has always
-  // had — see `_api/explicit-route-mount.ts`; on this backend the collision is
-  // not a 500 but a `mix compile --warnings-as-errors` failure, because the
-  // second `do_match` clause is unreachable.
-  const routeEntry = (r: RouteIR, action: string): ApiRoute =>
-    routeMountsUnderApiBase(r, derivedSlots)
-      ? {
-          method: r.method.toLowerCase() as ApiRoute["method"],
-          path: phoenixPath(r.path),
-          controller,
-          action: `:${action}`,
-          first: true,
-        }
-      : {
-          method: r.method.toLowerCase() as ApiRoute["method"],
-          path: `!root:${phoenixPath(r.path)}`,
-          controller,
-          action: `:${action}`,
-        };
+  // Every explicit route is a DOMAIN route, spliced into `scope "/api"`.  An
+  // ordinary one goes `first`, ahead of the derived aggregate routes it may
+  // out-specify.  One that takes over a derived slot (the derived surface
+  // yields it — `_api/explicit-route-mount.ts`) goes where the derived route
+  // would have: after the derived static finds, because Phoenix matches in
+  // registration order and `GET /orders/:order_id` registered first would
+  // swallow `GET /orders/by_status`.
+  const routeEntry = (r: RouteIR, action: string): ApiRoute => ({
+    method: r.method.toLowerCase() as ApiRoute["method"],
+    path: phoenixPath(r.path),
+    controller,
+    action: `:${action}`,
+    ...(claimsDerivedSlot(r, contexts) ? {} : { first: true }),
+  });
   const apiRoutes: ApiRoute[] = [];
   const actions: string[] = [];
   // Set when any route is a paged-run queryHandler — the controller then carries
@@ -665,7 +650,15 @@ ${
   def respond(conn, {:error, %Ecto.Changeset{} = changeset}),
     do: ProblemDetails.validation_error_response(conn, changeset)
 
-${respondErrorTail("respond", "  ", contexts[0] ? denialOverrides(contexts[0]) : undefined, contextsHaveWireDenials(contexts), false, loadsById)}
+${respondErrorTail(
+  "respond",
+  "  ",
+  contexts[0] ? denialOverrides(contexts[0]) : undefined,
+  contextsHaveWireDenials(contexts),
+  false,
+  loadsById,
+  contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
+)}
 
 ${serializeBlock.clauses}${
   hasPaged

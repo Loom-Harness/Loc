@@ -168,10 +168,10 @@ export function generateReactForContexts(
 
   // Route list-page emission through the new template-pack
   // layer.  `deployable.design` is fully qualified by the lowering
-  // pass (e.g. "mantine@v7"); the `??` default is defensive against
+  // pass (e.g. "mantine@v9"); the `??` default is defensive against
   // programmatic IR construction that bypasses lowering and matches
   // the current toolchain's default Mantine version.
-  const design = deployable.design ?? "mantine@v7";
+  const design = deployable.design ?? "mantine@v9";
   const pack = loadPack(resolvePackDir(design));
 
   // Page metamodel routing.  Every React deployable declares a

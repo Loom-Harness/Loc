@@ -1,6 +1,6 @@
 // This orchestrator (project assembly: which files, framework wiring,
-// package.json/Dockerfile) is backend-specific, so it lives in the
-// hono@v4 *package* and drives the shared neutral emitter library
+// package.json/Dockerfile) is backend-specific, so it lives with the
+// Hono platform surface and drives the shared neutral emitter library
 // under `src/generator/typescript/` by ordinary import (package →
 // shared).  Over time the remaining Hono-framework builders
 // (routes/workflow/auth/observability) move in here too, leaving
@@ -978,6 +978,7 @@ export function generateTypeScriptForContexts(
       workflowOpFragments,
       resolveStreamContext,
       usingMikro,
+      authRequired,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1476,7 +1477,7 @@ export function generateTypeScriptForContexts(
   if (hasChannels) {
     out.set(
       "http/channels.ts",
-      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged)),
+      renderChannelsModule(channelBindings, merged.events, valueObjectPool(merged), authRequired),
     );
   }
   // Consumer side only when a hosted workflow actually subscribes (via a
@@ -1611,8 +1612,8 @@ function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefi
 // are owned by the active backend
 // *package* (`src/platform/hono/<vN>/pins.ts`) and threaded in as a
 // parameter; the emitter never imports a package (no shared→package
-// edge), so it stays usable by any backend version and a future
-// `hono@v5` just passes different pins.
+// edge), so it stays usable by any backend version — a new version
+// just passes different pins.
 export interface BackendPins {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;

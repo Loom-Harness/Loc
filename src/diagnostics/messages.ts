@@ -467,7 +467,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.targets-misplaced": (p: { frontends: unknown }) =>
     `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
   "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
-    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v4').`,
+    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v5').`,
   "loom.platform-version-unknown": (p: {
     raw: unknown;
     name: unknown;
@@ -476,6 +476,14 @@ export const DIAGNOSTIC_MESSAGES = {
     available: unknown;
   }) =>
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
+  // Same code: the pin names a version that existed and was removed, so the
+  // message names its replacement rather than only listing what exists.
+  "loom.platform-version-unknown#retired": (p: {
+    raw: unknown;
+    name: unknown;
+    successor: unknown;
+  }) =>
+    `Platform '${p.raw}' on deployable '${p.name}' was retired. Pin '${p.successor}' or use the bareword family name.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
   // Same code, different reason.  The bare entry above is the no-UI-mount case;
@@ -510,6 +518,8 @@ export const DIAGNOSTIC_MESSAGES = {
     expectedFormat: unknown;
   }) =>
     `Custom design pack '${p.design}' on deployable '${p.name}' — format compatibility with framework '${p.framework}' is not checked at parse time; ensure its pack.json declares format '${p.expectedFormat}'.`,
+  "loom.design-pack-retired": (p: { design: unknown; name: unknown; successor: unknown }) =>
+    `Design pack '${p.design}' on deployable '${p.name}' (React 18, stack v1) was retired; use '${p.successor}' (or the bareword family name, which resolves to it).`,
   "loom.design-pack-version-unknown": (p: {
     design: unknown;
     name: unknown;
@@ -3357,24 +3367,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +
     `rejects have no relational persistence mapping at all (efcore included) — restructure ` +
     `the model as the message suggests.`,
-  // The self-provisioning-adapter migration gate.  Neither blanket message
-  // above fits: this is not "no relational mapping anywhere" — the sibling
-  // adapter (efcore / drizzle) applies the very same migration chain fine.
-  // What these two lack is a migration chain AT ALL: they provision the schema
-  // themselves at boot, so a declared `migration` block silently does nothing
-  // (dapper) or is "resolved" as a drop+add (mikroorm), which deletes data.
-  "loom.dapper-unsupported#migrations": (p: {
-    name: unknown;
-    migration: unknown;
-    step: unknown;
-    count: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: dapper', but the model declares ` +
-    `${p.count} migration step(s) it can never apply (first: '${p.step}' in migration ` +
-    `'${p.migration}'). The Dapper adapter emits no migration chain — it provisions its ` +
-    `schema with 'CREATE TABLE IF NOT EXISTS' at boot, which does nothing to an existing ` +
-    `table, so the rename/backfill/sql step would silently never run. Use ` +
-    `'persistence: efcore' on this deployable, or host these contexts elsewhere.`,
+  // The self-provisioning-adapter migration gate.  Not the blanket message
+  // above: this is not "no relational mapping anywhere" — the sibling adapter
+  // (drizzle) applies the very same migration chain fine.  What mikroorm lacks
+  // is a migration chain AT ALL: it syncs the schema itself at boot, so a
+  // declared `migration` block is "resolved" as a drop+add, which deletes
+  // data.  (Dapper had a twin until it gained the chain — D-DAPPER-ALTER.)
   "loom.mikroorm-unsupported#migrations": (p: {
     name: unknown;
     migration: unknown;
@@ -3395,20 +3393,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // deployables, no error: the split-brain gets its own wording because "no
   // relational mapping anywhere" is the opposite of true here (the sibling
   // adapter maps it fine; that is exactly why they disagree).
-  "loom.dapper-unsupported#schema-split": (p: {
-    name: unknown;
-    ctxName: unknown;
-    other: unknown;
-    otherAdapter: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: dapper' and hosts context ` +
-    `'${p.ctxName}', which deployable '${p.other}' (${p.otherAdapter}) also hosts. ` +
-    `The Dapper adapter provisions its tables with 'CREATE TABLE IF NOT EXISTS' at boot ` +
-    `and names them UNQUALIFIED (public), while '${p.other}' routes the same tables into ` +
-    `the dataSource's Postgres schema (default: the snake-cased context name). Both ` +
-    `deployables would start against DIFFERENT physical tables and each would see an ` +
-    `empty database. Use 'persistence: efcore' on '${p.name}' so both share one schema, ` +
-    `or give the two deployables separate contexts.`,
   "loom.mikroorm-unsupported#schema-split": (p: {
     name: unknown;
     ctxName: unknown;
@@ -3423,16 +3407,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `DIFFERENT physical tables and each would see an empty database. Use ` +
     `'persistence: drizzle' on '${p.name}' so both share one schema, or give the two ` +
     `deployables separate contexts.`,
+  // Dapper honours a `schema:` (its migrations create the tables there and its
+  // connection's `search_path` names the schema), so its only dropped request
+  // is a `tablePrefix:` — a rename its unqualified repository SQL never applies.
   "loom.dapper-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;
     asked: unknown;
   }) =>
     `Deployable '${p.name}' selects 'persistence: dapper', but its dataSource binding ` +
-    `'${p.binding}' declares '${p.asked}'. The Dapper adapter names every table ` +
-    `UNQUALIFIED in the DDL it provisions at boot and in every statement it issues, so ` +
-    `the placement you asked for is silently dropped and the tables land in 'public'. ` +
-    `Use 'persistence: efcore' on this deployable, or drop the clause.`,
+    `'${p.binding}' declares '${p.asked}'. The Dapper repositories name every table ` +
+    `UNQUALIFIED and unprefixed, so the migrations would create prefixed tables that no ` +
+    `statement ever reads. Use 'persistence: efcore' on this deployable, or drop the clause.`,
   "loom.mikroorm-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;

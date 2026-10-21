@@ -8,6 +8,7 @@
 
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import {
   escapeTsIdent,
   humanize,
@@ -230,11 +231,23 @@ export function emitWorkflowForm(
   ctx: WalkContext,
   depth: number,
 ): string {
+  const runsArg = namedArgValue(call, "runs");
+  // An event-only saga (`create(e: Event) by …`) has no command route on any
+  // backend (`emitsCommandRoute`), so there is no `POST /workflows/<wf>` for a
+  // form to submit to and no `use<Wf>Workflow` call helper to bind — give up
+  // honestly, on every walker target, before a target fork could wire one.
+  const runsWf = runsArg?.kind === "ref" ? ctx.workflowsByName.get(runsArg.name) : undefined;
+  if (runsWf && !emitsCommandRoute(runsWf)) {
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `WorkflowForm(runs: ${runsWf.name}): an event-triggered workflow has no command route to submit to`,
+    );
+  }
   // A target may fork the whole primitive (Angular emits a typed Reactive Form
   // posting the workflow command, instead of the shared react-hook-form path).
   const override = ctx.target.renderWorkflowForm?.(call, ctx, depth);
   if (override != null) return override;
-  const runsArg = namedArgValue(call, "runs");
   if (!runsArg) {
     return giveUp(
       ctx.target,

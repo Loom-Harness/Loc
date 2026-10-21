@@ -2442,6 +2442,10 @@ system P {
     'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
     { ui: true },
   ),
+  "loom.design-pack-retired": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
+    { ui: true },
+  ),
   "loom.design-pack-version-unknown": topology(
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
     { ui: true },

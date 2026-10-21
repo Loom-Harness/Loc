@@ -197,6 +197,78 @@ end
  * (`Task.async` / Oban jobs) — a background job that needs the correlation id
  * must copy it into the child explicitly.
  */
+/** `<App>.PostCommit` — the request-path post-commit seam (D-WRITE-TX, M-T4.3
+ *  item 6).  A transactional workflow opens a process-dictionary buffer around
+ *  its `Repo.transaction/1`; every after-commit effect (the context
+ *  `Dispatcher.AfterCommit` fan-out, the PubSub broadcast, an ephemeral broker
+ *  publish) routes through `run/1`, which queues while a buffer is open and
+ *  runs immediately otherwise.  The buffer flushes only on `{:ok, _}`; a
+ *  rollback drops it.  The durable outbox INSERT never routes through here —
+ *  it has to commit WITH the write.  A nested scope hands its work up to the
+ *  enclosing one rather than running it inside the outer transaction. */
+export function renderPostCommit(appModule: string): string {
+  return `# Auto-generated.
+defmodule ${appModule}.PostCommit do
+  @moduledoc """
+  Effects owed once the enclosing transaction COMMITS (D-WRITE-TX).
+
+  An operation persists and then announces its events — right when that write
+  owns its commit, wrong inside a \`transactional\` workflow, where the write
+  only joined the workflow's open \`Repo.transaction\`: a reactor or a
+  LiveView subscriber would observe a write a later statement can still roll
+  back.  \`transaction/1\` opens a buffer for exactly that window; \`run/1\`
+  queues into it, and the queue runs (in raise order) only when the
+  transaction returned \`{:ok, _}\`.  Outside any buffer \`run/1\` runs now.
+  """
+
+  @key :loom_post_commit
+
+  @doc "Run \`fun\` now, or once the open \`transaction/1\` scope commits."
+  def run(fun) when is_function(fun, 0) do
+    case Process.get(@key) do
+      nil ->
+        _ = fun.()
+        :ok
+
+      queued ->
+        Process.put(@key, [fun | queued])
+        :ok
+    end
+  end
+
+  @doc "The domain-event broadcast on the PubSub events topic (SSE / LiveView), post-commit."
+  def broadcast(event) do
+    run(fn -> Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", event) end)
+  end
+
+  @doc """
+  Run \`tx\` (a \`Repo.transaction/1\` call) with a post-commit buffer open.
+  On \`{:ok, _}\` the queued effects run — or move up to an enclosing scope;
+  on anything else (or a raise) they are dropped.
+  """
+  def transaction(tx) when is_function(tx, 0) do
+    outer = Process.get(@key)
+    Process.put(@key, [])
+
+    {result, queued} =
+      try do
+        r = tx.()
+        {r, Process.get(@key) || []}
+      after
+        if outer == nil, do: Process.delete(@key), else: Process.put(@key, outer)
+      end
+
+    case result do
+      {:ok, _} -> queued |> Enum.reverse() |> Enum.each(&run/1)
+      _ -> :ok
+    end
+
+    result
+  end
+end
+`;
+}
+
 export function renderRequestContext(appModule: string): string {
   return `# Auto-generated.
 defmodule ${appModule}.RequestContext do

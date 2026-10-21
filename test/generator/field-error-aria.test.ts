@@ -8,7 +8,7 @@
 // spartanNg and angularMaterial each render a RAW `<input>` plus a sibling
 // error element with no id on either, so a screen reader announced a valid,
 // unexplained field. `grep -rl aria-invalid designs/` matched only
-// shadcn/v3, shadcn/v4, coreComponents/v3 and daisyui/v1.
+// shadcn/v4, coreComponents/v3 and daisyui/v1.
 //
 // angularMaterial had a second, structural half: its error `<span>` was
 // emitted AFTER `</mat-form-field>`, outside the wrapper — so Material could

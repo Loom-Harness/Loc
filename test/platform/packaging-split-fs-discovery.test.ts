@@ -12,10 +12,10 @@ import {
 // fs-backed `discoverBackends()` source.
 //
 // The contract under test: a workspace where
-// `@loom/backend-hono-v4` is symlinked under
-// `node_modules/@loom/backend-hono-v4` (set up earlier in the test) yields
+// `@loom/backend-hono-v5` is symlinked under
+// `node_modules/@loom/backend-hono-v5` (the npm workspace link) yields
 // a `DiscoveredBackend` whose `surface` is *the same instance* as
-// the in-tree `hono@v4` surface.  That `===` identity is the
+// the in-tree `node@v5` surface.  That `===` identity is the
 // byte-identical bridge: the same code is delivered through the
 // in-tree path AND the workspace symlink, so swapping the source
 // changes which `package.json` the manifest was *read* from but not
@@ -33,34 +33,28 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 afterEach(() => resetBackendSource());
 
 describe("fs-discovery — workspace symlink discovery", () => {
-  it("discovers both @loom/backend-hono-v4 and -v5 by their package.json loom keys", async () => {
+  it("discovers @loom/backend-hono-v5 by its package.json loom key", async () => {
     const fs = await discoverBackendsFs(repoRoot);
-    for (const version of ["v4", "v5"]) {
-      const hono = fs.find(
-        (b) => b.manifest.family === "node" && b.manifest.loomVersion === version,
-      );
-      expect(hono, `node@${version}`).toBeDefined();
-      expect(hono?.manifest).toMatchObject({
-        kind: "backend",
-        family: "node",
-        loomVersion: version,
-      });
-      expect(hono?.manifest.core).toMatch(/^\^?\d/);
-    }
+    const hono = fs.filter((b) => b.manifest.family === "node");
+    expect(hono.map((b) => b.manifest.loomVersion)).toEqual(["v5"]);
+    expect(hono[0]?.manifest).toMatchObject({
+      kind: "backend",
+      family: "node",
+      loomVersion: "v5",
+    });
+    expect(hono[0]?.manifest.core).toMatch(/^\^?\d/);
   });
 
-  it("fs-discovered hono surfaces are the SAME INSTANCE as in-tree (per version)", async () => {
+  it("the fs-discovered hono surface is the SAME INSTANCE as in-tree", async () => {
     // The byte-identical bridge — both delivery paths yield
     // the identical PlatformSurface, so every downstream resolver
     // is unaffected by the source swap.
     const fs = await discoverBackendsFs(repoRoot);
-    for (const version of ["v4", "v5"]) {
-      const match = (b: { manifest: { family: string; loomVersion: string } }) =>
-        b.manifest.family === "node" && b.manifest.loomVersion === version;
-      const fsHono = fs.find(match)!;
-      const inTreeHono = defaultBuiltInBackends().find(match)!;
-      expect(fsHono.surface, `node@${version}`).toBe(inTreeHono.surface);
-    }
+    const match = (b: { manifest: { family: string; loomVersion: string } }) =>
+      b.manifest.family === "node" && b.manifest.loomVersion === "v5";
+    const fsHono = fs.find(match)!;
+    const inTreeHono = defaultBuiltInBackends().find(match)!;
+    expect(fsHono.surface).toBe(inTreeHono.surface);
   });
 
   it("only emits backend entries — packages without a loom key are silently ignored", async () => {
@@ -87,16 +81,15 @@ describe("installFsBackendSource — composition with in-tree default", () => {
     // resolution silently breaks for `platform: dotnet` etc.
     expect(families).toContain("dotnet@v10");
     expect(families).toContain("elixir@v1");
-    // both hono versions are sourced through fs (their workspace
-    // symlinks), each still resolving to the same surface instance.
-    expect(families).toContain("node@v4");
+    // hono is sourced through fs (its workspace symlink), still
+    // resolving to the same surface instance.
     expect(families).toContain("node@v5");
   });
 
   it("does not double-count a backend present in both fs and in-tree", async () => {
     await installFsBackendSource(repoRoot);
     const honoEntries = discoverBackends().filter(
-      (b) => b.manifest.family === "node" && b.manifest.loomVersion === "v4",
+      (b) => b.manifest.family === "node" && b.manifest.loomVersion === "v5",
     );
     expect(honoEntries.length).toBe(1);
   });

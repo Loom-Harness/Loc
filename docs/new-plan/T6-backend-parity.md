@@ -405,7 +405,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 - **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
-## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `done` (#3107) · **S–M** · P1 ⚠ verify-first
 
 Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
 which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
@@ -446,7 +446,7 @@ than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
 
 *Wave L1-C (leftover-waves-2026-09-28), item P19 — rides [M-T6.75](#m-t675)'s .NET packet.*
-## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P1 ⚠ verify-first
 
 Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
 ([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
@@ -472,7 +472,7 @@ findings are not statements about the elixir API surface, and it must stay `disc
 
 *Wave L1-E (leftover-waves-2026-09-28), item **E9** — rides [M-T6.77](#m-t677)'s elixir packet.*
 
-## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P2 ⚠ verify-first
 
 Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
 
@@ -596,7 +596,7 @@ One packet over `src/generator/{java,python}/`, plus X3's python sites if [M-T6.
 
 **Verification.** Corpus fixtures through `corpus-java-build` / `corpus-python-build` (mypy strict); the unbound-symbol gate port ([M-T9.67](T9-toolchain-health.md#m-t967)) is what would have caught J1 and should go red on it.
 
-## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `open` · **M–L** · P1
+## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108): E1, E5–E10) · **M–L** · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-E (leftover-waves-2026-09-28).**
 
@@ -615,12 +615,16 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 **Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
 
-**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080 once it merges):**
+**Status (#3108, 2026-10-04).** E1, E5, E6, E7, E8, E9 (M-T6.70: path keys embed `/api`, no `servers` base) and E10 (M-T6.71: the LiveView by-id load and history loader cast the id first → the page's not-found arm) are in #3108; E7/E9/E10 boot-verified on a generated app. E8 lands as an honest skip, not an assertion: a bare `toThrow()` over an op with no reachable `precondition`/`requires` degrades like `toThrow(invariant)`. **E3** is fixed on `main` by #3080. Still open: **E2** (still fenced by open #3103; #3082 and #3101 have merged), **E4** — the schema half alone is unsafe (a `:utc_datetime_usec` field over the `timestamp(0)` column `timestamps()` migrates to would round on write, so the insert response and the read-back disagree), and the migration step lives in `elixir/migrations-emit.ts`; its fence #3101 merged 2026-10-06, so E4 is now unblocked (re-checked on the 2026-10-11 re-sync of #3108). Two findings filed here from the E8 investigation:
+- **E11** — an elixir named-operation persist re-runs only the RESIDUAL (cross-field) invariants (`context-emit.ts` `aggregateHasResidualInvariants`); a single-field invariant on the native chain (`invariant qty >= 0` → `validate_number` in `base_changeset`) is bypassed by `change(%{}) |> force_change`, so `setQty(-1)` commits. The root cause of E8. **M**.
+- **E12** — the context-nested (integration) test emitter maps only an object-literal op argument (`integration-tests-emit.ts` `attrsMap`); a positional `c.setQty(-1)` renders `set_qty_counter(c, %{})`, so `expect(…).toThrow()` passes on the missing param, and a success-path op call fails. Fix together with E11 (fixing E12 alone turns those generated tests red on E11). **S**.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080, merged; ported as E9/E10, renumbered E13/E14 on the 2026-10-06 re-sync of #3108 because E9/E10 already name M-T6.70/M-T6.71 in this packet):**
 
 | id | Item | Evidence | Sz |
 |---|---|---|---|
-| E9 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
-| E10 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+| E13 | ~~A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2)~~ — **not a live defect** (#3101): `loom.projection-groupby-key-not-columnar` refuses it before codegen on every backend | found while building #3080 | — |
+| E14 | ~~A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b)~~ — **fixed by #3101** (delta steps collapse to one `:map` column; the workflow-instance read serializes the jsonb-string decimal as a number — the storage stance is kept, every reader accepts both forms). Residue: a `backfillColumn`/`addIndex` on a VO leaf still names the flattened column | found while building #3082 | — |
 
 ## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
 
@@ -701,16 +705,6 @@ Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-fl
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
 
-## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `open` · **M** · P2
-
-*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
-
-`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
-
-**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
-
-**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
-
 ## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
 
 *Minted 2026-10-04 by the #15d fix (ruling D10 of the 2026-09-28 eval-closure review, PR #3153). M-T6.85 is reserved by #3152.*
@@ -763,14 +757,11 @@ Found by #3224 while keying `transactional-workflow-event-rollback` for the .NET
 
 Decide first which is the contract (the node golden says two loads are two handles); then on EF either load untracked and attach on save (the repository's `Detached ⇒ Add` branch in `SaveAsync` would have to become an upsert-by-version), or detach between loads. Python (SQLAlchemy session) may share the shape — unverified. Exit: add `dotnet` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` and delete the case's Dapper entry from `ADAPTER_ONLY_CASES` (`test/behavioral/registers.mjs`) — `test/behavioral/adapter-only-cases.test.ts` fails the entry as stale the moment the key lands.
 
+**java shares it (measured 2026-10-12, #3262).** Booted `run-java.mjs` on the case once M-T4.3 item 6 made java's workflow route publish: `debitOnce` passes (one Audit, after the commit), `debitTwice` answers 204 — `expected the call to reject, but it resolved`.  JPA's persistence context hands both `AcctRepositoryImpl.getById` loads the SAME managed entity, so the second `bumpVersion` reads the version the first save already applied.  Same ruling, same exit for the `java` key.  Python does NOT share it: its `debitTwice` 409s (booted, the leg is armed).
+
 ## M-T6.91 — the optimistic-concurrency 409 `detail` is spelled two ways: node `"<Aggregate> <id> was modified by another request"`, the other four `"The resource was modified by another request; reload and retry."` — `open` · **S** · P2 ⚠ needs a ruling first
 
 Found by #3224: the first golden that records a concurrency 409 (`transactional-workflow-event-rollback`, node-minted) diverges on the Dapper and python legs at `$.detail` only — status, `title` and `type` agree. Node raises `ConcurrencyConflictError` with the aggregate + id sentence (`src/platform/hono/v4/emit.ts`); .NET (EF + Dapper), java, python and elixir answer one fixed sentence. Rule it the way RS-27 ruled the 404-by-id sentence (one canonical sentence, an RS-rule pinning it), implement it on the losing side, and delete the `dapper`/`python` waiver for this case from `test/_helpers/wire-waivers.ts` in the same PR (the waiver ratchet fails it as stale otherwise).
-
-## M-T6.92 — elixir: a stale-version save inside a `transactional` workflow answers 500, not the concurrency 409 — `open` · **S** · P2
-
-Found by #3224 booting `transactional-workflow-event-rollback` on the elixir behavioural leg (keyed `vanilla` for the trial only). `debitTwice` loads one `Acct` twice and saves both handles; node, python and the .NET Dapper adapter answer the optimistic-concurrency 409 and roll back, elixir answers `500 {"detail":"internal"}`. The stale update inside the workflow's `Repo.transaction` is not mapped to the conflict rung the plain update route uses. Exit: map it, then add `vanilla` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` (and to the case's M-T6.91 `detail` waiver until that rules).
-
 ## M-T6.97 — Target-reserved names the adversarial fixture does not yet reach: a TS field `constructor`, type names that shadow target globals, the frontends — `open` · **M** · P2
 
 *Minted 2026-10-12 by the per-target reserved-identifier consolidation, which made `test/fixtures/corpus/target-reserved-words.ddd` compile on all five backends and recorded what it deliberately left out.* Re-verify on fresh `main` before building (RUNBOOK §1).

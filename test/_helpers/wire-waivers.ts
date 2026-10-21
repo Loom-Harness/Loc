@@ -113,8 +113,9 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
   // sentence differs (node names the aggregate + id, the other four answer one
   // fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
+  // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
   {
-    backends: ["dapper", "python"],
+    backends: ["dapper", "python", "elixir"],
     cases: ["transactional-workflow-event-rollback"],
     request: "POST /api/workflows/debit_twice",
     path: "$.detail",

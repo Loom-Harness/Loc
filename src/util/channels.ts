@@ -99,5 +99,17 @@ export const LOOM_ENVELOPE_OPTIONAL = [
   "loomkey", // value of the channel's `key:` field, if declared
   "correlationid",
   "scopeid",
-  "tenantid", // observability + partition affinity — never authorization
+  "tenantid", // the triggering event's tenant — the consumer's reactor runs as
+  // the system principal OF this tenant (ruling D1); never a user grant
+  "loomorgpath", // that tenant's materialized path (hierarchical tenancy)
+  "loomcausedby", // the originating user id — audit and logs only
 ] as const;
+
+/** The reserved key a durable event's outbox row payload carries its EVENT
+ *  ORIGIN under (ruling D1, D-REACTOR-SYSTEM-PRINCIPAL): `{ tenant, orgPath,
+ *  causedBy }`, snapshotted from the raising principal at capture time, so
+ *  the relay — which runs long after the request is gone — can open the
+ *  reactor's frame as the system principal of that tenant and stamp the same
+ *  three attributes onto the broker envelope.  Lives inside the JSON payload
+ *  (no outbox schema change); every backend strips it before decoding. */
+export const LOOM_OUTBOX_ORIGIN_KEY = "__loomOrigin";

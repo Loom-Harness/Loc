@@ -26,7 +26,7 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import { routerPackageForStack } from "../../_packs/stack-runtime.js";
+import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
 import { prepareAppShellVM } from "./preparers/app-shell.js";
 import { prepareThemeVM } from "./preparers/theme.js";
 
@@ -122,11 +122,7 @@ export function renderAppShell(
       pageModules,
       uiPages,
     ),
-    // Router 7 (stack v3) renamed the package react-router-dom →
-    // react-router; library mode keeps the v6 API so only the
-    // import specifier changes.  Pre-v3 stacks resolve to
-    // react-router-dom (byte-identical).
-    routerPackage: routerPackageForStack(pack.manifest.stack),
+    routerPackage: ROUTER_PACKAGE,
   });
 }
 
@@ -136,7 +132,7 @@ export function renderAppShell(
  *  still falls back to `undefined` (root), byte-identical. */
 export function renderMain(pack: LoadedPack, basename?: string, authUi = false): string {
   return pack.render("main", {
-    routerPackage: routerPackageForStack(pack.manifest.stack),
+    routerPackage: ROUTER_PACKAGE,
     basename,
     authUi,
   });

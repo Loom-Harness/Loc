@@ -14,9 +14,10 @@ import type {
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -123,6 +124,11 @@ export function buildPyDispatchFile(
    *  when no workflow/projection subscribes (broadcast-only), so the repos'
    *  drained events flow through the tee. */
   hasRealtime = false,
+  /** The deployable carries auth: a durable event's outbox row records its
+   *  EVENT ORIGIN (ruling D1) and the relay delivers it inside the system
+   *  principal of that origin (`app.auth.user.event_origin_frame`).  Auth-less
+   *  output is unchanged. */
+  carriesOrigin = false,
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
@@ -141,13 +147,18 @@ export function buildPyDispatchFile(
         channelTeeClass('"OutboxDispatcher"'),
         "",
         "",
-        outboxBlock(durableEvents, { durableBroker: true, pureProducer: true, hasRealtime }),
+        outboxBlock(durableEvents, {
+          durableBroker: true,
+          pureProducer: true,
+          hasRealtime,
+          carriesOrigin,
+        }),
         "",
         "",
-        "def make_dispatcher(session: AsyncSession) -> ChannelTeeDispatcher:",
+        "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
         hasRealtime
-          ? "    return ChannelTeeDispatcher(OutboxDispatcher(session, RealtimeDispatcher(NoopDomainEventDispatcher())))"
-          : "    return ChannelTeeDispatcher(OutboxDispatcher(session, NoopDomainEventDispatcher()))",
+          ? "    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, RealtimeDispatcher(NoopDomainEventDispatcher()))), _DURABLE_EVENT_TYPES)"
+          : "    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, NoopDomainEventDispatcher())), _DURABLE_EVENT_TYPES)",
       );
       const ppScan = ppBody.replace(/"(?:\\.|[^"\\])*"/g, '""');
       const ppRefers = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(ppScan);
@@ -157,7 +168,7 @@ export function buildPyDispatchFile(
         .sort();
       const ppVoEnumNames = [
         ...valueObjectPool(ctx).map((v) => v.name),
-        ...ctx.enums.map((e) => e.name),
+        ...enumPool(ctx).map((e) => e.name),
       ]
         .filter(ppRefers)
         .sort();
@@ -179,12 +190,14 @@ export function buildPyDispatchFile(
         "from sqlalchemy import select, update",
         "from sqlalchemy.ext.asyncio import AsyncSession",
         "",
+        authUserImport(ppRefers),
         "from app.channels import publish_event, publish_event_from_relay",
         "from app.db.engine import engine",
         "from app.db.schema import LoomOutboxRow",
         `from app.domain.events import ${[
           "DomainEvent",
           "NoopDomainEventDispatcher",
+          "PostCommitDispatcher",
           ...durableEvents.map((e) => e.name).sort(),
         ].join(", ")}`,
         ppIdNames.length > 0 ? `from app.domain.ids import ${ppIdNames.join(", ")}` : null,
@@ -217,7 +230,7 @@ export function buildPyDispatchFile(
       "from sqlalchemy.ext.asyncio import AsyncSession",
       "",
       "from app.channels import publish_event",
-      "from app.domain.events import DomainEvent, DomainEventDispatcher, NoopDomainEventDispatcher",
+      "from app.domain.events import DomainEvent, DomainEventDispatcher, NoopDomainEventDispatcher, PostCommitDispatcher",
       ...(hasRealtime ? ["from app.realtime import RealtimeDispatcher"] : []),
       "",
       // The PROTOCOL, not the Noop (M-T6.68, audit #2864 T6).  What the factory
@@ -231,9 +244,9 @@ export function buildPyDispatchFile(
       channelTeeClass("DomainEventDispatcher"),
       "",
       "",
-      "def make_dispatcher(_session: AsyncSession) -> ChannelTeeDispatcher:",
+      "def make_dispatcher(_session: AsyncSession) -> PostCommitDispatcher:",
       "    # The tee needs no db access; signature parity with the saga shape.",
-      `    return ChannelTeeDispatcher(${producerInner})`,
+      `    return PostCommitDispatcher(ChannelTeeDispatcher(${producerInner}))`,
       "",
     );
   }
@@ -316,13 +329,12 @@ export function buildPyDispatchFile(
     ? "RealtimeDispatcher(InProcessDispatcher(session, isolate=True))"
     : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
-  const returnType = hasChannels
-    ? '"ChannelTeeDispatcher"'
-    : hasOutbox
-      ? '"OutboxDispatcher"'
-      : hasRealtime
-        ? "RealtimeDispatcher"
-        : "InProcessDispatcher";
+  // Outermost: `PostCommitDispatcher` (app/domain/events.py) defers the whole
+  // chain to the request's post-commit list (D-WRITE-TX, M-T4.3 item 6) — the
+  // reactors, the realtime wire and a broker publish all run after the request
+  // transaction commits, never inside it.  Durable events pass straight through
+  // so the OutboxDispatcher still records them INSIDE the transaction.
+  const chainExpr = hasChannels ? `ChannelTeeDispatcher(${innerExpr})` : innerExpr;
   const dispatcher = lines(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
@@ -364,8 +376,8 @@ export function buildPyDispatchFile(
     // outermost: InProcess → Realtime → Outbox → ChannelTee — ephemeral
     // events stream inline, durable ones stream when the relay redelivers,
     // and broker-routed events publish from the outermost tee (mirrors Hono).
-    `def make_dispatcher(session: AsyncSession) -> ${returnType}:`,
-    hasChannels ? `    return ChannelTeeDispatcher(${innerExpr})` : `    return ${innerExpr}`,
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    `    return PostCommitDispatcher(${chainExpr}${hasOutbox ? ", _DURABLE_EVENT_TYPES" : ""})`,
   );
 
   const body = lines(
@@ -373,7 +385,16 @@ export function buildPyDispatchFile(
     ...handlers,
     dispatcher,
     ...(hasOutbox
-      ? ["", "", outboxBlock(durableEvents, { durableBroker, pureProducer: false, hasRealtime })]
+      ? [
+          "",
+          "",
+          outboxBlock(durableEvents, {
+            durableBroker,
+            pureProducer: false,
+            hasRealtime,
+            carriesOrigin,
+          }),
+        ]
       : []),
   );
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
@@ -431,7 +452,10 @@ export function buildPyDispatchFile(
     .map((a) => `${a.name}Id`)
     .filter((n) => refersTo(n))
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refersTo)
     .sort();
 
@@ -457,7 +481,7 @@ export function buildPyDispatchFile(
     refersTo("insert") ? "from sqlalchemy.dialects.postgresql import insert" : null,
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
-    refersTo("system_principal") ? "from app.auth.user import system_principal" : null,
+    authUserImport(refersTo),
     hasChannels
       ? hasOutbox && durableBroker
         ? "from app.channels import publish_event, publish_event_from_relay"
@@ -473,6 +497,7 @@ export function buildPyDispatchFile(
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
+      "PostCommitDispatcher",
       ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
     ].join(", ")}`,
     idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
@@ -687,14 +712,50 @@ function accumulatePy(path: string, op: "+" | "-", value: string): string {
  *  typed zero for each required non-key saga field.  Shared with the COMMAND
  *  route's load-or-allocate (`workflows-builder.ts`, F58), which binds the same
  *  `__key` local — one allocation shape for both entry points. */
-export function allocateKwargs(wf: WorkflowIR): string {
+export function allocateKwargs(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const corr = wf.correlationField as string;
   const parts = [`${snake(corr)}=__key`];
   for (const f of wf.stateFields ?? []) {
     if (f.name === corr || f.optional) continue;
+    if (f.type.kind === "valueobject") {
+      const leaves = voLeafZeros(f.type.name, f.name, ctx);
+      if (leaves) {
+        parts.push(...leaves);
+        continue;
+      }
+    }
     parts.push(`${pythonIdent(f.name)}=${zeroFor(f)}`);
   }
   return parts.join(", ");
+}
+
+/** The zero kwargs for a REQUIRED value-object state field's flattened leaf
+ *  columns (`total_amount=Decimal("0"), total_currency=""`), recursing
+ *  through a nested value object.  The row flattens the field to exactly
+ *  these NOT NULL columns (`py-columns.columnsFor`) — there is no `total`
+ *  column to take a `total=""` kwarg, and building a zero value object would
+ *  run its constructor invariants on a placeholder.  An optional leaf (or a
+ *  whole optional nested value object) is a nullable column and stays unset.
+ *  A `decimal` leaf zeroes to a `Decimal`, the type its `Numeric` column
+ *  binds.  Undefined when the value object is not declared in scope. */
+function voLeafZeros(
+  voName: string,
+  prefix: string,
+  ctx: EnrichedBoundedContextIR,
+): string[] | undefined {
+  const vo = ctx.valueObjects.find((v) => v.name === voName);
+  if (!vo) return undefined;
+  return vo.fields.flatMap((vf): string[] => {
+    if (vf.optional || vf.type.kind === "optional") return [];
+    const path = `${prefix}_${vf.name}`;
+    if (vf.type.kind === "valueobject") {
+      const nested = voLeafZeros(vf.type.name, path, ctx);
+      if (nested) return nested;
+    }
+    const zero =
+      vf.type.kind === "primitive" && vf.type.name === "decimal" ? 'Decimal("0")' : zeroFor(vf);
+    return [`${snake(path)}=${zero}`];
+  });
 }
 
 /** A typed zero for a workflow's own-state field — used both to allocate a
@@ -747,10 +808,11 @@ function handlerFn(
   saves: { name: string; aggName: string; repoName: string }[],
   hasOutbox: boolean,
   construct: string,
-  /** The owning context — the op-call arm looks each called operation up in
-   *  it, to render the operation's hoisted `requires` gate and thread the
-   *  principal.  Without it the lookup missed and a reactor called a gated
-   *  operation with the gate silently DROPPED (fail-open). */
+  /** The hosting context — a value-object state field allocates its leaf
+   *  columns (`allocateKwargs`), and the op-call arm looks each called
+   *  operation up in it to render the operation's hoisted `requires` gate and
+   *  thread the principal (without it a reactor called a gated operation with
+   *  the gate silently DROPPED — fail-open). */
   ctx: EnrichedBoundedContextIR,
   /** Source-map — see `buildPyDispatchFile`'s `opFragments`. */
   opFragments?: OpFragment[],
@@ -791,7 +853,7 @@ function handlerFn(
       // Load-or-allocate: a starter creates the instance if its key is new.
       out.push(`    state = await _load_${snake(wf.name)}(session, __key)`);
       out.push("    if state is None:");
-      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf)})`);
+      out.push(`        state = ${wf.name}Row(${allocateKwargs(wf, ctx)})`);
       out.push("        session.add(state)");
     } else {
       // Route-to-existing, else drop + log.
@@ -983,11 +1045,43 @@ function esHandlerFn(
  *  `hasRealtime` (channels.md Part I): the relay redelivers through the same
  *  realtime-teed in-process dispatcher as the request path (mirrors Hono),
  *  so durable broadcast events reach the SSE wire when redelivered. */
+/** `from app.auth.user import …` for the event-origin helpers (and the
+ *  reactor's `system_principal`) the dispatch body actually names. */
+function authUserImport(refersTo: (n: string) => boolean): string | null {
+  const names = ["current_event_origin", "event_origin_frame", "system_principal"].filter(refersTo);
+  return names.length > 0 ? `from app.auth.user import ${names.join(", ")}` : null;
+}
+
+/** The outbox row's payload expression: the event's wire payload, plus its
+ *  EVENT ORIGIN under the reserved key when the deployable carries auth. */
+function capturedPayload(carriesOrigin: boolean): string {
+  return carriesOrigin
+    ? `{**_event_to_payload(event), "${LOOM_OUTBOX_ORIGIN_KEY}": current_event_origin()}`
+    : "_event_to_payload(event)";
+}
+
+/** Wrap a relay delivery (`body`, already indented at `indent`) in the system
+ *  principal of the drained row's origin — or leave it bare without auth. */
+function inOriginFrame(carriesOrigin: boolean, indent: string, body: string[]): string[] {
+  if (!carriesOrigin) return body;
+  return [
+    `${indent}with event_origin_frame(payload.get("${LOOM_OUTBOX_ORIGIN_KEY}")):`,
+    ...body.map((l) => `    ${l}`),
+  ];
+}
+
 function outboxBlock(
   durableEvents: EventIR[],
-  opts: { durableBroker: boolean; pureProducer: boolean; hasRealtime?: boolean },
+  opts: {
+    durableBroker: boolean;
+    pureProducer: boolean;
+    hasRealtime?: boolean;
+    carriesOrigin?: boolean;
+  },
 ): string {
-  if (opts.pureProducer) return pureProducerOutboxBlock(durableEvents, opts.hasRealtime ?? false);
+  const origin = opts.carriesOrigin ?? false;
+  if (opts.pureProducer)
+    return pureProducerOutboxBlock(durableEvents, opts.hasRealtime ?? false, origin);
   const relayDispatcher = opts.hasRealtime
     ? "RealtimeDispatcher(InProcessDispatcher(session))"
     : "InProcessDispatcher(session)";
@@ -1018,7 +1112,7 @@ function outboxBlock(
     "",
     "    async def dispatch(self, event: DomainEvent) -> None:",
     "        if event.type in _DURABLE_EVENT_TYPES:",
-    "            self._session.add(LoomOutboxRow(type=event.type, payload=_event_to_payload(event)))",
+    `            self._session.add(LoomOutboxRow(type=event.type, payload=${capturedPayload(origin)}))`,
     "            return",
     "        await self._inner.dispatch(event)",
     "",
@@ -1068,7 +1162,10 @@ function outboxBlock(
           "            # Design §5: a broker-bound durable row publishes on drain (the",
           "            # envelope carries the row id — the consumer-side idempotency",
           "            # key); the rest redeliver through the local dispatcher.",
-          "            if await publish_event_from_relay(event, event_id):",
+          ...inOriginFrame(origin, "            ", [
+            "            published = await publish_event_from_relay(event, event_id)",
+          ]),
+          "            if published:",
           "                async with AsyncSession(engine) as session:",
           "                    await session.execute(",
           "                        update(LoomOutboxRow)",
@@ -1078,7 +1175,9 @@ function outboxBlock(
           "                    await session.commit()",
           "            else:",
           "                async with AsyncSession(engine) as session:",
-          `                    await ${relayDispatcher}.dispatch(event)`,
+          ...inOriginFrame(origin, "                    ", [
+            `                    await ${relayDispatcher}.dispatch(event)`,
+          ]),
           "                    await session.execute(",
           "                        update(LoomOutboxRow)",
           "                        .where(LoomOutboxRow.id == event_id)",
@@ -1088,9 +1187,11 @@ function outboxBlock(
         ]
       : [
           "            async with AsyncSession(engine) as session:",
-          `                await ${relayDispatcher}.dispatch(`,
-          "                    _event_from_payload(event_type, payload)",
-          "                )",
+          ...inOriginFrame(origin, "                ", [
+            `                await ${relayDispatcher}.dispatch(`,
+            "                    _event_from_payload(event_type, payload)",
+            "                )",
+          ]),
           "                await session.execute(",
           "                    update(LoomOutboxRow)",
           "                    .where(LoomOutboxRow.id == event_id)",
@@ -1137,7 +1238,11 @@ function outboxBlock(
  *  the relay publishes drained rows to the broker (design §5) and never
  *  redelivers locally — there are no handlers, so no `_current_event_id`
  *  and no `_dispatch_chained`. */
-function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean): string {
+function pureProducerOutboxBlock(
+  durableEvents: EventIR[],
+  hasRealtime: boolean,
+  carriesOrigin = false,
+): string {
   const toArms = durableEvents.flatMap((ev, i) => [
     `    ${i === 0 ? "if" : "elif"} isinstance(event, ${ev.name}):`,
     `        return {${ev.fields.map((f) => `"${f.name}": ${toPayload(`event.${pythonIdent(f.name)}`, f.type)}`).join(", ")}}`,
@@ -1166,7 +1271,7 @@ function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean)
     "",
     "    async def dispatch(self, event: DomainEvent) -> None:",
     "        if event.type in _DURABLE_EVENT_TYPES:",
-    "            self._session.add(LoomOutboxRow(type=event.type, payload=_event_to_payload(event)))",
+    `            self._session.add(LoomOutboxRow(type=event.type, payload=${capturedPayload(carriesOrigin)}))`,
     "            return",
     "        await self._inner.dispatch(event)",
     "",
@@ -1201,9 +1306,11 @@ function pureProducerOutboxBlock(durableEvents: EventIR[], hasRealtime: boolean)
     "            # envelope carries the row id — the consumer-side idempotency",
     "            # key).  A non-broker durable row has no subscriber in this",
     "            # shape; either way the row completes.",
-    "            await publish_event_from_relay(",
-    "                _event_from_payload(event_type, payload), event_id",
-    "            )",
+    ...inOriginFrame(carriesOrigin, "            ", [
+      "            await publish_event_from_relay(",
+      "                _event_from_payload(event_type, payload), event_id",
+      "            )",
+    ]),
     "            async with AsyncSession(engine) as session:",
     "                await session.execute(",
     "                    update(LoomOutboxRow)",
@@ -1255,7 +1362,7 @@ function buildRealtimeOnlyDispatch(): string {
     "",
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
-    "from app.domain.events import DomainEvent",
+    "from app.domain.events import DomainEvent, PostCommitDispatcher",
     "from app.realtime import RealtimeDispatcher",
     "",
     "",
@@ -1271,8 +1378,8 @@ function buildRealtimeOnlyDispatch(): string {
     "        return None",
     "",
     "",
-    "def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:",
-    "    return RealtimeDispatcher(InProcessDispatcher(session))",
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    "    return PostCommitDispatcher(RealtimeDispatcher(InProcessDispatcher(session)))",
     "",
   );
 }
