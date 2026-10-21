@@ -71,7 +71,11 @@ import {
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 /** Truth-kind predicate — an aggregate whose persistence is its event log. */
@@ -851,7 +855,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
   def index(conn, _params) do
     with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
       json(conn, Enum.map(records, &serialize/1))

@@ -194,9 +194,9 @@ describe("the examples a new user copies actually parse", () => {
 // Two of them had drifted from the grammar with nothing to catch it: the
 // formal reference (`docs/language.md`) documented `channel Name { carries:
 // [Event, …] }`, a bracketed list the grammar has never taken (`Expecting token
-// of type 'ID' but found '['`), and chapter 06 told the reader that "omitting
-// the parens" silences `loom.create-params-not-wire` when `create { }` does not
-// parse at all.  Both are lines a new user reads FIRST.
+// of type 'ID' but found '['`), and chapter 06 told the reader to "omit the
+// parens" of a `create` when `create { }` does not parse at all.  Both are
+// lines a new user reads FIRST.
 //
 // The question here is SYNTAX ONLY — `parseRawResult`, not `parseString` — and
 // that is deliberate, not laziness.  A reference doc's job is to show the

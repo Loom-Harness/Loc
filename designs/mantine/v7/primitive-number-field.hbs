@@ -1,1 +1,0 @@
-{{#if hasBind}}<NumberInput{{{labelAttr}}} value={{expr bind}} onChange={(v) => {{setter}}(typeof v === "number" ? v : 0)}{{#if hasError}} error={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{else}}<NumberInput{{{labelAttr}}}{{#if hasError}} error={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{/if}}

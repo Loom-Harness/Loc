@@ -103,19 +103,9 @@ describe("loom.chart-unsupported-target (per-pack gate)", () => {
   // `primitive-chart`, so the gate collapsed from a per-PACK set to the same
   // per-FRAMEWORK rule `DataGrid` uses.  A missing template is now a pack-LOAD
   // failure via `REQUIRED_PRIMITIVES.tsx.core`, not something re-checked here.
-  // Barewords resolve to each family's LATEST pack; the `@vN` pins cover the
-  // older majors, which bind different chart-library versions (x-charts v7 vs
-  // v8, tailwind v3's `hsl(var(--token))` vs v4's `var(--token)`).  A pinned
-  // spelling is a STRING in the grammar, so it is quoted here.
-  for (const design of [
-    "shadcn",
-    "mui",
-    "chakra",
-    `"shadcn@v3"`,
-    `"mui@v5"`,
-    `"chakra@v2"`,
-    `"mantine@v7"`,
-  ]) {
+  // Barewords resolve to each family's LATEST pack; a pinned spelling is a
+  // STRING in the grammar, so it is quoted here.
+  for (const design of ["shadcn", "mui", "chakra", `"shadcn@v4"`, `"mui@v7"`, `"chakra@v3"`]) {
     it(`accepts Chart on react with the ${design} design pack`, async () => {
       const diags = await diagsOf(sys({ design }));
       expect(diags.filter((d) => d.code?.startsWith("loom.chart-"))).toEqual([]);

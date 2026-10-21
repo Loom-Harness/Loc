@@ -11,9 +11,9 @@
 // This is intentionally narrow: the discovered manifest is paired
 // with the surface from the *in-tree* default set (looked up by
 // family@version).  The byte-identical guarantee falls out: a
-// workspace where `@loom/backend-hono-v4` is symlinked under
-// `node_modules/@loom/backend-hono-v4` resolves `hono@v4` through
-// the fs source to the *same* `honoPlatform` instance the in-tree
+// workspace where `@loom/backend-hono-v5` is symlinked under
+// `node_modules/@loom/backend-hono-v5` resolves `node@v5` through
+// the fs source to the *same* surface instance the in-tree
 // source returns — so `===` identity holds and every downstream
 // resolver is unaffected.  Only the manifest is honoured from the
 // symlinked package; the surface still comes from the in-tree default
@@ -26,7 +26,7 @@
 // a snapshot — `setBackendSource` swaps the seam wholesale, so the
 // merged set must already include every in-tree backend the fs walk
 // didn't pick up (otherwise resolving e.g. dotnet/phoenix would
-// silently return undefined when only @loom/backend-hono-v4 is
+// silently return undefined when only @loom/backend-hono-v5 is
 // installed).
 // ---------------------------------------------------------------------------
 

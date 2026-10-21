@@ -121,9 +121,9 @@ known-landmines reference for the 4.3 renames).
   imports.
 - **Pack-specific deps:** `designs/<pack>/<vN>/package-json.hbs`.
 - **Backend deps:** the backend's manifest emitter (Hono — bareword `node`
-  resolves to the **`node@v5`** default lane, so the live pins are
-  `src/platform/hono/v5/pins.ts`; `v4/` is the legacy pinnable lane, bump it only
-  if a deployable pins `node@v4`. .NET `renderCsproj` in
+  resolves to **`node@v5`**, the only registered lane, so the pins are
+  `src/platform/hono/v5/pins.ts`; `src/platform/hono/v4/` holds only the shared
+  emitter and owns no pins. .NET `renderCsproj` in
   `src/generator/dotnet/emit/program.ts`; Java `renderGradleBuild` +
   `SPRING_BOOT_VERSION`/`JAVA_VERSION` in `src/generator/java/emit/program.ts`;
   Python `src/generator/python/pins.ts`; Elixir `renderMixExs` in

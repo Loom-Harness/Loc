@@ -208,6 +208,64 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 404,
+      "body": {
+        "detail": "Claim {id} not found",
+        "instance": "/api/claims/{id}/file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 404,
+      "body": {
+        "detail": "Claim {id} not found",
+        "instance": "/api/claims/{id}/file",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/claims/{id}/file",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/claims/{id}/file",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/claims/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/reference"
+          }
+        ],
+        "instance": "/api/claims/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

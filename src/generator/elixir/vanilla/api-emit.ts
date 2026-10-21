@@ -33,7 +33,7 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../../ir/util/api-surface.js";
-import { lifecycleGates } from "../../../ir/util/op-gates.js";
+import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
@@ -77,7 +77,11 @@ import {
   renderReturningOpControllerAction,
 } from "./operation-returns-emit.js";
 import { PAGE_CALL_ARGS, PAGE_WITH_CLAUSES, pagingElseArm } from "./page-param.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { hasRefColls } from "./ref-collection-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
@@ -490,6 +494,21 @@ ${cuBind}${indexCuBind}${indexBody}
   // the same 403 ProblemDetails clause the operation paths answer with, built
   // from the shared denial ladder so a `httpStatus Forbidden -> …` override
   // moves all of them together.
+  // A create body `precondition` short-circuits `create_<agg>` to
+  // `{:error, {:precondition_failed, detail}}` (the domain-floor 422, as an
+  // operation's does) — mapped here, and only when one exists, so no
+  // unreachable clause reaches `--warnings-as-errors`.
+  const createPrecondition = createBodyStatements(agg).some((st) => st.kind === "precondition");
+  const createDenialArms = (indent: string): string =>
+    `${createGated ? forbiddenArm(indent) : ""}${
+      createPrecondition
+        ? `\n\n${indent}{:error, {:precondition_failed, detail}} ->\n${indent}  ${denialResponse(
+            "precondition",
+            "detail",
+            denialOverrides(ctx),
+          )}`
+        : ""
+    }`;
   const forbiddenArm = (indent: string): string =>
     `\n\n${indent}{:error, {:forbidden, detail}} ->\n${indent}  ${denialResponse(
       "forbidden",
@@ -674,6 +693,13 @@ ${auditRecordCall({
           {:error, {:forbidden, detail}} ->
             ${appModule}.Repo.rollback({:forbidden, detail})`
                 : ""
+            }${
+              createPrecondition
+                ? `
+
+          {:error, {:precondition_failed, detail}} ->
+            ${appModule}.Repo.rollback({:precondition_failed, detail})`
+                : ""
             }
         end
       end)
@@ -691,7 +717,7 @@ ${auditRecordCall({
         |> json(%{"id" => record.id})
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)${createGated ? forbiddenArm("      ") : ""}
+        ProblemDetails.validation_error_response(conn, changeset)${createDenialArms("      ")}
     end
   end`
       : `  def create(conn, params) do
@@ -708,7 +734,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
         |> json(%{"id" => record.id})
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)${createGated ? forbiddenArm("      ") : ""}
+        ProblemDetails.validation_error_response(conn, changeset)${createDenialArms("      ")}
     end
   end`;
 
@@ -910,7 +936,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}
 ${indexAction}
 
   def show(conn, %{"id" => id}) do
