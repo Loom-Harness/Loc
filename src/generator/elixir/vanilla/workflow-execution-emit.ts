@@ -92,7 +92,7 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -1553,7 +1553,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
+      const params = fn.params.map((p) => elixirLocal(p.name)).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
