@@ -107,8 +107,8 @@ import { stateDefault } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
-  denialTerm,
   respondErrorTail,
+  workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
@@ -403,7 +403,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -417,7 +417,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -724,7 +724,7 @@ function lowerStatement(
               case "precondition":
               case "requires":
                 clauses.push(
-                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
                 );
                 break;
               case "op-call":
@@ -1054,12 +1054,12 @@ function renderLoopBody(
       }
       case "precondition":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "requires":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "expr-let": {

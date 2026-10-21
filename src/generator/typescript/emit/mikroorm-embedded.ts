@@ -11,6 +11,7 @@ import type {
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
@@ -189,13 +190,11 @@ export function renderMikroEmbeddedRepository(
       // The find's OWN predicate reads the declared `currentUser` parameter;
       // the capability filters (`caps`) keep the ambient accessor, because they
       // ride reads that have no such parameter.
+      // A clause-less find still filters — by its implicit key match.
+      const own = effectiveFindFilter(f, agg);
       filter = withContextFilters(
-        f.filter
-          ? whereToMikroFilter(
-              f.filter,
-              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
-              agg.associations,
-            )
+        own
+          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
           : "{}",
         caps,
       );
