@@ -29,7 +29,12 @@ import {
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
-import { walkExprDeep, walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
+import {
+  walkExprDeep,
+  walkExprStmtsDeep,
+  walkStmtDeep,
+  walkStmtExprsDeep,
+} from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -949,9 +954,119 @@ function backendBodyKinds(stmts: readonly StmtIR[]): string[] {
   return [...found].sort();
 }
 
+// -------------------------------------------------------------------------
+// `loom.ui-this-unbound` — `this` in a ui body on a walker frontend.
+//
+// A page / component / store has no aggregate instance in scope: it binds its
+// data through params, `state` and api reads.  The shared JS walker
+// (`_walker/walker-core.ts`) and Feliz's update renderer (`feliz/fs-expr.ts`)
+// both THROW on a `this` node, so `action a() { label := string(this) }`
+// reported `0 error(s), 0 warning(s)` and then aborted `ddd generate system`
+// with a raw `Error:` on all six of them.  Phoenix LiveView is exempt: its
+// HEEx renderer binds `this` to the page's `@record` assign.
+// -------------------------------------------------------------------------
+
+/** Every `this` node in an expression tree, block-bodied lambdas included. */
+function usesThis(e: ExprIR | undefined): boolean {
+  let found = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "this") found = true;
+  });
+  return found;
+}
+
+function stmtsUseThis(stmts: readonly StmtIR[]): boolean {
+  let found = false;
+  for (const s of stmts) {
+    walkStmtExprsDeep(s, (n) => {
+      if (n.kind === "this") found = true;
+    });
+  }
+  return found;
+}
+
+export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") continue;
+      const flag = (where: string, hit: boolean): void => {
+        if (!hit) return;
+        diags.push({
+          severity: "error",
+          code: "loom.ui-this-unbound",
+          message: diagMessage("loom.ui-this-unbound", {
+            where,
+            uiName: ui.name,
+            fw: fw || "unknown",
+            dName: d.name,
+          }),
+          source: `${ui.name}/${where}`,
+        });
+      };
+      const hosts = [
+        ...ui.pages.map((p) => ({ label: `page '${p.name}'`, h: p })),
+        ...ui.components.map((c) => ({ label: `component '${c.name}'`, h: c })),
+      ];
+      for (const { label, h } of hosts) {
+        flag(`${label} body`, usesThis(h.body));
+        for (const a of h.actions) flag(`${label} action '${a.name}'`, stmtsUseThis(a.body));
+        for (const dv of h.derived) flag(`${label} derived '${dv.name}'`, usesThis(dv.expr));
+        for (const f of h.state) flag(`${label} state '${f.name}'`, usesThis(f.init));
+      }
+      for (const p of ui.pages) flag(`page '${p.name}' title`, usesThis(p.title));
+      for (const st of ui.stores) {
+        for (const a of st.actions) {
+          flag(`store '${st.name}' action '${a.name}'`, stmtsUseThis(a.body));
+        }
+        for (const f of st.state) flag(`store '${st.name}' state '${f.name}'`, usesThis(f.init));
+      }
+    }
+  }
+}
+
+/** Statement kinds a Phoenix LiveView STORE action cannot hold, → keyword.  The
+ *  LiveView handler renderer has arms for the first three, but a store is not a
+ *  handler: `store-emit.ts` renders each action as a pure struct → struct
+ *  function, with no socket to flash or halt on, no value sink and no
+ *  remote-call seam, so these four have nowhere to go there. */
+const LIVEVIEW_STORE_REFUSED_KINDS: Readonly<Record<string, string>> = {
+  ...BACKEND_BODY_UI_STMT_KINDS,
+  "variant-match": "match await",
+};
+
+function liveViewStoreRefusedKinds(stmts: readonly StmtIR[]): string[] {
+  const found = new Set<string>();
+  for (const s of stmts) {
+    walkStmtDeep(s, (n) => {
+      if (n.kind in LIVEVIEW_STORE_REFUSED_KINDS) found.add(n.kind);
+    });
+  }
+  return [...found].sort();
+}
+
 export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") {
+        for (const st of ui.stores) {
+          for (const a of st.actions) {
+            const where = `store '${st.name}' action '${a.name}'`;
+            for (const kind of liveViewStoreRefusedKinds(a.body)) {
+              diags.push({
+                severity: "error",
+                code: "loom.ui-body-statement-kind",
+                message: diagMessage("loom.ui-body-statement-kind#liveview-store", {
+                  where,
+                  uiName: ui.name,
+                  keyword: LIVEVIEW_STORE_REFUSED_KINDS[kind],
+                  dName: d.name,
+                }),
+                source: `${ui.name}/${where}`,
+              });
+            }
+          }
+        }
+      }
       if (BACKEND_BODY_STMT_FRAMEWORKS.has(fw)) continue;
       const flag = (where: string, stmts: readonly StmtIR[]): void => {
         for (const kind of backendBodyKinds(stmts)) {
