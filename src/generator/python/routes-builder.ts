@@ -57,7 +57,11 @@ import {
   opGetById,
   opOperation,
 } from "../../ir/util/openapi-ids.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -252,7 +256,7 @@ export function buildPyRoutesFile(
   const body = `${models}\n\n\n${routes}`;
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const enumNames = ctx.enums
+  const enumNames = enumPool(ctx)
     .map((e) => e.name)
     .filter(refersTo)
     .sort();

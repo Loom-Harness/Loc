@@ -106,7 +106,7 @@ describe("vanilla — S5a persist-then-dispatch", () => {
     // The broadcast/log sit inside the {:ok, saved} arm, AFTER the persist.
     const persistAt = body.indexOf("persist_change(changeset)");
     const logAt = body.indexOf('Logger.info("event_dispatched"');
-    const bcastAt = body.indexOf("Phoenix.PubSub.broadcast");
+    const bcastAt = body.indexOf("PostCommit.broadcast");
     expect(persistAt).toBeGreaterThan(-1);
     expect(persistAt).toBeLessThan(logAt);
     expect(logAt).toBeLessThan(bcastAt);
@@ -124,7 +124,7 @@ describe("vanilla — S5a persist-then-dispatch", () => {
 
     // Both the saga seam (Dispatcher) and the raw broadcast fire, both post-commit.
     expect(body).toContain("Api.Fulfillment.Dispatcher.AfterCommit.dispatch(loom_event_0)");
-    expect(body).toContain('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
+    expect(body).toContain("Api.PostCommit.broadcast(loom_event_0)");
     const persistAt = body.indexOf("persist_change(changeset)");
     const dispatchAt = body.indexOf("Dispatcher.AfterCommit.dispatch(loom_event_0)");
     expect(persistAt).toBeGreaterThan(-1);
@@ -207,7 +207,7 @@ system FulfillmentSys {
     |> Api.Ordering.OrderRepository.persist_change()`);
     // No persist_change `case`, no broadcast/dispatch.
     expect(body).not.toContain("case Api.Ordering.OrderRepository.persist_change");
-    expect(body).not.toContain("Phoenix.PubSub.broadcast");
+    expect(body).not.toContain("PostCommit.broadcast");
   });
 });
 
@@ -289,7 +289,7 @@ describe("vanilla — durable emit: outbox INSERT inside the tx, broadcast after
       const dispatch = lineOf(body, "Api.Channels.dispatch(loom_event_0");
       const txClose = lineOf(body, "    end)");
       const commitArm = lineOf(body, "case tx_result do");
-      const broadcast = lineOf(body, "Phoenix.PubSub.broadcast(");
+      const broadcast = lineOf(body, "PostCommit.broadcast(");
 
       for (const [name, at] of Object.entries({
         bind,
@@ -321,7 +321,7 @@ describe("vanilla — durable emit: outbox INSERT inside the tx, broadcast after
     const ctx = get(await generateSystemFiles(DURABLE), "lib/api/ordering.ex");
     const body = bodyOf(ctx, "place_order");
     expect(body).toContain("tx_result =");
-    expect(body).toContain("      {:ok, saved} ->\n        Phoenix.PubSub.broadcast");
+    expect(body).toContain("      {:ok, saved} ->\n        Api.PostCommit.broadcast");
     expect(body).toContain("        {:ok, saved}");
     expect(body).toContain("      {:error, reason} ->\n        {:error, reason}");
   });
@@ -334,6 +334,6 @@ describe("vanilla — durable emit: outbox INSERT inside the tx, broadcast after
     const ctx = get(await generateSystemFiles(ephemeral), "lib/api/ordering.ex");
     const body = bodyOf(ctx, "place_order");
     expect(body).not.toContain("Api.Repo.transaction(fn ->");
-    expect(body).toContain("Phoenix.PubSub.broadcast(");
+    expect(body).toContain("PostCommit.broadcast(");
   });
 });
