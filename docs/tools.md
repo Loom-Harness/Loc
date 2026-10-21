@@ -1241,6 +1241,16 @@ worktrees and `settings.local.json` stay local.
 
    Either failing denies the push with the failing output attached.
 
+   Then, in the same worktree, the fast whole-tree **censuses and ratchets**
+   (`test/system/*census*.test.ts`, `*ratchet*.test.ts`,
+   `typing-differential.test.ts`) — every one except the three corpus-wide
+   censuses that take 1.5–5 min each (`diagnostic-firing`,
+   `openapi-component-uniqueness`, `ddd-source`), which stay CI-only.  A census
+   pins a whole-tree count, so two branches that each pass it can fail it
+   together; that is the commonest reason a green PR is ejected from the merge
+   queue, and an ejection discards the build of every entry queued behind it.
+   It denies only when vitest ran and reported failed tests.
+
 **Why the second gate exists.** A clean merge is necessary, not sufficient.
 Two branches merge textually and still fail to compile together — one renames a
 symbol the other starts using, one adds a field the other's new test constructs
@@ -1259,11 +1269,12 @@ completion on the merged tree and failed.
 **Opting out deliberately:**
 
 ```bash
-LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 only; gate 1 still runs
+LOOM_SKIP_PUSH_TYPECHECK=1 git push …   # skips gate 2 (and the censuses); gate 1 still runs
+LOOM_SKIP_PUSH_CENSUS=1 git push …      # skips only the censuses
 ```
 
-**Cost, measured:** ~51 s for the full preflight on a warm `node_modules`;
-~1 s with the opt-out set. The throwaway worktree is removed by a top-level
+**Cost, measured:** ~51 s for the typecheck gates on a warm `node_modules`,
+plus ~85–100 s for the censuses on 4 cores; ~1 s with `LOOM_SKIP_PUSH_TYPECHECK`. The throwaway worktree is removed by a top-level
 `EXIT` trap — top-level rather than function-scoped `RETURN`, because the deny
 path `exit`s the script and an `exit` from inside a function never runs that
 function's `RETURN` trap.
