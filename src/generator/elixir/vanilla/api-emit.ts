@@ -39,7 +39,7 @@ import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirOpAction, plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -305,7 +305,7 @@ export function emitVanillaApiControllers(
     const served = servedOperationEntries(agg, allOps);
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      if (!entry.claimedByExplicitRoute) routes.push(routeOf(entry, `:${snake(op.name)}`));
+      if (!entry.claimedByExplicitRoute) routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
       // The side-effect-free `GET /<plural>/:id/can_<op>` companion of a
       // `when`-gated op (criterion.md, use site 2).  It was once DECLARED in
       // this backend's own OpenAPI and never mounted (the published probe
@@ -573,7 +573,7 @@ ${cuBind}${indexCuBind}${indexBody}
         ProblemDetails.conflict_response(conn)`
         : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
         { name: "aggregate", valueExpr: `"${aggPascal}"` },
