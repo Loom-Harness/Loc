@@ -378,3 +378,105 @@ export function dotnetRootNamespace(
 ): string {
   return clashFreeRootNamespace(upperFirst(deployableName), contexts);
 }
+
+// ---------------------------------------------------------------------------
+// Domain types named like a generated LAYER namespace.
+//
+// Every project file lives under `<Root>.<Layer>…` (`Shop.Api`,
+// `Shop.Application.…`, `Shop.Domain.…`, `Shop.Infrastructure.…`, …).  A
+// hosted type spelled like one of those layers — `aggregate Application` —
+// is then unreachable by its simple name from every other file: lookup from
+// `namespace Shop.Infrastructure.Repositories` walks out through `Shop`, whose
+// MEMBER namespace `Application` wins before the compilation unit's
+// `using Shop.Domain.Applications;` is ever consulted (measured under
+// `dotnet build /warnaserror`, sdk:10.0):
+//
+//     error CS0118: 'Application' is a namespace but is used like a type
+//
+// Its id type has the sibling defect: `ApplicationId` is also
+// `System.ApplicationId`, so every file importing both `System` and
+// `<Root>.Domain.Ids` is CS0104-ambiguous.
+//
+// THE FIX: an alias declared INSIDE the file's namespace declaration
+// (`namespace Shop.Api; using Application = global::Shop.Domain.Applications.Application;`)
+// is looked up at that namespace's level — ahead of both the enclosing
+// `Shop` namespace's members and the compilation unit's wildcard usings — so
+// it repairs both shapes.  It is appended to the namespace line itself so no
+// generated line moves (sourcemaps and `#line` stay exact), and only on a
+// collision, so every other model is byte-identical.  A file whose namespace
+// declares the type, or has a member namespace of that name (CS0576), is
+// skipped.
+// ---------------------------------------------------------------------------
+
+/** `System` types spelled `<Noun>Id` — the id class of a same-named
+ *  aggregate (`aggregate Application` → `ApplicationId`) is CS0104-ambiguous
+ *  with them in every file that imports `System` and `<Root>.Domain.Ids`. */
+export const BCL_COLLIDING_ID_NAMES: ReadonlySet<string> = new Set(["ApplicationId"]);
+
+/** A `.cs` file's first namespace declaration: its name, and the offset just
+ *  past the `;` (file-scoped) or `{` (block-scoped) that opens it. */
+function namespaceDecl(src: string): { ns: string; insertAt: number } | undefined {
+  const m = /^namespace[ \t]+([\w.]+)[ \t]*(?:;|\r?\n?[ \t]*\{)/m.exec(src);
+  if (!m) return undefined;
+  return { ns: m[1], insertAt: m.index + m[0].length };
+}
+
+/** Alias every hosted type that collides with a generated layer namespace
+ *  (or, for an aggregate id, a `System` type) inside each `<root>.…`
+ *  namespace declaration of `out` — see the block above.  Returns the
+ *  rewritten files; empty without a collision. */
+export function layerClashAliases(
+  out: ReadonlyMap<string, string>,
+  root: string,
+  contexts: Parameters<typeof declaredTypeNames>[0],
+): Map<string, string> {
+  const rewritten = new Map<string, string>();
+  const files: { path: string; src: string; ns: string; insertAt: number }[] = [];
+  for (const [path, src] of out) {
+    if (!path.endsWith(".cs")) continue;
+    const decl = namespaceDecl(src);
+    if (decl && (decl.ns === root || decl.ns.startsWith(`${root}.`)))
+      files.push({ path, src, ...decl });
+  }
+  // Every namespace the project declares, with its ancestors.
+  const namespaces = new Set<string>();
+  for (const f of files) {
+    const segs = f.ns.split(".");
+    for (let i = 1; i <= segs.length; i++) namespaces.add(segs.slice(0, i).join("."));
+  }
+  const layers = new Set(
+    [...namespaces]
+      .filter((n) => n.startsWith(`${root}.`) && !n.slice(root.length + 1).includes("."))
+      .map((n) => n.slice(root.length + 1)),
+  );
+  const candidates = declaredTypeNames(contexts);
+  for (const ctx of contexts) {
+    for (const agg of ctx.aggregates) candidates.add(`${agg.name}Id`);
+  }
+  const clashing = [...candidates]
+    .filter((t) => layers.has(t) || BCL_COLLIDING_ID_NAMES.has(t))
+    .sort();
+  if (clashing.length === 0) return rewritten;
+
+  // Where each clashing type is declared — read off the output, so the alias
+  // follows whichever directory layout placed it.  A name declared in more
+  // than one namespace has no single target and is left alone.
+  const home = new Map<string, string>();
+  for (const t of clashing) {
+    const decl = new RegExp(`^(?:\\w+ )*(?:class|struct|record|interface|enum) ${t}\\b`, "m");
+    const homes = new Set(files.filter((f) => decl.test(f.src)).map((f) => f.ns));
+    if (homes.size === 1) home.set(t, [...homes][0]);
+  }
+
+  for (const f of files) {
+    const aliases = [...home]
+      .filter(
+        ([t, ns]) =>
+          f.ns !== ns && !namespaces.has(`${f.ns}.${t}`) && new RegExp(`\\b${t}\\b`).test(f.src),
+      )
+      .map(([t, ns]) => ` using ${t} = global::${ns}.${t};`);
+    if (aliases.length === 0) continue;
+    rewritten.set(f.path, f.src.slice(0, f.insertAt) + aliases.join("") + f.src.slice(f.insertAt));
+  }
+  return rewritten;
+}

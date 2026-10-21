@@ -1,9 +1,11 @@
 import { genericShape } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
+import { escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -278,7 +280,9 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
     case "this-derived":
       return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
     case "helper-fn":
-      return fromOutside ? `${ctx.thisName}.${lowerFirst(e.name)}` : `this.${lowerFirst(e.name)}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}`;
     case "workflow-fn":
       // A bare (uncalled) reference to a workflow helper — the module-scoped name.
       return workflowFnCamel(e.wfScope!, e.name);
@@ -305,6 +309,10 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
 }
 
 function renderMember(recv: string, e: MemberExpr): string {
+  // `currentUser.isSystem` (ruling D1) — the slot is OPTIONAL on `User` (a
+  // request principal never carries it), so compare rather than read it bare:
+  // the expression stays a real `boolean` wherever it lands.
+  if (isPrincipalIsSystem(e)) return `(${recv}.isSystem === true)`;
   // Arrays expose collection ops without parentheses too — `lines.count`
   // should compile to `.length`.
   if (e.receiverType.kind === "array" && e.member === "count") return `${recv}.length`;
@@ -461,8 +469,8 @@ function renderCall(
     case "function":
     case "private-operation":
       return fromOutside
-        ? `${ctx.thisName}.${lowerFirst(e.name)}(${argList})`
-        : `this.${lowerFirst(e.name)}(${argList})`;
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` helper — a module-scoped function named by
       // its workflow (workflows share the generated file).  Call and def sites
@@ -614,7 +622,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // VALUE equality on value objects.  A VO is a class instance here, so `===`
   // compares REFERENCES — `berth == Berth { … }` was always false, while every
   // other backend compares by value (python dataclass `==`, java
-  // `Objects.equals`, .NET record `==`, elixir struct `==`).  Route it through
+  // `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`).  Route it through
   // the field-wise `equals` every VO class emits (emit/value-objects.ts).  This
   // is also where `<vo>.equals(other)` lands: the lowerer turns it into this
   // same `binary ==` node.  A nullable operand keeps the native comparison

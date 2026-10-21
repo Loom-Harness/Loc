@@ -1,10 +1,10 @@
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { installGeneratedProject } from "./support/npm-install.js";
+import { installGeneratedProjectAsync } from "./support/npm-install.js";
+import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 import { svelteBuildExamples, sveltePacks } from "./svelte-build-cases.js";
 
 // ---------------------------------------------------------------------------
@@ -17,9 +17,13 @@ import { svelteBuildExamples, sveltePacks } from "./svelte-build-cases.js";
 // Run modes:
 //   1. Full sweep — `LOOM_SVELTE_BUILD=1 npx vitest run …` (or
 //      `npm run test:svelte-build`).
-//   2. Single shard — `LOOM_SVELTE_BUILD_CASE=<ddd>:<pack>` filters to
-//      one case (implies enabled), e.g.
+//   2. Single case — add `LOOM_SVELTE_BUILD_CASE=<ddd>:<pack>` to filter to
+//      one case, e.g.
 //      `LOOM_SVELTE_BUILD_CASE=examples/svelte-shop.ddd:shadcnSvelte@v1`.
+//
+// CI runs the full sweep in ONE job, PARALLELISM cases at a time
+// (support/parallel.ts), so the toolchain install happens once rather than
+// once per case.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +31,7 @@ const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
 const SHARD = process.env.LOOM_SVELTE_BUILD_CASE;
-const ENABLED = process.env.LOOM_SVELTE_BUILD === "1" || SHARD !== undefined;
+const ENABLED = process.env.LOOM_SVELTE_BUILD === "1";
 
 /** Inject `design: "<family>@<version>"` into the `deployable web
  *  { ... }` block — mirrors the react harness's injectDesign so the
@@ -52,9 +56,7 @@ function injectDesign(src: string, qualified: string): string {
   return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
 }
 
-function run(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: "utf-8", stdio: "pipe", timeout: 600_000 });
-}
+const limit = limiter(PARALLELISM);
 
 describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite build)", () => {
   const cases: Array<{ ddd: string; pack: string }> = [];
@@ -71,23 +73,30 @@ describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite 
   }
 
   for (const { ddd, pack } of active) {
-    it(`${ddd} × ${pack}`, { timeout: 600_000 }, () => {
-      const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-svelte-build-"));
-      const src = fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
-      const dddPath = path.join(work, "main.ddd");
-      fs.writeFileSync(dddPath, injectDesign(src, pack));
-      run(`node ${cli} generate system ${dddPath} -o ${work}/out`, repoRoot);
+    it.concurrent(`${ddd} × ${pack}`, { timeout: 1_800_000 }, () =>
+      limit(async () => {
+        const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-svelte-build-"));
+        try {
+          const src = fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
+          const dddPath = path.join(work, "main.ddd");
+          fs.writeFileSync(dddPath, injectDesign(src, pack));
+          const run = (cmd: string, cwd: string) => sh(cmd, { cwd, timeout: 600_000 });
+          await run(`node ${cli} generate system ${dddPath} -o ${work}/out`, repoRoot);
 
-      const project = path.join(work, "out", "web");
-      expect(fs.existsSync(path.join(project, "svelte.config.js"))).toBe(true);
-      installGeneratedProject(project, { timeout: 600_000 });
-      run("npx svelte-kit sync", project);
-      // The type gate — fails on any svelte-check error (warnings
-      // pass; the templates are kept warning-clean separately).
-      run("npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings", project);
-      // The compile + adapter gate.
-      run("npx vite build", project);
-      expect(fs.existsSync(path.join(project, "build", "index.html"))).toBe(true);
-    });
+          const project = path.join(work, "out", "web");
+          expect(fs.existsSync(path.join(project, "svelte.config.js"))).toBe(true);
+          await installGeneratedProjectAsync(project, { timeout: 600_000 });
+          await run("npx svelte-kit sync", project);
+          // The type gate — fails on any svelte-check error (warnings
+          // pass; the templates are kept warning-clean separately).
+          await run("npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings", project);
+          // The compile + adapter gate.
+          await run("npx vite build", project);
+          expect(fs.existsSync(path.join(project, "build", "index.html"))).toBe(true);
+        } finally {
+          fs.rmSync(work, { recursive: true, force: true });
+        }
+      }),
+    );
   }
 });

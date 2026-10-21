@@ -9,15 +9,21 @@
 //       the schema AND the migration, so the declared field owns the column,
 //       its wire key and its value (an insert + read round-trip through
 //       `ecto.migrate`'d Postgres returns the declared values).
-//   the same names on a RELATIONAL entity part
+//   the same names, and `updatedAt`, on a RELATIONAL entity part
 //     → same error on the part schema; REFUSED (`loom.elixir-part-timestamp-
 //       field`) — the shared `__put_assoc_parts` helper strips those keys off
 //       every part, so the column could not keep its value.
+//   createdAt / updatedAt on an entity part (embedded or relational)
+//     → an ORDINARY declared column: nothing stamps a part, so the part
+//       schema declares and casts it.  Skipping it as a root-style audit name
+//       left it in `@derive {Jason.Encoder, only: …}` with no struct key
+//       ("`:only` specified keys ([:updated_at]) that are not defined in
+//       defstruct") and a relational `created_at` NOT NULL column unwritten.
 //   __meta__ / __struct__   (any record)
 //     → "field/association :__meta__ already exists on schema" / "cannot set
 //       :__struct__ in struct definition"; pydantic also ignores dunder
 //       fields.  REFUSED on every backend (`loom.dunder-field-name`).
-//   meta / updatedAt
+//   meta / updatedAt   (aggregate ROOT)
 //     → compile clean; untouched.
 
 import { describe, expect, it } from "vitest";
@@ -137,7 +143,12 @@ describe("loom.elixir-part-timestamp-field", () => {
   const PART = (field: string) => `contains lines: Line[]
         entity Line { sku: string  ${field} }`;
 
-  for (const field of ["inserted_at: string", "insertedAt: datetime", "updated_at: string"]) {
+  for (const field of [
+    "inserted_at: string",
+    "insertedAt: datetime",
+    "updated_at: string",
+    "updatedAt: datetime",
+  ]) {
     it(`refuses '${field}' on a relational part hosted on elixir`, async () => {
       const diags = await codes(system(PART(field)), CODE);
       expect(diags).toHaveLength(1);
@@ -145,9 +156,46 @@ describe("loom.elixir-part-timestamp-field", () => {
     });
   }
 
-  it("leaves the camelCase audit names, the root, and other backends alone", async () => {
-    expect(await codes(system(PART("updatedAt: datetime")), CODE)).toEqual([]);
+  it("leaves createdAt, the root, embedded owners, and other backends alone", async () => {
+    expect(await codes(system(PART("createdAt: datetime")), CODE)).toEqual([]);
+    expect(await codes(system("updatedAt: datetime"), CODE)).toEqual([]);
+    expect(
+      await codes(
+        system(PART("updatedAt: datetime")).replace("Thing with", "Thing shape: embedded with"),
+        CODE,
+      ),
+    ).toEqual([]);
     expect(await codes(system("inserted_at: string"), CODE)).toEqual([]);
     expect(await codes(system(PART("inserted_at: string"), "node"), CODE)).toEqual([]);
+  });
+});
+
+describe("phoenix generator — a part's createdAt / updatedAt is an ordinary column", () => {
+  const PART = (field: string) => `contains lines: Line[]
+        entity Line { sku: string  ${field} }`;
+
+  it("embedded part: declared, cast and on the wire", async () => {
+    const src = system(PART("createdAt: datetime  updatedAt: datetime")).replace(
+      "Thing with",
+      "Thing shape: embedded with",
+    );
+    const line = bySuffix(await generateSystemFiles(src), "lib/api/ec/line.ex");
+    expect(line).toContain("@derive {Jason.Encoder, only: [:id, :sku, :created_at, :updated_at]}");
+    expect(line).toContain(
+      "  embedded_schema do\n    field :sku, :string\n    field :created_at, Loom.Datetime\n    field :updated_at, Loom.Datetime\n  end",
+    );
+    expect(line).toContain("|> cast(attrs, [:sku, :created_at, :updated_at])");
+  });
+
+  it("relational part: `createdAt` is a field beside the bundled timestamps()", async () => {
+    const files = await generateSystemFiles(system(PART("createdAt: datetime")));
+    const line = bySuffix(files, "lib/api/ec/line.ex");
+    expect(line).toContain("    field :created_at, Loom.Datetime\n");
+    expect(line).toContain("    timestamps(type: :utc_datetime)\n");
+    expect(line).toContain("|> cast(attrs, [:sku, :created_at])");
+    // The migration the schema must agree with: the declared column plus timestamps().
+    const migration = bySuffix(files, "_create_lines.exs");
+    expect(migration).toContain("      add :created_at, :timestamptz, null: false\n");
+    expect(migration).toContain("      timestamps()\n");
   });
 });

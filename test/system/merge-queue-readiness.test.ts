@@ -476,37 +476,31 @@ describe("merge-queue readiness", () => {
     });
   });
 
-  // ── No post-merge leg outside both pre-merge tiers ──────────────────────
+  // ── `push: main` is for deploys, not re-tests ───────────────────────────
   //
-  // A workflow that runs on `push: main` is a regression net: whatever it
-  // catches, it catches on a `main` that is already red.  It is only a GATE if
-  // it also runs before the merge — per-PR (a `pull_request:` trigger that
-  // fires on `opened`, with an entry job behind nothing but the draft guard)
-  // or in the merge queue (`merge_group:`).  A leg in neither is a blind spot
-  // with a green check mark, which is how `channels-e2e`, `api-call-e2e` and
-  // `phoenix-ui-e2e` sat for months.
-  //
-  // A leg may stay out, but only as a WAIVER: a reason, and the date the
-  // evidence behind it was measured.  The claim expires — a waiver older than
-  // NEVER_GATING_MAX_AGE_DAYS fails until someone re-measures and re-dates it,
-  // so "it stays out" is re-decided against current numbers instead of
-  // becoming permanent in silence.  A waiver whose leg now gates fails too:
-  // the fix deletes its waiver in the same change.
-  describe("no post-merge leg sits outside both the per-PR set and the queue", () => {
+  // A queue entry tests exactly the tree that lands on `main` (squash, one
+  // group at a time), so a `push: main` run of a queue leg re-runs a verdict
+  // already in hand — and at ~300 jobs a merge it was the largest single
+  // consumer of the runner pool.  A per-PR leg that is NOT in the queue still
+  // needs a check against the combined tree; it gets that from a nightly
+  // `schedule:` run on `main`, which `ci-red-alarm` watches.
+  describe("post-merge net: push: main only deploys, per-PR-only legs run nightly", () => {
     const DRAFT_GUARD_LITERAL =
       "github.event_name != 'pull_request' || github.event.pull_request.draft == false";
-    const NEVER_GATING_MAX_AGE_DAYS = 90;
 
-    /** Legs that run on `push: main` but neither per-PR nor in the queue. */
-    const NEVER_GATING_WAIVERS: Record<string, { reason: string; measured: string }> = {
-      "playground-e2e.yml": {
-        reason:
-          "the browser playground's network-gated specs (bundle/boot through esm.sh, jsdelivr and npm); " +
-          "their pass/fail rides third-party CDN availability, so a queue entry or a PR would be ejected by " +
-          "an outage nobody here can fix. The network-free half (`playground-e2e-no-network.yml`) gates " +
-          "every PR; first-attempt pass rate on main 20/20 (Actions API).",
-        measured: "2026-10-05",
-      },
+    /** The only workflows allowed a `push: main` trigger, each with why. */
+    const PUSH_MAIN_ALLOWED: Record<string, string> = {
+      "pages.yml":
+        "deploys the landing page + playground to GitHub Pages; the deploy IS the post-merge action, " +
+        "not a re-test of a tree the queue already verified",
+    };
+
+    /** Per-PR legs with neither a queue run nor a nightly, each with why. */
+    const NO_NIGHTLY: Record<string, string> = {
+      "pages.yml": "its `push: main` deploy run builds and smoke-tests the merged tree",
+      "playground-e2e-no-network.yml":
+        "the network-free playground specs; `playground-e2e.yml` runs the full playground suite on " +
+        "main every night, so a second nightly of the subset would add nothing",
     };
 
     const runsPerPr = (wf: Workflow): boolean =>
@@ -520,50 +514,46 @@ describe("merge-queue readiness", () => {
     const files = readdirSync(workflowsDir)
       .filter((f) => f.endsWith(".yml"))
       .sort();
-    const postMerge = files.filter((f) => load(f).pushesMain);
 
-    it("finds the post-merge population (the reader still works)", () => {
-      // Guards the vacuous pass: a broken `push:` reader empties the list.
-      expect(postMerge.length).toBeGreaterThan(40);
+    it("reads pages.yml as a push: main workflow (the reader still works)", () => {
+      // Guards the vacuous pass: a broken `push:` reader would empty the set.
+      expect(load("pages.yml").pushesMain).toBe(true);
     });
 
-    it("every `push: main` leg gates pre-merge, or carries a dated waiver", () => {
-      const blind = postMerge.filter((f) => {
-        const wf = load(f);
-        return !runsPerPr(wf) && !runsInQueue(wf) && !(f in NEVER_GATING_WAIVERS);
-      });
+    it("no workflow re-runs on `push: main` outside the deploy allowlist", () => {
+      const extra = files.filter((f) => load(f).pushesMain && !(f in PUSH_MAIN_ALLOWED));
       expect(
-        blind,
-        `post-merge-only legs with no pre-merge run and no waiver: ${blind.join(", ")} — give each a ` +
-          "per-PR `pull_request:` block (draft guard) or a `merge_group:` trigger, or a dated " +
-          "NEVER_GATING_WAIVERS entry",
+        extra,
+        `push: main triggers outside PUSH_MAIN_ALLOWED: ${extra.join(", ")} — a queue leg's ` +
+          "post-merge run repeats its queue verdict; a per-PR-only leg gets a nightly `schedule:` " +
+          'instead (docs/ci-gating.md, "Post-merge net")',
       ).toEqual([]);
     });
 
-    it("no waiver is stale — a leg that now gates, or no longer exists, drops its entry", () => {
-      const stale = Object.keys(NEVER_GATING_WAIVERS).filter((f) => {
-        if (!files.includes(f)) return true;
+    it("every per-PR leg outside the queue runs nightly on main", () => {
+      const blind = files.filter((f) => {
         const wf = load(f);
-        return !wf.pushesMain || runsPerPr(wf) || runsInQueue(wf);
+        return (
+          runsPerPr(wf) && !runsInQueue(wf) && !wf.onKeys.includes("schedule") && !(f in NO_NIGHTLY)
+        );
       });
-      expect(stale, `stale NEVER_GATING_WAIVERS entries: ${stale.join(", ")}`).toEqual([]);
+      expect(
+        blind,
+        `per-PR legs that never run against the combined tree: ${blind.join(", ")} — add a ` +
+          "nightly `schedule:` (or a `merge_group:` trigger), or a reasoned NO_NIGHTLY entry",
+      ).toEqual([]);
     });
 
-    it("every waiver carries a reason and a measurement no older than the budget", () => {
-      const now = Date.now();
-      const bad: string[] = [];
-      for (const [f, w] of Object.entries(NEVER_GATING_WAIVERS)) {
-        const at = Date.parse(`${w.measured}T00:00:00Z`);
-        if (w.reason.trim().length < 40) bad.push(`${f}: reason too thin to review`);
-        if (Number.isNaN(at)) bad.push(`${f}: measured "${w.measured}" is not an ISO date`);
-        else if (at > now) bad.push(`${f}: measured "${w.measured}" is in the future`);
-        else if ((now - at) / 86_400_000 > NEVER_GATING_MAX_AGE_DAYS)
-          bad.push(
-            `${f}: measured ${w.measured}, over ${NEVER_GATING_MAX_AGE_DAYS} days ago — re-measure ` +
-              "and re-date it, or promote the leg",
-          );
-      }
-      expect(bad, bad.join("\n")).toEqual([]);
+    it("no allowlist entry is stale", () => {
+      const stalePush = Object.keys(PUSH_MAIN_ALLOWED).filter(
+        (f) => !files.includes(f) || !load(f).pushesMain,
+      );
+      const staleNightly = Object.keys(NO_NIGHTLY).filter((f) => {
+        if (!files.includes(f)) return true;
+        const wf = load(f);
+        return !runsPerPr(wf) || runsInQueue(wf) || wf.onKeys.includes("schedule");
+      });
+      expect([...stalePush, ...staleNightly], "stale allowlist entries").toEqual([]);
     });
   });
 

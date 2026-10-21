@@ -38,7 +38,7 @@ import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirOpAction, plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -55,6 +55,8 @@ import {
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
+  contextAliasLine,
+  contextCallRef,
   denialOverrides,
   denialResponse,
   opHasWireDenial,
@@ -296,7 +298,7 @@ export function emitVanillaApiControllers(
     const served = servedOperationEntries(agg, derivedOps);
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      routes.push(routeOf(entry, `:${snake(op.name)}`));
+      routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
       // The side-effect-free `GET /<plural>/:id/can_<op>` companion of a
       // `when`-gated op (criterion.md, use site 2).  It was once DECLARED in
       // this backend's own OpenAPI and never mounted (the published probe
@@ -311,7 +313,7 @@ export function emitVanillaApiControllers(
 
 function renderController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   aggSnake: string,
   memberOps: readonly OperationIR[],
@@ -324,7 +326,10 @@ function renderController(
   readOnly = false,
 ): string {
   const aggPascal = upperFirst(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // The facade's call receiver — fully qualified when `alias <App>.<Ctx>` would
+  // shadow the app module (context named like the app).
+  const ctxModule = contextCallRef(appModule, ctxName);
 
   // A `mask unless` aggregate emits a redacting `serialize/1` (responses) plus an
   // unmasked `serialize_unmasked/1`; audit before/after snapshots must record the
@@ -560,7 +565,7 @@ ${cuBind}${indexCuBind}${indexBody}
         ProblemDetails.conflict_response(conn)`
         : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
         { name: "aggregate", valueExpr: `"${aggPascal}"` },
@@ -894,8 +899,7 @@ ${cuBind}${updateCuBind}${versionBind}
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
   require Logger
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 

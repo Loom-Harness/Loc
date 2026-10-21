@@ -10,6 +10,19 @@
 // operation action button.
 import { expect, test } from "./fixtures";
 
+// The mocked Job read body, synthesized by the harness from the emitted
+// `.loom/wire-spec.json` (see `jobBodyFor` in auth-gate-ui-e2e.test.ts).  Read
+// from the environment, never written here: a hand-written body is exactly what
+// drifted from the wire shape before.  Missing → fail every case loudly rather
+// than mock something the generated client would reject.
+const JOB_BODY = process.env.AUTH_GATE_JOB_BODY;
+if (!JOB_BODY) {
+  throw new Error(
+    "AUTH_GATE_JOB_BODY is unset — run this spec through test/e2e/auth-gate-ui-e2e.test.ts, " +
+      "which derives the Job body from the generated wire spec",
+  );
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: Playwright Route/Page typing kept loose for portability.
 async function seed(page: any, role: string): Promise<void> {
   // Mock the verified session — AuthGate fetches this on mount; `role` drives
@@ -28,24 +41,18 @@ async function seed(page: any, role: string): Promise<void> {
   // role-gated Approve button) without a real backend.
   //
   // The body must satisfy the EMITTED `JobResponse` zod schema, not just look
-  // plausible.  `wireShape` puts `version` on every aggregate response, so a
-  // payload without it fails `JobResponse.parse(r)`, the query goes to
-  // `isError`, and the generated page renders that branch as `null` — a
-  // completely BLANK page.  The Approve button is then missing for a reason
-  // that has nothing to do with the role gate this file exists to test.
-  //
-  // That is exactly how this gate failed its first ever CI run: the mock
-  // omitted `version`, so "visible for the matching role" failed while
-  // "hidden for a non-matching role" PASSED VACUOUSLY on the same blank page.
-  // Keep this in step with the wire shape; the toolbar assertion below is the
-  // tripwire if it drifts again.
+  // plausible: a body it rejects sends the query to `isError`, which the
+  // generated page renders as `null` — a BLANK page on which the Approve button
+  // is missing for a reason unrelated to the role gate.  So the body is the
+  // harness's wire-spec-derived `JOB_BODY`, and the toolbar assertion below is
+  // the tripwire should the client ever reject it anyway.
   //
   // biome-ignore lint/suspicious/noExplicitAny: Playwright Route typing kept loose for portability.
   await page.route("**/api/jobs/*", (route: any) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: "1", title: "Job One", status: "new", version: 1 }),
+      body: JOB_BODY,
     }),
   );
 }

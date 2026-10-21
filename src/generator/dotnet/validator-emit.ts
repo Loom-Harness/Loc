@@ -16,7 +16,7 @@ import {
   singleFieldShape,
 } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -563,7 +563,7 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>): string {
     case "lambda":
       return e.name;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     default:
       return `false /* UNRENDERABLE-REF:${e.refKind} */`;
   }
@@ -604,8 +604,10 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   }
   if (e.isCollectionOp) {
     switch (e.member) {
+      // The `Count` property, not LINQ `Count()` (CA1829) — every collection
+      // on a command/request record is a `List<T>`.
       case "count":
-        return `(${recv}).Count()`;
+        return `(${recv}).Count`;
       case "all":
         return `(${recv}).All(${args[0] ?? "_ => true"})`;
       case "any":
