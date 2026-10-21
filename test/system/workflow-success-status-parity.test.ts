@@ -99,7 +99,7 @@ const BACKENDS: {
     spec: "_api_spec.ex",
     declaredSuccess: (src) =>
       successOf(
-        sliceAfter(src, /"\/workflows\/place_order"/),
+        sliceAfter(src, /"\/api\/workflows\/place_order"/),
         /(\d{3}) => %OpenApiSpex\.Response\{/g,
       ),
   },
@@ -147,7 +147,7 @@ function sliceAfter(src: string, marker: RegExp): string {
   const next = rest
     .slice(1)
     .search(
-      /@PostMapping|@router\.(post|get)|\[HttpPost|\[HttpGet|app\.openapi\(|"\/workflows\/\w+\/|"\/\w+" => %OpenApiSpex\.PathItem/,
+      /@PostMapping|@router\.(post|get)|\[HttpPost|\[HttpGet|app\.openapi\(|"\/workflows\/\w+\/|"\/[^"]+" => %OpenApiSpex\.PathItem/,
     );
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
