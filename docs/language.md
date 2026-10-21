@@ -507,6 +507,23 @@ Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
 equality across the shapes an Elixir value object takes (a column value, a
 constructor map, a collection-element struct; decimals by value, not scale).
 
+The same holds in a `ui` page expression.  A page-side value object on the JS
+frontends is the plain JSON the wire delivered, so `===` would compare
+references; the comparison renders through a `loomValueEquals` helper emitted
+into the file that uses it (Flutter: `lib/value_equals.dart`):
+
+```ddd
+Column { "Ship", o => Text { o.shipTo == o.billTo ? "same" : "split" } }
+```
+
+```tsx
+<Text>{(loomValueEquals(row.shipTo, row.billTo) ? "same" : "split")}</Text>
+```
+
+Feliz renders F#'s structural record `=` (an optional/plain pair compares as
+`row.alt = (Some row.shipTo)`), HEEx Elixir's structural `==`.  A comparison
+with `null` stays a presence test on every frontend.
+
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
 An aggregate marked `persistedAs: eventLog` in its header is **event-sourced**:

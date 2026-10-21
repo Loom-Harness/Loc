@@ -21,6 +21,7 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
+import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { fsIdent } from "./fs-ident.js";
 
 /** F# spelling of a Loom binary operator. */
@@ -249,6 +250,28 @@ export function fsTemporalBinary(
     return `((${right}).Add(${left}))`;
   }
   return null;
+}
+
+/** Value-object `==` / `!=`, or `null` to fall through to the plain operator
+ *  leaf.  An F# record's `=` is already STRUCTURAL, so a VO pair of the same
+ *  shape needs nothing.  What F# does not do is compare an `Address option`
+ *  with an `Address` — a type error where Loom's `alt == shipTo` simply asks
+ *  "is the optional one present and equal?".  The plain side is lifted into
+ *  `Some`, which is exactly that question.
+ *
+ *  Shared by both feliz paths: the view walker reaches it through
+ *  `felizTarget.exprValueEquality`, the MVU update path through
+ *  `renderFsExpr`'s binary arm. */
+export function fsValueEquality(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (!isValueObjectEquality(e) || !e.leftType || !e.rightType) return null;
+  const lOpt = e.leftType.kind === "optional";
+  const rOpt = e.rightType.kind === "optional";
+  if (lOpt === rOpt) return null;
+  return FS_LEAVES.binary(rOpt ? `(Some ${left})` : left, lOpt ? `(Some ${right})` : right, e.op);
 }
 
 /** The numeric binary-operand arms, or `null` to fall through to the plain
@@ -593,6 +616,7 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // integer `/` that widened to `decimal` needs both operands converted —
       // the same two seams the view path consults through `felizTarget`.
       return (
+        fsValueEquality(left, right, e) ??
         fsTemporalBinary(left, right, e) ??
         fsNumericBinary(left, right, e) ??
         FS_LEAVES.binary(left, right, e.op)

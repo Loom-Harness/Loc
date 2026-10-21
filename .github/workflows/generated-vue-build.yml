@@ -8,15 +8,16 @@ name: Generated Vue build
 #
 # One job runs the selected cases, PARALLELISM (the runner's cores) at a
 # time.  Case policy:
-#   - pull_request    → the scaffold, showcase, store and grid cases × both
-#                       packs.  `scaffold` is the only case that type-checks a
+#   - pull_request,   → the scaffold, showcase, store and grid cases × both
+#     merge_group       packs.  `scaffold` is the only case that type-checks a
 #                       SCAFFOLDED FORM (the 2026-09-10 e-shop audit measured
 #                       `vue-tsc` red on every form-binding shape a real model
 #                       carries), and `grid`'s DataGrid markup lands in a
 #                       HOISTED SIBLING SFC (src/components/<Name>.vue) no other
 #                       case type-checks.  `minimal`/`file` drift is caught by
-#                       the full sweep one merge later.
-#   - everything else → every case × every pack.
+#                       the nightly full sweep.
+#   - nightly,        → every case × every pack.
+#     workflow_dispatch
 #
 # Case names are the `name`s in test/e2e/generated-vue-build.test.ts.
 
@@ -57,6 +58,10 @@ on:
       - '!src/platform/hono.ts'
   workflow_dispatch:
   merge_group:
+  # The full case × pack sweep runs nightly on main; PRs and the merge queue
+  # run the slice (see the header).
+  schedule:
+    - cron: '28 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -89,7 +94,7 @@ jobs:
       - name: vue-tsc + vite build every selected case
         env:
           # Empty selects every case (see the header for the PR slice).
-          LOOM_VUE_BUILD_CASE: ${{ github.event_name == 'pull_request' && 'scaffold,showcase,store,grid' || '' }}
+          LOOM_VUE_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'scaffold,showcase,store,grid' || '' }}
         run: npm run test:vue-build
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
