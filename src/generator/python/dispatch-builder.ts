@@ -639,7 +639,9 @@ function voLeafZeros(
       if (nested) return nested;
     }
     const zero =
-      vf.type.kind === "primitive" && vf.type.name === "decimal" ? 'Decimal("0")' : zeroFor(vf);
+      vf.type.kind === "primitive" && vf.type.name === "decimal"
+        ? `${PY.Decimal}("0")`
+        : zeroFor(vf);
     return [`${snake(path)}=${zero}`];
   });
 }
