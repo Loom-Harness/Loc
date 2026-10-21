@@ -337,7 +337,21 @@ async function generateOutcome(src: string): Promise<"renders" | `crash: ${strin
   }
 }
 
+/** Cells where one frontend departs from the probe's default expectation:
+ *  `renders` or the refusing code.  LiveView's HEEx renderer binds `this` to the
+ *  page's `@record` assign, so `loom.ui-this-unbound` exempts it; a LiveView
+ *  store is a pure per-process module with no socket, so `match await` there is
+ *  a `loom.ui-body-statement-kind` refusal rather than a feature-table one. */
+const TARGET_OVERRIDES: Readonly<Record<string, string>> = {
+  "phoenixLiveView × this-page": "renders",
+  "phoenixLiveView × this-body": "renders",
+  "phoenixLiveView × this-store": "renders",
+  "phoenixLiveView × store-await": "loom.ui-body-statement-kind",
+};
+
 function expectedCode(p: Probe, fw: Frontend): string | undefined {
+  const override = TARGET_OVERRIDES[`${fw} × ${p.id}`];
+  if (override) return override === "renders" ? undefined : override;
   const e = p.expect;
   if ("refused" in e) return e.refused;
   if ("feature" in e) {

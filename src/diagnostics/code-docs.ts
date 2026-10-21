@@ -271,7 +271,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.flutter-action-body-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.ui-body-statement-kind": "15-ui-pages-structure.md#state--derived--action",
-  "loom.ui-this-unbound": "15-ui-pages-structure.md#state--derived--action",
   "loom.ui-assign-not-state": "15-ui-pages-structure.md#state--derived--action",
   "loom.ui-find-call-arity": "15-ui-pages-structure.md#queryview--page-parameters",
   "loom.ui-body-feature-unsupported": "15-ui-pages-structure.md#state--derived--action",
@@ -404,9 +403,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.ui-this-unbound": "15-ui-pages-structure.md#page--route-title-body",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
+  "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
+  // Ruling D1 — reactors run as the system principal.
+  "loom.reactor-gate-unsatisfiable":
+    "17-auth.md#reactors--the-system-principal-currentuserissystem",
+  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
   // The target-agnostic `match await` subject gate (audit F66) — the reference
   // section that spells the one supported shape.
   "loom.async-effect-subject-unsupported":

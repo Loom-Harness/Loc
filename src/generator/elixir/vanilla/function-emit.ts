@@ -7,7 +7,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { exprUsesParam, exprUsesReceiver } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr, renderTypespec } from "../render-expr.js";
 import { appModuleOf, guardRaiseLine } from "./denial.js";
@@ -107,6 +107,40 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
           }),
         );
         break;
+      case "call": {
+        // A bare call to another aggregate `function` — pure, but it can still
+        // raise from its own guard, so it runs (result discarded) exactly as
+        // the operation emitter renders it.  Every other call target mutates
+        // and is refused by `loom.function-block-impure#call-stmt`.
+        if (s.target !== "function") {
+          throw new Error(
+            `internal: a '${s.target}' call statement reached the vanilla function emitter; ` +
+              "loom.function-block-impure refuses it at validation.",
+          );
+        }
+        const args = [rc.thisName, ...s.args.map((a) => renderExpr(a, rc))];
+        lines.push(`    _ = ${snake(s.name)}(${args.join(", ")})`);
+        break;
+      }
+      case "assign":
+      case "add":
+      case "remove":
+      case "emit":
+        // Refused in a `function` body, at any depth, by `loom.function-block-impure`.
+        throw new Error(
+          `internal: a '${s.kind}' statement reached the vanilla function emitter; ` +
+            "loom.function-block-impure refuses it at validation.",
+        );
+      case "variant-match":
+        // The effect form of `match` is frontend-only: `loom.variant-match-placement`.
+        throw new Error(
+          "internal: a 'variant-match' statement reached the vanilla function emitter; " +
+            "loom.variant-match-placement refuses it at validation.",
+        );
+      default: {
+        const _exhaustive: never = s;
+        void _exhaustive;
+      }
     }
   }
   return lines;
@@ -238,7 +272,7 @@ function renderFunction(
   // struct.  Underscore-prefix a param the body never reads so an unused binding
   // never trips `mix compile --warnings-as-errors`.
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? escapeElixirIdent(snake(p.name)) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
   );
   // Underscore-prefix the receiver when the body never reads it (e.g.
   // `function noop()`), else the struct-guarded clause head trips

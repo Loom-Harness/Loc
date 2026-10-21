@@ -6,7 +6,6 @@
 //
 //   TARGET-NEUTRAL — shapes no frontend renders, refused for every ui whether
 //   or not a deployable mounts it:
-//     `loom.ui-this-unbound`        `this` in a ui body (no aggregate instance)
 //     `loom.ui-assign-not-state`    `:=` / `+=` / `-=` on a name that is not
 //                                   the host's own `state` field
 //     `loom.ui-find-call-arity`     a find read called with the wrong number of
@@ -93,8 +92,8 @@ const JS_FRONTENDS = ["react", "vue", "svelte", "angular"] as const;
 export const UI_BODY_FEATURE_RENDERERS: Readonly<Record<UiBodyFeature, ReadonlySet<string>>> = {
   // The Feliz MVU `update` arm renders a single-expression lambda only.
   "block-lambda-in-action": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
-  // Feliz actions are `Msg` cases, not function values.
-  "action-ref-value": new Set([...JS_FRONTENDS, "flutter", "phoenixLiveView"]),
+  // Feliz binds the action's `Msg` case (`let f = save` → `f = Msg.Save`).
+  "action-ref-value": new Set([...JS_FRONTENDS, "feliz", "flutter", "phoenixLiveView"]),
   // Feliz projects one top-level effect per action; Flutter intercepts top-level ones.
   "nested-async-effect": new Set([...JS_FRONTENDS, "phoenixLiveView"]),
   "store-async-effect": new Set([...JS_FRONTENDS, "phoenixLiveView"]),
@@ -451,7 +450,6 @@ export function validateUiBodyRules(sys: SystemIR, diags: LoomDiagnostic[]): voi
   for (const ui of sys.uis) {
     const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
     for (const host of hostsOf(ui)) {
-      checkThis(ui, host, diags);
       checkStateWrites(ui, host, diags);
       checkMethodVocabulary(host, recordFunctions, diags);
     }
@@ -461,25 +459,6 @@ export function validateUiBodyRules(sys: SystemIR, diags: LoomDiagnostic[]): voi
     for (const c of ui.components) {
       checkFindArity(ui, c, `component '${c.name}'`, apiParamNames, aggNames, finds, diags);
     }
-  }
-}
-
-function checkThis(ui: UiIR, host: BodyHost, diags: LoomDiagnostic[]): void {
-  const flag = (where: string): void => {
-    diags.push({
-      severity: "error",
-      code: "loom.ui-this-unbound",
-      message: diagMessage("loom.ui-this-unbound", { where, uiName: ui.name }),
-      source: `${ui.name}/${where}`,
-    });
-  };
-  let inBody = false;
-  for (const e of host.exprs) walkExprDeep(e, (x) => (inBody ||= x.kind === "this"));
-  if (inBody) flag(host.where);
-  for (const a of host.actions) {
-    let found = false;
-    for (const s of a.body) walkStmtExprsDeep(s, (x) => (found ||= x.kind === "this"));
-    if (found) flag(`${host.where} action '${a.name}'`);
   }
 }
 

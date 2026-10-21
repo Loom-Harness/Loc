@@ -228,6 +228,40 @@ the wiring validators (`loom.channelsource-unbound`,
 `loom.deployable-channel-unrelated`, `loom.channel-consumer-unwired`) gate the
 structural half.
 
+## Event origin — the reactor's tenant across the outbox and the broker
+
+A reactor runs as the **system principal of its triggering event's tenant**
+([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)).
+In-process that tenant is the raising request's; once the event crosses the
+outbox relay or a broker the request is gone, so on a deployable with
+`auth: required` the event carries its **origin** `{tenant, orgPath, causedBy}`:
+
+| Hop | Carrier |
+|---|---|
+| outbox row | reserved key `__loomOrigin` inside the JSON `payload` (no schema change; stripped before decode) |
+| envelope | CloudEvents extensions `tenantid`, `loomorgpath`, `loomcausedby` (omitted when absent) |
+
+The relay (per row) and the consumer (per envelope) deliver the event inside a
+frame whose ambient principal is the system principal of that origin, so the
+reactor's gates, tenant filters and stamps all see the event's tenant. An
+envelope with no origin (an auth-less producer, a timer-raised event) is
+delivered exactly as before — tenant-less, fail-closed.
+
+```ddd
+// sales (producer) and ship (consumer) both `auth: required`
+workflow Fulfil {
+  orderId: Order id
+  create(p: OrderPlaced) by p.order {           // runs in the tenant that placed the order
+    let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+    s.dispatch()                                 // requires currentUser.isSystem
+  }
+}
+```
+```json
+{ "specversion": "1.0", "type": "Orders.OrderPlaced", "loomchannel": "loom.Orders.Lifecycle",
+  "tenantid": "acme", "loomorgpath": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
+```
+
 ## Not yet
 
 - **Replay cursor** on `retention: log` (M-T4.2) — the durable log ships;

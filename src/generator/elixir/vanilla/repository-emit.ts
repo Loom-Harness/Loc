@@ -30,7 +30,7 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -49,6 +49,8 @@ import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./prove
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
 import {
   containsRefCollField,
+  foreignRefCollFields,
+  hasLocalRefColls,
   hasRefColls,
   preloadList,
   putAssocLines,
@@ -243,7 +245,7 @@ function renderRepository(
   // resolve the incoming id list to target structs and `put_assoc` them.  Insert
   // and the named-op persist start from a fresh / loaded record; update preloads
   // the existing association first so `put_assoc` can replace it cleanly.
-  const refAssocLines = putAssocLines(appModule, ctxModule, agg, "    ");
+  const refAssocLines = putAssocLines(appModule, ctxModule, agg, "    ", pool);
   const insertPutAssoc = refAssocLines.length > 0 ? `\n${refAssocLines.join("\n")}` : "";
   const updatePutAssoc = insertPutAssoc;
   // The insert result must preload the SAME wire-shape associations the reads do.
@@ -288,7 +290,12 @@ function renderRepository(
   const updatePreloadRels = [...(refColls ? preloadList(agg) : []), ...containmentRels];
   const updatePreload =
     updatePreloadRels.length > 0 ? ` |> Repo.preload([${updatePreloadRels.join(", ")}])` : "";
-  const refHelpers = refColls ? `\n${refCollRepoHelpers(appModule)}\n` : "";
+  const refHelpers = refColls
+    ? `\n${refCollRepoHelpers(appModule, {
+        local: hasLocalRefColls(agg, pool),
+        foreign: foreignRefCollFields(agg, pool).length > 0,
+      })}\n`
+    : "";
   // `import Ecto.Query` is required for `from(...)` — needed when there's a
   // custom find OR a capability filter (which turns `list`/`find_by_id` into
   // `from(...)` reads) OR a reference collection (id-list resolution).  Omit it
@@ -324,7 +331,10 @@ function renderRepository(
     : null;
   const listEff = combineWhere(allWhere, listCap);
   const ectoImport =
-    finds.length > 0 || capEff || listEff || refColls || listPaged ? `\n  import Ecto.Query` : "";
+    finds.length > 0 || capEff || listEff || hasLocalRefColls(agg, pool) || listPaged
+      ? `
+  import Ecto.Query`
+      : "";
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
   // The LIST head threads the actor when its read references the principal —
@@ -599,7 +609,7 @@ function renderFindFn(
     }),
   );
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   // A `paged` find (`find recent(): Order paged`) returns the cross-backend
   // paged WIRE ENVELOPE — `%{items, page, page_size, total, total_pages}` — not a
   // bare list.  It threads `page` / `page_size` (1-based, with the shared

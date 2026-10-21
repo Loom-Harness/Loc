@@ -79,4 +79,5 @@ export {
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
+  validateUiThisUnbound,
 } from "./ui-framework-checks.js";

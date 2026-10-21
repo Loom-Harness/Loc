@@ -35,6 +35,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { IndexShape, TableShape } from "../../../ir/types/migrations-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -73,6 +74,7 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
 import { csClaimStampsFor } from "./entity.js";
 import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
@@ -1241,9 +1243,7 @@ function dapperAuditSeam(
     ctorParam: on ? ", IAuditWriter audit" : "",
     ctorAssign: on ? "        _audit = audit;" : null,
     txArg: on ? "transaction: __tx, " : "",
-    begin: on
-      ? "        await using var __tx = await conn.BeginTransactionAsync(cancellationToken);"
-      : null,
+    begin: on ? `        ${DAPPER_BEGIN_TX}` : null,
     flush: on
       ? [
           "        foreach (var __ar in _audit.Drain())",
@@ -1256,7 +1256,7 @@ function dapperAuditSeam(
           "        }",
         ]
       : [],
-    commit: on ? "        await __tx.CommitAsync(cancellationToken);" : null,
+    commit: on ? `        ${DAPPER_COMMIT_TX}` : null,
   };
 }
 
@@ -1416,17 +1416,20 @@ export function renderDapperRepository(
   // via SaveChanges and the Hono path via `db.transaction`; this matches them.
   // `transaction: __tx` is threaded into every save-path CommandDefinition, and
   // the body commits before dispatching events (see renderRelationalRepository).
+  // Inside a `transactional` workflow the lease ENLISTS instead: `__tx` is the
+  // unit of work's transaction and the commit is a no-op, so the save is only
+  // durable once the whole workflow commits (dapper-session.ts).
   const saveUpsertLines = versioned
     ? [
-        "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
-        "        await using var __tx = await conn.BeginTransactionAsync(cancellationToken);",
+        `        ${dapperOpenConn(ns)}`,
+        `        ${DAPPER_BEGIN_TX}`,
         "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
         `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion", new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("The resource was modified by another request; reload and retry.");`,
       ]
     : [
-        "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
-        "        await using var __tx = await conn.BeginTransactionAsync(cancellationToken);",
+        `        ${dapperOpenConn(ns)}`,
+        `        ${DAPPER_BEGIN_TX}`,
         `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (${insertColList}) VALUES (${insertValsTph}) ON CONFLICT (id) DO UPDATE SET ${upsertSet}", new { ${saveParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
       ];
 
@@ -1586,7 +1589,7 @@ export function renderDapperRepository(
     ? [
         `    public async Task<${agg.name}?> GetByIdForWriteAsync(${idClass} id, CancellationToken cancellationToken = default)`,
         "    {",
-        "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+        `        ${dapperOpenConn(ns)}`,
         `        var __inScope = await conn.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT EXISTS (SELECT 1 FROM ${table} WHERE id = @id AND (${writeScopeSql})${andFilter(true)})", new { id = id.Value${writePrincSuffix} }, cancellationToken: cancellationToken));`,
         "        if (!__inScope) return null;",
         "        return await GetByIdAsync(id, cancellationToken);",
@@ -1810,9 +1813,11 @@ export function renderDapperRepository(
     // COUNT (via `fromClause`), so it MUST bind the same params, or a paged find
     // with a `where this.f == x` throws on an unbound `@x` at runtime.
     const allFindParamsSuffix = allFindParams.length > 0 ? `, ${allFindParams.join(", ")}` : "";
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
     let where = "";
     try {
-      where = f.filter ? ` WHERE ${whereToSql(f.filter, sqlCtx)}` : "";
+      where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
     } catch {
       // Unsupported predicate — emit a compile-safe stub.
       return lines(
@@ -1843,7 +1848,7 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
-        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
+        `        ${dapperOpenConn(ns, L("conn"), ct)}`,
         `        var ${L("offset")} = (page - 1) * pageSize;`,
         `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "id" };`,
         `        var ${L("sortDir")} = dir == "desc" ? "DESC" : "ASC";`,
@@ -1871,7 +1876,7 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
         `    {`,
-        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
+        `        ${dapperOpenConn(ns, L("conn"), ct)}`,
         `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: ${ct}));`,
         ...(hasContains
           ? hasAssoc
@@ -1918,7 +1923,7 @@ export function renderDapperRepository(
     return lines(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
-      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
+      `        ${dapperOpenConn(ns, L("conn"), ct)}`,
       `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: ${ct}));`,
       ...(hasContains
         ? [
@@ -2019,7 +2024,7 @@ export function renderDapperRepository(
     return lines(
       `    public async Task<IReadOnlyList<${agg.name}>> Run${name}Async(${renderRetrievalParamsWithCt(r.params)})`,
       `    {`,
-      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${own.ct});`,
+      `        ${dapperOpenConn(ns, L("conn"), own.ct)}`,
       ...bypassLines,
       `        var ${L("p")} = new DynamicParameters();`,
       ...paramAdds,
@@ -2046,10 +2051,8 @@ export function renderDapperRepository(
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         `    {`,
-        `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
-        delTx
-          ? "        await using var __tx = await conn.BeginTransactionAsync(cancellationToken);"
-          : null,
+        `        ${dapperOpenConn(ns)}`,
+        delTx ? `        ${DAPPER_BEGIN_TX}` : null,
         ...assocDeleteLines,
         ...containDeleteLines,
         `        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${table} WHERE id = @id", new { id = aggregate.Id.Value }, ${delTx}cancellationToken: cancellationToken));`,
@@ -2057,7 +2060,7 @@ export function renderDapperRepository(
         // Gated on the AUDIT seam, not on `delTx` — `delTx` is now also set for
         // an un-audited multi-statement delete, which has nothing to drain.
         ...auditFlushLines,
-        delTx ? "        await __tx.CommitAsync(cancellationToken);" : null,
+        delTx ? `        ${DAPPER_COMMIT_TX}` : null,
         `    }`,
       )
     : "";
@@ -2137,7 +2140,7 @@ export function renderDapperRepository(
           ]),
       `    public async Task<${agg.name}?> GetByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
       "    {",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `        ${dapperOpenConn(ns)}`,
       `        var r = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT ${colList} FROM ${table} WHERE id = @id${andFilter(true)}", new { id = id.Value${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? [
@@ -2162,7 +2165,7 @@ export function renderDapperRepository(
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${idClass}> ids, CancellationToken cancellationToken = default)`,
       "    {",
       "        if (ids.Count == 0) return Array.Empty<" + agg.name + ">();",
-      `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);`,
+      `        ${dapperOpenConn(ns)}`,
       `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT ${colList} FROM ${table} WHERE id = ANY(@ids)${andFilter(true)}", new { ids = ids.Select(x => x.Value).ToArray()${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? hasAssoc
@@ -2201,7 +2204,7 @@ export function renderDapperRepository(
       "        var __deferred = await _events.RecordDurableAsync(__pending, __tx, cancellationToken);",
       // Commit the write set atomically before events fire — a rolled-back save
       // (concurrency conflict throw, mid-replace crash) must not dispatch events.
-      "        await __tx.CommitAsync(cancellationToken);",
+      `        ${DAPPER_COMMIT_TX}`,
       "        foreach (var ev in __deferred)",
       "        {",
       "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
@@ -2353,8 +2356,7 @@ export function renderDapperDocumentRepository(
   ];
   const serializeLine =
     "        var __data = System.Text.Json.JsonSerializer.Serialize(aggregate.ToSnapshot(), __json);";
-  const openLine =
-    "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);";
+  const openLine = `        ${dapperOpenConn(ns)}`;
   // Stamped: open → begin → probe → stamp → serialize (the stamp must precede
   // the snapshot).  Unstamped: the original serialize → open → begin order.
   const savePrelude = docCreateStamps
@@ -2390,7 +2392,7 @@ export function renderDapperDocumentRepository(
     // `conn` steps aside for a same-named find param (CS0136) — see csLocalNamer.
     const conn = csLocalNamer(f.params.map((p) => p.name))("conn");
     const loadAllLines = [
-      `await using var ${conn} = await _db.OpenConnectionAsync(${ct});`,
+      `${dapperOpenConn(ns, conn, ct)}`,
       // ORDER BY id — the document carrier's whole-table read answers in
       // Postgres heap order without it, and an `update` rewrites the tuple, so
       // a row MOVES after an unrelated write.  The EF twin of this read (see
@@ -2430,7 +2432,7 @@ export function renderDapperDocumentRepository(
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         "    {",
-        "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+        `        ${dapperOpenConn(ns)}`,
         // A `destroy audited` stages its row before the delete, so both ride one
         // transaction; the un-audited emit stays a single un-transacted DELETE.
         audit.begin,
@@ -2486,7 +2488,7 @@ export function renderDapperDocumentRepository(
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `        ${dapperOpenConn(ns)}`,
       `        var __d = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = @id", new { id = id.Value }, cancellationToken: cancellationToken));`,
       // With a capability filter, a row OUTSIDE the caller's scope reads as
       // missing (→ 404), matching what the relational adapter's spliced WHERE
@@ -2504,7 +2506,7 @@ export function renderDapperDocumentRepository(
       `    public async Task<IReadOnlyList<${agg.name}>> FindManyByIdsAsync(IReadOnlyList<${agg.name}Id> ids, CancellationToken cancellationToken = default)`,
       "    {",
       `        if (ids.Count == 0) return Array.Empty<${agg.name}>();`,
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `        ${dapperOpenConn(ns)}`,
       `        var __rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} WHERE id = ANY(@ids)", new { ids = ids.Select(x => x.Value).ToArray() }, cancellationToken: cancellationToken));`,
       `        return __rows.Select(__d => ${deser})${capFilter}.ToList();`,
       "    }",
@@ -2685,7 +2687,7 @@ export function renderDapperEventSourcedRepository(
       `    public async Task<${agg.name}?> GetByIdAsync(${agg.name}Id id, CancellationToken cancellationToken = default)`,
       "    {",
       "        var __sid = id.Value.ToString();",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `        ${dapperOpenConn(ns)}`,
       `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st AND stream_id = @sid ORDER BY version", new { st = "${streamType}", sid = __sid }, cancellationToken: cancellationToken))).ToList();`,
       "        if (__rows.Count == 0) return null;",
       `        return ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
@@ -2711,16 +2713,12 @@ export function renderDapperEventSourcedRepository(
       // block, because the staged audit row must be drained and committed even
       // on a save that appends no events.  Un-audited keeps `conn` scoped
       // inside the block, byte-identical to the pre-audit emit.
-      audit.on
-        ? "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);"
-        : null,
+      audit.on ? `        ${dapperOpenConn(ns)}` : null,
       audit.begin,
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
-      audit.on
-        ? null
-        : "            await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      audit.on ? null : `            ${dapperOpenConn(ns)}`,
       `            var __version = await conn.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT MAX(version) FROM ${table} WHERE stream_type = @st AND stream_id = @sid", new { st = "${streamType}", sid = __sid }, ${audit.txArg}cancellationToken: cancellationToken)) ?? 0;`,
       "            foreach (var __ev in __pending)",
       "            {",
@@ -2736,7 +2734,7 @@ export function renderDapperEventSourcedRepository(
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
       "    {",
-      "        await using var conn = await _db.OpenConnectionAsync(cancellationToken);",
+      `        ${dapperOpenConn(ns)}`,
       `        var __rows = (await conn.QueryAsync<EvRow>(new CommandDefinition("SELECT stream_id, type, data FROM ${table} WHERE stream_type = @st ORDER BY stream_id, version", new { st = "${streamType}" }, cancellationToken: cancellationToken))).ToList();`,
       `        return __rows`,
       "            .GroupBy(__r => __r.stream_id)",

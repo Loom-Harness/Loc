@@ -29,7 +29,13 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirLocal,
+  elixirOpAction,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -59,7 +65,7 @@ import {
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { isRefCollFieldName, refCollTargetModule } from "./ref-collection-emit.js";
+import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderReturningOpFunction` (and the sibling
@@ -219,6 +225,9 @@ export function persistPutBodies(
   appModule: string,
   ctxModule: string,
   relationalContainments: ReadonlySet<string> = new Set(),
+  /** The owner context's aggregates — a reference collection whose target is
+   *  not among them persists through its join-row schema (`isForeignRefColl`). */
+  pool: readonly { name: string }[] = [agg],
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields: string[] = [];
@@ -270,11 +279,11 @@ export function persistPutBodies(
           ? `Ecto.Changeset.put_assoc(:${f}, __put_assoc_parts(record.${f}))`
           : `Ecto.Changeset.put_embed(:${f}, record.${f})`;
       }
-      const targetMod = refCollTargetModule(appModule, ctxModule, agg, f);
-      if (targetMod) {
+      const refValue = refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
+      if (refValue) {
         // The body bound a local `<field>` holding the new id list (it left
         // `record.<field>` as the loaded assoc so put_assoc can replace it).
-        return `Ecto.Changeset.put_assoc(:${f}, __resolve_refs(${f}, ${targetMod}))`;
+        return `Ecto.Changeset.put_assoc(:${f}, ${refValue})`;
       }
       // FORCE the change: the op body rebinds `record = %{record | f: newval}`
       // BEFORE this changeset is built, so the changeset's DATA already carries the
@@ -520,8 +529,10 @@ interface OneEmitParts {
    *  the `__loom_outbox` INSERT, so it MUST run inside the persist transaction:
    *  "row saved" and "event owed" commit or roll back as one. */
   dispatch: string[];
-  /** `Phoenix.PubSub.broadcast(...)` — the SSE / LiveView wire.  MUST run AFTER
-   *  the transaction commits.  Inside it, a commit failure still rolls the write
+  /** `<App>.PostCommit.broadcast(...)` — the SSE / LiveView wire.  MUST run AFTER
+   *  the transaction commits — the op's own persist transaction here, and the
+   *  enclosing transactional workflow's, which `PostCommit` waits for when one
+   *  is open (M-T4.3 item 6).  Inside it, a commit failure still rolls the write
    *  back, but the broadcast has already left: a subscriber observes an event
    *  whose write never happened, and there is no compensating "unsend". */
   broadcast: string[];
@@ -563,9 +574,7 @@ function emitParts(
     out.push({
       bind: [`${indents.bind}${evVar} = ${struct}`, `${indents.bind}${logCall}`],
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],
-      broadcast: [
-        `${indents.broadcast}Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${evVar})`,
-      ],
+      broadcast: [`${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`],
       origin: s.origin,
     });
     i++;
@@ -694,7 +703,7 @@ export function renderReturningOpFunction(
   // so it never trips the unused-variable check even when the op has no params
   // (an underscore-prefixed name used in a guard would itself warn).
   const paramReads = op.params.map(
-    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
   // The `before` wire snapshot — taken from the ORIGINAL `record` before the
   // body rebinds any field (parity with the non-returning path + the other
@@ -847,6 +856,7 @@ export function renderReturningOpFunction(
     appModule,
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
+    ctx.aggregates,
   );
   const putBlock = putBodies.map((b) => `\n      |> ${b}`).join("");
 
@@ -1318,7 +1328,7 @@ export function renderReturningStmt(
         { name: "event_type", valueExpr: `"${upperFirst(s.eventName)}"` },
         ...(rc.agg ? [{ name: "aggregate", valueExpr: `"${upperFirst(rc.agg.name)}"` }] : []),
       ]);
-      return `    ${logCall}\n    Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`;
+      return `    ${logCall}\n    ${appModule}.PostCommit.broadcast(${struct})`;
     }
     case "expression":
       return `    _ = ${renderExpr(s.expr, rc)}`;
@@ -1567,7 +1577,7 @@ export function renderReturningOpControllerAction(
   const opCuBind = opActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
   return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
     { name: "aggregate", valueExpr: `"${aggPascal}"` },

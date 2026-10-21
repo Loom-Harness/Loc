@@ -167,6 +167,6 @@ describe("frontend-body register repros — each is refused at `ddd parse`", () 
       onePage("feliz", 'action say() { toast("hi") } body: Button { "go", onClick: say }'),
     );
     const app = [...files].find(([p]) => p.endsWith("App.fs"))?.[1] ?? "";
-    expect(app).toContain('Cmd.ofEffect (fun _ -> updateToast (string ("hi")))');
+    expect(app).toContain('actionToast (string ("hi"))');
   });
 });

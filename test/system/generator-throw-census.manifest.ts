@@ -621,7 +621,30 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS; the fold renders all of it but `if`, which validateElixirIfSupport refuses in every elixir-hosted applier. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
   },
 
+  // src/generator/elixir/store-emit.ts
+  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
+    guardedBy: ["loom.ui-body-statement-kind"],
+    note: "precondition / requires / return / match await in a LiveView store action are refused by the #liveview-store arm of the gate.",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$2": {
+    guardedBy: ["loom.if-stmt-page-body-unsupported"],
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$3": {
+    invariant:
+      "Scope resolution gives a ui body no aggregate to emit from, so an `emit` never lowers into a store action. (src/language/ddd-scope.ts)",
+  },
+
   // src/generator/elixir/vanilla/function-emit.ts
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
+    guardedBy: ["loom.function-block-impure"],
+    note: "A call statement to anything but a pure function is #call-stmt.",
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$2": {
+    guardedBy: ["loom.function-block-impure"],
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$3": {
+    guardedBy: ["loom.variant-match-placement"],
+  },
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
     note: 'validateElixirIfSupport classifies every block-bodied `function` — aggregate AND workflow — with the same elixirIfRefusal("value") predicate this throw asserts.',
@@ -729,6 +752,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
     guardedBy: ["loom.ui-this-unbound", "loom.ui-body-feature-unsupported"],
     note: "The kinds reaching the default arm: `this` (loom.ui-this-unbound, target-neutral) and `action-ref` (UI_BODY_FEATURE_RENDERERS['action-ref-value'] omits feliz); `authz-filter` is built only by enrichment into aggregate filters, never a ui body.",
+  },
+  "src/generator/feliz/fs-expr.ts#renderFsExpr$5": {
+    invariant:
+      "authz-filter is built only by enrichment into an aggregate's contextFilters / writeScopeFilter, never into a ui body. (src/ir/util/tenant-stance.ts)",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
     guardedBy: [

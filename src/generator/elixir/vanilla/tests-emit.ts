@@ -9,6 +9,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
@@ -350,9 +351,23 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   const dt = coerceMatcherExpected(expr, expected, EX_TEST_LITERAL);
   if (dt !== undefined) return verb(`DateTime.compare(${actual}, ${dt}) == :eq`);
 
-  if (isMoneyLike(inner, arg)) {
+  // `toBe(nil)`-shaped asserts keep the native operator.
+  const nullArg = arg?.kind === "literal" && arg.lit === "null";
+  const subject = unwrapOptionalType(matcherSubjectType(expr));
+  const subjectPrim = subject.kind === "primitive" ? subject.name : null;
+  if (
+    !nullArg &&
+    (isMoneyLike(inner, arg) || subjectPrim === "money" || subjectPrim === "decimal")
+  ) {
     if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);
     return verb(`Decimal.compare(${actual}, ${expected}) ${MONEY_CMP[expr.member]}`);
+  }
+  // A `%DateTime{}` is a struct: `<`/`>` on it is STRUCTURAL term ordering
+  // (field by field, not chronological), and `==` is sensitive to the
+  // microsecond precision tuple.  Compare instants (banking eval B-01).
+  if (!nullArg && (subjectPrim === "datetime" || (arg?.kind === "literal" && arg.lit === "now"))) {
+    const tail = expr.member === "toBe" ? "== :eq" : MONEY_CMP[expr.member];
+    return verb(`DateTime.compare(${actual}, ${expected}) ${tail}`);
   }
   return verb(`${actual} ${op} ${expected}`);
 }
@@ -577,6 +592,10 @@ function renderLiteral(lit: string, value: string): string {
       return value;
     case "null":
       return "nil";
+    // `now()` — the domain renderer's spelling (render-expr.ts); verbatim it
+    // was a bare `now`, an undefined variable in the generated `.exs`.
+    case "now":
+      return "DateTime.utc_now()";
     default:
       // int / long — emit verbatim.
       return value;
@@ -707,12 +726,12 @@ function isMoneyLike(inner: ExprIR, arg: ExprIR | undefined): boolean {
 
 function usedRefNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
-  const collect = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    for (const c of childExprs(e)) collect(c);
-  };
   for (const s of statements) {
-    for (const e of stmtExprs(s)) collect(e);
+    for (const e of stmtExprs(s)) {
+      walkExprDeep(e, (n) => {
+        if (n.kind === "ref") used.add(n.name);
+      });
+    }
   }
   return used;
 }
@@ -722,32 +741,4 @@ function stmtExprs(s: TestStmtIR): ExprIR[] {
   if (s.kind === "expression") return [s.expr];
   if (s.kind === "call") return s.args;
   return [];
-}
-
-function childExprs(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "new":
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    case "list":
-      return e.elements;
-    default:
-      return [];
-  }
 }

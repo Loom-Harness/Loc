@@ -2624,11 +2624,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // vocabulary.  The first three are modelling errors no frontend can render;
   // the fourth is the per-target table (`UI_BODY_FEATURE_RENDERERS`).
   // ----------------------------------------------------------------------
-  "loom.ui-this-unbound": (p: { where: unknown; uiName: unknown }) =>
-    `\`this\` is used in ${p.where} on ui '${p.uiName}'.  A page, component or store has ` +
-    `no aggregate instance in scope, so \`this\` names nothing there and no frontend can ` +
-    `render it.  Read the value from \`state\`, a param, a store field, or the record a ` +
-    `QueryView \`data:\` lambda (or a \`match await\` arm) binds.`,
   "loom.ui-assign-not-state": (p: {
     where: unknown;
     uiName: unknown;
@@ -2669,6 +2664,23 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `${p.where} on ui '${p.uiName}' uses ${p.feature}, which the ${p.fw} frontend does not ` +
     `render (deployable '${p.dName}') — ${p.why}.  ${p.renderedBy}${p.hint}`,
+  "loom.ui-body-statement-kind#liveview-store": (p: {
+    where: unknown;
+    uiName: unknown;
+    keyword: unknown;
+    dName: unknown;
+  }) =>
+    `A \`${p.keyword}\` statement is used in ${p.where} on ui '${p.uiName}', which the ` +
+    `phoenixLiveView frontend cannot render in a store (deployable '${p.dName}'). On ` +
+    `LiveView a store is a pure per-process module: each action takes the store struct ` +
+    `and returns the next one, with no socket to flash or halt on, no value sink and no ` +
+    `remote-call seam. Keep the store action to state writes, \`let\`s and sibling-action ` +
+    `calls, and move the \`${p.keyword}\` into the page or component action that calls it.`,
+  "loom.ui-this-unbound": (p: { where: unknown; uiName: unknown; fw: unknown; dName: unknown }) =>
+    `\`this\` is used in ${p.where} on ui '${p.uiName}', which the ${p.fw} frontend cannot ` +
+    `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
+    `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
+    `\`data:\` lambda, and read its fields off that name.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
@@ -3721,6 +3733,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `not served at all.`,
   "loom.user-duplicate-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}' more than once.`,
+  // src/ir/validate/checks/reactor-principal-checks.ts (ruling D1)
+  "loom.reactor-gate-unsatisfiable": (p: {
+    reactor: unknown;
+    event: unknown;
+    where: unknown;
+    gate: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs as the system principal (no request user: every claim is empty, ` +
+    `\`currentUser.isSystem\` is true), but ${p.where} is gated by \`requires ${p.gate}\`, which reads ` +
+    `\`currentUser\` and never admits the system principal — so every '${p.event}' this reactor ` +
+    `handles will be refused with 403.  If the reactor is allowed to do this, say so in the gate: ` +
+    `\`requires currentUser.isSystem || ${p.gate}\`; otherwise call an ungated operation, or move the ` +
+    `check onto the command that emits '${p.event}'.`,
+  "loom.timer-tenant-read": (p: {
+    reactor: unknown;
+    timer: unknown;
+    agg: unknown;
+    read: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
+    `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
+    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
+    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+  "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
+    `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
+    `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
+    `event reactor records for audit).  Rename the claim.`,
   "loom.auth-no-user-block": (p: { name: unknown; sysName: unknown }) =>
     `deployable '${p.name}' has 'auth: required' but system '${p.sysName}' declares no 'user { ... }' block. ` +
     `Add a system-level user block describing the JWT claim shape (e.g. 'user { id: string, role: string }').`,

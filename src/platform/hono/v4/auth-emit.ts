@@ -219,9 +219,21 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
   // `orgPath` (multi-tenancy) when the system declares tenancy.  The
   // split keeps the verifier free of the derived member (it can't know the
   // path from the token) while every domain-code `import { User }` sees it.
+  // The system principal's two built-in slots (ruling D1): OPTIONAL, so a
+  // request principal is built and serialized exactly as before (`/auth/me`
+  // is unchanged) — only `systemPrincipal()` (auth/middleware.ts) sets them.
+  const systemSlots = [
+    "  /** `currentUser.isSystem` — true only on the system principal an event",
+    "   *  reactor runs as; absent (false) on every request principal. */",
+    "  isSystem?: boolean;",
+    "  /** The originating user's id on the system principal — audit and logs",
+    "   *  only, never read by a gate. */",
+    "  causedBy?: string | null;",
+  ];
   const userDecl = orgPathClaim
     ? [
         "export interface User extends UserClaims {",
+        ...systemSlots,
         "  /** The caller's tenant materialized path (`currentUser.orgPath`) —",
         "   *  derived per-request from the tenancy claim, memoized on this",
         "   *  request-scoped principal (multi-tenancy). */",
@@ -241,7 +253,7 @@ function renderUserTypes(user: UserIR, orgPathClaim?: string, orgContext = false
           : []),
         "}",
       ]
-    : ["export type User = UserClaims;"];
+    : ["export interface User extends UserClaims {", ...systemSlots, "}"];
   return (
     lines(
       "// Auto-generated.",
@@ -485,9 +497,11 @@ function malformedDevClaims(c: Context, detail: string) {
     ? `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh"]`
     : `["/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}"]`;
   return `// Auto-generated.
+import { randomUUID } from "node:crypto";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
-import { ${orgContext ? "requestContext, requestLog" : "requestContext"} } from "../obs/als";
+import { ${orgContext ? "requestContext, requestContextStore, requestLog" : "requestContext, requestContextStore"} } from "../obs/als";
+import { baseLogger } from "../obs/log";
 ${oidc ? "" : 'import { MalformedDevClaimsError } from "./dev-stub";\n'}import type { User, UserClaims } from "./user-types";
 import { verifyUserOrThrow } from "./verifier";
 
@@ -594,7 +608,131 @@ export function requireCurrentUser(): User {
   }
   return user as User;
 }
-`;
+${renderSystemPrincipal(user, orgPathClaim, orgContext)}`;
+}
+
+/** `systemPrincipal()` — the principal an event reactor runs as (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim is EMPTY (so
+ *  a claims gate cannot pass by accident — the dev stub's `"admin"` strings
+ *  are deliberately not reused), `isSystem` is true, the tenant claim and the
+ *  materialized path are the triggering event's (read off the dispatching
+ *  request's principal — the event was raised inside it), and `causedBy` is
+ *  that request's user id (or its own `causedBy` when the dispatcher is itself
+ *  a reactor).  With no dispatching principal (a timer tick) the tenant is
+ *  empty, which matches no tenant-owned row. */
+function renderSystemPrincipal(user: UserIR, tenantClaim?: string, orgContext = false): string {
+  const idField = actorIdField(user);
+  const entries = user.fields.map((f) => {
+    const v =
+      f.name === tenantClaim
+        ? `(origin?.tenant ?? "") as unknown as UserClaims["${f.name}"]`
+        : systemValueFor(f);
+    return `    ${snakeToCamel(f.name)}: ${v},`;
+  });
+  const tenantSlots = tenantClaim
+    ? [
+        "    orgPath,",
+        "    rootOrg: rootOrgOf(orgPath),",
+        ...(orgContext ? ["    orgContextPath: orgPath,"] : []),
+      ]
+    : [];
+  const tenantOf = tenantClaim
+    ? `user.${tenantClaim} == null || String(user.${tenantClaim}) === "" ? null : String(user.${tenantClaim})`
+    : "null";
+  const orgPathOf = tenantClaim ? `user.orgPath === "" ? null : user.orgPath` : "null";
+  const causedByOf = idField
+    ? `user.isSystem ? (user.causedBy ?? null) : String(user.${idField})`
+    : "user.causedBy ?? null";
+  return lines(
+    "",
+    "/** Where an event came from (ruling D1): the raising principal's tenant",
+    " *  claim and materialized path, and the originating user id (`causedBy`,",
+    " *  audit only).  Captured onto the outbox row and the channel envelope",
+    " *  (`tenantid` / `loomorgpath` / `loomcausedby`) so a reactor that runs",
+    " *  after the request is gone — on the outbox relay, or in another",
+    " *  deployable — still runs as the system principal OF THAT TENANT. */",
+    "export interface EventOrigin {",
+    "  tenant: string | null;",
+    "  orgPath: string | null;",
+    "  causedBy: string | null;",
+    "}",
+    "",
+    "/** The ambient frame's event origin — null outside any principal (a timer",
+    " *  tick, boot).  A system principal propagates its own origin, so an event",
+    " *  a reactor raises keeps the first user as `causedBy`. */",
+    "export function currentEventOrigin(): EventOrigin | null {",
+    "  const user = (requestContext()?.currentUser ?? null) as User | null;",
+    "  if (user === null) return null;",
+    "  return {",
+    `    tenant: ${tenantOf},`,
+    `    orgPath: ${orgPathOf},`,
+    `    causedBy: ${causedByOf},`,
+    "  };",
+    "}",
+    "",
+    "/** The system principal for an event origin: no claims, `isSystem`, the",
+    " *  origin's tenant, `causedBy` for audit.  Gates are evaluated against it",
+    " *  normally — a gate that admits it says `currentUser.isSystem || …`.  No",
+    " *  origin (a timer tick) ⇒ an empty tenant, which matches no tenant-owned",
+    " *  row. */",
+    "export function systemPrincipalFor(origin: EventOrigin | null): User {",
+    ...(tenantClaim ? ['  const orgPath = origin?.orgPath ?? origin?.tenant ?? "";'] : []),
+    "  return {",
+    ...entries,
+    ...tenantSlots,
+    "    isSystem: true,",
+    "    causedBy: origin?.causedBy ?? null,",
+    "  };",
+    "}",
+    "",
+    "/** The system principal an event reactor binds `currentUser` to — built",
+    " *  from the dispatching frame's origin: the request that raised the event",
+    " *  in-process, or the frame `runAsEventOrigin` opened for a relayed or",
+    " *  broker-consumed one. */",
+    "export function systemPrincipal(): User {",
+    "  return systemPrincipalFor(currentEventOrigin());",
+    "}",
+    "",
+    "/** Run `fn` in a fresh ambient frame whose principal is the system",
+    " *  principal of `origin`.  The outbox relay and the channel consumer open",
+    " *  one per delivered event, so the reactor (and every ambient-principal",
+    " *  reader under it) sees the triggering event's tenant.  No origin ⇒ `fn`",
+    " *  runs as before: no frame, tenant-less, fail-closed. */",
+    "export function runAsEventOrigin<T>(",
+    "  origin: EventOrigin | null | undefined,",
+    "  fn: () => Promise<T>,",
+    "): Promise<T> {",
+    "  if (origin == null) return fn();",
+    "  return requestContextStore.run(",
+    "    {",
+    "      correlationId: randomUUID(),",
+    "      currentUser: systemPrincipalFor(origin),",
+    "      actorId: origin.causedBy,",
+    '      locale: "en",',
+    "      startedAt: Date.now(),",
+    "      scopeId: randomUUID(),",
+    "      parentId: null,",
+    '      traceId: "",',
+    '      spanId: "",',
+    "      log: baseLogger,",
+    "    },",
+    "    fn,",
+    "  );",
+    "}",
+  );
+}
+
+/** The EMPTY value of one claim on the system principal: the zero of its
+ *  type, never a value a gate would read as a grant. */
+function systemValueFor(f: FieldIR): string {
+  if (f.optional) return "null";
+  const t = f.type;
+  if (t.kind === "primitive" && t.name === "string") return `""`;
+  // An id claim is a branded string: the empty id, cast to the claim's own
+  // type — `middleware.ts` has no `Ids` import, and the dev stub's zero GUID
+  // would be a real-looking id rather than "no claim".
+  if (t.kind === "id") return `"" as UserClaims["${snakeToCamel(f.name)}"]`;
+  return stubValueForType(t);
 }
 
 // ---------------------------------------------------------------------------

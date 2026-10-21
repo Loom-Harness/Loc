@@ -1,4 +1,7 @@
-import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import {
+  hasDomainFloorAnswer,
+  workflowPreconditionThrowArgs,
+} from "../../../generator/_i18n/domain-floor.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
 import {
@@ -65,9 +68,11 @@ import {
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import {
   walkExprDeep,
   walkWorkflowStmtExprsDeep,
@@ -76,6 +81,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import {
   escapeTsIdent,
@@ -155,8 +161,13 @@ export function buildWorkflowsFile(
    *  (load/save/list) against the MikroORM EntityManager + Row entities instead
    *  of Drizzle.  Default false keeps the Drizzle output byte-identical. */
   usingMikro = false,
+  /** The deployable carries auth: durable events record their EVENT ORIGIN
+   *  (ruling D1) on the outbox row, and the relay delivers each one inside
+   *  the system principal of that origin (`auth/middleware.ts`
+   *  `runAsEventOrigin`).  Auth-less output is unchanged. */
+  carriesOrigin = false,
 ): string {
-  if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro);
+  if (ctx.workflows.length === 0) return buildProducerOutboxFile(ctx, usingMikro, carriesOrigin);
   // Build the body first; imports are derived from what the body actually
   // references (keeps the generated import line free of dead names per the
   // generated-code Biome gate). Aggregate / repository / VO / enum imports
@@ -167,7 +178,7 @@ export function buildWorkflowsFile(
   // candidate that isn't actually referenced is dropped — keeping a
   // subscription-free project byte-identical.
   const usedVOs = valueObjectPool(ctx).map((v) => v.name);
-  const usedEnums = ctx.enums.map((e) => e.name);
+  const usedEnums = enumPool(ctx).map((e) => e.name);
   const valueObjectImport = [...usedVOs, ...usedEnums];
 
   const body: string[] = [];
@@ -497,6 +508,7 @@ export function buildWorkflowsFile(
         opFragments,
         resolveStreamContext,
         usingMikro,
+        carriesOrigin,
       ),
     );
   } else if (durableEventTypes(ctx).size > 0) {
@@ -519,7 +531,7 @@ export function buildWorkflowsFile(
     body.push("");
     body.push(...emitDispatcherFactory(new Map(), usingMikro));
     body.push("");
-    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro));
+    body.push(...emitOutboxMachinery(durableEventTypes(ctx), usingMikro, carriesOrigin));
   }
   // Now derive imports from what the body actually references.
   const rawBodyStr = body.join("\n");
@@ -656,6 +668,15 @@ export function buildWorkflowsFile(
     /(?<!\.)\brunInChildContext\(/.test(bodyStr) ? "runInChildContext" : null,
   ].filter((x): x is string => x !== null);
   if (alsImports.length > 0) imports.push(`import { ${alsImports.join(", ")} } from "../obs/als";`);
+  // A reactor that reads the principal binds the system principal (ruling D1).
+  const authImports = [
+    /(?<!\.)\bcurrentEventOrigin\(/.test(bodyStr) ? "currentEventOrigin" : null,
+    /\bEventOrigin\b/.test(bodyStr) ? "type EventOrigin" : null,
+    /(?<!\.)\brunAsEventOrigin\(/.test(bodyStr) ? "runAsEventOrigin" : null,
+    /(?<!\.)\bsystemPrincipal\(/.test(bodyStr) ? "systemPrincipal" : null,
+  ].filter((x): x is string => x !== null);
+  if (authImports.length > 0)
+    imports.push(`import { ${authImports.join(", ")} } from "../auth/middleware";`);
   // The provenance flush stamps a fresh per-row trace id.
   if (/(?<!\.)\brandomUUID\(/.test(bodyStr))
     imports.push(`import { randomUUID } from "node:crypto";`);
@@ -1345,6 +1366,16 @@ function emitInstanceRoutes(
 /** Deterministic handler-function name for an event subscription —
  *  `<workflow>On<Event>` for reactors, `<workflow>Start<Event>` for
  *  event-triggered creates. */
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `auth/middleware.ts`'s `systemPrincipal()`, which carries the
+ *  dispatching request's tenant and records its user as `causedBy`.  Bound only
+ *  when the body (or an operation it calls, gate included) reads
+ *  `currentUser`; before this the reactor referenced a `currentUser` nothing
+ *  declared (tsc TS2304). */
+function bindSystemPrincipal(statements: WorkflowStmtIR[], ctx: BoundedContextIR): string[] {
+  return reactorNeedsPrincipal(statements, ctx) ? ["  const currentUser = systemPrincipal();"] : [];
+}
+
 function handlerName(workflow: string, trigger: "on" | "create", event: string): string {
   return `${lowerFirst(workflow)}${trigger === "on" ? "On" : "Start"}${upperFirst(event)}`;
 }
@@ -1368,6 +1399,9 @@ function emitSubscriptionHandlers(
   /** `persistence: mikroorm` — emit the correlation-state store + `db` param
    *  types against the MikroORM EntityManager.  Default false → drizzle. */
   usingMikro = false,
+  /** Durable events carry their event origin through the outbox (ruling D1)
+   *  — see `buildWorkflowsFile`. */
+  carriesOrigin = false,
 ): string[] {
   const subs = ctx.eventSubscriptions;
   const out: string[] = [];
@@ -1459,7 +1493,7 @@ function emitSubscriptionHandlers(
   const durable = durableEventTypes(ctx);
   if (durable.size > 0) {
     out.push("");
-    out.push(...emitOutboxMachinery(durable, usingMikro));
+    out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
   }
   return out;
 }
@@ -1475,7 +1509,31 @@ function emitSubscriptionHandlers(
  *  `usingMikro` swaps the store for the EntityManager + `LoomOutboxRow`
  *  EntitySchema (M-T6.23) — same table, same at-least-once contract,
  *  same `__loomEventId` marker threaded onto the redelivered event. */
-function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): string[] {
+function emitOutboxMachinery(
+  durable: ReadonlySet<string>,
+  usingMikro = false,
+  carriesOrigin = false,
+): string[] {
+  // The outbox row payload: the event, plus its origin under the reserved
+  // key when the deployable carries auth (ruling D1).
+  const captured = carriesOrigin
+    ? `{ ...event, ${LOOM_OUTBOX_ORIGIN_KEY}: currentEventOrigin() }`
+    : "event";
+  // The relay's delivery of one drained row: the origin is split back off the
+  // payload and the dispatch runs inside its system principal's frame.
+  const redeliver = (indent: string): string[] =>
+    carriesOrigin
+      ? [
+          `${indent}const { ${LOOM_OUTBOX_ORIGIN_KEY}: origin, ...payload } = row.payload as Record<string, unknown> & {`,
+          `${indent}  ${LOOM_OUTBOX_ORIGIN_KEY}?: EventOrigin | null;`,
+          `${indent}};`,
+          `${indent}await runAsEventOrigin(origin, () =>`,
+          `${indent}  inner.dispatch({ ...payload, __loomEventId: row.id } as unknown as Events.DomainEvent),`,
+          `${indent});`,
+        ]
+      : [
+          `${indent}await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);`,
+        ];
   const types = [...durable].sort().map((t) => JSON.stringify(t));
   const out: string[] = [];
   out.push(
@@ -1483,7 +1541,7 @@ function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): 
   );
   out.push(``);
   if (usingMikro) {
-    out.push(...emitMikroOutboxMachinery());
+    out.push(...emitMikroOutboxMachinery(captured, redeliver));
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
@@ -1494,7 +1552,7 @@ function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): 
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      if (DURABLE_EVENT_TYPES.has(event.type)) {`);
   out.push(
-    `        await db.insert(schema.loomOutbox).values({ type: event.type, payload: event });`,
+    `        await db.insert(schema.loomOutbox).values({ type: event.type, payload: ${captured} });`,
   );
   out.push(`        return; // the relay delivers`);
   out.push(`      }`);
@@ -1513,7 +1571,7 @@ function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): 
   out.push(`      if (durable.length > 0) {`);
   out.push(`        const txDb = tx as NodePgDatabase<typeof schema>;`);
   out.push(
-    `        await txDb.insert(schema.loomOutbox).values(durable.map((event) => ({ type: event.type, payload: event })));`,
+    `        await txDb.insert(schema.loomOutbox).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
   );
   out.push(`      }`);
   out.push(`      return events.filter((e) => !DURABLE_EVENT_TYPES.has(e.type));`);
@@ -1547,9 +1605,7 @@ function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): 
   // The outbox row id rides on the dispatched event so the saga handler's
   // idempotent-consumer marker can no-op on redelivery (dispatch-delivery-
   // semantics.md §3).  Inline (ephemeral) dispatch carries no id.
-  out.push(
-    `          await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);`,
-  );
+  out.push(...redeliver("          "));
   out.push(
     `          await db.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
   );
@@ -1588,7 +1644,10 @@ function emitOutboxMachinery(durable: ReadonlySet<string>, usingMikro = false): 
  *      `occurredAt` ascending, `nativeUpdate` to mark dispatched / bump the
  *      attempt counter.  A FRESH fork per drain — the relay outlives every
  *      request, so a reused EntityManager's identity map would grow unbounded. */
-function emitMikroOutboxMachinery(): string[] {
+function emitMikroOutboxMachinery(
+  captured: string,
+  redeliver: (indent: string) => string[],
+): string[] {
   const ROW = MIKRO_OUTBOX_ROW_CLASS;
   return [
     `export function createOutboxDispatcher(`,
@@ -1602,7 +1661,7 @@ function emitMikroOutboxMachinery(): string[] {
     `          id: randomUUID(),`,
     `          occurredAt: new Date(),`,
     `          type: event.type,`,
-    `          payload: event,`,
+    `          payload: ${captured},`,
     `          dispatchedAt: null,`,
     `          attempts: 0,`,
     `        });`,
@@ -1627,7 +1686,7 @@ function emitMikroOutboxMachinery(): string[] {
     `          id: randomUUID(),`,
     `          occurredAt: new Date(),`,
     `          type: event.type,`,
-    `          payload: event,`,
+    `          payload: ${captured},`,
     `          dispatchedAt: null,`,
     `          attempts: 0,`,
     `        });`,
@@ -1661,7 +1720,7 @@ function emitMikroOutboxMachinery(): string[] {
     // The outbox row id rides on the dispatched event so the saga handler's
     // idempotent-consumer marker can no-op on redelivery — identical to the
     // drizzle relay above.
-    `          await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);`,
+    ...redeliver("          "),
     `          await em.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
     `        } catch (err) {`,
     `          const attempts = row.attempts + 1;`,
@@ -1785,7 +1844,7 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   }
   if (t.kind === "array") return "[]";
   if (t.kind === "enum") {
-    const first = ctx.enums.find((e) => e.name === t.name)?.values[0];
+    const first = enumPool(ctx).find((e) => e.name === t.name)?.values[0];
     if (first !== undefined) return JSON.stringify(first);
   }
   return `""`;
@@ -1833,6 +1892,7 @@ function emitHandlerFn(
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
+  out.push(...bindSystemPrincipal(statements, ctx));
   const persisted = !!wf.correlationField;
   const hasEmit = workflowEmits(statements).length > 0;
   if (hasEmit) out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
@@ -1970,6 +2030,7 @@ function emitEventSourcedHandlerFn(
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
+  out.push(...bindSystemPrincipal(statements, ctx));
   out.push(`  const workflowEvents: Events.DomainEvent[] = [];`);
   const noParams = new Map<string, string>();
   // Correlation key: the `by <expr>` routing value, else the event field that
@@ -2060,7 +2121,11 @@ function emitEventSourcedHandlerFn(
  *  (index.ts wraps the relay dispatcher in the channel tee).  The
  *  in-process dispatcher is the empty fan-out.  A workflow-less context
  *  with no durable events keeps returning "" (byte-identical). */
-function buildProducerOutboxFile(ctx: EnrichedBoundedContextIR, usingMikro = false): string {
+function buildProducerOutboxFile(
+  ctx: EnrichedBoundedContextIR,
+  usingMikro = false,
+  carriesOrigin = false,
+): string {
   const durable = durableEventTypes(ctx);
   if (durable.size === 0) return "";
   const out: string[] = [
@@ -2078,12 +2143,17 @@ function buildProducerOutboxFile(ctx: EnrichedBoundedContextIR, usingMikro = fal
           `import { and, asc, eq, isNull, lt } from "drizzle-orm";`,
           `import * as schema from "../db/schema";`,
         ]),
+    ...(carriesOrigin
+      ? [
+          `import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";`,
+        ]
+      : []),
     `import { baseLogger } from "../obs/log";`,
     "",
   ];
   out.push(...emitDispatcherFactory(new Map(), usingMikro));
   out.push("");
-  out.push(...emitOutboxMachinery(durable, usingMikro));
+  out.push(...emitOutboxMachinery(durable, usingMikro, carriesOrigin));
   return `${out.join("\n")}\n`;
 }
 
@@ -2235,7 +2305,7 @@ export function honoWorkflowStmtTarget(
   return {
     indentUnit: "  ",
     precondition: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+      `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st)});`,
     ],
     requires: (st, indent) => [
       `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,
@@ -2658,5 +2728,5 @@ function collectUsedValueObjects(ctx: BoundedContextIR) {
 
 function collectUsedEnums(ctx: BoundedContextIR) {
   const { enums } = collectReachableTypes(workflowSchemaSeeds(ctx), valueObjectPool(ctx));
-  return ctx.enums.filter((e) => enums.has(e.name));
+  return enumPool(ctx).filter((e) => enums.has(e.name));
 }

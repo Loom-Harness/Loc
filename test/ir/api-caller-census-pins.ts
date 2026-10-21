@@ -580,6 +580,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
+  // precondition after an `if let` branch saved.
+  "corpus/transactional-workflow-post-commit-dispatch": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitThenOverdraw.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -809,6 +815,12 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
   // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never

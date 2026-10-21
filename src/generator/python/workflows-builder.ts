@@ -24,7 +24,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   walkWorkflowStmtChildren,
@@ -43,6 +43,7 @@ import {
   upperFirst,
   workflowFnSnake,
 } from "../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
@@ -233,7 +234,7 @@ export function buildPyWorkflowsFile(
     ...new Set(wfs.flatMap((wf) => workflowEmits(wf.statements).map((e) => e.eventName))),
   ].sort();
   const idNames = [...new Set([...scanIdNames(scan, ctx)])].sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const voModelImports = valueObjectPool(ctx)
@@ -785,7 +786,7 @@ function workflowRoute(
     out.push(`        __key = str(${snake(corrParam.name)})`);
     out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
     out.push("        if state is None:");
-    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf)})`);
+    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf, ctx)})`);
     out.push("            session.add(state)");
   } else if (usesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow
@@ -1040,7 +1041,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
+      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st)})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

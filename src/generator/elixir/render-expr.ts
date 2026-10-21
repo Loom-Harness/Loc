@@ -1,4 +1,5 @@
 import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -12,6 +13,7 @@ import {
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
+  elixirLocal,
   elixirRegexBody,
   elixirString,
   escapeElixirIdent,
@@ -62,6 +64,10 @@ import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-ob
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by an event reactor that bound `current_user` to the system
+   *  principal (ruling D1): an op-call to a `currentUser`-reading operation
+   *  threads it as the context function's trailing actor.  Unset elsewhere. */
+  reactorPrincipal?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
   /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
@@ -178,6 +184,16 @@ const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
  *  of truth shared by every renderer site so the two stay in lockstep. */
 const isDecimalStruct = (name: string | undefined): boolean =>
   name === "money" || name === "decimal";
+
+/** `""` for a `money`/`decimal` stamp, `"?"` for its nullable form, null for
+ *  anything else. */
+function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && isDecimalStruct(t.name)) return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && isDecimalStruct(t.inner.name)) {
+    return "?";
+  }
+  return null;
+}
 
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
@@ -441,9 +457,9 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // param is a bare local.  (`let`/`lambda` are always locals.)
       if (ctx.filterArgs) {
         // Ecto query filter — pin the bound local.
-        return `^${escapeElixirIdent(snake(e.name))}`;
+        return `^${elixirLocal(e.name)}`;
       }
-      return escapeElixirIdent(snake(e.name));
+      return elixirLocal(e.name);
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the
@@ -557,6 +573,15 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // the derived capability/tenancy filters (`capability-filter.ts`) AND the
   // author-written `find … where` / `retrieval … where:` / query-projection
   // `where` predicates, which previously emitted the unpinned form.
+  // `currentUser.isSystem` (ruling D1).  The request principal is a plain map
+  // that never carries the key — only `system_principal/0` sets it — so read it
+  // with a default rather than struct-dot (`KeyError` on every request
+  // principal), and tolerate a nil actor (an internal caller) as "not system".
+  if (isPrincipalIsSystem(e)) {
+    const u = ctx.filterArgs ? "current_user" : recv;
+    const read = `(is_map(${u}) and Map.get(${u}, :is_system, false) == true)`;
+    return ctx.filterArgs ? `^${read}` : read;
+  }
   if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
     const claim = snake(e.member);
     return `^(current_user && current_user.${claim})`;
@@ -1426,6 +1451,34 @@ function renderBinary(
     if (leftNull || rightNull) {
       const operand = leftNull ? r : l;
       return e.op === "==" ? `is_nil(${operand})` : `not is_nil(${operand})`;
+    }
+  }
+  // A `money?` / `decimal?` side in an in-memory comparison.  The arm below
+  // only fires on a bare `money`/`decimal` stamp, so a nullable LEFT fell to
+  // native `==` (struct equality: `10` ≠ `10.00`) / native `>` (Erlang term
+  // order over the struct maps), and a nullable RIGHT reached
+  // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
+  // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
+  // ordering dispatches through `Decimal.compare` (a guarded
+  // `x == null || x > …` never reaches it absent).
+  if (!inFilter) {
+    const lt = decimalStructOperand(e.leftType);
+    const rt = decimalStructOperand(e.rightType);
+    if (lt !== null && rt !== null && (lt === "?" || rt === "?")) {
+      if (e.op === "==" || e.op === "!=") {
+        // Only the nullable side gets a `nil` clause, so no clause is
+        // statically unreachable (Elixir 1.18's type checker would warn).
+        const nilClauses = [
+          ...(lt === "?" && rt === "?" ? ["{nil, nil} -> true"] : []),
+          ...(lt === "?" ? ["{nil, _} -> false"] : []),
+          ...(rt === "?" ? ["{_, nil} -> false"] : []),
+        ];
+        const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
+        return e.op === "==" ? eq : `not ${eq}`;
+      }
+      if (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") {
+        return renderDecimalBinary(e.op, l, r);
+      }
     }
   }
   if (ectoQuery) {

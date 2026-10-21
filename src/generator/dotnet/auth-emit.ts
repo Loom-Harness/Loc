@@ -10,6 +10,7 @@ import type {
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -20,6 +21,7 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { dapperAggregateTable } from "./emit/dapper.js";
 import { renderCsType } from "./render-expr.js";
@@ -66,6 +68,7 @@ export function emitAuthFiles(
   // `loom.org-context-gate-unmet` makes that imply a hierarchy registry.
   const orgContext = !!orgPathClaimExpr && systemReadsOrgContext(sys);
   out.set("Auth/User.cs", renderUserRecord(sys.user, ns, orgPathClaim, !!registry, orgContext));
+  out.set("Auth/EventOrigin.cs", renderEventOrigin(ns));
   out.set("Auth/IUserVerifier.cs", renderVerifierInterface(ns));
   out.set("Auth/ICurrentUserAccessor.cs", renderAccessorInterface(ns));
   out.set("Auth/HttpContextCurrentUserAccessor.cs", renderAccessorImpl(ns));
@@ -186,10 +189,22 @@ function csClaimRead(f: FieldIR, auth: AuthIR): CsClaimRead {
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return plain(`ClaimStringList(payload, ${path})`);
   }
+  const rejectUnless = (read: string, typed: boolean): CsClaimRead => {
+    const local = `claim${param}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [`if (${read} is not { } ${local})`, `{`, `    return Rejected(${reason});`, `}`],
+      arg: `${param}: ${local}`,
+      typed,
+    };
+  };
   if (t.kind === "primitive" && t.name === "string") {
-    return plain(
-      optional ? `ClaimString(payload, ${path})` : `ClaimString(payload, ${path}) ?? string.Empty`,
-    );
+    // A REQUIRED string claim absent from the token rejects it, exactly like a
+    // required typed claim below (node's `REQUIRED_CLAIMS`).  It used to read
+    // `?? string.Empty`, so a token without `team` authenticated as a
+    // principal whose team was "" — a value no IdP ever minted.
+    const read = `ClaimString(payload, ${path})`;
+    return optional ? plain(read) : rejectUnless(read, false);
   }
   // D16: every other declared claim type used to be `default!` — an id /
   // guid / int / bool / datetime claim was null (or zero) for EVERY token, so
@@ -211,13 +226,7 @@ function csClaimRead(f: FieldIR, auth: AuthIR): CsClaimRead {
     // is non-null, and `requires currentUser.x != null` would pass for every
     // token.
     if (optional) return { pre: [], arg: `${param}: ${read}`, typed: true };
-    const local = `claim${param}`;
-    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
-    return {
-      pre: [`if (${read} is not { } ${local})`, `{`, `    return Rejected(${reason});`, `}`],
-      arg: `${param}: ${local}`,
-      typed: true,
-    };
+    return rejectUnless(read, true);
   }
   // A declared NON-OPTIONAL array claim absent from the token is the EMPTY
   // SET, not `null`: a NULL `List<T>` on a non-nullable record property made
@@ -975,6 +984,171 @@ function stubCsharpValueForType(t: TypeIR): string {
   }
 }
 
+/** The system principal's members on the `User` record (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL): `IsSystem` / `CausedBy`
+ *  (init-only, default false / null, and skipped by the serializer at their
+ *  defaults — so a request principal's `/auth/me` body is unchanged), plus the
+ *  `SystemPrincipal(origin)` factory an event reactor binds `currentUser` to.
+ *  Every claim is EMPTY — never the dev stub's `"admin"` — so a claims gate
+ *  cannot pass by accident; the tenancy claim and the materialized path are the
+ *  dispatching principal's (the event was raised inside its request), and
+ *  `CausedBy` is its id (or its own `CausedBy` when it is itself a reactor). */
+function renderSystemPrincipalMembers(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  readsRegistry: boolean,
+  orgContext: boolean,
+): string {
+  const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const tenantField = tenantClaim ? user.fields.find((f) => f.name === tenantClaim) : undefined;
+  const args = user.fields
+    .map((f) => {
+      if (f !== tenantField) return systemCsharpValueFor(f);
+      const rebuilt = claimFromOriginString(f.type, "t", "csharp");
+      return rebuilt === null
+        ? systemCsharpValueFor(f)
+        : `origin?.Tenant is { Length: > 0 } t ? ${rebuilt} : ${systemCsharpValueFor(f)}`;
+    })
+    .join(", ");
+  // The claim as the origin's string: an id is its wrapped Value (a record
+  // struct's own ToString is `XId { Value = … }`, not the id).
+  const asString = (f: { name: string; type: TypeIR; optional: boolean }): string => {
+    const member = `user.${upperFirst(f.name)}`;
+    const value =
+      f.type.kind === "id" ? (f.optional ? `${member}?.Value` : `${member}.Value`) : member;
+    return f.optional || f.type.kind !== "primitive" || f.type.name === "string"
+      ? `${value}?.ToString()`
+      : `${value}.ToString()`;
+  };
+  const tenantOf = tenantField ? `NullIfEmpty(${asString(tenantField)})` : "null";
+  const orgPathOf = tenantClaim ? "NullIfEmpty(user.OrgPath)" : "null";
+  const causedByOf = idField
+    ? `user.IsSystem ? user.CausedBy : ${asString(idField)}`
+    : "user.CausedBy";
+  const inits = [
+    "IsSystem = true",
+    "CausedBy = origin?.CausedBy",
+    ...(tenantClaim && readsRegistry
+      ? ["OrgPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
+      : []),
+    ...(tenantClaim && orgContext
+      ? ["OrgContextPath = origin?.OrgPath ?? origin?.Tenant ?? string.Empty"]
+      : []),
+  ];
+  return `
+    /// <summary><c>currentUser.isSystem</c> — true only on the system principal
+    /// an event reactor runs as (<see cref="SystemPrincipal"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsSystem { get; init; }
+
+    /// <summary>The originating user's id on the system principal — audit and
+    /// logs only, never read by a gate.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CausedBy { get; init; }
+
+    /// <summary>The event origin of a principal (ruling D1): its tenant claim,
+    /// materialized path, and originating user id.  A system principal
+    /// propagates its own origin, so an event a reactor raises keeps the first
+    /// user as <c>CausedBy</c>.</summary>
+    public static EventOrigin? OriginOf(User? user) => user is null
+        ? null
+        : new EventOrigin(${tenantOf}, ${orgPathOf}, ${causedByOf});
+
+    /// <summary>The ambient frame's event origin — captured onto the outbox row
+    /// and the channel envelope.  Null outside any principal (a timer tick).</summary>
+    public static EventOrigin? CurrentEventOrigin() => OriginOf(RequestContext.Current?.CurrentUser);
+
+    /// <summary>The principal an event reactor runs as: no claims,
+    /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
+    /// against it normally — one that admits it says
+    /// <c>currentUser.isSystem || …</c>.</summary>
+    public static User SystemPrincipal(User? origin) => SystemPrincipalFor(OriginOf(origin));
+
+    /// <summary>The system principal of an event origin.  No origin (a timer
+    /// tick) ⇒ an empty tenant, which matches no tenant-owned row.</summary>
+    public static User SystemPrincipalFor(EventOrigin? origin) => new User(${args})
+    {
+        ${inits.join(",\n        ")},
+    };
+
+    /// <summary>Make the system principal of <paramref name="origin"/> the
+    /// ambient principal until the handle is disposed — the outbox relay and
+    /// the channel consumer open one per delivered event, so the reactor (and
+    /// every ambient-principal reader under it) sees the triggering event's
+    /// tenant.  No origin ⇒ nothing changes (tenant-less, fail-closed).</summary>
+    public static System.IDisposable EnterEventOrigin(EventOrigin? origin)
+    {
+        if (origin is null) return NoFrame.Instance;
+        var frame = RequestContext.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
+        frame.CurrentUser = SystemPrincipalFor(origin);
+        return RequestContext.Enter(frame);
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private sealed class NoFrame : System.IDisposable
+    {
+        public static readonly NoFrame Instance = new();
+        public void Dispose() { }
+    }
+`;
+}
+
+/** `Auth/EventOrigin.cs` — the event origin record (ruling D1) and the
+ *  outbox-payload codec that carries it under the reserved key. */
+function renderEventOrigin(ns: string): string {
+  return `// Auto-generated.
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
+namespace ${ns}.Auth;
+
+/// <summary>Where an event came from (ruling D1): the raising principal's
+/// tenant claim and materialized path, and the originating user id (audit
+/// only).  Captured onto the outbox row and the channel envelope
+/// (<c>tenantid</c> / <c>loomorgpath</c> / <c>loomcausedby</c>) so a reactor
+/// that runs after the request is gone still runs as the system principal OF
+/// THAT TENANT.</summary>
+public sealed record EventOrigin(
+    [property: JsonPropertyName("tenant")] string? Tenant,
+    [property: JsonPropertyName("orgPath")] string? OrgPath,
+    [property: JsonPropertyName("causedBy")] string? CausedBy);
+
+/// <summary>The outbox row payload: the event's JSON plus its origin under the
+/// reserved <c>${LOOM_OUTBOX_ORIGIN_KEY}</c> key (event deserialization ignores it).</summary>
+public static class EventOriginPayload
+{
+    public const string Key = "${LOOM_OUTBOX_ORIGIN_KEY}";
+
+    /// <summary>Serialize <paramref name="ev"/> with the ambient frame's origin.</summary>
+    public static string Capture(object ev)
+    {
+        var node = JsonSerializer.SerializeToNode(ev)!.AsObject();
+        var origin = User.CurrentEventOrigin();
+        if (origin is not null) node[Key] = JsonSerializer.SerializeToNode(origin);
+        return node.ToJsonString();
+    }
+
+    /// <summary>The origin a drained row's payload carries, or null.</summary>
+    public static EventOrigin? Read(string payload)
+    {
+        var node = JsonNode.Parse(payload) as JsonObject;
+        return node is not null && node.TryGetPropertyValue(Key, out var origin) && origin is not null
+            ? origin.Deserialize<EventOrigin>()
+            : null;
+    }
+}
+`;
+}
+
+/** The EMPTY value of one claim on the system principal. */
+function systemCsharpValueFor(f: { type: TypeIR; optional: boolean }): string {
+  if (f.optional) return "null";
+  if (f.type.kind === "primitive" && f.type.name === "string") return "string.Empty";
+  return stubCsharpValueForType(f.type);
+}
+
 function renderUserRecord(
   user: UserIR,
   ns: string,
@@ -1033,11 +1207,14 @@ function renderUserRecord(
         get => _orgContextPath ?? OrgPath;
         set => _orgContextPath = value;
     }`;
+  const systemMembers = renderSystemPrincipalMembers(user, orgPathClaim, readsRegistry, orgContext);
   const orgPathMember = !orgPathClaim
-    ? ";"
+    ? `
+{${systemMembers}
+}`
     : readsRegistry
       ? `
-{
+{${systemMembers}
     private string? _orgPath;
 
     /// <summary>The caller's tenant materialized path
@@ -1059,9 +1236,10 @@ ${rootOrgProp}${orgContext ? orgContextProp : ""}
     /// (<c>currentUser.orgPath</c>) — derived per-request from the tenancy
     /// claim (multi-tenancy).</summary>
     public string OrgPath => $"{${upperFirst(orgPathClaim)}}";
-${rootOrgProp}
+${rootOrgProp}${systemMembers}
 }`;
   return `// Auto-generated.
+using ${ns}.Domain.Common;
 using ${ns}.Domain.Enums;
 using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;

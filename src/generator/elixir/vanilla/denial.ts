@@ -270,12 +270,28 @@ export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): s
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
-      messageCode(s.message.text),
-    )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+    return codedPreconditionTerm(s, s.message.text);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
+}
+
+/** The denial term for a guard in a WORKFLOW / command-handler body.  An
+ *  orchestration precondition never lifts into a request validator, so a
+ *  MESSAGED one always answers the domain floor WITH its `errors[]` entry —
+ *  the same coded map an operation precondition's domain-floor denial carries
+ *  (banking eval B-02).  The workflow controller hands the detail to
+ *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
+ *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
+export function workflowDenialTerm(s: GuardStmt): string {
+  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.text);
+  return denialTerm(s);
+}
+
+function codedPreconditionTerm(s: GuardStmt, text: string): string {
+  return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
+    messageCode(text),
+  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +476,17 @@ export function respondErrorTail(
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
    *  the term carries no arm for it. */
   notFoundDetail = false,
+  /** True when some aggregate this dispatcher can reach is `versioned` or
+   *  event-sourced (`aggregatesNeedConcurrency`) — the same predicate that
+   *  emits `ProblemDetails.conflict_response/1`.  A stale save inside a
+   *  workflow / handler body (`persist_change/1` / the document `update` rescue
+   *  `Ecto.StaleEntryError`, the event-log append rescues the
+   *  `(stream_id, version)` unique_violation, all to `{:error, :conflict}`)
+   *  rolls the transaction back and threads that term here; without the arm it
+   *  fell to the sanitized 500 catch-all where the single-aggregate route and
+   *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
+   *  project without concurrency never references a responder it didn't emit. */
+  conflict = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -493,6 +520,14 @@ export function respondErrorTail(
           clause(
             `def ${fnName}(conn, {:error, {:validation_failed, errors}})`,
             wireValidationResponse(),
+          ),
+        ]
+      : []),
+    ...(conflict
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, :conflict})`,
+            "ProblemDetails.conflict_response(conn)",
           ),
         ]
       : []),

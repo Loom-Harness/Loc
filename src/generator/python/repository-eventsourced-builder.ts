@@ -8,7 +8,8 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -19,6 +20,7 @@ import { wireHelperImport } from "./py-type-imports.js";
 import { renderPyExpr } from "./render-expr.js";
 import {
   aggHasFieldMask,
+  allFindOf,
   authUserImport,
   emittableFinds,
   findExecutedLine,
@@ -57,6 +59,10 @@ export function buildPyEventSourcedRepositoryFile(
     .map((ap) => ctx.events.find((ev) => ev.name === ap.event))
     .filter((ev): ev is EventIR => ev != null);
 
+  const allFilter = allFindOf(repo)?.filter;
+  const allCond = allFilter ? renderPyExpr(allFilter, { thisName: "a" }) : null;
+  const allUsesPrincipal = exprUsesCurrentUser(allFilter);
+
   const body = lines(
     `class ${agg.name}Repository:`,
     "    def __init__(self, session: AsyncSession, events: DomainEventDispatcher) -> None:",
@@ -86,7 +92,20 @@ export function buildPyEventSourcedRepositoryFile(
     // the FOLDED aggregate.
     ...writeGuardInApp(agg),
     "",
-    `    async def all(self) -> list[${agg.name}]:`,
+    // A DECLARED `find all(): X[] where <pred>` keeps its predicate (B-A1 —
+    // the event-sourced half of eval item 2).  A stream has no queryable
+    // state columns, so the predicate runs in-app over the folded aggregates;
+    // the unfiltered fold moves to `_all_unfiltered()`, which the declared
+    // finds read so they are not narrowed by `all`'s own `where`.
+    ...(allCond == null
+      ? []
+      : [
+          `    async def all(self) -> list[${agg.name}]:`,
+          ...(allUsesPrincipal ? ["        current_user = require_current_user()"] : []),
+          `        return [a for a in await self._all_unfiltered() if ${allCond}]`,
+          "",
+        ]),
+    `    async def ${allCond == null ? "all" : "_all_unfiltered"}(self) -> list[${agg.name}]:`,
     "        rows = (",
     "            await self._session.execute(",
     `                select(${row})
@@ -100,7 +119,10 @@ export function buildPyEventSourcedRepositoryFile(
     "        return [",
     `            ${agg.name}._from_events(${agg.name}Id(sid), evs) for sid, evs in by_stream.items()`,
     "        ]",
-    ...emittableFinds(repo).flatMap((f) => ["", inMemoryFind(agg, f)]),
+    ...emittableFinds(repo).flatMap((f) => [
+      "",
+      inMemoryFind(agg, f, allCond == null ? "self.all()" : "self._all_unfiltered()"),
+    ]),
     "",
     // `expected_version` (pairwise F8): the routes emit
     // `repo.save(found, expected_version=_expected)` for EVERY `versioned`
@@ -175,7 +197,7 @@ export function buildPyEventSourcedRepositoryFile(
 
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   return lines(
@@ -203,7 +225,11 @@ export function buildPyEventSourcedRepositoryFile(
     // into this branch produced exactly that pair, and only the stale
     // `writeGuardAlias` import beside it made the compiler say so — the
     // duplicate itself typechecks fine and would have shipped.
-    authUserImport(false, writeGuardInAppUsesPrincipal(agg), aggHasFieldMask(agg)),
+    authUserImport(
+      false,
+      allUsesPrincipal || writeGuardInAppUsesPrincipal(agg),
+      aggHasFieldMask(agg),
+    ),
     `from app.db.schema import ${row}`,
     wireHelperImport(refersTo),
     "from app.domain.errors import AggregateNotFoundError, ConcurrencyError",
@@ -240,7 +266,7 @@ function idNamesOf(events: EventIR[]): string[] {
 
 /** In-memory find over the folded aggregates — eventLog has no state
  *  columns to query. */
-function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR): string {
+function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR, load = "self.all()"): string {
   const params = find.params.map((p) => `${pythonIdent(p.name)}: ${pyParam(p.type)}`);
   const sig = ["self", ...params].join(", ");
   const pred = find.filter ? renderPyExpr(find.filter, { thisName: "a" }) : "True";
@@ -249,21 +275,21 @@ function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR): string {
   if (pagedReturn(find.returnType)) {
     return pyInMemoryPagedFind(agg, find, {
       sig: ["self", ...params, ...PY_PAGED_FIND_PARAMS].join(", "),
-      loadLines: ["        items = await self.all()"],
+      loadLines: [`        items = await ${load}`],
       filteredExpr: `[a for a in items if ${pred}]`,
     });
   }
   if (find.returnType.kind === "array") {
     return lines(
       `    async def ${snake(find.name)}(${sig}) -> list[${agg.name}]:`,
-      `        result = [a for a in await self.all() if ${pred}]`,
+      `        result = [a for a in await ${load} if ${pred}]`,
       findExecutedLine(agg, find.name, "len(result)"),
       "        return result",
     );
   }
   return lines(
     `    async def ${snake(find.name)}(${sig}) -> ${agg.name} | None:`,
-    `        matches = [a for a in await self.all() if ${pred}]`,
+    `        matches = [a for a in await ${load} if ${pred}]`,
     findExecutedLine(agg, find.name, "len(matches)"),
     "        return matches[0] if matches else None",
   );

@@ -77,7 +77,6 @@ import {
   type IsolationLevel,
   type OperationIR,
   operationUsesCurrentUser,
-  type StmtIR,
   type SystemIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -85,6 +84,7 @@ import {
   workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
@@ -92,7 +92,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -104,12 +104,12 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { stateDefault } from "../state-default.js";
+import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
-  denialTerm,
   respondErrorTail,
+  workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 
@@ -380,7 +380,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -394,7 +394,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -496,9 +496,9 @@ function lowerStatement(
       // Renders INSIDE the with-chain's `do`-branch (`BodyLine.kind = "emit"`)
       // so a failed precondition / op short-circuits the chain and the
       // broadcast is skipped — listeners only see events for successful
-      // workflows.  Inside `Repo.transaction(fn -> ...)` the broadcast
-      // fires before commit; that matches the standard Phoenix pattern
-      // (there is no separate "after-commit" hook).
+      // workflows.  Inside a transactional workflow's `Repo.transaction` it
+      // routes through `<App>.PostCommit`, which holds it until the commit and
+      // drops it on a rollback (M-T4.3 item 6, D-WRITE-TX).
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
@@ -507,7 +507,7 @@ function lowerStatement(
       return [
         {
           kind: "emit",
-          text: `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`,
+          text: `${appModule}.PostCommit.broadcast(${struct})`,
         },
       ];
     }
@@ -697,40 +697,67 @@ function lowerStatement(
           for (let i = 0; i < body.length; i++) {
             const inner = body[i]!;
             const rest = body.slice(i + 1);
-            if (inner.kind === "precondition") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "requires") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "op-call") {
-              clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
-            } else if (inner.kind === "factory-let") {
-              const fields = inner.fields
-                .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-                .join(", ");
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(
-                `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
-              );
-            } else if (inner.kind === "expr-let") {
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
-            } else if (NESTED_FLOW_KINDS.has(inner.kind)) {
-              // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
-              // lowers to a `<-` clause that threads {:error, _} up this branch.
-              // The branch's own result is `{:ok, <present>}`, so a nested bind
-              // nothing later reads is `_`-discardable (M-T6.21).
-              pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
-            } else {
-              // emit / resource-call — pure side-effects, run in the do-branch.
-              tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+            switch (inner.kind) {
+              case "precondition":
+              case "requires":
+                clauses.push(
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+                );
+                break;
+              case "op-call":
+                clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
+                break;
+              case "factory-let": {
+                const fields = inner.fields
+                  .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+                  .join(", ");
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(
+                  `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+                );
+                break;
+              }
+              case "expr-let": {
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
+                break;
+              }
+              case "domain-service-call": {
+                // A `mutating` service call is fallible persistence, exactly
+                // like an op-call: its inlined context mutating-fn clauses
+                // join this branch's with-chain IN ORDER (the loop body does
+                // the same), so a later op-call sees the service's writes and
+                // a failed save threads `{:error, _}` up instead of raising.
+                const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
+                if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
+                else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
+                break;
+              }
+              case "for-each":
+              case "if-let":
+              case "repo-run":
+              case "repo-let":
+              case "repo-delete":
+                // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
+                // lowers to a `<-` clause that threads {:error, _} up this branch.
+                // The branch's own result is `{:ok, <present>}`, so a nested bind
+                // nothing later reads is `_`-discardable (M-T6.21).
+                pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
+                break;
+              case "emit":
+              case "resource-call":
+              case "assign":
+                // Pure side-effects / own-state rebinds — run in the do-branch.
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                break;
+              default: {
+                const _exhaustive: never = inner;
+                void _exhaustive;
+              }
             }
           }
           return [
@@ -1006,12 +1033,12 @@ function renderLoopBody(
       }
       case "precondition":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "requires":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "expr-let": {
@@ -1025,7 +1052,7 @@ function renderLoopBody(
           .join(", ");
         const appModule = contextModule.split(".")[0]!;
         doLines.push(
-          `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
+          `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
         );
         break;
       }
@@ -1206,7 +1233,7 @@ function renderBranchStmt(
         .join(", ");
       const appModule = contextModule.split(".")[0]!;
       return [
-        `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
+        `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
       ];
     }
     case "expr-let": {
@@ -1263,91 +1290,15 @@ function renderBranchStmt(
 // destructured off the `run/1` map.
 // ---------------------------------------------------------------------------
 
-/** Add every `refKind: "param"` name reachable from `e` into `acc`.
- *  Exhaustive over the child-bearing `ExprIR` kinds (a stricter superset
- *  of the validate-layer `walkExpr` — it also descends `list` / `convert`
- *  / `match`, which can appear in a workflow create-body). */
+/** Add every `refKind: "param"` name reachable from `e` into `acc` — at any
+ *  depth, through every child slot `walk.ts` knows (a `match` subject, a
+ *  `duration` amount, an `i18nFormat` hole, a block-bodied lambda's
+ *  statements).  A param read only in one of those slots and not destructured
+ *  off `run/1` is an undefined variable in the emitted Elixir. */
 export function collectParamRefs(e: ExprIR | undefined, acc: Set<string>): void {
-  if (!e) return;
-  switch (e.kind) {
-    case "ref":
-      if (e.refKind === "param") acc.add(e.name);
-      return;
-    case "member":
-      collectParamRefs(e.receiver, acc);
-      return;
-    case "method-call":
-      collectParamRefs(e.receiver, acc);
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "lambda":
-      collectParamRefs(e.body, acc);
-      if (e.block) for (const s of e.block) collectParamRefsInStmt(s, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectParamRefs(f.value, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectParamRefs(el, acc);
-      return;
-    case "paren":
-      collectParamRefs(e.inner, acc);
-      return;
-    case "unary":
-      collectParamRefs(e.operand, acc);
-      return;
-    case "binary":
-      collectParamRefs(e.left, acc);
-      collectParamRefs(e.right, acc);
-      return;
-    case "ternary":
-      collectParamRefs(e.cond, acc);
-      collectParamRefs(e.then, acc);
-      collectParamRefs(e.otherwise, acc);
-      return;
-    case "convert":
-      collectParamRefs(e.value, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectParamRefs(arm.cond, acc);
-        collectParamRefs(arm.value, acc);
-      }
-      collectParamRefs(e.otherwise, acc);
-      return;
-    default:
-      // Leaf kinds (`literal` / `this` / `id`) bind no params.
-      return;
-  }
-}
-
-/** A `StmtIR` (lambda block body) — only the expression-bearing arms can
- *  carry a param reference; collect from each. */
-function collectParamRefsInStmt(s: StmtIR, acc: Set<string>): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      collectParamRefs(s.expr, acc);
-      return;
-    case "assign":
-    case "add":
-    case "remove":
-    case "return":
-      collectParamRefs(s.value, acc);
-      return;
-    case "emit":
-      for (const f of s.fields) collectParamRefs(f.value, acc);
-      return;
-    case "call":
-      for (const a of s.args) collectParamRefs(a, acc);
-      return;
-  }
+  walkExprDeep(e, (sub) => {
+    if (sub.kind === "ref" && sub.refKind === "param") acc.add(sub.name);
+  });
 }
 
 /** Collect referenced create-params from EVERY lowered statement kind: each
@@ -1573,7 +1524,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
+      const params = fn.params.map((p) => elixirLocal(p.name)).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
@@ -1625,7 +1576,9 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx)}`),
+          .map(
+            (f) => `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : {})}`,
+          ),
       ]
     : [];
   const statePrelude = corrParam
@@ -1792,8 +1745,14 @@ ${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requir
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
+    #
+    # \`PostCommit.transaction\` holds every event this body announces — the
+    # reactor fan-out and the PubSub broadcast — until the
+    # transaction commits, and drops them on a rollback (M-T4.3 item 6).
     ${appModule}.RequestContext.with_child_frame(fn ->
-      Repo.transaction(fn ->${txnBody}end)
+      ${appModule}.PostCommit.transaction(fn ->
+        Repo.transaction(fn ->${txnBody}end)
+      end)
     end)
     |> report_result()
   end
@@ -1932,6 +1891,7 @@ ${respondErrorTail(
   contextsHaveWireDenials(groups.map((g) => g.ctx)),
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
+  groups.some((g) => aggregatesNeedConcurrency(g.ctx.aggregates)),
 )}
 end
 `;

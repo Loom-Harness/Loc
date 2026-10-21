@@ -16,9 +16,12 @@ import type {
   WorkflowIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { operationUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -32,7 +35,7 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
-import { type StateDefaultDecls, stateDefault } from "./state-default.js";
+import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
@@ -231,7 +234,7 @@ export function emitWorkflowStateSchemas(
     if (!wf.correlationField || wf.eventSourced) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, ctx.enums, schema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), schema, durable),
     );
   }
 }
@@ -284,7 +287,7 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, ctx.enums, dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), dispatchSchema, durable),
     );
   }
 
@@ -469,7 +472,13 @@ defmodule ${contextModule}.Dispatcher.AfterCommit do
   """
   require Logger
 
+  # Inside a transactional workflow the event waits for the workflow's commit
+  # (\`${contextModule.split(".")[0]}.PostCommit\`) and is dropped on its rollback.
   def dispatch(event) do
+    ${contextModule.split(".")[0]}.PostCommit.run(fn -> deliver(event) end)
+  end
+
+  defp deliver(event) do
     ${contextModule}.Dispatcher.dispatch(event)
   rescue
     e -> reactor_failed(event, Exception.message(e))
@@ -534,12 +543,18 @@ function renderHandler(
   const wf = sub.workflow;
   const persisted = !!wf.correlationField;
   const usesThis = persisted && bodyUsesThis(sub.statements);
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1) — `<Web>.Auth.system_principal/0`, carrying the originating
+  // request's tenant and recording its user as `caused_by`.  Bound only when
+  // the body — or an operation it calls — reads `currentUser`.
+  const bindsPrincipal = reactorNeedsPrincipal(sub.statements, ctx);
   const renderCtx: RenderCtx = {
     thisName: "state",
     contextModule,
     typesModule: `${appModule}.Types`,
     resourceModules: buildPhoenixResourceModules(sys, appModule),
     paramRenames: { [sub.param]: "event" },
+    reactorPrincipal: bindsPrincipal,
   };
 
   // Body statements → ordered Elixir lines (0-indented), woven into a
@@ -559,7 +574,16 @@ function renderHandler(
   const durable = durableEventTypes(ctx).size > 0;
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
   const inner = persisted
-    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, durable, ctx)
+    ? renderPersistedBody(
+        appModule,
+        contextModule,
+        wf,
+        sub,
+        body,
+        usesThis,
+        durable,
+        stateDefaultDecls(ctx),
+      )
     : indent(body, 4).join("\n");
 
   // Module names render fully-qualified throughout the body, so the only
@@ -579,7 +603,7 @@ ${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? 
     # (workflow.md § Reactor failures): a raise / throw part-way rolls back
     # the saga-state row and every write before it, then propagates.
     ${appModule}.RequestContext.with_child_frame(fn ->
-    ${appModule}.Repo.transaction(fn ->
+${bindsPrincipal ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n` : ""}    ${appModule}.Repo.transaction(fn ->
 ${inner}
     end)
     end)
@@ -1122,7 +1146,13 @@ function renderStmt(
       const op = lookupOp(ctx, st.aggName, st.op);
       const argTexts = st.args.map((arg) => renderExpr(arg, renderCtx));
       const fields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
-      const call = `${contextModule}.${action}(${target}, %{${fields}})`;
+      // A `currentUser`-reading operation's context function takes a trailing
+      // `current_user` (its `ensure(...)` gate reads it).  Without it the
+      // reactor called the arity-2 form, the gate saw `nil`, and
+      // `nil.permissions` raised — so thread the bound system principal.
+      const actor =
+        renderCtx.reactorPrincipal && op && operationUsesCurrentUser(op) ? ", current_user" : "";
+      const call = `${contextModule}.${action}(${target}, %{${fields}}${actor})`;
       return [{ kind: "with-clause", text: `{:ok, _} <- ${call}` }];
     }
     case "emit": {

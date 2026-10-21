@@ -14,6 +14,8 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -716,6 +718,15 @@ function renderEventReactorHandler(
   // method level and the buffer may lead the statements.  `renderHandler`'s
   // twin must NOT do this; see the note there.
   if (usage.hasEmit) stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1), carrying the dispatching request's tenant and recording its
+  // user as `CausedBy`.  Bound only when the body — or an operation it calls,
+  // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
+  if (reactorNeedsPrincipal(statements, ctx)) {
+    stmtLines.push(
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+    );
+  }
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = statements.some((st) => {
     const call =
@@ -1308,7 +1319,9 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
     `${ns}.Domain.Enums`,
   ]);
   const methods = fns.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .join(", ");
     const head = `    public static ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       collectCsExprUsings(fn.body.expr, usings, ns);
@@ -1806,7 +1819,7 @@ export function csWorkflowStmtTarget(
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st)});`,
       ];
     },
     requires: (st, indent) => {
