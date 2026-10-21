@@ -2603,7 +2603,7 @@ const BODY_DATETIME =
  *  `preprocess` rather than `z.enum([...]).transform(...)` because the
  *  published declaration has to stay `{"type":"boolean"}` — the cross-backend
  *  spec diff compares it against four other backends that declare a boolean
- *  query param as a boolean.  Verified on BOTH pinned majors: zod 3 +
+ *  query param as a boolean.  Verified on both zod majors: zod 3 +
  *  `@hono/zod-openapi@0.19` and zod 4 + `@hono/zod-openapi@1` each publish
  *  `{"type":"boolean"}` for this chain, and `v` infers as `unknown` from
  *  `preprocess`'s own signature under `--strict` on both (and the coercion's spurious
@@ -3041,13 +3041,11 @@ export function emitWireSchema(
       }
     }
     // The NUL guard goes on LAST of the checks, after any declared regex or
-    // length bound.  Under zod 3 — which the `node@v4` lane still pins —
-    // `.refine()` returns a `ZodEffects` WRAPPER that no longer exposes
-    // `.regex`/`.min`/`.max`, so a guard in the BASE would make
-    // `z.string().refine(…).regex(/…/)` a type error in every generated project
-    // on that lane. (zod 4 keeps the `ZodString` type through `.refine`, so on
-    // v5 the position is a no-op — the emitter orders for the stricter of the
-    // two, exactly as `orderSingleFieldPatterns` already does.)
+    // length bound, matching `orderSingleFieldPatterns`.  zod 4 (the Hono
+    // pin) keeps the `ZodString` type through `.refine`, so the position is
+    // free there; under zod 3 `.refine()` returns a `ZodEffects` WRAPPER with
+    // no `.regex`/`.min`/`.max`, and the shared zod-refine helpers still order
+    // for that stricter major.
     if (isPlainString) schema = `${schema}${NO_NUL}`;
     // `.default(...)` / `.optional()` last: each wraps the (now constrained)
     // schema in a ZodDefault / ZodOptional, so any `.min`/`.max` must already

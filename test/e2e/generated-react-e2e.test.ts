@@ -36,7 +36,7 @@ const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
 const ENABLED = process.env.LOOM_REACT_E2E === "1";
-const PACK = process.env.LOOM_REACT_E2E_PACK ?? "mantine@v7";
+const PACK = process.env.LOOM_REACT_E2E_PACK ?? "mantine@v9";
 // showcase.ddd's `console_web` is the richest React deployable (exercises
 // every walker primitive), so its smoke spec navigates the widest page set
 // — the same cell generated-react-build leans on.
