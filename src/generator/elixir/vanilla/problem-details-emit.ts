@@ -150,8 +150,21 @@ export function renderVanillaProblemDetailsModule(
   other four backends serve: \`"<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}"\`.
   """
   def conflict_response(conn, kind, id) do
-    detail = "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}"
+    send_conflict(conn, "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
 
+  @doc """
+  The same 409 for a conflict that reaches a dispatcher WITHOUT its aggregate and
+  row: a stale save inside a workflow / explicit-handler body surfaces as the bare
+  \`{:error, :conflict}\`, which names neither.  Same status, title and
+  catalog event; the detail is the generic sentence (M-T6.100 carries the
+  aggregate and id through that term so it can match the other backends').
+  """
+  def conflict_response(conn) do
+    send_conflict(conn, "The resource ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
+
+  defp send_conflict(conn, detail) do
     ${renderPhoenixLogCall("conflict", [
       { name: "message", valueExpr: "detail" },
       { name: "status", valueExpr: `${concurrencyStatus}` },

@@ -48,6 +48,24 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
 `;
 }
 
+/** The outbox row's payload expression for `ev`: the event's JSON, plus its
+ *  EVENT ORIGIN under the reserved key when the deployable carries auth
+ *  (`Auth/EventOrigin.cs`).  Shared with the Dapper outbox. */
+export function outboxPayloadExpr(ns: string, carriesOrigin: boolean, ev = "ev"): string {
+  return carriesOrigin
+    ? `global::${ns}.Auth.EventOriginPayload.Capture(${ev})`
+    : `JsonSerializer.Serialize((object)${ev})`;
+}
+
+/** The relay's per-row frame: the drained row's origin becomes the ambient
+ *  system principal for its delivery (`using var` — disposed at the end of
+ *  the row's try block).  Empty without auth.  Shared with the Dapper relay. */
+export function outboxOriginFrame(ns: string, carriesOrigin: boolean, payload: string): string {
+  return carriesOrigin
+    ? `\n                using var __origin = global::${ns}.Auth.User.EnterEventOrigin(global::${ns}.Auth.EventOriginPayload.Read(${payload}));`
+    : "";
+}
+
 /** The outbox-recording dispatcher: durable events INSERT into the outbox
  *  (the relay delivers); everything else delegates to the inner dispatcher —
  *  the in-process Mediator one where reactors live, the Noop in the
@@ -56,8 +74,12 @@ export function renderOutboxDispatcher(
   ns: string,
   durableTypes: readonly string[],
   inner = "InProcessDomainEventDispatcher",
+  /** The deployable carries auth: the row records the raising frame's EVENT
+   *  ORIGIN (ruling D1) beside the event. */
+  carriesOrigin = false,
 ): string {
   const set = durableTypes.map((t) => `"${t}"`).join(", ");
+  const payload = outboxPayloadExpr(ns, carriesOrigin);
   return `// Auto-generated.
 using System.Collections.Generic;
 using System.Text.Json;
@@ -93,7 +115,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
             _db.LoomOutbox.Add(new OutboxMessage
             {
                 Type = type,
-                Payload = JsonSerializer.Serialize((object)ev),
+                Payload = ${payload},
             });
             await _db.SaveChangesAsync(cancellationToken);
             return; // the relay delivers
@@ -121,7 +143,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 _db.LoomOutbox.Add(new OutboxMessage
                 {
                     Type = type,
-                    Payload = JsonSerializer.Serialize((object)ev),
+                    Payload = ${payload},
                 });
             }
             else
@@ -174,11 +196,12 @@ public static class OutboxDelivery
 export function renderOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean } = {
+  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
 ): string {
+  const originFrame = outboxOriginFrame(ns, opts.carriesOrigin ?? false, "row.Payload");
   const arms = durableTypes
     .map((t) => `            "${t}" => (IDomainEvent?)JsonSerializer.Deserialize<${t}>(payload),`)
     .join("\n");
@@ -285,7 +308,7 @@ public sealed class OutboxRelayService : BackgroundService
         {
             try
             {
-                var ev = Deserialize(row.Type, row.Payload);
+                var ev = Deserialize(row.Type, row.Payload);${originFrame}
                 ${dispatchBlock}
                 row.DispatchedAt = DateTime.UtcNow;
             }
