@@ -65,7 +65,7 @@ import {
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { isRefCollFieldName, refCollTargetModule } from "./ref-collection-emit.js";
+import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderReturningOpFunction` (and the sibling
@@ -225,6 +225,9 @@ export function persistPutBodies(
   appModule: string,
   ctxModule: string,
   relationalContainments: ReadonlySet<string> = new Set(),
+  /** The owner context's aggregates — a reference collection whose target is
+   *  not among them persists through its join-row schema (`isForeignRefColl`). */
+  pool: readonly { name: string }[] = [agg],
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields: string[] = [];
@@ -276,11 +279,11 @@ export function persistPutBodies(
           ? `Ecto.Changeset.put_assoc(:${f}, __put_assoc_parts(record.${f}))`
           : `Ecto.Changeset.put_embed(:${f}, record.${f})`;
       }
-      const targetMod = refCollTargetModule(appModule, ctxModule, agg, f);
-      if (targetMod) {
+      const refValue = refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
+      if (refValue) {
         // The body bound a local `<field>` holding the new id list (it left
         // `record.<field>` as the loaded assoc so put_assoc can replace it).
-        return `Ecto.Changeset.put_assoc(:${f}, __resolve_refs(${f}, ${targetMod}))`;
+        return `Ecto.Changeset.put_assoc(:${f}, ${refValue})`;
       }
       // FORCE the change: the op body rebinds `record = %{record | f: newval}`
       // BEFORE this changeset is built, so the changeset's DATA already carries the
@@ -853,6 +856,7 @@ export function renderReturningOpFunction(
     appModule,
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
+    ctx.aggregates,
   );
   const putBlock = putBodies.map((b) => `\n      |> ${b}`).join("");
 

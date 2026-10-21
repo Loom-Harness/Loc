@@ -6,22 +6,13 @@ import { reactBuildExamples, reactBuildPacks, reactPackId } from "./react-build-
 
 // ---------------------------------------------------------------------------
 // Drift guard — pure string check, no build, so it runs in the fast
-// `npm test` suite (unlike its sibling generated-react-build.test.ts,
-// which is excluded).  The CI matrix in
-// .github/workflows/generated-react-build.yml hardcodes its own
-// `EXAMPLES` array; the build harness drives shards from
-// `reactBuildExamples`.  When the two drift, the workflow feeds
-// `LOOM_REACT_BUILD_CASE` shards the test can't match and every such
-// shard dies with "did not match any case" — which is exactly how the
-// whole React-build workflow went silently red (a multi-file example
-// and a since-renamed one were left in the matrix but not the test set).
-// Pin them so a future edit to either side fails here, fast, instead of
-// at 3am on the nightly.
-//
-// The full sweep asks the harness for "every pack" per example (a bare
-// `<ddd>` case), so there is no full pack list in the workflow to drift.
-// The slim PR slice still names its two packs explicitly — those are
-// pinned below against `reactBuildPacks`.
+// `npm test` suite (unlike its sibling generated-react-build.test.ts, which
+// is excluded).  The workflow's PR / merge-queue slice names examples and
+// packs in its `LOOM_REACT_BUILD_CASE` value; the harness throws on a name
+// it doesn't know, but only once CI runs it.  Pin the names here so a typo
+// or a retired example/pack fails in seconds instead.  The nightly sweep
+// passes an empty selection (every example × every pack), so there is no
+// second list to drift.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -32,43 +23,34 @@ const wf = fs.readFileSync(
   "utf-8",
 );
 
-/** Every `EXAMPLES='[…]'` / `PACKS='[…]'` array literal in the workflow. */
-function shellArrays(name: string): string[][] {
-  return [...wf.matchAll(new RegExp(`${name}='(\\[[^\\]]*\\])'`, "g"))].map(
-    (m) => JSON.parse(m[1]) as string[],
-  );
+/** The non-empty `<ddd>[:<packs>]` specs quoted in the workflow's case expression. */
+function sliceSpecs(): string[] {
+  const line = wf.split("\n").find((l) => l.trim().startsWith("LOOM_REACT_BUILD_CASE:"));
+  expect(line, "workflow sets LOOM_REACT_BUILD_CASE").toBeTruthy();
+  // Only the quoted strings that name a `.ddd` are case lists; the others
+  // are the event names the expression compares against.
+  const quoted = [...(line ?? "").matchAll(/'([^']*)'/g)]
+    .map((m) => m[1])
+    .filter((q) => q.includes(".ddd"));
+  return quoted.flatMap((q) => q.split(";")).filter((s) => s.trim() !== "");
 }
 
-describe("React build: CI matrix ↔ examples list stay in sync", () => {
-  it("workflow EXAMPLES matches the test's example set", () => {
-    // The workflow declares EXAMPLES twice (the slim PR slice and the
-    // full push:main sweep).  Pick the longest array — the full set.
-    const arrays = shellArrays("EXAMPLES");
-    expect(arrays.length).toBeGreaterThan(0);
-    const workflowExamples = arrays.reduce((a, b) => (b.length > a.length ? b : a));
-    const testExamples = reactBuildExamples.map((e) => e.ddd);
-    expect([...workflowExamples].sort()).toEqual([...testExamples].sort());
+describe("React build: the workflow's case list names known examples and packs", () => {
+  it("every example in the slice is a harness example", () => {
+    const known = new Set(reactBuildExamples.map((e) => e.ddd));
+    const specs = sliceSpecs();
+    expect(specs.length).toBeGreaterThan(0);
+    const unknown = specs.map((s) => s.split(":")[0]).filter((ddd) => !known.has(ddd));
+    expect(unknown).toEqual([]);
   });
 
-  it("every pack the workflow names is a pack the harness knows", () => {
-    // A typo'd or retired pack id here would make that shard throw
-    // "names unknown pack" at CI time instead of failing fast in the
-    // unit suite.
+  it("every pack in the slice is a harness pack", () => {
     const known = new Set(reactBuildPacks.map(reactPackId));
-    const named = shellArrays("PACKS").flat();
+    const named = sliceSpecs().flatMap((s) => {
+      const colon = s.indexOf(":");
+      return colon === -1 ? [] : s.slice(colon + 1).split(",");
+    });
     expect(named.length).toBeGreaterThan(0);
-    expect(named.filter((p) => !known.has(p))).toEqual([]);
-  });
-
-  it("the full sweep batches per example rather than enumerating packs", () => {
-    // The full sweep's coverage is "all 8 packs" by construction — it
-    // passes a bare `<ddd>` case.  If a future edit re-introduced a
-    // per-pack Cartesian here it would silently double as a second,
-    // drift-prone copy of `reactBuildPacks`; the assertion is that only
-    // the slim PR slice (2 packs) names packs at all.
-    for (const packs of shellArrays("PACKS")) {
-      expect(packs.length).toBeLessThan(reactBuildPacks.length);
-    }
-    expect(wf).toContain("LOOM_REACT_BUILD_CASE: ${{ matrix.case }}");
+    expect(named.filter((p) => !known.has(p.trim()))).toEqual([]);
   });
 });
