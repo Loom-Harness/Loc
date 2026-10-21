@@ -1,4 +1,4 @@
-import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
@@ -103,10 +103,10 @@ export function renderProgram(
      *  own default. */
     nativePort?: number;
     authRequired?: boolean;
-    /** Declared `user { … }` field names, in declaration order — the shape
+    /** Declared `user { … }` fields, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
      *  auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
      *  operation-return union with an `error` arm, M-FT.24); registers it. */
@@ -792,7 +792,7 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
   // the declared spelling verbatim (the web defaults' camelCase policy applies
   // to PROPERTY names, not dictionary keys) and sidesteps C# identifier rules.
   const meProjection = (options?.userFields ?? [])
-    .map((f) => `            [${JSON.stringify(f)}] = accessor.User.${upperFirst(f)},`)
+    .map((f) => `            [${JSON.stringify(f.name)}] = ${meClaimValue(f)},`)
     .join("\n");
   const authMe = authRequired
     ? `app.MapGet("${AUTH_BASE_PATH}/me", (ICurrentUserAccessor accessor) =>
@@ -1487,19 +1487,7 @@ export function renderCsproj(
   const cronosRef = withCronTimers
     ? `\n    <!-- Hangfire — durable cron timerSource scheduler (Postgres storage) -->\n    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />\n    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />\n    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />`
     : "";
-  // MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
-  // moderate BouncyCastle advisory present on every published version; the
-  // generated code only uses the SMTP send path.  Suppress the two audit
-  // entries so `dotnet build /warnaserror` (NU1902) passes with MailKit present.
-  const mailkitAuditSuppress =
-    "MailKit" in resourceNugetDeps
-      ? `\n  <ItemGroup>
-    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
-  </ItemGroup>`
-      : "";
+  const mailkitAuditSuppress = nugetAuditSuppressItemGroup(resourceNugetDeps);
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
@@ -1616,7 +1604,32 @@ ${persistenceRefs}
 `;
 }
 
-export function renderTestCsproj(ns: string): string {
+/** The `<NuGetAuditSuppress>` item group a csproj needs for the resource
+ *  packages it restores, or `""` when it needs none.
+ *
+ *  MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
+ *  moderate BouncyCastle advisory present on every published version; the
+ *  generated code only uses the SMTP send path.  Suppressing the two audit
+ *  entries keeps `dotnet build /warnaserror` (NU1902) green with MailKit present.
+ *
+ *  Both the API csproj and the xUnit csproj carry it: NuGet audits a project's
+ *  whole transitive graph, MailKit reaches the test project through its
+ *  `ProjectReference`, and an audit suppression is a per-project item that a
+ *  reference does not carry across. */
+export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, string>): string {
+  if (!("MailKit" in resourceNugetDeps)) return "";
+  return `\n  <ItemGroup>
+    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
+         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
+  </ItemGroup>`;
+}
+
+export function renderTestCsproj(
+  ns: string,
+  resourceNugetDeps: Record<string, string> = {},
+): string {
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -1640,7 +1653,7 @@ export function renderTestCsproj(ns: string): string {
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../${ns}.csproj" />
-  </ItemGroup>
+  </ItemGroup>${nugetAuditSuppressItemGroup(resourceNugetDeps)}
 </Project>
 `;
 }
@@ -1785,4 +1798,20 @@ export function renderDockerignore(): string {
 *.user
 *.log
 `;
+}
+
+/** One `/auth/me` value: the declared claim, with an `X id` (or `X id[]`)
+ *  claim projected onto its raw value.  The strong-id record struct has no
+ *  JSON converter (the wire DTOs carry the raw `Guid`), so serialising it
+ *  shipped `{"value": "…"}` where node / python / elixir answer the bare id
+ *  string the token carried. */
+function meClaimValue(f: FieldIR): string {
+  const access = `accessor.User.${upperFirst(f.name)}`;
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return `${access}${optional ? "?" : ""}.Value`;
+  if (t.kind === "array" && t.element.kind === "id") {
+    return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
+  }
+  return access;
 }

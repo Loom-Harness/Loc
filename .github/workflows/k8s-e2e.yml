@@ -74,6 +74,8 @@ jobs:
         with:
           cluster_name: kind
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 
