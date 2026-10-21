@@ -315,40 +315,6 @@ Changing `entity Leg` to `valueobject Leg` turns a clean model into `loom.workfl
 
 Sources: [#2864](https://github.com/Loom-Harness/Loc/pull/2864) G4 (`docs/audits/2026-09-10-freight-dev-experience.md`, landing with that PR); `src/ir/enrich/wire-projection.ts` (`hasImplicitDefault` / `isRequiredCreateInput`). Split from M-T5.34.
 
-## M-T5.39 — a `date` scalar (and `time` declined) — `done` ([#3251](https://github.com/Loom-Harness/Loc/pull/3251), 2026-10-11) · **L** · P1 ⚠ five-backend wire-contract change
-**DONE — `date` ships on all five backends and every frontend; `time` is declined.** Wire form ISO `"YYYY-MM-DD"` (OpenAPI `format: date`, a non-date is a 422 on every backend), Postgres `DATE`; domain types node `string` · .NET `DateOnly` · java `LocalDate` · python `datetime.date` (aliased `CalendarDate`) · elixir `%Date{}`; frontends hold the ISO text and render a DATE picker (`field-input-date` in every JSX pack, Angular/HEEx/Feliz `type=date`, Flutter `showDatePicker` submitting the day). The v1 intrinsics are `year()`/`month()`/`day()`/`daysUntil()` on `date`, `toDate()` on `datetime` (UTC) and the prelude `today()`; none queryable. `datetime → date` is a destructive `ALTER … TYPE DATE` behind `--allow-destructive`. `time` is refused with its reason in the unknown-type message. `{x, date}` formats a `date` hole at local midnight on the JS and Feliz runtimes.
-
-**Verification.** Corpus fixture `test/fixtures/corpus/date-scalar.ddd` (create / update / op param / SQL `find` comparison / intrinsics, every date asserted as the exact string written) compiles on all five; the behavioral legs ran it with the server, client and Postgres all at `TZ=America/New_York` and read `2026-01-01` back as `2026-01-01`, matching the node wire golden. Mutation-proved: a local-zone `date.day` arm passes at UTC and fails at UTC−5 (`expected 31 to be 1`).
-
-Original brief follows.
-
-
-Found 2026-09-27 by the claims-system dev-experience run (`F-110`). `policy.startsOn`, `policy.endsOn`, `claim.incidentOn`, a due date, a date of birth — every one of them is a *calendar* value, and the scalar menu has no way to say so:
-
-```
-bool, datetime, decimal, File, guid, int, json, long, money, string
-```
-
-The diagnostic is honest (it prints the whole list, so nothing is hidden), and the only workaround is `datetime` — which re-introduces exactly the class of bug a `date` type exists to prevent. A policy that ends `2026-01-01T00:00:00Z` ends on **December 31** for every principal west of UTC, and the generated `Table` column, the `zod` schema, the Postgres column and the five backends' parsers all agree with each other and are all wrong together. That is the worst shape a defect can have here: cross-backend consistency makes it invisible to the differential gates.
-
-**This is not merely absent — it is half-present.** The i18n layer already ships `{at, date}` as an interpolation format spec, so the *rendering* side of the concept exists while the *type* side does not. `docs/language.md` never mentions `date`, not even as unsupported, so an author gets no signal that the omission was considered.
-
-**Why L, and why it needs a mission rather than a packet.** A new scalar is not one grammar token. `datetime` appears in **136 files under `src/`, 103 of them under `src/generator/` + `src/platform/`** — the type-mapping tables of five backends and six frontends, the SQL column renderer, the migration differ, the wire codecs, the filter-param kinds, the intrinsic receiver table (`src/util/intrinsics.ts`), the zod/refine emitters and the walker's field primitives. Every one of those is a place where "which SQL type / which wire form / which parser" must be answered again for the new scalar, and a missed arm degrades silently to a string.
-
-**Build order (proposed, owner may re-cut).**
-1. **Ruling first:** one scalar (`date`) or two (`date` + `time`)? The finding names only `date` from real use; `time` is symmetry, not demand. A `time` with no `date` has no defined ordering across DST and is the weaker half — recommend shipping `date` alone and leaving `time` explicitly declined in the message, so the decision is recorded rather than re-litigated.
-2. **Wire form:** ISO-8601 calendar date (`"2026-01-01"`), no offset, no time component — the one spelling every target's stdlib parses and the one Postgres `date` round-trips exactly.
-3. **Grammar + type system:** the `name=(…)` alternation at `src/language/ddd.langium:2048`, then the lowering type table and `src/util/filter-param-kinds.ts`.
-4. **Per-target type maps**, one arm each, with the SQL column (`date`) and the migration differ's `datetime → date` narrowing treated as a **destructive** change (it drops the time component) so it lands behind `--allow-destructive`.
-5. **Intrinsics:** what `date` supports (comparison, difference in days, `.year`/`.month`/`.day`, conversion to/from `datetime` at an explicit zone) — each one is an `ExprTarget` leaf on five backends, so keep the v1 set deliberately small.
-6. **Frontend:** the field primitive (a date picker, not a datetime picker) and the `{at, date}` catalog entry that already exists.
-
-**Verification when it lands.** A corpus fixture carrying a `date` field through create / read / filter / migration, compiling on all five backends (rule 13 — extended until every emitter arm a mutation names goes red), plus a runtime leg that writes `2026-01-01` from a client at UTC−5 and reads back `2026-01-01`. The timezone assertion is the whole point: a fixture that only checks the column type would have passed before this mission too.
-
-**Until it lands,** `datetime` is the honest answer and the docs should say so: `docs/language-reference/04-type-system.md` gains one line naming `date` as a known omission with this mission id, which is the difference between a gap and a silence.
-
-Sources: dev-experience run 2026-09-27 (`F-110`); `src/language/ddd.langium:2048`; `src/util/intrinsics.ts`; `docs/new-plan/archive/T1-done.md` § M-T1.11 (the i18n `{at, date}` format spec that already exists).
-
 ## M-T5.43 — The variant-`match` STATEMENT keeps a `string` `subjectType`, so the four shape gates never run on it (F56) — `done` ([#3106](https://github.com/Loom-Harness/Loc/pull/3106), L1-V2) · **M** · P2
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](../leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-V2 (after M-T5.42) (leftover-waves-2026-09-28).**
