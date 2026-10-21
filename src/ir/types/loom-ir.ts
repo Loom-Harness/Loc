@@ -808,6 +808,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
@@ -934,6 +938,12 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** The order a PAGED find's page is taken in when the caller's `sort` key
+   *  names no whitelisted column — its route's `sort` then defaults to `""`
+   *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
+   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  synthesizes, from the retrieval's declared `sort:`. */
+  defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto
@@ -3219,9 +3229,9 @@ export interface DeployableIR {
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
   platform: Platform;
-  /** The fully-qualified backend ref (`"node@v4"`) after lowering,
+  /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
-   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v4"`) flows
+   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
    *  through as written.  For frontend platforms (`react`/`static`)
    *  this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`
@@ -3256,7 +3266,7 @@ export interface DeployableIR {
    *  ignored otherwise.
    *
    *  After lowering this field is always fully qualified
-   *  (`family@version`, e.g. `"mantine@v7"`) for built-in packs.  The
+   *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The
    *  bareword DSL form `design: mantine` resolves through
    *  `BUILTIN_PACK_LATEST` during lowering, so downstream consumers
    *  (generator dispatch in `src/generator/react/index.ts`, the

@@ -314,8 +314,8 @@ function precondition(
   // can add the `errors[]` entry the wire rung would have carried.
   const code = traceCtx.domainFloorCodes ? domainFloorCode(message) : undefined;
   const thrown = code
-    ? `throw new DomainError(${JSON.stringify(detail)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
-    : `throw new DomainError(${JSON.stringify(detail)})`;
+    ? `throw new DomainError(${JSON.stringify(detail)}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainError(${JSON.stringify(detail)}, "precondition")`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderTsExpr(expr)})) ${thrown};`;
   }

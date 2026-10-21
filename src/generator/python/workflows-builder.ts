@@ -50,6 +50,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import { pyCommandBodyParam, usesOptionalBody } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
@@ -272,6 +273,7 @@ export function buildPyWorkflowsFile(
     refersTo("Decimal") ? "from decimal import Decimal" : null,
     `from fastapi import ${[
       "APIRouter",
+      usesOptionalBody(scan) ? "Body" : null,
       "Depends",
       refersTo("Path") ? "Path" : null,
       refersTo("Request") ? "Request" : null,
@@ -714,7 +716,7 @@ function workflowRoute(
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
   const sig = [
-    `body: ${upperFirst(wf.name)}Request`,
+    pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
     ...(usesUser ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
@@ -1052,7 +1054,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st)})`,
+      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

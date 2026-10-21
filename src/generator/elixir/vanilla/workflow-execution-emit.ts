@@ -112,6 +112,7 @@ import {
   workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
+import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
@@ -1880,7 +1881,7 @@ defmodule ${webModule}.WorkflowsController do
   HTTP entry points for command-triggered workflows
   (${ctxList}).
   """
-
+${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), requiredWireParams(wf.params)] as const))))}
 ${actions}
 
   # Shared result handler.  Each workflow's run/1 result flows through

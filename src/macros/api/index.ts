@@ -48,6 +48,7 @@ export type {
   ParamSpec,
   ParamType,
   ParamValues,
+  RefKinds,
   TargetNodeOf,
 } from "./define.js";
 export { defineMacro } from "./define.js";
@@ -66,6 +67,7 @@ export {
   contextFilter,
   contextStamp,
   create,
+  createInputProperties,
   destroy,
   field,
   handlerRef,

@@ -720,21 +720,40 @@ system P {
     repository Things for Thing { }
   } }
 }`,
-  // A canonical `create` whose parameter list OMITS a required create-input
-  // field.  `POST /things` still demands `secret` (no emitter reads
-  // `canonicalCreate.params`), so a client written from the declaration 422s on
-  // a field the create never mentions.  The body is the ubiquitous
-  // `field := <same-named param>` idiom, which `loom.lifecycle-body-dropped`
-  // deliberately exempts — that exemption is exactly why this shape was silent.
-  "loom.create-params-not-wire": `
+  // A declared `create(…)` is the create input, so a param must BE a
+  // client-suppliable field — `n` names none.
+  "loom.create-param-not-a-field": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string?
+      create(n: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
+  // would give `secret` a value at creation.
+  "loom.create-param-required-omitted": `
 system P {
   subdomain S { context C {
     aggregate Thing {
       name: string
       secret: string
-      create(name: string) {
-        name := name
-      }
+      create(name: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // `Agg.create({ … })` passing a field the narrowed `create(…)` does not list.
+  "loom.create-call-field-not-in-create": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string
+      rank: int = 1
+      create(name: string) { }
+      test "t" { let t = Thing.create({ name: "a", rank: 2 }) }
     }
     repository Things for Thing { }
   } }
@@ -1761,6 +1780,7 @@ system S {
     criterion InRegion(rgn: string) of Order = region == rgn
     retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
     queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let tag = "x"
       let r = Orders.run(ByRegion(rgn))
       return r
     }
@@ -2478,6 +2498,10 @@ system P {
     'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
     { ui: true },
   ),
+  "loom.design-pack-retired": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
+    { ui: true },
+  ),
   "loom.design-pack-version-unknown": topology(
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
     { ui: true },
@@ -3174,10 +3198,6 @@ system S {
   }),
   "loom.throw-kind-integration-unsupported": throwKindProbe({
     contextTest: `        expect(wo.complete()).toThrow(precondition)`,
-  }),
-  "loom.throw-kind-custom-message": throwKindProbe({
-    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
-    precondMessage: ` message "finish the work first"`,
   }),
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,

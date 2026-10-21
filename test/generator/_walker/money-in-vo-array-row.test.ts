@@ -74,13 +74,9 @@ async function page(framework: string, design: string): Promise<string> {
  *  frontend it belongs to.  The React list is `reactBuildPacks`; the Vue and
  *  Svelte lists are their build matrices' pack axes. */
 const PACKS: { framework: string; design: string }[] = [
-  { framework: "react", design: "mantine@v7" },
   { framework: "react", design: "mantine@v9" },
-  { framework: "react", design: "shadcn@v3" },
   { framework: "react", design: "shadcn@v4" },
-  { framework: "react", design: "mui@v5" },
   { framework: "react", design: "mui@v7" },
-  { framework: "react", design: "chakra@v2" },
   { framework: "react", design: "chakra@v3" },
   { framework: "vue", design: "vuetify@v3" },
   { framework: "vue", design: "shadcnVue@v1" },

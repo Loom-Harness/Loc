@@ -208,9 +208,17 @@ export function schemaFromModule(
       // mirroring emit/schema.ts.  `tableOwnerName` resolves the concrete to
       // its base; the part's `parentId` holds the shared-table row id.
       const owner = tableOwnerName(agg, pool);
-      return agg.parts.map((part) =>
-        tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
-      );
+      // Its `X id[]` reference collections need their join tables too — the
+      // owner FK points at the shared base table, whose row id the concrete's
+      // id IS (every backend's TPH repository writes the base row id there).
+      return [
+        ...agg.parts.map((part) =>
+          tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
+        ),
+        ...agg.associations.map((assoc) =>
+          tableForAssociation(assoc, module.name, plural(snake(owner))),
+        ),
+      ];
     }
     if (isTphBase(agg, pool)) {
       return [tphTableForAggregate(agg, pool, module.name, voLookup, enumLookup)];
@@ -3161,8 +3169,13 @@ function tableForPart(
   };
 }
 
-function tableForAssociation(assoc: AssociationIR, ownerModule: string): TableShape {
-  const ownerTable = plural(snake(assoc.ownerAgg));
+function tableForAssociation(
+  assoc: AssociationIR,
+  ownerModule: string,
+  /** The table the owner FK references when the owner has none of its own —
+   *  a TPH concrete's rows live in its base's shared table. */
+  ownerTable: string = plural(snake(assoc.ownerAgg)),
+): TableShape {
   const targetTable = plural(snake(assoc.targetAgg));
   const idType = idColumnType(assoc.valueType);
   return {

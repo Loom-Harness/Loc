@@ -458,7 +458,7 @@ describe("py renderPyStatements", () => {
       source: "ok",
     };
     expect(renderPyStatements([s])).toBe(
-      `${I}if not (ok):\n${I}    raise DomainError("Precondition failed: ok")`,
+      `${I}if not (ok):\n${I}    raise DomainError("Precondition failed: ok", "precondition")`,
     );
   });
 

@@ -3,33 +3,27 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { routerPackageForStack } from "../../../src/generator/_packs/stack-runtime.js";
+import { ROUTER_PACKAGE } from "../../../src/generator/_packs/stack-runtime.js";
 
 // ---------------------------------------------------------------------------
-// React Router 7 (stack v3) renamed its npm package
-// `react-router-dom` → `react-router`.  Library mode keeps the v6
-// API, so the only emitted-source change is the import specifier.
-// `routerPackageForStack` is the single source of truth both
-// emission paths read — pack shell templates (`main.hbs` /
-// `app-shell.hbs` via the `{{routerPackage}}` Handlebars var) and
-// the page body-walker.  This pins the contract + the default so
-// pre-v3 packs stay byte-identical.
+// Every React stack runs React Router 7, whose npm package is
+// `react-router` (library mode keeps the v6 API, so the only emitted-source
+// consequence is the import specifier).  `ROUTER_PACKAGE` is the single
+// source of truth both emission paths read — pack shell templates
+// (`main.hbs` / `app-shell.hbs` via the `{{routerPackage}}` Handlebars var)
+// and the page body-walker — so it must name a package the stack installs.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-describe("routerPackageForStack", () => {
-  it("maps stack v3 → react-router (Router 7 package rename)", () => {
-    expect(routerPackageForStack("v3")).toBe("react-router");
-  });
-
-  it("keeps pre-v3 stacks on react-router-dom (Router 6)", () => {
-    expect(routerPackageForStack("v1")).toBe("react-router-dom");
-  });
-
-  it("defaults to react-router-dom for custom packs with no stack", () => {
-    expect(routerPackageForStack(undefined)).toBe("react-router-dom");
-    expect(routerPackageForStack("anything-else")).toBe("react-router-dom");
+describe("ROUTER_PACKAGE", () => {
+  it("is the Router 7 package the React stack installs", () => {
+    expect(ROUTER_PACKAGE).toBe("react-router");
+    const deps = fs.readFileSync(
+      path.join(repoRoot, "stacks", "v3", "stack-package-deps.hbs"),
+      "utf-8",
+    );
+    expect(deps).toContain(`"${ROUTER_PACKAGE}":`);
   });
 });
 

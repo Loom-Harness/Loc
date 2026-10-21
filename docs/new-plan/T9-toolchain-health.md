@@ -420,17 +420,16 @@ Nothing knows *when* one is due.
 **Measured.** `npm audit` → **11 advisories, 4 high** (`fast-uri`, `ip-address`, `nanoid`,
 `postcss`) — all transitive dev-tree, so no user is exposed today. No `dependabot.yml`, no
 Renovate config, and no `npm audit` / OSV / Trivy / CodeQL step in any of the 67 workflows. On
-the generated-app surface the hand-maintained pins have drifted apart: `stacks/v1` still emits
-**React 18.3 + zod 3.23** where `stacks/v3` emits React 19.2 + zod 4, and four shipping design
-packs — `chakra/v2`, `mantine/v7`, `mui/v5`, `shadcn/v3` — resolve to `v1`, so choosing one of
-them silently produces a two-major-old React app.
+the generated-app surface the hand-maintained pins drifted apart: `stacks/v1` emitted
+**React 18.3 + zod 3.23** where `stacks/v3` emits React 19.2 + zod 4. That instance is closed —
+`stacks/v1` and its four packs (`chakra@v2`, `mantine@v7`, `mui@v5`, `shadcn@v3`) were retired,
+and a pin to one is now `loom.design-pack-retired` — but nothing stops the next stack drifting.
 
 **Two halves, one per surface.** *Toolchain:* a Dependabot (or Renovate) config plus
 `npm audit --audit-level=high` as a failing step, with an explicit, **expiry-dated** waiver file
 for accepted dev-tree advisories (an undated waiver is the stale-row failure this repo already
 ratchets against). *Generated apps:* a freshness ratchet over `stacks/*/stack.json` and the
-backend-package pins that fails when a pinned major falls more than one behind latest — which
-would fire immediately on `stacks/v1` and name the four packs still on it.
+backend-package pins that fails when a pinned major falls more than one behind latest.
 
 Relates to [M-T9.5](#m-t95) (version-axis consolidation — the React `stacks/` fork this would
 put a clock on) and to the `dependency-upgrade` skill, which this feeds.

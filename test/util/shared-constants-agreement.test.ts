@@ -240,7 +240,6 @@ describe("(b) PLATFORM_SAVING_SHAPES keys and values are real vocabulary", () =>
     // Documented: "a `family@version` pin resolves via `platformFamily` in the
     // validator" — which is why the table may stay keyed by bareword.
     expect(platformSavingShapes("node@v5")).toBe(PLATFORM_SAVING_SHAPES.node);
-    expect(platformSavingShapes("node@v4")).toBe(PLATFORM_SAVING_SHAPES.node);
     expect(platformSavingShapes("dotnet@v10")).toBe(PLATFORM_SAVING_SHAPES.dotnet);
   });
 

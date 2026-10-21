@@ -116,7 +116,7 @@ describe("string .length is code points — node/Hono", () => {
   });
 
   it("chains the code-point refine AFTER a regex on the same field", async () => {
-    // zod 3 (`platform: node@v4`, the v1 react stack) types `.refine()` as a
+    // zod 3 (which a custom design pack may still pin) types `.refine()` as a
     // ZodEffects WRAPPER with no `.regex` on it, so `.refine(…).regex(/…/)`
     // is a type error there.  The length invariant is declared FIRST in the
     // fixture; the emitter must still order the refine last.

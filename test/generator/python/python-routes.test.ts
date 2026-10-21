@@ -173,8 +173,9 @@ describe("python routes", () => {
     expect(problem).toContain("@app.exception_handler(AggregateNotFoundError)");
     expect(problem).toContain("@app.exception_handler(RequestValidationError)");
     expect(problem).toContain('"pointer": _pointer(tuple(e["loc"])),');
-    // the message rides `_wire_message`, which re-words a uuid-pattern miss
-    expect(problem).toContain('"message": _wire_message(e),');
+    expect(problem).toContain(
+      '"message": MISSING_FIELD if e.get("type") == "missing" else _wire_message(e),',
+    );
     // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
     expect(problem).toContain('if code.startswith("msg."):');
     expect(problem).toContain('entry["code"] = code');

@@ -121,7 +121,7 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
     // single-context generation.
     const { buildLoomModel } = await import("../../_helpers/index.js");
     const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v4/pins.js");
+    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
     const loom = await buildLoomModel(src);
     return generateTypeScriptForContexts(loom.contexts, BACKEND_PINS);
   }
@@ -141,7 +141,7 @@ describe("money emission — Hono lib/schemas.ts helper", () => {
   it("omits `lib/schemas.ts` for projects without any money usage", async () => {
     const { buildLoomModel } = await import("../../_helpers/index.js");
     const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v4/pins.js");
+    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
     const loom = await buildLoomModel(`
       context Foo {
         aggregate Bar { name: string }
@@ -173,7 +173,7 @@ describe("money emission — repository persist drops redundant parens", () => {
     void generateSystems; // unused; kept for parallel import shape with above
     const { buildLoomModel } = await import("../../_helpers/index.js");
     const { generateTypeScriptForContexts } = await import("../../../src/platform/hono/v4/emit.js");
-    const { BACKEND_PINS } = await import("../../../src/platform/hono/v4/pins.js");
+    const { BACKEND_PINS } = await import("../../../src/platform/hono/v5/pins.js");
     const fs = await import("node:fs");
     const path = await import("node:path");
     const src = fs.readFileSync(

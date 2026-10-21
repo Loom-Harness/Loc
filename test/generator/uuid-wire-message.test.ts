@@ -63,7 +63,7 @@ describe("a malformed id answers a sentence, not the uuid regex", () => {
     expect(problem).toContain('ctx.get("pattern") == _UUID_PATTERN');
     expect(problem).toContain(`return ${JSON.stringify(UUID_WIRE_MESSAGE)}`);
     // …and the handler actually routes every entry through it.
-    expect(problem).toContain('"message": _wire_message(e),');
+    expect(problem).toContain('else _wire_message(e),');
     expect(problem).not.toContain('"message": str(e["msg"]),');
   });
 

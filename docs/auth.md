@@ -713,9 +713,10 @@ Two details worth knowing:
 - Under `denyByDefault` the absence of a gate is an **error on `elixir`** (the
   gate is both required and accepted there) and a **warning** on a host that
   cannot enforce one (`loom.default-deny-es-create-ungateable` — see the
-  exception list above).  The rule is recourse, not persistence shape.  The rest of a canonical lifecycle body is still not
-rendered on a state-based aggregate: a `precondition`, an `emit`, or a computed
-`assign` there is a `loom.lifecycle-body-dropped` error, not a silent drop.
+  exception list above).  The rule is recourse, not persistence shape.  Beside its gate, a state-based canonical `create`
+body renders its `precondition`s (the domain-floor 422) and `emit`s; the rest —
+a computed `assign`, a destroy's `precondition` / `emit` — is a
+`loom.lifecycle-body-dropped` error, not a silent drop.
 
 ### Named policy functions (P3.2)
 

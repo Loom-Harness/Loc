@@ -45,7 +45,7 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  ...["mantine", "mantine@v7", "mui", "mui@v5", "chakra", "chakra@v2", "shadcn", "shadcn@v3"].map(
+  ...["mantine", "mui", "chakra", "shadcn"].map(
     (design) => ({
       platform: "react",
       design,

@@ -38,9 +38,7 @@ test("mui@v7 preview boots without runtime errors", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
 
-  // Pick the pinned mui@v7 storybook.  The bareword MUI entry still
-  // maps to mui@v5 until `BUILTIN_PACK_LATEST.mui` flips in a
-  // follow-up promote PR.
+  // Pick the pinned mui@v7 storybook.
   await page.getByTestId("workspace-new").click();
   await page.getByRole("textbox", { name: /Choose example/i }).click();
   await page.getByRole("option", { name: /MUI v7 · aggregate-CRUD storybook/ }).click();
