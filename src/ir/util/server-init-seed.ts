@@ -40,7 +40,9 @@ export type ServerInitSeed = "now" | "zero" | "false" | "empty-string" | "empty-
 
 /** The seed for `t`, or `null` when the type has no language-defined absent
  *  value — `money` (no `Decimal` zero anyone agreed on), `json`, an enum (no
- *  member is privileged), a value object, an `X id` (there is no null id).
+ *  member is privileged), a value object, an `X id` (there is no null id), a
+ *  `guid` (no uuid is "absent": `""` is not one, and the nil uuid is a real
+ *  value a client could be told).
  *
  *  An OPTIONAL type never reaches here: `T?` already says absent is `null`, and
  *  the constructibility gate exempts it before asking. */
@@ -61,7 +63,6 @@ export function serverInitSeed(t: TypeIR): ServerInitSeed | null {
     case "bool":
       return "false";
     case "string":
-    case "guid":
       return "empty-string";
     default:
       // `money`, `json`, and anything the primitive vocabulary grows later.

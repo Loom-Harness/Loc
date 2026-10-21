@@ -45,7 +45,7 @@ add.
 
 | Family | `platform:` id | Versions registered | Stack |
 |---|---|---|---|
-| Hono / TS | `node` | `node@v5` (default, zod 4 / TS 6) + `node@v4` (zod 3 / TS 5, pinnable) | Hono + Drizzle |
+| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6; `node@v4` retired) | Hono + Drizzle |
 | .NET | `dotnet` | `dotnet@v10` | ASP.NET + EF Core + Mediator |
 | Java | `java` | `java@v1` | Spring Boot + Spring Data JPA |
 | Python | `python` | `python@v1` | FastAPI + SQLAlchemy 2 |
@@ -67,7 +67,7 @@ the migration record, not as current behaviour.
 
 | Frontend | `platform:` | Generator | Walker target | Default pack | Walker core |
 |---|---|---|---|---|---|
-| React | `react` (+ `static` alias) | `src/generator/react/` | `react/walker/tsx-target.ts` | `mantine@v7` | shared `walkBody` |
+| React | `react` (+ `static` alias) | `src/generator/react/` | `react/walker/tsx-target.ts` | `mantine@v9` | shared `walkBody` |
 | Vue | `vue` | `src/generator/vue/` | `vue/walker/vue-target.ts` | `vuetify@v3` | shared `walkBody` |
 | Svelte | `svelte` | `src/generator/svelte/` | `svelte/walker/svelte-target.ts` | `shadcnSvelte@v1` | shared `walkBody` |
 | Angular | `angular` | `src/generator/angular/` | `angular/walker/angular-target.ts` | `angularMaterial@v1` | shared `walkBody` |
@@ -256,7 +256,7 @@ as of 2026-09-10; the bareword `design: <family>` resolves to the `LATEST` entry
 
 | Format | Families (→ bareword default) |
 |---|---|
-| `tsx` (React) | `mantine` → v9 (v7 pinnable) · `chakra` → v3 (v2) · `mui` → v7 (v5) · `shadcn` → v4 (v3) |
+| `tsx` (React) | `mantine` → v9 · `chakra` → v3 · `mui` → v7 · `shadcn` → v4 |
 | `vue` | `vuetify` → v3 · `shadcnVue` → v1 |
 | `svelte` | `shadcnSvelte` → v1 · `flowbite` → v1 |
 | `angular` | `angularMaterial` → v1 · `primeng` → v1 · `spartanNg` → v1 |

@@ -38,10 +38,10 @@
 //
 // ── The zod-3 ordering trap ───────────────────────────────────────────────
 // On node the guard is appended AFTER the invariant chain, not folded into the
-// base. Under zod 3 — which the `node@v4` lane still pins — `.refine()` returns
-// a `ZodEffects` wrapper that no longer exposes `.regex`/`.min`, so a guard in
-// the base would make `z.string().refine(…).regex(/…/)` a type error in every
-// generated project on that lane. Same reasoning as `orderSingleFieldPatterns`.
+// base. Under zod 3 `.refine()` returns a `ZodEffects` wrapper that no longer
+// exposes `.regex`/`.min`, so a guard in the base would make
+// `z.string().refine(…).regex(/…/)` a type error there. Same ordering as
+// `orderSingleFieldPatterns`, which a custom zod-3 design pack still relies on.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";

@@ -54,18 +54,18 @@ export interface PackManifest {
   name: string;
   /** Pack version — **load-bearing.**
    *  Built-in packs ship at `designs/<family>/<vNN>/`; this field
-   *  must equal the parent directory's `vNN` segment (e.g. `"v7"`
-   *  for `designs/mantine/v7/pack.json`).  Loaders cross-check at
+   *  must equal the parent directory's `vNN` segment (e.g. `"v9"`
+   *  for `designs/mantine/v9/pack.json`).  Loaders cross-check at
    *  load time and throw on mismatch — that catches copy-paste
-   *  accidents (e.g. forking `designs/mantine/v7/` into
-   *  `designs/mantine/v9/` without updating the manifest).  Custom
+   *  accidents (e.g. forking `designs/mantine/v9/` into
+   *  `designs/mantine/v10/` without updating the manifest).  Custom
    *  packs not under the built-in tree may set any string; the
    *  cross-check only fires for paths under `designs/<family>/<vN>/`. */
   version: string;
   /** Stack identifier — names the cross-cutting framework baseline
    *  (React / react-router / zod / Vite / TS versions) the pack
-   *  ships against.  `"v1"` = React 18 family, `"v3"` = React 19 +
-   *  Router 7 + zod 4 family.  The loader resolves to `<repo>/stacks/<id>/`
+   *  ships against (`"v3"` = the React 19 + Router 7 + zod 4 family;
+   *  `"vue1"` / `"sv1"` / `"ng1"` for the other static-bundle frameworks).  The loader resolves to `<repo>/stacks/<id>/`
    *  and registers every `.hbs` it finds there as a Handlebars
    *  partial, so pack templates can pull in cross-cutting
    *  fragments via `{{> stack-package-deps}}` and friends.  Omit

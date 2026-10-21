@@ -18,6 +18,7 @@ import type {
   ValueObjectIR,
   WireField,
 } from "../types/loom-ir.js";
+import { isMacroEmitted } from "../types/origin.js";
 import { hasTenantOwned, TENANT_OWNED_DATA_KEY_FIELD } from "../util/tenant-stance.js";
 import { satisfiableAtConstruction } from "../validate/invariant-classify.js";
 
@@ -102,6 +103,36 @@ export function createInputFields(agg: AggregateIR): FieldIR[] {
   return (agg.createInput ?? buildCreateInput(agg)).map((c) => c.field);
 }
 
+/** The names a state-based aggregate's declared canonical `create(…)` lists,
+ *  when that list NARROWS the create input — or `undefined` when the input is
+ *  the full field-derived set.
+ *
+ *  A declared parameter list IS the `POST /<plural>` request contract: a field
+ *  the list leaves out is not client-suppliable at creation and takes its
+ *  declared default (or null / `false` / `[]`) in the domain factory.  That is
+ *  what keeps a `when`-gated state field (`status: S = Requested`) out of
+ *  reach of a create request.  The empty list `create()` keeps the full
+ *  field-derived input, as does an aggregate with no declared create.
+ *
+ *  Event-sourced creates are excluded: their params are already the command
+ *  payload, on a separate path that never reads `createInput`.  So is a
+ *  macro-synthesized create (`with crudish`): its list is built from the
+ *  aggregate's OWN writable fields at the AST layer, before `extends` is
+ *  resolved, so on a concrete it omits the inherited ones — it states "the
+ *  full input", not a narrowing.
+ *
+ *  A param naming no client-suppliable field, and a required field the list
+ *  omits, are refused at phase ⑦ (`loom.create-param-not-a-field`,
+ *  `loom.create-param-required-omitted`), so the set this returns always
+ *  names real create-input fields. */
+export function declaredCreateParamNames(agg: AggregateIR): ReadonlySet<string> | undefined {
+  const create = agg.canonicalCreate;
+  if (!create || create.params.length === 0) return undefined;
+  if (agg.persistedAs === "eventLog") return undefined;
+  if (isMacroEmitted(create.origin)) return undefined;
+  return new Set(create.params.map((p) => p.name));
+}
+
 /** Build an aggregate's reified create-input contract: the client-
  *  suppliable field set (`forCreateInput`) paired with each field's
  *  required-ness.  Called once by `enrichLoomModel`; the result is stored
@@ -109,7 +140,9 @@ export function createInputFields(agg: AggregateIR): FieldIR[] {
  *  field set and the required-set are defined here, once, rather than
  *  re-derived per backend.  See {@link CreateInputFieldIR}. */
 export function buildCreateInput(agg: AggregateIR): CreateInputFieldIR[] {
-  return forCreateInput(agg.fields).map((field) => ({
+  const declared = declaredCreateParamNames(agg);
+  const suppliable = forCreateInput(agg.fields);
+  return (declared ? suppliable.filter((f) => declared.has(f.name)) : suppliable).map((field) => ({
     field,
     requiredInput: isRequiredCreateInput(field),
   }));

@@ -16,7 +16,7 @@ versioning works.
 
 | `platform:` keyword | Surface file | Default port | Needs DB | Mounts UI |
 |---|---|---|---|---|
-| `node` (default `node@v5`; Hono web framework — `node@v4` stays resolvable as a pin) | `src/platform/hono/v5/index.ts` (v4: `src/platform/hono/v4/index.ts`) | 3000 | ✓ | ✗ |
+| `node` (default and only version `node@v5`; Hono web framework) | `src/platform/hono/v5/index.ts` (shared surface factory: `src/platform/hono/v4/index.ts`) | 3000 | ✓ | ✗ |
 | `dotnet` (default `dotnet@v10`) | `src/platform/dotnet.ts` | 8080 | ✓ | ✓ (when `ui:` is declared) |
 | `elixir` (default `elixir@v1`; legacy aliases `phoenix` / `phoenixLiveView` desugar to it) | `src/platform/elixir.ts` | 4000 | ✓ | ✓ (fullstack) |
 | `python` (default `python@v1`) | `src/platform/python.ts` | 8000 | ✓ | ✓ (when `ui:` is declared — dotnet-style dual mode) |
@@ -59,7 +59,7 @@ The grammar accepts two forms:
 
 ```ddd
 deployable api1 { platform: node,        ... }              // bareword
-deployable api2 { platform: "node@v4",   ... }              // pinned
+deployable api2 { platform: "node@v5",   ... }              // pinned
 ```
 
 Resolution happens in two parts (see `parseBuiltinPlatformRef` in
@@ -68,9 +68,12 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
 1. **Bareword backend** — resolves through `BUILTIN_PLATFORM_LATEST`
    to today's default version.  Currently: `node → v5`,
    `dotnet → v10`, `elixir → v1`, `python → v1`, `java → v1`.
-   Older in-tree versions stay resolvable through an explicit pin —
-   `node@v4` is the one such extra registration today
-   (`BUILTIN_PLATFORM_EXTRA_VERSIONS` in `src/platform/metadata.ts`).
+   Older in-tree versions can stay resolvable through an explicit pin
+   (`BUILTIN_PLATFORM_EXTRA_VERSIONS` in `src/platform/metadata.ts`);
+   no backend registers one today.  A removed version is listed in
+   `RETIRED_BACKEND_VERSIONS` with its successor: `node@v4` (zod 3 /
+   TS 5) was retired, and pinning it is a `loom.platform-version-unknown`
+   validation error naming `node@v5`.
    Frontend platforms (`react`, `vue`, `svelte`, `angular`, `static`)
    intentionally aren't versioned at the platform layer — their
    version lives on the design pack / stack axis (see
@@ -78,9 +81,9 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
 
    > **What `vN` means.** A backend package's Loom version tracks the
    > **package's own dependency-major evolution**, *not* the platform's
-   > name and *not* the JS runtime. `node@v4` was cut around **Hono 4 +
-   > zod 3 + TS 5** (`src/platform/hono/v4/pins.ts`); `node@v5` — today's
-   > default — is the cross-major successor carrying **zod 4, TypeScript 6,
+   > name and *not* the JS runtime. The retired `node@v4` was cut around
+   > **Hono 4 + zod 3 + TS 5**; `node@v5` — today's default and only
+   > version — is the cross-major successor carrying **zod 4, TypeScript 6,
    > vitest 4** (`src/platform/hono/v5/pins.ts`), with Hono itself still on
    > 4.x because there is no Hono 5. Elsewhere the number does line up with
    > the defining framework (`dotnet@v10` tracks **.NET 10**, `mantine@v9`
@@ -233,7 +236,7 @@ Each registered backend ships a manifest:
 interface LoomBackendManifest {
   kind: "backend";
   family: BackendFamily;       // "node" | "dotnet" | "elixir" | "python" | "java"
-  loomVersion: string;         // e.g. "v4"
+  loomVersion: string;         // e.g. "v5"
   core: string;                // semver range against @loom/core
 }
 ```
@@ -241,9 +244,9 @@ interface LoomBackendManifest {
 Today every backend family registers exactly one version.  Adding a
 second version for a family means:
 
-1. Build the new surface (e.g. `src/platform/hono/v5/index.ts`),
-   typically by forking the existing one and applying upstream
-   migration steps.
+1. Build the new surface (e.g. `src/platform/hono/v6/index.ts`),
+   typically by feeding a new pin set through the existing surface
+   factory and applying upstream migration steps.
 2. Add an entry in `inTreeBackends` (`src/platform/registry.ts`) with
    the new manifest + surface.
 3. Optionally flip `BUILTIN_PLATFORM_LATEST[family]` once the new

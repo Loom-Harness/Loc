@@ -33,7 +33,7 @@ system S {
         name: string
         quantity: int
         status: string
-        create(name: string) { }
+        create(name: string, quantity: int, status: string) { }
 
         // Messaged + param-only → the WIRE rung.
         operation restock(amount: int) {
@@ -105,7 +105,7 @@ system W {
       }
       repository Products for Product { }
       workflow replenish {
-        create(n: string, amount: int) {
+        create(n: string, amount: int, quantity: int) {
           let p = Product.create({ name: n, quantity: 0 })
           p.restock(amount)
         }

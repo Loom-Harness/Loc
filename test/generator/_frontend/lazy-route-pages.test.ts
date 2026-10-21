@@ -62,13 +62,9 @@ async function webFiles(frontend: string): Promise<Map<string, string>> {
 
 /** Each React pack and the element its own `Loader()` primitive renders. */
 const REACT_PACKS: ReadonlyArray<{ pack: string; loader: string }> = [
-  { pack: "mantine@v7", loader: "<Loader />" },
   { pack: "mantine@v9", loader: "<Loader />" },
-  { pack: "mui@v5", loader: "<CircularProgress />" },
   { pack: "mui@v7", loader: "<CircularProgress />" },
-  { pack: "chakra@v2", loader: "<Spinner />" },
   { pack: "chakra@v3", loader: "<Spinner />" },
-  { pack: "shadcn@v3", loader: "<Loader2 " },
   { pack: "shadcn@v4", loader: "<Loader2 " },
 ];
 

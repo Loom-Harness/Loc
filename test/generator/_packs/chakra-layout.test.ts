@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Chakra pack layout contract (M-FT.18).
 //
-// Three defects shipped in BOTH chakra packs and were invisible to every
+// Three defects shipped in the chakra pack and were invisible to every
 // existing gate, because each one is a template that renders *something* — just
 // not what the author wrote:
 //
@@ -17,9 +17,8 @@
 //   3. `primitive-grid.hbs` hardcoded `columns={{ base: 1, sm: 2, md: 3 }}` and
 //      never read `hasResponsiveCols`, silently discarding `Grid { cols: N }`.
 //
-// The gate walks a fixture page through BOTH packs (`chakra@v2` renders on
-// Chakra UI v2, `chakra@v3` on v3 — different component APIs, the same bug) and
-// asserts on the emitted TSX:
+// The gate walks a fixture page through the chakra pack and asserts on the
+// emitted TSX:
 //
 //   * heading sizes DIFFER by level, and each heading carries `as="h<n>"`;
 //   * the page stack is not the centring default (explicit stretch alignment);
@@ -83,7 +82,7 @@ function headingSizes(tsx: string): string[] {
   return [...tsx.matchAll(/<Heading\b[^>]*\bsize="([^"]+)"/g)].map((m) => m[1]!);
 }
 
-const PACKS = ['"chakra@v2"', '"chakra@v3"'];
+const PACKS = ['"chakra@v3"'];
 
 describe.each(PACKS)("chakra pack layout contract — %s", (design) => {
   it("renders a distinct heading size per level, with the matching element", async () => {
@@ -125,8 +124,7 @@ describe.each(PACKS)("chakra pack layout contract — %s", (design) => {
 
   it("wraps every breadcrumb in its own list item", async () => {
     const { page } = await emitted(design);
-    const item = design.includes("v3") ? "<Breadcrumb.Item>" : "<BreadcrumbItem";
-    expect(page.split(item).length - 1, "one item per crumb").toBe(2);
+    expect(page.split("<Breadcrumb.Item>").length - 1, "one item per crumb").toBe(2);
   });
 });
 

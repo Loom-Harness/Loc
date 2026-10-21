@@ -6,6 +6,7 @@ import {
   CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   errorStatuses,
+  MISSING_FIELD_MESSAGE,
   type OpErrorKind,
   problemTitle,
 } from "../../../ir/util/openapi-errors.js";
@@ -1044,7 +1045,7 @@ export function renderExceptionFilter(
   const concurrencyExceptionType = usingDapper
     ? "ConcurrencyConflictException"
     : "Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException";
-  // RS-39 (M-T6.91) — the detail is node's sentence, `<Aggregate> <id> was
+  // RS-40 (M-T6.91) — the detail is node's sentence, `<Aggregate> <id> was
   // modified by another request`.  Dapper's `ConcurrencyConflictException` and
   // the EF event-store's wrapped 23505 carry it as their message (built where
   // the aggregate is in scope).  EF's NATIVE concurrency-token failure carries
@@ -1414,6 +1415,19 @@ namespace ${ns}.Api;
 public static class ValidationProblem
 {
     /// <summary>
+    /// The message every backend sends for a REQUIRED request field the body
+    /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
+    /// value-typed member) or DataAnnotations' [Required] did (a reference one).
+    /// </summary>
+    private const string MissingField = ${JSON.stringify(MISSING_FIELD_MESSAGE)};
+
+    /// <summary>[Required]'s own sentence — "The X field is required." —
+    /// recognised so it carries the shared wording instead.</summary>
+    private static bool IsRequiredMessage(string message) =>
+        message.StartsWith("The ", StringComparison.Ordinal)
+        && message.EndsWith(" field is required.", StringComparison.Ordinal);
+
+    /// <summary>
     /// RFC 7807 answer for a request MVC rejected during model binding or
     /// DataAnnotations validation.  Wired in Program.cs via
     /// ApiBehaviorOptions.InvalidModelStateResponseFactory.
@@ -1498,7 +1512,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = "The " + name + " field is required.",
+                            ["message"] = MissingField,
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -1545,7 +1559,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

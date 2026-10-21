@@ -67,6 +67,29 @@ describe("ddd new — auth guidance under the denyByDefault language default", (
     expect(new Set(codes)).toEqual(new Set(["loom.default-deny-ungated"]));
   });
 
+  it("the scaffolded paged read is gated like any handler, and `requires:` gates it", async () => {
+    async function pagedDenials(source: string): Promise<string[]> {
+      const { model } = await parseString(source, { validate: false });
+      return validateLoomModel(enrichLoomModel(lowerModel(model)))
+        .filter((d) => d.code === "loom.default-deny-ungated")
+        .map((d) => d.message)
+        .filter((m) => m.includes("ListTaskByTasksInProject"));
+    }
+    const plain = withAuth(fences[0] ?? "");
+    expect(await pagedDenials(plain)).toHaveLength(1);
+    const gated = plain
+      .replace(
+        "with scaffoldPaged(of: TasksInProject)",
+        "with scaffoldPaged(of: TasksInProject, requires: Members)",
+      )
+      .replace(
+        "      repository Tasks for Task { }",
+        '      repository Tasks for Task { }\n      policy Members(): bool = currentUser.role == "member"',
+      );
+    expect(gated).toContain("requires: Members");
+    expect(await pagedDenials(gated)).toEqual([]);
+  });
+
   it("the README's `enforcement: opt` block validates clean in the real starter", async () => {
     const userBlock = (fences[0] ?? "").split("auth {")[0] ?? "";
     expect(await denyCodes(withAuth(`${userBlock}${fences[1] ?? ""}`))).toEqual([]);

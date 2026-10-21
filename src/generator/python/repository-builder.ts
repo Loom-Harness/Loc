@@ -20,6 +20,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
+import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -642,18 +643,30 @@ export function relationalFindMethod(
     const sortMap = sortableFields(agg)
       .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
+    const declaredOrder = defaultSortOrder(find.defaultSort)
+      ?.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`)
+      .join(", ");
     return lines(
       `    async def ${pythonIdent(find.name)}(${sig}) -> PagedResult[${agg.name}]:`,
       "        offset = (page - 1) * page_size",
       `        _sort_columns = {${sortMap}}`,
-      `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-      '        _order = _sort_attr.desc() if dir == "desc" else _sort_attr.asc()',
+      ...(declaredOrder
+        ? [
+            // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            "        _sort_key = _sort_columns.get(sort)",
+            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(),) if _sort_key is not None else (${declaredOrder},)`,
+          ]
+        : [
+            `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+            '        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(),)',
+          ]),
       `        total = (`,
       `            await self._session.execute(select(func.count()).select_from(${root})${where})`,
       "        ).scalar_one()",
       "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
       `        rows = (`,
-      `            await self._session.execute(select(${root})${where}.order_by(_order).limit(page_size).offset(offset))`,
+      `            await self._session.execute(select(${root})${where}.order_by(*_order).limit(page_size).offset(offset))`,
       "        ).scalars().all()",
       `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
       findExecutedLine(agg, find.name, "total"),

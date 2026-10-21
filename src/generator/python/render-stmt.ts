@@ -139,8 +139,8 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const code = ctx.domainFloorCodes ? domainFloorCode(s.message) : undefined;
       const text = JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`);
       const thrown = code
-        ? `raise DomainError(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
-        : `raise DomainError(${text})`;
+        ? `raise DomainError(${text}, "precondition", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(s))})`
+        : `raise DomainError(${text}, "precondition")`;
       if (!ctx.trace) {
         return [`${i}if ${renderPyNegatedGuard(s.expr)}:`, `${sub}${thrown}`].join("\n");
       }

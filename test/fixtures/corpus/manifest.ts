@@ -67,11 +67,11 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *  - python: passes.  Its reactor runs inside the open transaction (same
  *    session), so the dispatch half has no discriminating power there; armed
  *    because it honestly passes.  Its 409 `detail` is node's sentence since
- *    M-T6.91 (RS-39), so no wire waiver.
+ *    M-T6.91 (RS-40), so no wire waiver.
  *  - .NET DAPPER: armed adapter-only via `ADAPTER_ONLY_CASES`
  *    (test/behavioral/registers.mjs).  Discriminates #3224's atomicity fix:
  *    pre-fix the saves committed on their own connections (`expected 80 to
- *    be 90`).  Same 409 `detail` (RS-39).
+ *    be 90`).  Same 409 `detail` (RS-40).
  *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
  *    one tracked entity, so `debitTwice` never conflicts and the double debit
  *    commits (M-T6.90).  The key returns with that fix.
@@ -460,6 +460,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
   { id: "stamps", title: "lifecycle stamps (audit timestamps via stamp blocks)", doc: "capabilities", backends: ALL },
   { id: "field-defaults", title: "field `= default` — omittable create input, declared value applied", doc: "language", backends: ALL },
+  { id: "create-contract", title: "a declared `create(…)`'s params ARE the create input — every unlisted field is initialised by the factory", doc: "language", backends: ALL },
   {
     id: "reserved-words",
     title:
@@ -637,7 +638,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   {
     id: "concurrency-conflict",
     title:
-      "optimistic concurrency — a stale `If-Match` on a `versioned` aggregate's update answers the named 409 (RS-39)",
+      "optimistic concurrency — a stale `If-Match` on a `versioned` aggregate's update answers the named 409 (RS-40)",
     doc: "capabilities",
     backends: ALL,
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
@@ -733,6 +734,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
+  },
+  {
+    id: "managed-seeds",
+    title:
+      "server-owned fields with no default (`openedAt: datetime managed`, `hits: int managed`, … `seenAt: datetime internal`) read back at the shared language-defined seed",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the booking DX trial: java inserted NULL for `openedAt: datetime managed` and answered 409/500 where node created the row at now.  Measured on all five booted backends: node and python seeded every type; .NET left the CLR default (datetime 0001-01-01, string/list NULL → 500); java left datetime/decimal/string/list unassigned (NULL → 500); elixir seeded nothing (500 on all six, 422 on the internal one).  The seed table (`src/ir/util/server-init-seed.ts`) was the shared rule all along; java, .NET and elixir never consumed it — `serverSeededFields` (`src/generator/construction-default.ts`) now feeds every backend's create factory.",
   },
   {
     id: "optional-reference",

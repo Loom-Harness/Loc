@@ -69,7 +69,7 @@ describe("money display — cross-pack contract", () => {
   it("discovers every built-in pack that emits format-helpers", () => {
     // A guard on the guard: if pack discovery silently returned nothing, every
     // per-pack assertion below would vacuously pass.
-    expect(PACKS.length).toBeGreaterThanOrEqual(15);
+    expect(PACKS.length).toBeGreaterThanOrEqual(11);
   });
 
   for (const { label, dir } of PACKS) {
