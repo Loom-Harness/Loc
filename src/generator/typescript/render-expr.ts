@@ -5,6 +5,7 @@ import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
+import { escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -279,7 +280,9 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
     case "this-derived":
       return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
     case "helper-fn":
-      return fromOutside ? `${ctx.thisName}.${lowerFirst(e.name)}` : `this.${lowerFirst(e.name)}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}`;
     case "workflow-fn":
       // A bare (uncalled) reference to a workflow helper — the module-scoped name.
       return workflowFnCamel(e.wfScope!, e.name);
@@ -466,8 +469,8 @@ function renderCall(
     case "function":
     case "private-operation":
       return fromOutside
-        ? `${ctx.thisName}.${lowerFirst(e.name)}(${argList})`
-        : `this.${lowerFirst(e.name)}(${argList})`;
+        ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`
+        : `this.${escapeTargetMember("ts", lowerFirst(e.name))}(${argList})`;
     case "workflow-fn":
       // A workflow's own `function` helper — a module-scoped function named by
       // its workflow (workflows share the generated file).  Call and def sites
@@ -603,6 +606,13 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const temporal = renderTemporalBinary(left, right, e);
     if (temporal !== null) return temporal;
   }
+  // B-13: datetime equality.  A `datetime` is a JS `Date` on this backend, so
+  // native `===` is REFERENCE equality — `a.startOfDay() == b.startOfDay()`
+  // was `new Date(…) === new Date(…)`, always false.  Compare the instants.
+  if (e.op === "==" || e.op === "!=") {
+    const temporalEq = renderTemporalEquality(left, right, e);
+    if (temporalEq !== null) return temporalEq;
+  }
   // VALUE equality on value objects.  A VO is a class instance here, so `===`
   // compares REFERENCES — `berth == Berth { … }` was always false, while every
   // other backend compares by value (python dataclass `==`, java
@@ -619,6 +629,37 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // Equality comparisons in TS: prefer === / !==
   const opPrint = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
   return `${left} ${opPrint} ${right}`;
+}
+
+/** `datetime ==/!= datetime` by instant (B-13), or null to fall through.
+ *  Ordering (`<`/`>`) needs no arm — `Date#valueOf` already coerces.  A side
+ *  that is the `null` literal keeps the native null check (`x == null`).  A
+ *  nullable operand compares through `?.getTime()`: both absent → equal, one
+ *  absent → unequal, both present → same instant. */
+function renderTemporalEquality(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (isNullLiteral(e.left) || isNullLiteral(e.right)) return null;
+  const lt = temporalOperand(e.leftType);
+  const rt = temporalOperand(e.rightType);
+  if (lt === null || rt === null) return null;
+  const opPrint = e.op === "==" ? "===" : "!==";
+  return `(${left})${lt}.getTime() ${opPrint} (${right})${rt}.getTime()`;
+}
+
+/** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null
+ *  for anything else. */
+function temporalOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "datetime") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "datetime")
+    return "?";
+  return null;
+}
+
+function isNullLiteral(e: ExprIR): boolean {
+  return e.kind === "literal" && e.lit === "null";
 }
 
 /** True iff a `==` / `!=` compares two NON-null value objects — the left
