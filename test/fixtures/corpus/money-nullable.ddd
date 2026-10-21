@@ -1,0 +1,135 @@
+// shape: a NULLABLE `money?` in every comparison position — `fee == null`,
+// `fee != null`, `subtotal == fee` (bare money vs `money?`), `fee == subtotal`
+// (`money?` vs bare money), a guarded ordering `x == null || x >= money("0")`,
+// and a `money?` vs `money?` inequality — with both the null and the present
+// path driven, and `10` against `10.00`.
+//
+// Money is an OBJECT on node (decimal.js `Decimal`), java (`BigDecimal`) and
+// elixir (`%Decimal{}`), so each backend compares it through a method, and the
+// method had no null story (#3227):
+//
+//   node    `subtotal == fee` → `subtotal.eq(fee)`: `[DecimalError] Invalid
+//           argument: null` (a 500 on the read); `fee == subtotal` → reference
+//           `===` (10 ≠ 10); `x >= money("0")` → native `>=` on a Decimal
+//           (`valueOf()` STRING order).
+//   java    `fee == null` → `fee.compareTo(null) == 0`: an NPE on EVERY call.
+//   elixir  `subtotal == fee` → `Decimal.compare(subtotal, nil)`: raises;
+//           `fee == subtotal` → struct `==` (10 ≠ 10.00 in memory);
+//           `x >= money("0")` → Erlang TERM order over the struct maps, so
+//           `-5 >= 0` held and `setFee(-5)` was ACCEPTED.
+//   .NET (`decimal?` lifted operators) and python (`Decimal == None` is False)
+//   were already right — pinned here as regressions.
+//
+// The `test` block is the in-memory proof (`10` vs `10.00` before any storage
+// normalises the scale); the `test e2e` block is the wire proof and carries this
+// fixture's golden.
+system MoneyNullable {
+  subdomain Billing {
+    context Billing {
+      aggregate Invoice {
+        subtotal: money
+        fee: money?
+
+        derived hasFee: bool = fee != null
+        derived noFee: bool = fee == null
+        derived feeIsSubtotal: bool = fee == subtotal
+        derived subtotalIsFee: bool = subtotal == fee
+        derived subtotalNotFee: bool = subtotal != fee
+
+        create(subtotal: money, fee: money?) {
+          subtotal := subtotal
+          fee := fee
+        }
+
+        // A guarded ordering over the STORED `money?`.
+        operation charge() {
+          precondition fee == null || fee > money("0")
+          subtotal := subtotal + money("1")
+        }
+
+        // A guarded ordering over a `money?` PARAMETER, and a `money?` vs
+        // `money?` inequality (a no-op change is refused).
+        operation setFee(x: money?) {
+          precondition x == null || x >= money("0")
+          precondition fee != x
+          fee := x
+        }
+
+        test "a money? compares null-safely and by value" {
+          let paid = Invoice.create({ subtotal: money("10"), fee: money("10.00") })
+          expect(paid.hasFee).toBe(true)
+          expect(paid.noFee).toBe(false)
+          expect(paid.feeIsSubtotal).toBe(true)
+          expect(paid.subtotalIsFee).toBe(true)
+          expect(paid.subtotalNotFee).toBe(false)
+          paid.charge()
+          expect(paid.subtotal).toBe(money("11"))
+          expect(paid.setFee(money("-5"))).toThrow()
+          expect(paid.setFee(money("10"))).toThrow()
+          paid.setFee(null)
+          expect(paid.noFee).toBe(true)
+
+          let free = Invoice.create({ subtotal: money("10"), fee: null })
+          expect(free.hasFee).toBe(false)
+          expect(free.noFee).toBe(true)
+          expect(free.feeIsSubtotal).toBe(false)
+          expect(free.subtotalIsFee).toBe(false)
+          expect(free.subtotalNotFee).toBe(true)
+          free.charge()
+          expect(free.subtotal).toBe(money("11"))
+          expect(free.setFee(null)).toThrow()
+          free.setFee(money("2.50"))
+          expect(free.hasFee).toBe(true)
+        }
+      }
+      repository Invoices for Invoice { }
+    }
+  }
+
+  api BillingApi from Billing
+  storage primary { type: postgres }
+  resource billingState { for: Billing, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Billing]
+    dataSources: [billingState]
+    serves: BillingApi
+    port: 4000
+  }
+
+  test e2e "a money? compares null-safely and by value on the wire" against d {
+    // Present: `10.00` equals `10`.
+    let paid = api.invoices.create({ subtotal: money("10"), fee: money("10.00") })
+    let readPaid = api.invoices.getById(paid)
+    expect(readPaid.hasFee).toBe(true)
+    expect(readPaid.noFee).toBe(false)
+    expect(readPaid.feeIsSubtotal).toBe(true)
+    expect(readPaid.subtotalIsFee).toBe(true)
+    expect(readPaid.subtotalNotFee).toBe(false)
+
+    // Absent: every comparison answers, none throws.
+    let free = api.invoices.create({ subtotal: money("10") })
+    let readFree = api.invoices.getById(free)
+    expect(readFree.hasFee).toBe(false)
+    expect(readFree.noFee).toBe(true)
+    expect(readFree.feeIsSubtotal).toBe(false)
+    expect(readFree.subtotalIsFee).toBe(false)
+    expect(readFree.subtotalNotFee).toBe(true)
+
+    // The guarded ordering admits the absent fee and the positive one.
+    api.invoices.charge(free)
+    api.invoices.charge(paid)
+
+    // A negative fee is refused by value, not by term order.
+    expect(api.invoices.setFee(free, { x: money("-5") })).toThrow(422)
+    // `fee != x` with both absent: equal, so refused.
+    expect(api.invoices.setFee(free, { x: null })).toThrow(422)
+    api.invoices.setFee(free, { x: money("2.50") })
+    let charged = api.invoices.getById(free)
+    expect(charged.hasFee).toBe(true)
+    expect(charged.subtotalIsFee).toBe(false)
+
+    let all = api.invoices.all()
+    expect(all.items.length).toBe(2)
+  }
+}
