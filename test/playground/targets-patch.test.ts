@@ -101,8 +101,8 @@ describe("rewriteClause", () => {
   });
 
   it("quotes a value the grammar's barewords do not cover", () => {
-    const after = rewriteClause(byName("webApp").text, "design", "mantine@v7");
-    expect(after).toContain('design: "mantine@v7"');
+    const after = rewriteClause(byName("webApp").text, "design", "mantine@v9");
+    expect(after).toContain('design: "mantine@v9"');
   });
 
   it("inserts an absent clause on its own line after `platform:`", () => {

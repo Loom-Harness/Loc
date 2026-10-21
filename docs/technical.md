@@ -687,28 +687,28 @@ module exporting `render<Thing>(args)` functions.  No runtime
 parsing, no SafeString escaping, no helper registration — the type
 checker validates every data flow from the IR to the rendered string.
 
-### Hono backend (`src/platform/hono/v4/` + `v5/` + `src/generator/typescript/`)
+### Hono backend (`src/platform/hono/v5/` + shared `v4/` + `src/generator/typescript/`)
 
 The Hono backend is split between *versioned* packages under
 `src/platform/hono/` (each owns its package shell + dep pin set) and a
 *shared* TypeScript emitter library (`src/generator/typescript/` — the
-per-aggregate procedural builders every Hono version reuses).  Two
-versions ship today: `v4/` (zod 3 / TS 5) and `v5/` (zod 4 / TS 6).
-Bareword `platform: node` resolves to **v5** (the default lane,
-`honoV5Platform` in `src/platform/registry.ts`); v4 stays loadable via
-the pinned `platform: node@v4`.
+per-aggregate procedural builders every Hono version reuses).  One
+version ships today: `v5/` (zod 4 / TS 6), which bareword
+`platform: node` resolves to (`honoV5Platform` in
+`src/platform/registry.ts`).  `node@v4` (zod 3 / TS 5) was retired;
+pinning it is a `loom.platform-version-unknown` error naming `node@v5`.
 
-`v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  The zod 3→4 /
-TS 5→6 jump touches no emitter logic, so v5 just feeds its new pin set
-through `makeHonoPlatform(...)` imported from `v4/index.ts` and reuses
-the whole shell + emitter table below.  The table's `platform/hono/v4/`
-files are therefore the active shell for both versions.
+`v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  It feeds its
+pin set through `makeHonoPlatform(...)` imported from `v4/index.ts` and
+reuses the whole shell + emitter table below.  `platform/hono/v4/`
+registers no version of its own: it holds the shared Hono shell and
+emitters that the registered package calls.
 
 | File | Owns |
 | --- | --- |
-| `platform/hono/v4/index.ts` | `PlatformSurface` adapter — `emitProject`, `composeService`, `needsDb`, `defaultPort`. |
+| `platform/hono/v4/index.ts` | `makeHonoPlatform(pins)` — the shared `PlatformSurface` factory (`emitProject`, `composeService`, `needsDb`, `defaultPort`) each registered version calls with its own pins. |
 | `platform/hono/v4/emit.ts` | Project shell + per-context orchestration: package.json, tsconfig, Dockerfile, certs/ dir, route mount, calls into the shared emitters below. |
-| `platform/hono/v4/pins.ts` | Dependency version pins owned by this Hono major (hono / zod / drizzle / pg / pino + dev deps). |
+| `platform/hono/v5/pins.ts` | Dependency version pins owned by the registered Hono package (hono / zod / drizzle / pg / pino + dev deps). |
 | `platform/hono/v4/routes-builder.ts` | OpenAPIHono router per aggregate — full Zod schemas via wire-shape, routes for create / get-by-id / find-all / per-op / per-find, domain-error handler. |
 | `platform/hono/v4/workflow-builder.ts` | OpenAPIHono router + handler per declared workflow. |
 | `platform/hono/v4/auth-emit.ts` | JWT verifier hook + middleware when any deployable declares `auth: required`. |
@@ -856,7 +856,7 @@ previously-emitted IR snapshots for migration diffing.
 **Platform dispatch.** Each `deployable.platform` IR value resolves
 through `src/platform/registry.ts` to a `PlatformSurface` —
 `platformFor(name)` for barewords, `parseBuiltinPlatformRef` for
-pinned `family@version` strings (e.g. `node@v4`).  Backend discovery
+pinned `family@version` strings (e.g. `node@v5`).  Backend discovery
 goes through an injectable seam (`setBackendSource`) so the playground
 can back resolution with a VFS instead of `fs` / `node_modules` —
 phase ⑨ is otherwise agnostic to whether a backend is in-tree or an
@@ -902,9 +902,11 @@ web_app/e2e/<System>.ui.spec.ts
 - `docker-compose.yml` with a `db` service, per-deployable services
   (depends_on / env / healthcheck per platform), and a `pgdata`
   volume.
-- `db-init/00-create-databases.sql` — one `CREATE DATABASE` per
+- `db-init/00-create-databases.sql` — one idempotent `CREATE DATABASE` per
   backend deployable so EF Core's `EnsureCreated` doesn't race
-  against peer backends sharing the same db.
+  against peer backends sharing the same db; re-applied on every `up` by
+  the compose `db-bootstrap` one-shot, so a deployable added later gets
+  its database on an existing volume.
 - `.loom/wire-spec.json` — JSON Schema derived from `IR.wireShape`
   by `wire-spec.ts`. Diffable, language-agnostic; useful for
   spotting wire-contract changes between regens.

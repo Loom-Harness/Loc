@@ -41,12 +41,16 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  valueObjectFieldLookup,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -1273,6 +1277,7 @@ function emitProjectFromContexts(
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
+      carriesOrigin: authRequired,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1317,7 +1322,7 @@ function emitProjectFromContexts(
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
+      ...hostedContextIdTypeSources(contexts),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -1369,6 +1374,7 @@ function emitProjectFromContexts(
           ...contexts.flatMap((c) => valueObjectPool(c)),
           ...foreignValueTypes.valueObjects,
         ],
+        carriesOrigin: authRequired,
       },
     )) {
       place(name, "config", content);
@@ -1382,6 +1388,8 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
+        carriesOrigin: authRequired,
+        basePkg,
       })) {
         place(f.name, f.category, f.content);
       }
@@ -1533,7 +1541,10 @@ function emitProjectFromContexts(
     }),
   );
   out.set("settings.gradle.kts", renderGradleSettings(slug));
-  out.set("src/main/resources/application.yml", renderApplicationYml(slug));
+  out.set(
+    "src/main/resources/application.yml",
+    renderApplicationYml(slug, system?.deployable.port ?? 8080),
+  );
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
@@ -1672,7 +1683,7 @@ function emitAggregate(
   // M-T6.36: enums whose java constants are mangled map through their generated
   // `<Enum>.Codec` converter rather than `@Enumerated(STRING)`, so the stored
   // value keeps the `.ddd` spelling.  Empty for every keyword-free model.
-  const mangledEnums = mangledEnumNames(ctx.enums);
+  const mangledEnums = mangledEnumNames(enumPool(ctx));
   const schema = sys ? resolveDataSourceConfig(agg, ctx, sys)?.schema : undefined;
   // Effective saving shape (D-DOCUMENT-AXIS): document aggregates are
   // plain domain classes round-tripping one jsonb column.

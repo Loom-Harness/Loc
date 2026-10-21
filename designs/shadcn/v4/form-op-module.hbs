@@ -11,7 +11,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
       <DialogTrigger asChild>
         <Button variant="{{#if triggerPrimary}}default{{else}}secondary{{/if}}" {{#if gated}}disabled={disabled} title={disabled ? disabledReason : undefined} {{/if}}data-testid="{{slug}}-op-{{opName}}">{{{triggerLabel}}}</Button>
       </DialogTrigger>
-      <DialogContent data-testid="{{slug}}-op-{{opName}}-form">
+      <DialogContent data-testid="{{slug}}-op-{{opName}}-form" closeLabel={ {{{closeLabelExpr}}} }>
         <DialogHeader>
           <DialogTitle>{{{modalTitle}}}</DialogTitle>
         </DialogHeader>

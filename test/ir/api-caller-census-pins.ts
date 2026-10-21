@@ -577,6 +577,18 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
   "corpus/vo-invariant-in-body": ["api.bump.run (no such aggregate)"],
+  // Banking-eval B-04 — the committed and the rolled-back transactional
+  // workflow are driven through their command routes (`notLifted`, as above).
+  "corpus/transactional-workflow-event-rollback": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitTwice.run (no such aggregate)",
+  ],
+  // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
+  // precondition after an `if let` branch saved.
+  "corpus/transactional-workflow-post-commit-dispatch": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitThenOverdraw.run (no such aggregate)",
+  ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -800,6 +812,18 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -845,6 +869,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.

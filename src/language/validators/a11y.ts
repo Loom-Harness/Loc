@@ -12,8 +12,9 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { BUILTIN_ICONS, isBuiltinIconName } from "../../util/builtin-icons.js";
 import { AA_NORMAL, bestForegroundRatio, generateShades, isHexColor } from "../../util/color.js";
-import type { BuilderCall, Model, ThemeBlock } from "../generated/ast.js";
+import { type BuilderCall, isStringLit, type Model, type ThemeBlock } from "../generated/ast.js";
 
 /** A `BuilderEntry` with no `name:` is a bare positional value. */
 function hasPositional(bc: BuilderCall): boolean {
@@ -67,6 +68,7 @@ export function checkIconOnlyButtonName(model: Model, accept: ValidationAcceptor
     const bc = node as BuilderCall;
     if (bc.type !== "Button") continue;
 
+    checkButtonIconName(bc, accept);
     const hasIcon = hasEntry(bc, "icon") || hasEntry(bc, "iconSvg");
     if (!hasIcon) continue;
     // Visible positional text, or an explicit accessible name, satisfies it.
@@ -79,6 +81,30 @@ export function checkIconOnlyButtonName(model: Model, accept: ValidationAcceptor
       code: "loom.a11y-icon-only-no-name",
     });
   }
+}
+
+/** `Button { icon: "<name>" }` whose name is not in the builtin registry
+ *  (`src/util/builtin-icons.ts`) — `loom.button-icon-unknown` (M-T5.42, V8).
+ *  `Icon { name: }` refuses an unknown name at generate time, but the button
+ *  emitter resolves `icon:` through the same registry and, on a miss, simply
+ *  renders NO glyph: the author's icon vanished with `0 warning(s)`.  A warning,
+ *  not an error — the button itself still works.  An `iconSvg:` wins over
+ *  `icon:` in every emitter, so the name is moot when one is present; a
+ *  non-literal value cannot be checked here and is left alone. */
+function checkButtonIconName(bc: BuilderCall, accept: ValidationAcceptor): void {
+  if (hasEntry(bc, "iconSvg")) return;
+  const entry = bc.entries.find((e) => e.name === "icon");
+  if (!entry || !isStringLit(entry.value)) return;
+  const name = entry.value.value;
+  if (isBuiltinIconName(name)) return;
+  accept(
+    "warning",
+    diagMessage("loom.button-icon-unknown", {
+      name,
+      known: Object.keys(BUILTIN_ICONS).sort().join(", "),
+    }),
+    { node: entry, property: "value", code: "loom.button-icon-unknown" },
+  );
 }
 
 // The `theme {}` colour roles that a pack renders as FILLED surfaces (buttons,

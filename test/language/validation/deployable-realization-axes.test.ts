@@ -54,8 +54,8 @@ describe("realization axes — grammar admits the block", () => {
     expect(errors).toEqual([]);
   });
 
-  it('a pin carries a block: `platform: "node@v4" { persistence: drizzle }`', async () => {
-    const { errors } = await parse(sys(`"node@v4" { persistence: drizzle }`));
+  it('a pin carries a block: `platform: "node@v5" { persistence: drizzle }`', async () => {
+    const { errors } = await parse(sys(`"node@v5" { persistence: drizzle }`));
     expect(errors).toEqual([]);
   });
 });

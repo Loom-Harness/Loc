@@ -25,6 +25,8 @@
 // ---------------------------------------------------------------------------
 
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import { foreignIdBrandNames, hostedContextIdTypeSources } from "../../ir/util/foreign-ids.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 
@@ -96,15 +98,22 @@ export function renderRepositoryPortsFile(
   // `…Id` lives in `app.domain.value_objects`, not `app.domain.ids`, so
   // harvesting every `*Id` token would import it from the wrong module →
   // `ImportError` at load.  The filter keeps only real id types.
-  const declaredIdNames = new Set<string>();
-  for (const a of ctx.aggregates) {
-    declaredIdNames.add(`${a.name}Id`);
-    for (const p of a.parts) declaredIdNames.add(`${p.name}Id`);
-  }
+  const hostedIdNames = new Set(
+    ctx.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]),
+  );
+  // …plus the FOREIGN brands `app/domain/ids.py` declares for a hosted surface
+  // naming a sibling context's aggregate (`find byPol(p: Pol id)`, claims D18)
+  // — the same shared derivation the ids module is emitted from.
+  const declaredIdNames = new Set(
+    [
+      ...hostedIdNames,
+      ...foreignIdBrandNames(hostedIdNames, hostedContextIdTypeSources([ctx])),
+    ].map((n) => `${n}Id`),
+  );
   const idNames = [...new Set(scan.match(/\b[A-Z][A-Za-z0-9]*Id\b/g) ?? [])]
     .filter((n) => declaredIdNames.has(n))
     .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const aggNames = nonEmpty

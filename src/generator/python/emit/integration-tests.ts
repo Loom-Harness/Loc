@@ -8,9 +8,11 @@
 // ships a compose Postgres), applies the generated SQL migrations via
 // `run_migrations(engine)`, wires the context's repositories, and runs the body.
 //
-// A context with workflows wires the SYNCHRONOUS `InProcessDispatcher(session)`
-// so a `save`'s emitted event fires its reactors inline; a workflow-free context
-// uses `NoopDomainEventDispatcher()`.
+// A context with workflows, in a deployable whose `app/dispatch.py` defines the
+// SYNCHRONOUS `InProcessDispatcher(session)`, wires it so a `save`'s emitted
+// event fires its reactors inline; any other context — including one whose
+// deployable emits no `app/dispatch.py` at all — uses
+// `NoopDomainEventDispatcher()`.
 //
 // v1 constraint (`loom.integration-find-must-bind`, shared with node): a
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
@@ -23,7 +25,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
 import { renderPyExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
@@ -198,12 +200,18 @@ function renderTest(
 }
 
 /** Emit `tests/test_<ctx>_integration.py` for a context that declares
- *  integration tests, or null when it declares none. */
-export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | null {
+ *  integration tests, or null when it declares none.  `inProcessDispatcher` says
+ *  whether the deployable's `app/dispatch.py` defines `InProcessDispatcher` — the
+ *  caller reads it off the emitted module, so the import cannot name a module
+ *  or class that does not exist. */
+export function renderPyContextIntegrationTest(
+  ctx: BoundedContextIR,
+  opts: { inProcessDispatcher: boolean },
+): string | null {
   if (ctx.tests.length === 0) return null;
 
   const used = new Set<string>();
-  const cascade = ctx.workflows.length > 0;
+  const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;
 
   // Render every test first, then narrow imports to what the rendered module
   // names.
@@ -224,7 +232,10 @@ export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | 
   ]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
     .sort();
 

@@ -16,6 +16,8 @@
 #      see that, and neither can a green local `tsc` on the un-merged branch.
 #      That is what the merge queue re-runs the combined tree to catch, hours
 #      later and after a runner slot. `LOOM_SKIP_PUSH_TYPECHECK=1` opts out.
+#      Then the fast whole-tree censuses/ratchets in the same worktree (see
+#      census_merged); `LOOM_SKIP_PUSH_CENSUS=1` opts out of those alone.
 #
 # Design: this hook is conservative in both gates. It denies only on a DEFINITE
 # conflict or a gate that RAN and FAILED; on any uncertainty (not a git repo,
@@ -143,12 +145,81 @@ Rebase onto origin/main, fix, and push again (or set LOOM_SKIP_PUSH_TYPECHECK=1 
     node scripts/test-typecheck.mjs   on (origin/main + HEAD):
 $(printf '%s' "$out" | tail -25)"
   fi
+
+  census_merged "$dir"
+  return 0
+}
+
+# --- run the whole-tree censuses on the MERGED tree ------------------------
+# A census or ratchet counts something across the whole tree (unwaived sites,
+# untyped expressions, waivers naming code that is gone) and pins the count.
+# Two branches that each pass it alone can fail it together — the commonest
+# reason a green PR is ejected from the merge queue, which discards the build
+# of every entry queued behind it.  The three corpus-wide ones that take 1.5–5
+# minutes each are left to CI; the rest run in ~85 s on 4 cores.
+# `LOOM_SKIP_PUSH_CENSUS=1` opts out.  Denies only when vitest ran and reported
+# failed tests; a timeout or a vitest that never got that far allows.
+CENSUS_SLOW='diagnostic-firing-census|openapi-component-uniqueness-census|/ddd-source-census'
+census_merged() {
+  local dir="$1" files out rc
+  [ -n "${LOOM_SKIP_PUSH_CENSUS:-}" ] && return 0
+  files="$(cd "$dir" && ls test/system/*census*.test.ts test/system/*ratchet*.test.ts \
+    test/system/typing-differential.test.ts 2>/dev/null | grep -vE "$CENSUS_SLOW")"
+  [ -n "$files" ] || return 0
+  # shellcheck disable=SC2086  # one path per word, none with spaces
+  out="$(cd "$dir" && timeout 600 npx vitest run $files 2>&1)"; rc=$?
+  [ "$rc" -eq 124 ] && return 0
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qE 'Tests +[0-9]+ failed'; then
+    deny "git push blocked: '${branch}' merges cleanly into origin/main but the MERGED tree fails a census/ratchet test.
+The merge queue tests that same merged tree, so it would eject this PR (and rebuild every entry behind it).
+Rebase onto origin/main, fix, and push again (or set LOOM_SKIP_PUSH_CENSUS=1 to bypass deliberately).
+    npx vitest run <censuses>   on (origin/main + HEAD):
+$(printf '%s' "$out" | grep -E 'FAIL|AssertionError|Error:|expected|Tests ' | head -40)"
+  fi
   return 0
 }
 
 # --- best-effort refresh of origin/main (offline → fail open) --------------
 timeout 20 git fetch origin main --quiet >/dev/null 2>&1 || true
 git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || exit 0
+
+# --- sync-only push gate ---------------------------------------------------
+# A push whose only new commits are merges of origin/main changes nothing a
+# reviewer reads, yet re-runs ~100 check runs on a ~20-runner pool. When dozens
+# of open PRs do it at once, the pool starves and nothing merges (#3591). The
+# merge queue already tests every entry on top of current main, so a sync is
+# needed only when the old head CONFLICTS with main, or when the PR's own
+# checks are red because of something main has since fixed — a deliberate
+# choice, made with `LOOM_ALLOW_SYNC=1` (in the environment or on the command).
+#
+# "Only merges of main" = every commit in `old..HEAD` that is not a merge is
+# already on origin/main. A merge of another PR's branch (a stack) brings
+# commits main does not have, so it is not a sync and passes.
+sync_only_gate() {
+  [ -n "${LOOM_ALLOW_SYNC:-}" ] && return 0
+  [[ "$command" =~ LOOM_ALLOW_SYNC=1 ]] && return 0
+  local old own
+  timeout 20 git fetch origin "$branch" --quiet >/dev/null 2>&1 || true
+  old="$(git rev-parse --verify --quiet "origin/$branch" 2>/dev/null)" || return 0
+  [ -n "$old" ] || return 0
+  [ "$old" = "$(git rev-parse HEAD 2>/dev/null)" ] && return 0
+  # A rewrite (rebase, amend) cannot be classified — allow.
+  git merge-base --is-ancestor "$old" HEAD 2>/dev/null || return 0
+  # Nothing merged at all → an ordinary push.
+  [ -n "$(git rev-list --merges "$old..HEAD" 2>/dev/null)" ] || return 0
+  own="$(git rev-list --no-merges "$old..HEAD" ^origin/main 2>/dev/null | head -1)"
+  [ -z "$own" ] || return 0
+  # The old head conflicted with main → the sync is required to enter the
+  # queue. A merge-tree error (old git) is "don't know" → allow.
+  git merge-tree --write-tree origin/main "$old" >/dev/null 2>&1 || return 0
+  deny "git push blocked: this push only merges origin/main into '${branch}' — it adds no commit of its own.
+The old head merges cleanly into main, and the merge queue re-tests every entry on top of current main, so the sync buys nothing and re-runs ~100 CI checks on a shared ~20-runner pool.
+Don't push it. Leave the branch as it is.
+If this PR's own checks are red because of something main has since FIXED, the sync is warranted — push it deliberately:
+    LOOM_ALLOW_SYNC=1 git push …
+Never copy a fix from another open PR into this one; wait for that PR to land (see .claude/skills/steward/SKILL.md)."
+}
+sync_only_gate
 
 # --- conflict dry-run ------------------------------------------------------
 # `git merge-tree --write-tree` (git >= 2.38): exit 0 = clean, 1 = conflicts,

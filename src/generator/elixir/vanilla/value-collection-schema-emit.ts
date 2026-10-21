@@ -4,6 +4,7 @@ import type {
   EnumIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -76,7 +77,7 @@ export function emitVanillaValueCollectionSchemas(
 ): void {
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const ctxSnake = snake(ctx.name);
-  const enumsByName = new Map(ctx.enums.map((e) => [e.name, e]));
+  const enumsByName = new Map(enumPool(ctx).map((e) => [e.name, e]));
   for (const agg of ctx.aggregates) {
     // Event-sourced aggregates have NO state table — the migration emits no
     // `<owner>_<field>` child table for them, and the aggregate module is a

@@ -58,9 +58,11 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { isReserved } from "../../../util/target-identifiers.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
@@ -467,7 +469,26 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  for (const [path, content] of files) {
+    const fixed = withoutStructOnReservedKey(content);
+    if (fixed !== content) files.replace(path, fixed);
+  }
   return { files, routes };
+}
+
+/** `OpenApiSpex.schema/1` derives a STRUCT from the schema's property keys and
+ *  binds each key as a variable in its own expansion, so a property named after
+ *  an elixir reserved word (`fn`, `do`, `end`) fails `mix compile` inside the
+ *  macro ("fn is not allowed in matches") — the key itself is a legal atom.
+ *  These modules only describe the published document (no controller casts a
+ *  body into the struct), so such a schema opts out of the struct with
+ *  `struct?: false`.  Every schema without a reserved key keeps the default
+ *  and stays byte-identical. */
+function withoutStructOnReservedKey(content: string): string {
+  if (!content.includes("OpenApiSpex.schema(%{")) return content;
+  const keys = [...content.matchAll(/^ {6}([a-z_][a-zA-Z0-9_]*): /gm)].map((m) => m[1] as string);
+  if (!keys.some((k) => isReserved("elixir", k))) return content;
+  return content.replace(/\n {2}\}\)\nend\n$/, "\n  }, struct?: false)\nend\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -934,9 +955,17 @@ ${pagingQueryParams()}
     }
   }
 
+  // Every path item is built RELATIVE to the `scope "/api"` the router mounts
+  // it under; the published key carries the base itself (M-T6.70 / L1-E E9).
+  // Elixir used to publish `servers: [%Server{url: "/api"}]` with relative
+  // paths instead — the only backend to, since node/dotnet/java/python all
+  // path-embed `/api` — and a client given an explicit base URL (Schemathesis'
+  // `--url`) REPLACES the server base, path included, so every fuzzed request
+  // lost `/api` and landed on the LiveView/HTML routes.  Prefixing here, at
+  // the one place the entries meet, keeps each builder's path literal readable.
   const pathsBlock =
     pathEntries.length > 0
-      ? pathEntries.join(",\n")
+      ? pathEntries.map((e) => e.replace(/^( {6})"\//, `$1"${API_BASE_PATH}/`)).join(",\n")
       : "      # No paths — no aggregates, workflows, or views";
 
   return `# Auto-generated.
@@ -950,7 +979,7 @@ defmodule ${specModule} do
   Consumed by OpenapiController to serve GET /openapi.json.
   """
 
-  alias OpenApiSpex.{Info, OpenApi, Server}
+  alias OpenApiSpex.{Info, OpenApi}
 
   @behaviour OpenApi
 
@@ -961,7 +990,6 @@ defmodule ${specModule} do
         title: "${_appModule}",
         version: "1.0.0"
       },
-      servers: [%Server{url: "/api"}],
       paths: %{
 ${pathsBlock}
       }

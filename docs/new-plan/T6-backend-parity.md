@@ -405,7 +405,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 - **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
-## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `done` (#3107) · **S–M** · P1 ⚠ verify-first
 
 Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
 which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
@@ -446,7 +446,7 @@ than refusing) and to
 [M-T9.59](T9-toolchain-health.md#m-t959), which explains why this one did not.
 
 *Wave L1-C (leftover-waves-2026-09-28), item P19 — rides [M-T6.75](#m-t675)'s .NET packet.*
-## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `open` · **S** · P1 ⚠ verify-first
+## M-T6.70 — The elixir Schemathesis cell fuzzes the HTML routes, because elixir is the only backend that publishes a `servers` base path — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P1 ⚠ verify-first
 
 Diagnosed 2026-09-11 while fixing E5 from the Wave C0 schemathesis hand-off
 ([`waves/handoffs/wave-c0-schemathesis.md`](waves/handoffs/wave-c0-schemathesis.md)), statically, on the
@@ -472,7 +472,7 @@ findings are not statements about the elixir API surface, and it must stay `disc
 
 *Wave L1-E (leftover-waves-2026-09-28), item **E9** — rides [M-T6.77](#m-t677)'s elixir packet.*
 
-## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `open` · **S** · P2 ⚠ verify-first
+## M-T6.71 — A non-UUID id in a Phoenix LiveView route raises `Ecto.Query.CastError` (500) where the controller answers 422 — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108)) · **S** · P2 ⚠ verify-first
 
 Diagnosed 2026-09-11 alongside M-T6.70, statically on the emitted tree (E2 of the elixir schemathesis cell).
 
@@ -596,7 +596,7 @@ One packet over `src/generator/{java,python}/`, plus X3's python sites if [M-T6.
 
 **Verification.** Corpus fixtures through `corpus-java-build` / `corpus-python-build` (mypy strict); the unbound-symbol gate port ([M-T9.67](T9-toolchain-health.md#m-t967)) is what would have caught J1 and should go red on it.
 
-## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `open` · **M–L** · P1
+## M-T6.77 — The Elixir silent-defect batch: ES `find`, command params, jsonb sums, `utc_datetime_usec`, flash, `IdLink`, 422 pointers — `in-flight` ([#3108](https://github.com/Loom-Harness/Loc/pull/3108): E1, E5–E10) · **M–L** · P1
 
 *Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L1-E (leftover-waves-2026-09-28).**
 
@@ -615,12 +615,16 @@ One tree-fenced packet (`src/generator/elixir/`). Items E9 and E10 are the exist
 
 **Verification.** Corpus fixtures through `corpus-elixir-build`; E4 through the migration-evolution leg and the RS-38 conformance row; E7 through the wire-golden differential.
 
-**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080 once it merges):**
+**Status (#3108, 2026-10-04).** E1, E5, E6, E7, E8, E9 (M-T6.70: path keys embed `/api`, no `servers` base) and E10 (M-T6.71: the LiveView by-id load and history loader cast the id first → the page's not-found arm) are in #3108; E7/E9/E10 boot-verified on a generated app. E8 lands as an honest skip, not an assertion: a bare `toThrow()` over an op with no reachable `precondition`/`requires` degrades like `toThrow(invariant)`. **E3** is fixed on `main` by #3080. Still open: **E2** (still fenced by open #3103; #3082 and #3101 have merged), **E4** — the schema half alone is unsafe (a `:utc_datetime_usec` field over the `timestamp(0)` column `timestamps()` migrates to would round on write, so the insert response and the read-back disagree), and the migration step lives in `elixir/migrations-emit.ts`; its fence #3101 merged 2026-10-06, so E4 is now unblocked (re-checked on the 2026-10-11 re-sync of #3108). Two findings filed here from the E8 investigation:
+- **E11** — an elixir named-operation persist re-runs only the RESIDUAL (cross-field) invariants (`context-emit.ts` `aggregateHasResidualInvariants`); a single-field invariant on the native chain (`invariant qty >= 0` → `validate_number` in `base_changeset`) is bypassed by `change(%{}) |> force_change`, so `setQty(-1)` commits. The root cause of E8. **M**.
+- **E12** — the context-nested (integration) test emitter maps only an object-literal op argument (`integration-tests-emit.ts` `attrsMap`); a positional `c.setQty(-1)` renders `set_qty_counter(c, %{})`, so `expect(…).toThrow()` passes on the missing param, and a success-path op call fails. Fix together with E11 (fixing E12 alone turns those generated tests red on E11). **S**.
+
+**Added 2026-09-29 (evaluation-closure Wave A follow-ups; E3 above is fixed by #3080, merged; ported as E9/E10, renumbered E13/E14 on the 2026-10-06 re-sync of #3108 because E9/E10 already name M-T6.70/M-T6.71 in this packet):**
 
 | id | Item | Evidence | Sz |
 |---|---|---|---|
-| E9 | A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2) | found while building #3080 | S–M |
-| E10 | A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b) | found while building #3082 | M |
+| E13 | ~~A grouping key over a value-object leaf (`group by b.amount.currency`) renders `record.<leaf>` on the jsonb `:map` column (B-A2)~~ — **not a live defect** (#3101): `loom.projection-groupby-key-not-columnar` refuses it before codegen on every backend | found while building #3080 | — |
+| E14 | ~~A `Decimal` inside a value object written from domain code lands as a **string** in the jsonb cell; and a delta `addColumn` of a VO field still flattens it (`<vo>_<leaf>`) where the base table keeps one `:map` (B-A3b)~~ — **fixed by #3101** (delta steps collapse to one `:map` column; the workflow-instance read serializes the jsonb-string decimal as a number — the storage stance is kept, every reader accepts both forms). Residue: a `backfillColumn`/`addIndex` on a VO leaf still names the flattened column | found while building #3082 | — |
 
 ## M-T6.78 — A query-time projection over a TPH subtype names a table that does not exist — `open` · **M** · P1
 
@@ -644,17 +648,24 @@ Open PR **#3072** (RS-4 `.000Z` on node's raw-row read routes) overlaps the node
 
 **Verification.** The RS-38 conformance row extended to each site; the channels and document-store cells of the wire-golden differential.
 
-## M-T6.80 — Six `ctx.enums` lookups that should read the cross-context enum pool — `open` · **M** · P1
+## M-T6.80 — Name-resolution `ctx.enums` sites should read the cross-context enum pool — `partial` · **L** · P1
 
-*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16), from its §2 verified-leftover list (`main` @ `d2a0bc02`, re-checked on `cbda9165`). Evidence is the plan's; re-verify on fresh `main` before building (RUNBOOK §1) — a packet that finds an item already fixed records that and drops it.* **Wave: L2-X (leftover-waves-2026-09-28).**
+*Minted 2026-09-29 by wave L0 of [leftover-waves-2026-09-28](leftover-waves-2026-09-28.md) (D16) as item **X4** (six sites). **Widened 2026-10-11** by the claims developer-persona evaluation (defect **D1**, `eval-claims/FIX-PLAN.md`): a root-cause sweep found the six were a sample of a class of 58. Re-verify on fresh `main` before building (RUNBOOK §1).*
 
-Item **X4** (#3033 introduced the cross-context `enumPool`). Six sites still look an enum up in the *current* context only, so an enum declared in a sibling context resolves to `undefined` and falls through to a string/unknown arm:
+**The defect.** #3033 introduced `enumPool(ctx)` (`src/ir/util/reachable-types.ts`) so an enum declared in a SIBLING context (`Clm.kind: Kind`, `Kind` declared in another `module`) resolves. Emitters that still look the name up in the context's own `ctx.enums` answer "not an enum" and take a degraded fallback, never a diagnostic: **node** drops the import (tsc TS2304 in domain, repository and unit tests); **python** drops the import (mypy `name-defined`, ImportError at boot); **react** defaults the form field to `""` and renders a TextInput instead of a Select; **angular** renders an empty option list; **elixir** types the column `:string` instead of `Ecto.Enum` (compiles, silently wrong); **java/.NET** only at workflow-state default / seed / test `using` sites.
 
-`src/generator/elixir/vanilla/schema-emit.ts:80`, `src/generator/elixir/vanilla/projections-emit.ts:63`, `src/generator/python/emit/http-models.ts:519`, `src/generator/java/emit/workflow-state.ts:220`, `src/generator/_frontend/workflows-module.ts:241`, `src/generator/_walker/form-fields-vm.ts:96` (all re-confirmed on `cbda9165`).
+**Done (partial).** The ratchet: `test/system/enum-pool-census.test.ts` type-checks every `.enums` read on a `BoundedContextIR` receiver in `src/generator/**` and `src/platform/**` and fails on an unclassified one. 73 sites at landing: **15 `standing`** (the context's own enum DECLARATIONS, or a union over every context) and **58 `deferred`** (reviewUntil 2026-11-01), each grouped by the fleet packet that drains it. A waiver whose site is gone fails as stale, so each packet deletes its waivers as it fixes them.
 
-Touches every backend and the frontend VM; **must not run beside the L1 per-tree packets**.
+**Open — the deferred sites, by fleet packet** (file#function; each swaps to `enumPool(ctx)`):
 
-**Verification.** A two-context fixture where the enum lives in the sibling context, through every backend's compile leg; a census test that no generator reads `ctx.enums` by name outside the pool helper.
+- **P1 — typescript + hono (20).** `typescript/emit/aggregate.ts#renderAggregate`, `typescript/repository-imports-builder.ts#collectEnums`, `typescript/emit/tests.ts#renderTestsCore` (#3205 adds a context-level-test site in the same file), `typescript/emit/seed.ts#emitSeeds`, `typescript/emit/domain-service.ts#renderDomainServices`, `typescript/emit/mikroorm-{document,embedded,event-sourced,relational}.ts`, `typescript/emit/schema.ts#renderSchema` (verify — may re-classify standing), `typescript/extern-builder.ts`, `typescript/repository-port-builder.ts`; hono v4 `explicit-handlers-builder.ts#renderExternHandlerImpl`, `projection-builder.ts#buildProjectionsFile` (×2), `projection-query-routes-builder.ts`, `workflow-builder.ts#{buildWorkflowsFile,collectUsedEnums,defaultLiteralFor}`, `workflow-eventsourced-builder.ts#initialValueFor`.
+- **P2 — python (20).** `dispatch-builder.ts` (×2), `emit/aggregate.ts`, `emit/http-models.ts`, `emit/integration-tests.ts`, `emit/seed.ts`, `emit/tests.ts`, `explicit-handlers-emit.ts#{pyDomainImportLines,renderHandlerModule,renderPagedRunHandlerModule}`, `projections-builder.ts`, `query-projections-builder.ts`, `repository-builder.ts`, `repository-{document,embedded,eventsourced,port}-builder.ts`, `routes-builder.ts`, `workflow-eventsourced-emit.ts#esZeroFor`, `workflows-builder.ts`. Stacks on #3144 (python imports derived from use) if it has not merged.
+- **P3 — elixir + java + dotnet (10).** elixir `vanilla/schema-emit.ts`, `vanilla/projections-emit.ts`, `vanilla/value-collection-schema-emit.ts`, `liveview-emit.ts#emitLiveViewPages`, `dispatch-emit.ts` (×2); java `emit/workflow-state.ts#javaStateDefault`, `index.ts#emitAggregate` (mangled-enum codec); dotnet `emit/seed.ts#renderSeedFile`, `emit/tests.ts#renderSubjectTestsFile`. **Plus one site the census cannot see:** `elixir/state-default.ts#stateDefault` called as `stateDefault(f.type, ctx)` from `vanilla/workflow-execution-emit.ts` (the context is passed whole as a `{ enums? }` decls bag).
+- **P4 — frontends (8).** `_frontend/form-helpers.ts#initialValueTs`, `_walker/form-fields-vm.ts#prepareFormFieldVM`, `_frontend/workflows-module.ts#ensure`, `angular/form-fields.ts#fieldInput`, `angular/workflows-module.ts#instanceEnumDeps`, `angular/api-module.ts#collectResponseTypes`, `feliz/feliz-target.ts#enumsFromBc`, `flutter/forms-emit.ts#enumsFromBc`.
+
+The mission closes when the census register holds only `standing` rows.
+
+**Verification.** The census at zero deferred rows; per packet, the `r01` two-context repro (enum in the sibling context) through that tree's compile legs (node/react/vue/svelte/angular `tsc`, python `mypy`, `mix compile` with `Ecto.Enum` in the schema, `gradle testClasses`, `dotnet build`), and a two-context row in `test/system/cross-context-type-pool.test.ts`.
 
 ## M-T6.81 — `ETag`/`If-Match` parity: only node sends `ETag`, Feliz and Flutter never send `If-Match` — `open` · **M** · P2
 
@@ -693,16 +704,6 @@ Item **P15** (#2736). An `invariant` without an explicit message surfaces the ra
 Item **P16** (#3057 gave aggregate-operation preconditions their coded domain-floor shape). The same precondition inside a domain-service operation, a top-level `function` or a workflow step still answers a 422 whose body carries only the message, with no stable `code` — so a client cannot branch on it and the LiveView flash (see [M-T6.77](#m-t677) E5) cannot either.
 
 **Verification.** A wire-golden case per placement on all five backends asserting the coded body.
-
-## M-T6.85 — `with scaffoldApi` + `with scaffoldHandlers` registers every scaffolded route twice; on node and python the explicit handler is dead code — `open` · **M** · P2
-
-*Minted 2026-10-04 by the generated-name uniqueness census (`test/system/generated-name-uniqueness.test.ts`, #3152), which reports exactly this set and nothing else on the tracked corpus.* Re-verify on fresh `main` before building (RUNBOOK §1).
-
-`scaffoldApi` synthesises one explicit `route` per create / operation / find / get-by-id / destroy, which is a 1:1 duplicate of the always-on auto-derived REST surface (`deriveContextOperations`). Node and python mount BOTH under `/api`, auto router first, so the first registration wins silently: the scaffolded explicit handler is unreachable, and on python each duplicate also re-mints its operationId (`createOrder` ×2), which is invalid OpenAPI. .NET / java / elixir avoid the build break only because `src/generator/_api/explicit-route-mount.ts` keeps a colliding explicit route at the ROOT (a documented stop-gap, not a fix).
-
-**The fix:** decide ONE owner per slot. Either the auto surface yields a slot an explicit route claims (the explicit layer is the declared, authoritative one), or `scaffoldApi` stops emitting routes the auto surface already serves. Then delete the root-mount exception in `explicit-route-mount.ts`.
-
-**Verification.** Delete this mission's waivers from `KNOWN` in `generated-name-uniqueness.test.ts`; the census goes green with them gone (it fails on a stale waiver).
 
 ## M-T6.86 — A message-less single-field wire rule answers each framework's default text on .NET / Java / Elixir — `open` · **M** · P2
 
@@ -749,11 +750,25 @@ Found by wave C3 packet 3g while restoring `workflow-command-payload`'s block. `
 
 Suspect: the java workflow request record's payload-field coercion (`src/generator/java/emit/workflow.ts` and the payload wire-record converter) validates the nested record's fields with the record, not the parameter, as the pointer root. Fix, then restore the probe in `test/fixtures/corpus/workflow-command-payload.ddd` (`expect(api.claimHandling.run({ c: { cargo: cargo.id, description: "No amount", priority: 1 } })).toThrow(422)`) once M-T6.87 has ruled the message.
 
-## M-T6.96 — .NET EF: a part rebuilt from an old one loses the nested parts it keeps — `open` · **M** · P2
 
-Found by M-T6.94 (#3284). `lines -= old; lines += Line { sku: old.sku, qty: old.qty, notes: old.notes.where(n => n.text != text) }` re-hosts the OLD line's `Note` instances under the new line. EF tracks those instances as owned by the old line, so deleting it deletes them, and the re-read answers 0 notes where 1 is expected (measured on a booted EF leg; Dapper, node, python, java and elixir keep the note). The domain constructor renders `Notes = (old.Notes).Where(…).ToList()` — the same CLR objects (`src/generator/dotnet/render-expr.ts` `renderNew`).
+## M-T6.90 — .NET EF: two `getById` loads of one row inside a workflow are ONE tracked entity, so the stale-handle conflict never fires — `open` · **M** · P2
 
-A copy is not enough on its own: the owned key is the part's `Id` alone (`o1.HasKey(x => x.Id)`), so a copy with the old id collides with the tracked, deleted instance. The fix is a re-host at the construction site — new instances with fresh ids, recursively for deeper nesting — and NOT in `_Create`, which the Dapper repository also uses to hydrate rows.
+Found by #3224 while keying `transactional-workflow-event-rollback` for the .NET legs. Its `debitTwice` workflow loads the same `Acct` twice (`let first = Accts.getById(src)`, `let second = Accts.getById(src)`) and debits each. Node and the Dapper adapter hold two handles with their own `version`, so the second save is stale → 409 and the transactional workflow rolls back (balance stays 90). On EF Core, `GetByIdAsync` is a tracked `FirstOrDefaultAsync` and the scoped `AppDbContext`'s identity map hands back the SAME instance both times: the operation runs twice on one object, the second `SaveAsync` has nothing new to write, no version check can fail, and the double debit commits (204, balance 80). Measured on the booted `run-dotnet.mjs` leg: `expected the call to reject, but it resolved`.
 
-**Exit.** `contained-part-rebuild` in `test/fixtures/corpus/manifest.ts` widens from `PART_REBUILD` to `ALL`, and the .NET EF + Dapper behavioural legs pass it.
+Decide first which is the contract (the node golden says two loads are two handles); then on EF either load untracked and attach on save (the repository's `Detached ⇒ Add` branch in `SaveAsync` would have to become an upsert-by-version), or detach between loads. Python (SQLAlchemy session) may share the shape — unverified. Exit: add `dotnet` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` and delete the case's Dapper entry from `ADAPTER_ONLY_CASES` (`test/behavioral/registers.mjs`) — `test/behavioral/adapter-only-cases.test.ts` fails the entry as stale the moment the key lands.
 
+**java shares it (measured 2026-10-12, #3262).** Booted `run-java.mjs` on the case once M-T4.3 item 6 made java's workflow route publish: `debitOnce` passes (one Audit, after the commit), `debitTwice` answers 204 — `expected the call to reject, but it resolved`.  JPA's persistence context hands both `AcctRepositoryImpl.getById` loads the SAME managed entity, so the second `bumpVersion` reads the version the first save already applied.  Same ruling, same exit for the `java` key.  Python does NOT share it: its `debitTwice` 409s (booted, the leg is armed).
+
+## M-T6.91 — the optimistic-concurrency 409 `detail` is spelled two ways: node `"<Aggregate> <id> was modified by another request"`, the other four `"The resource was modified by another request; reload and retry."` — `open` · **S** · P2 ⚠ needs a ruling first
+
+Found by #3224: the first golden that records a concurrency 409 (`transactional-workflow-event-rollback`, node-minted) diverges on the Dapper and python legs at `$.detail` only — status, `title` and `type` agree. Node raises `ConcurrencyConflictError` with the aggregate + id sentence (`src/platform/hono/v4/emit.ts`); .NET (EF + Dapper), java, python and elixir answer one fixed sentence. Rule it the way RS-27 ruled the 404-by-id sentence (one canonical sentence, an RS-rule pinning it), implement it on the losing side, and delete the `dapper`/`python` waiver for this case from `test/_helpers/wire-waivers.ts` in the same PR (the waiver ratchet fails it as stale otherwise).
+## M-T6.97 — Target-reserved names the adversarial fixture does not yet reach: a TS field `constructor`, type names that shadow target globals, the frontends — `open` · **M** · P2
+
+*Minted 2026-10-12 by the per-target reserved-identifier consolidation, which made `test/fixtures/corpus/target-reserved-words.ddd` compile on all five backends and recorded what it deliberately left out.* Re-verify on fresh `main` before building (RUNBOOK §1).
+
+1. **A FIELD named `constructor` on node.** Its getter cannot carry that name (`TS1341: Class constructor may not be an accessor`), and escaping it moves every aggregate read site (`aggregate.<field>` across the routes, repositories and wire mappers — ~24 spellings). Pinned as a named `KNOWN_GAPS.field` entry in `test/util/target-identifiers.test.ts`; the fix deletes it.
+2. **Type names that shadow a target's globals.** `valueobject Promise` / `String` / `Symbol` break node (`TS2315: Type 'Promise' is not generic`, `TS1361: 'String' cannot be used as a value`, `Symbol.for` missing), because the emitted code uses those globals unqualified in the same module. .NET's form of this (`Task`, `Queue`, `Type`) is handled by the `dotnet-bcl-type-collision` row; the other backends were never measured. A second fixture naming value objects after each target's globals / BCL / framework types (`Task`, `Table`, `Widget`, `Repo`, `BaseModel`, `Kernel`, …) is the gate, and it needs a type-position table in `src/util/target-identifiers.ts` (e.g. qualify through `globalThis.` on node only when a declared type shadows a used global).
+3. **The frontends.** The fixture declares no `ui`, so React / Vue / Svelte / Angular / Feliz / Flutter never see these names. Flutter has no identifier escaping at all; the `dart` table exists in `target-identifiers.ts` for it to consume.
+4. **A field and an operation of the same name** (`yield: string` + `operation yield(…)`) validate clean and collide on node (`TS2300: Duplicate identifier`, and the field getter becomes uncallable). That is a member-namespace collision, not a keyword one — a validator refusal (one member namespace per aggregate) is likely the right fix.
+
+**Verification.** Each item lands as a fixture position or a new fixture on every compile leg; item 1 deletes its `KNOWN_GAPS` entry.

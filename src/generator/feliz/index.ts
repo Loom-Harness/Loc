@@ -1660,7 +1660,13 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
-  const viewsToast = views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // The same built-in toast is reached from two places: a view's
+  // `Action { …, then: toast(…) }` closure and an action body's `toast(…)`
+  // statement in `update`.  F# is order-sensitive and a module may not bind
+  // the name twice, so it is declared once — ahead of `update` when an arm
+  // calls it (the views follow `update` and see it too), else ahead of the views.
+  const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
+  const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
 
   return lines(
     "module App",
@@ -1777,6 +1783,8 @@ function renderAppFs(
     "",
     init,
     "",
+    updateToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
+    updateToast ? "" : false,
     update,
     // The persistence write-back wrapper + the `url` tier's `popstate`
     // subscription — both reference `update` / `Msg`, so they follow it.
@@ -1957,14 +1965,34 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
 
 /** Vite config for the Feliz bundle.  `base` is set only for a sub-path
  *  embed (Phoenix `/app`) so built asset URLs carry the prefix; unset
- *  (root-served) keeps vite's default `/` → byte-identical to before. */
-const renderViteConfig = (basePath: string): string =>
-  `import { defineConfig } from "vite";
+ *  (root-served) keeps vite's default `/`.  A standalone deployable (one that
+ *  `targets:` a backend) also gets the native-run block: `npm run dev` serves
+ *  on its declared port (PORT overrides it) and proxies the bundle's relative
+ *  `/api` to the target backend's declared port; `vite preview` takes the port only
+ *  and an explicitly empty proxy (it otherwise inherits `server.proxy`), so a
+ *  backend-less preview stays a static host.  The image serves the built
+ *  bundle through nginx, which reads none of this. */
+const renderViteConfig = (
+  basePath: string,
+  native?: { port: number; apiTarget: string },
+): string => {
+  const head = native
+    ? `// A native run serves on the deployable's declared port, and PORT overrides it.
+const port = Number(process.env.PORT ?? ${native.port});
+const proxy = { "/api": process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(native.apiTarget)} };
 
-export default defineConfig({
+`
+    : "";
+  const serve = native
+    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true, proxy: {} },\n`
+    : "";
+  return `import { defineConfig } from "vite";
+
+${head}export default defineConfig({
 ${basePath ? `  base: "${basePath}/",\n` : ""}  build: { outDir: "dist" },
-});
+${serve}});
 `;
+};
 
 // The default daisyUI theme applied on <html data-theme="…">.  `corporate` is a
 // clean, flat, professional light theme; `business` is its dark sibling (wired
@@ -1973,7 +2001,7 @@ const DEFAULT_FELIZ_THEME = "corporate";
 
 /** The daisyUI theme a feliz deployable renders under, chosen by its `design:`
  *  slot.  A `design:` naming a built-in daisyUI theme (`design: dracula`) selects
- *  it; anything else (unset → the lowered `mantine@v7` default, or a non-theme
+ *  it; anything else (unset → the lowered `mantine@v9` default, or a non-theme
  *  value) falls back to `corporate`.  The validator (Rule 14, feliz branch)
  *  already rejects a user-written non-theme `design:`, so the fallback only ever
  *  fires for the unset default. */
@@ -2175,7 +2203,13 @@ export function generateFelizForContexts(
     "package.json",
     PACKAGE_JSON(`${deployable.name}-feliz`, uiUsesDataGrid(ui), felizI18nEnabled(ui)),
   );
-  out.set("vite.config.js", renderViteConfig(basePath));
+  out.set(
+    "vite.config.js",
+    renderViteConfig(
+      basePath,
+      target ? { port: deployable.port, apiTarget: `http://localhost:${target.port}` } : undefined,
+    ),
+  );
   out.set("index.html", INDEX_HTML(theme, humanize(sys.name)));
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));

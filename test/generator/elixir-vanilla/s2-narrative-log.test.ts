@@ -79,7 +79,7 @@ describe("vanilla — S2 info narrative log events", () => {
     );
     // The narrative line precedes the broadcast it announces.
     const logAt = ctx.indexOf('Logger.info("event_dispatched"');
-    const castAt = ctx.indexOf("Phoenix.PubSub.broadcast");
+    const castAt = ctx.indexOf("PostCommit.broadcast");
     expect(logAt).toBeGreaterThan(-1);
     expect(logAt).toBeLessThan(castAt);
   });

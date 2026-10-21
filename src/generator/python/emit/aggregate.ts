@@ -23,7 +23,7 @@ import {
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
@@ -210,7 +210,10 @@ export function renderPyAggregate(
   // stripped, the TS emitter's trick) for VO / enum / id-factory needs.
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(scan);
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refersTo)
     .sort();
   const ownIdNames = [agg.name, ...agg.parts.map((p) => p.name)];
@@ -244,10 +247,14 @@ export function renderPyAggregate(
   // would otherwise slip past the gate and land the refused write silently.
   // So the import follows any `when`-carrying operation.
   const usesDisallowed = shapes.some((s) => s.operations.some((op) => !!op.when));
+  // Each declarative flag above is OR-ed with a reference scan of the rendered
+  // body: a raise site the flags do not enumerate (an event-sourced `create`'s
+  // `precondition`, which lives in `esCreate`, not `operations`) still pulls its
+  // import — otherwise the module raises an unbound `DomainError` (F821).
   const errorNames = [
-    usesDisallowed ? "DisallowedError" : null,
-    usesDomainError ? "DomainError" : null,
-    usesForbidden ? "ForbiddenError" : null,
+    usesDisallowed || refersTo("DisallowedError") ? "DisallowedError" : null,
+    usesDomainError || refersTo("DomainError") ? "DomainError" : null,
+    usesForbidden || refersTo("ForbiddenError") ? "ForbiddenError" : null,
   ].filter((n): n is string => n != null);
 
   const emittedEvents = [

@@ -1134,6 +1134,14 @@ export interface BoundedContextIR {
    *  translator reads `errorStatusOverrides?.[name] ?? defaultErrorStatus(name)`.
    *  Undefined in single-context (no-api) lowering — defaults apply. */
   errorStatusOverrides?: Record<string, number>;
+  /** Router slots (`routeSlot` form, `"get /api/orders/{}"`) occupied by the
+   *  explicit `route`s of the apis surfacing this subdomain.  The auto-derived
+   *  REST surface YIELDS any of its operations whose slot is listed
+   *  (D-EXPLICIT-ROUTE-WINS): the derivation flags it `claimedByExplicitRoute`,
+   *  the route + OpenAPI emitters skip it, and the explicit handler alone
+   *  serves the slot.  Populated by `enrichLoomModel`; undefined when those
+   *  apis declare no explicit route. */
+  explicitRouteSlots?: string[];
   /** App-wide resolved HTTP status for each structural-conflict built-in
    *  (`UniquenessConflict` / `ConcurrencyConflict` / `Disallowed` /
    *  `ReferencedInUse` — expressible-builtins.md §3 / M-T3.4a). Folded across
@@ -1876,14 +1884,27 @@ export type WorkflowStmtIR =
       // repository `find` which would auto-expose a query endpoint.  This is
       // why the optional never becomes a standalone `repo-let` (which forbids
       // nullable returns) nor a public `find`.
+      //
+      // The second source form is a DECLARED optional find
+      // (`if let o = Orders.byCode(c)` over `find byCode(..): Order?`):
+      // `findMethod` names it, `retrievalArgs` carry its arguments, and
+      // `retrievalName` / `synthCriterion.name` stay empty.  The backends call
+      // the repository's own nullable find method and branch on presence —
+      // no retrieval is synthesised.
       kind: "if-let";
       var: string;
       repoName: string;
       aggName: string;
-      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`). */
+      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
+       *  empty for a declared-find source. */
       retrievalName: string;
+      /** The source call's arguments: the criterion's, or — when `findMethod`
+       *  is set — the declared find's. */
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
+      /** The declared optional find the source calls, when the source is
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+      findMethod?: string;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -2067,6 +2088,10 @@ export interface SqlStepIR {
   index: number;
   /** The raw Postgres statement, verbatim. */
   sql: string;
+  /** `sql before "…"` — emitted AHEAD of the generation's structural steps
+   *  (a dedupe that must precede a new `unique (…)` index) instead of after
+   *  them.  Absent/false = the default trailing position. */
+  before?: boolean;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }
@@ -3187,9 +3212,9 @@ export interface DeployableIR {
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
   platform: Platform;
-  /** The fully-qualified backend ref (`"node@v4"`) after lowering,
+  /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
-   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v4"`) flows
+   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
    *  through as written.  For frontend platforms (`react`/`static`)
    *  this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`
@@ -3224,7 +3249,7 @@ export interface DeployableIR {
    *  ignored otherwise.
    *
    *  After lowering this field is always fully qualified
-   *  (`family@version`, e.g. `"mantine@v7"`) for built-in packs.  The
+   *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The
    *  bareword DSL form `design: mantine` resolves through
    *  `BUILTIN_PACK_LATEST` during lowering, so downstream consumers
    *  (generator dispatch in `src/generator/react/index.ts`, the

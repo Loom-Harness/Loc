@@ -47,13 +47,27 @@ import type {
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { messageCode } from "../../../util/message-code.js";
-import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirLocal,
+  elixirOpAction,
+  elixirString,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
+import {
+  contextAliasLine,
+  contextCallRef,
+  denialOverrides,
+  denialResponse,
+  denialTerm,
+  disallowedTerm,
+} from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
@@ -503,7 +517,7 @@ end
  *  silent degradation. */
 function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   const single = isSingleReturn(f.returnType);
   const ctx: RenderCtx = { thisName: "a", contextModule: aggModule };
   const pred = f.filter
@@ -511,6 +525,11 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     : f.params
         .map((p) => `a.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
         .join(" and ");
+  // A filterless, param-less find (`find pick(): X`) has no predicate at all:
+  // match every folded row rather than emitting `fn a ->  end` (a syntax
+  // error) or `fn a -> true end` (an unused-variable warning, fatal under
+  // `--warnings-as-errors`).
+  const filterAll = pred ? `Enum.filter(all, fn a -> ${pred} end)` : "all";
   if (pagedReturn(f.returnType)) {
     // Same whitelist the relational/document builders order by; the folded
     // aggregate is a struct, so a whitelisted property reads off it directly
@@ -528,7 +547,7 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     ].join(", ");
     return `  def ${fnName}(${argList}) do
     {:ok, all} = list()
-    matched = Enum.filter(all, fn a -> ${pred} end)
+    matched = ${filterAll}
 
     total = length(matched)
     offset = (page - 1) * page_size
@@ -555,8 +574,10 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
   end`;
   }
   const reduce = single
-    ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
-    : `{:ok, Enum.filter(all, fn a -> ${pred} end)}`;
+    ? pred
+      ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
+      : "{:ok, List.first(all)}"
+    : `{:ok, ${filterAll}}`;
   return `  def ${fnName}(${argNames.join(", ")}) do
     {:ok, all} = list()
     ${reduce}
@@ -642,9 +663,7 @@ export function renderEsContextBlock(
             `dir \\\\ "asc"`,
           ]
         : [];
-      const args = [...f.params.map((p) => escapeElixirIdent(snake(p.name))), ...pageArgs].join(
-        ", ",
-      );
+      const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
@@ -664,13 +683,15 @@ ${findLines.length > 0 ? `${findLines.join("\n")}\n` : ""}${opFns.length > 0 ? `
 
 export function renderEsController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // Fully qualified when `alias <App>.<Ctx>` would shadow the app module.
+  const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
 
@@ -720,7 +741,7 @@ ${esCreateActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : 
       const esCuBind = esOpActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
       const esCallActor = esOpActor ? ", current_user" : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
 ${esCuBind}    attrs = Map.drop(params, ["id"])
 
     with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
@@ -827,8 +848,7 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   return `# Auto-generated.
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 
@@ -888,7 +908,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // by DSL convention, matching the cross-backend wire); the Elixir local is
   // its snake form.
   const paramReads = c.op.params.map(
-    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(attrs, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(attrs, ${JSON.stringify(p.name)})`,
   );
   if (c.kind === "create") paramReads.push("    id = UUIDv7.generate()");
 

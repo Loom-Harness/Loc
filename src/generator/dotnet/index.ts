@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
@@ -34,8 +35,8 @@ import {
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -58,7 +59,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink } from "../../util/emission-sink.js";
+import { emissionSink, rewrite } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
@@ -81,7 +82,7 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { clashFreeRootNamespace } from "./bcl-collision.js";
+import { clashFreeRootNamespace, layerClashAliases } from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -111,11 +112,13 @@ import {
 } from "./emit/audit-history.js";
 import { renderDotnetChannels } from "./emit/channels.js";
 import {
+  dapperUniqueIndexesByTable,
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
   renderDapperRepository,
   renderDapperSchema,
 } from "./emit/dapper.js";
+import { renderDapperConnectionLease } from "./emit/dapper-session.js";
 import {
   dapperPortRegistrations,
   dapperWorkflowTables,
@@ -289,15 +292,9 @@ export function generateDotnetForContexts(
     /** `.ddd` source text keyed by `OriginRef` source path —
      *  forwarded verbatim into the root `renderEntity` call so the REGULAR
      *  named-operation body loop can weave `#line` directives.  Gated on
-     *  `sourceTexts` ALONE — `sourcemap` is NOT consulted (`renderEntity`
-     *  weaves whenever this map is present; a statement whose file has no
-     *  text gets no directive, never a guessed one).  Unlike the v3/SMAP
-     *  sidecars (`recorder && sourceTexts` in src/system/index.ts), the CLI's
-     *  `generate system` always supplies this map, so its .NET output carries
-     *  `#line` with or without `--sourcemap` — which docs/debugging.md's
-     *  "with the flag off, generated output is byte-for-byte unchanged" does
-     *  not describe.  Tracked as leftover-waves C5 (fix: gate on `sourcemap && sourceTexts`), not
-     *  settled here. */
+     *  `sourcemap` also being present (same honest-skip convention as the
+     *  v3 sidecars; enforced at the `renderEntity` call site): no recorder
+     *  or no text → no directives, never guessed. */
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
@@ -305,18 +302,22 @@ export function generateDotnetForContexts(
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
+    const root = clashFreeRootNamespace(namespace, contexts);
     emitProjectFromContexts(
       contexts,
-      clashFreeRootNamespace(namespace, contexts),
+      root,
       out,
       system,
       emitTrace,
       options.sourcemap,
       options.sourceTexts,
     );
+    for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
   } else {
     for (const ctx of contexts) {
-      emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);
+      const root = clashFreeRootNamespace(ctx.name, [ctx]);
+      emitContext(ctx, root, out, emitTrace);
+      for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
     }
   }
   return out;
@@ -529,9 +530,14 @@ function emitProjectFromContexts(
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
-    // EF-repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // applying the EF migrations, wiring the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(ctx, ns);
+    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+    // the repos, and persisting→reading.
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system?.deployable.persistence === "dapper",
+    );
     if (integrationTests) {
       out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
@@ -596,7 +602,7 @@ function emitProjectFromContexts(
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
       ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(merged.workflows),
+      ...hostedContextIdTypeSources([merged]),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -625,6 +631,10 @@ function emitProjectFromContexts(
   // The `User` property the SSE endpoint reads the room key off — the bound
   // `tenancy by user.<claim>`, never the row column `TenantId`.
   const realtimeTenantClaim = realtimeTenantClaimProperty(realtimeRoomPlan);
+  // The deployable carries auth: durable events record their EVENT ORIGIN on
+  // the outbox row, every envelope carries it, and the relay / consumer
+  // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
+  const deployableCarriesAuth = !!(system?.deployable.auth?.required && system.sys.user);
   if (hasChannels && system) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
@@ -645,6 +655,7 @@ function emitProjectFromContexts(
           hasOutbox: hasOutboxTier,
           durableBroker: durableBrokerEvents.size > 0,
           valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+          carriesOrigin: deployableCarriesAuth,
         },
       ),
     );
@@ -677,12 +688,16 @@ function emitProjectFromContexts(
     const outboxInner = hasSubscriptions
       ? "InProcessDomainEventDispatcher"
       : "NoopDomainEventDispatcher";
-    const relayOpts = { durableBroker: durableBrokerEvents.size > 0, hasSubscriptions };
+    const relayOpts = {
+      durableBroker: durableBrokerEvents.size > 0,
+      hasSubscriptions,
+      carriesOrigin: deployableCarriesAuth,
+    };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -692,7 +707,7 @@ function emitProjectFromContexts(
       out.set("Infrastructure/Persistence/OutboxMessage.cs", renderOutboxMessage(ns));
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -814,8 +829,18 @@ function emitProjectFromContexts(
         (system?.migrations ?? [])
           .flatMap((m) => m.next.tables)
           .find((t) => t.name === "provenance_records"),
+        // `unique (…)` → DB unique index, read off the same snapshot (the
+        // shared `uniqueIndexesFor` derivation) so the Dapper bootstrap enforces
+        // exactly the index EF's migration creates and the 23505 → 409 mapping
+        // in DomainExceptionFilter fires.  Empty when another deployable owns
+        // this module's migrations — that owner's migration creates the index.
+        dapperUniqueIndexesByTable((system?.migrations ?? []).flatMap((m) => m.next.tables)),
       ),
     );
+    // The connection lease every Dapper repository opens + the ambient
+    // unit-of-work transaction it enlists in, so a `transactional` workflow's
+    // saves share ONE connection + transaction (dapper-session.ts).
+    out.set("Infrastructure/Persistence/DapperConnectionLease.cs", renderDapperConnectionLease(ns));
     // Workflow / saga / event-store / projection port adapters + the reused
     // persistence-neutral row POCOs (M-T6.9) — the raw-Npgsql siblings of the
     // EF PersistencePorts.cs; the EF configs / AppDbContext are NOT emitted.
@@ -1147,6 +1172,7 @@ function emitProjectFromContexts(
     );
   }
   emitProject(merged, ns, out, {
+    nativePort: system?.deployable.port,
     timers: hasTimers ? ownedTimers : [],
     hasChannels,
     hasChannelConsumers,
@@ -1157,7 +1183,7 @@ function emitProjectFromContexts(
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
     authRequired,
-    userFields: (userFields ?? []).map((f) => f.name),
+    userFields: userFields ?? [],
     actorIdProp,
     usesValidators,
     usesStamping,
@@ -1204,7 +1230,7 @@ function emitProjectFromContexts(
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
     orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
   });
-  emitTestProject(merged, ns, out);
+  emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
   // The SPA hits `/api/*` on its own origin (apiBaseUrl: ""), so
   // `api/config.ts` produces `fetch("/api/...")`-shaped calls that
@@ -1592,7 +1618,10 @@ function emitAggregate(
       operationReturnUnions,
       opFragments,
       construct,
-      sourceTexts,
+      // C5 (M-T6.75): `#line` weaving is a `--sourcemap` feature — without a
+      // recorder the output must stay byte-identical to a plain generate,
+      // even though the CLI always hands `sourceTexts` down.
+      sourcemap ? sourceTexts : undefined,
     ),
     agg.origin,
     opFragments,
@@ -1922,10 +1951,12 @@ function emitProject(
   ns: string,
   out: Map<string, string>,
   options?: {
+    /** The deployable's declared port — what a bare `dotnet run` listens on. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     usesStamping?: boolean;
     hasEmbeddedSpa?: boolean;
@@ -2029,6 +2060,7 @@ function emitProject(
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
+      nativePort: options?.nativePort,
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
@@ -2149,7 +2181,12 @@ function emitProject(
   }
 }
 
-function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, string>): void {
+function emitTestProject(
+  ctx: BoundedContextIR,
+  ns: string,
+  out: Map<string, string>,
+  resourceNugetDeps: Record<string, string> = {},
+): void {
   // Only emit a test csproj when at least one subject (aggregate / value object
   // / domain service) declares a `test` block — otherwise the project would
   // have nothing to compile.
@@ -2159,7 +2196,7 @@ function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, str
     ctx.domainServices.some((s) => s.tests.length > 0) ||
     ctx.tests.length > 0;
   if (!anyTests) return;
-  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns));
+  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns, resourceNugetDeps));
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {
