@@ -300,7 +300,12 @@ export function renderController(
     }),
   );
 
+  // A slot an explicit `route` claims is served by that route's controller
+  // alone (D-EXPLICIT-ROUTE-WINS): the derived action is not rendered, while the
+  // request DTO / command / query it would dispatch stay emitted for the
+  // explicit handler and the rest of the service.
   const findBlocks = shape.finds.flatMap((f) => {
+    if (f.apiOp.claimedByExplicitRoute) return [];
     // The action's own locals yield to a same-named find param (CS0136): a
     // `find one(result: string)` binds `result` as a query parameter.
     const L = csLocalNamer(f.paramNames, ["result", "problem"]);
@@ -423,7 +428,7 @@ export function renderController(
       // `createAction` and the derived create op are the same predicate
       // (`emitsRestCreate` on both sides), so the `!` is a type-level
       // formality, not a runtime bet.
-      ...(shape.createAction !== false
+      ...(shape.createAction !== false && !shape.createApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpPost${routeTemplate(shape.createApiOp!)}]`,
             `    [ProducesResponseType(typeof(Create${agg.name}Response), 201)]`,
@@ -449,31 +454,39 @@ export function renderController(
               { name: "id", valueExpr: "id.Value" },
             ])}`,
             `        HttpMetrics.RecordDomainOperation("${agg.name}", "create");`,
-            `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
+            // Location points at the read; when an explicit route serves that
+            // slot there is no derived action to name, so the path is spelled.
+            shape.getByIdApiOp.claimedByExplicitRoute
+              ? `        return Created($"${shape.getByIdApiOp.path.replace("{id}", "{id.Value}")}", new Create${agg.name}Response(id.Value));`
+              : `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
             "    }",
             "",
           ]
         : []),
-      `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
-      `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
-      ...derivedProblemDecls(shape.getByIdApiOp),
-      `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
-      "    {",
-      `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
-      // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
-      // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
-      // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
-      // the history read all `?? throw new AggregateNotFoundException($"…")`).
-      // That made this ONE route answer a different problem body than the rest
-      // of the same service.  Throwing routes it back through the shared filter,
-      // which renders `detail` from the message — the same sentence the other
-      // four backends emit.  `id` is the raw route value; the id record's
-      // `ToString()` is overridden to the raw value, so both spellings of this
-      // message interpolate identically.
-      `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
-      "        return Ok(response);",
-      "    }",
-      "",
+      ...(shape.getByIdApiOp.claimedByExplicitRoute
+        ? []
+        : [
+            `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
+            `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
+            ...derivedProblemDecls(shape.getByIdApiOp),
+            `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
+            "    {",
+            `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
+            // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
+            // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
+            // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
+            // the history read all `?? throw new AggregateNotFoundException($"…")`).
+            // That made this ONE route answer a different problem body than the rest
+            // of the same service.  Throwing routes it back through the shared filter,
+            // which renders `detail` from the message — the same sentence the other
+            // four backends emit.  `id` is the raw route value; the id record's
+            // `ToString()` is overridden to the raw value, so both spellings of this
+            // message interpolate identically.
+            `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
+            "        return Ok(response);",
+            "    }",
+            "",
+          ]),
       // Entity history — GET /{id}/history (docs/audit.md).  Emitted off the
       // enrichment-derived `historyFind`, so it sits beside the declared finds
       // rather than inside their loop.  The three guards (inherited read gate →
@@ -498,7 +511,7 @@ export function renderController(
       // Canonical destroy → DELETE /{id} (hard delete).  Gated; reuses the
       // getById error shape (404).  crudish's destroy is empty-bodied, so
       // the command carries only the id.
-      ...(shape.destroyAction
+      ...(shape.destroyAction && !shape.destroyApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpDelete${routeTemplate(shape.destroyApiOp!)}]`,
             "    [ProducesResponseType(204)]",
@@ -657,19 +670,21 @@ export function renderOperationActionBlock(
   // The side-effect-free can_<op> companion (criterion.md use site 2):
   // GET → loads the aggregate, evaluates the `when` predicate, returns
   // `{ allowed }` so a UI can enable/disable the action without invoking it.
-  const canBlock = op.whenGated
-    ? [
-        `    [HttpGet${routeTemplate(op.probeOp!)}]`,
-        `    [ProducesResponseType(typeof(CanResponse), 200)]`,
-        ...derivedProblemDecls(op.probeOp!),
-        `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
-        "    {",
-        `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
-        "        return Ok(result);",
-        "    }",
-        "",
-      ]
-    : [];
+  const canBlock =
+    op.whenGated && !op.probeOp?.claimedByExplicitRoute
+      ? [
+          `    [HttpGet${routeTemplate(op.probeOp!)}]`,
+          `    [ProducesResponseType(typeof(CanResponse), 200)]`,
+          ...derivedProblemDecls(op.probeOp!),
+          `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
+          "    {",
+          `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
+          "        return Ok(result);",
+          "    }",
+          "",
+        ]
+      : [];
+  if (op.apiOp.claimedByExplicitRoute) return canBlock;
   return [
     ...canBlock,
     `    [HttpPost${routeTemplate(op.apiOp)}]`,

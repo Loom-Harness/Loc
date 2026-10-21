@@ -64,7 +64,7 @@ import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
-import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { javaPagedQueryParams } from "./emit/common.js";
 import { domainToWire } from "./emit/wire.js";
@@ -852,12 +852,10 @@ function projectReturn(
  *  target handler's domain params and calls the handler bean directly.  Returns
  *  null when the api binds no resolvable route.
  *
- *  Each `@*Mapping` carries the FULL path including `API_BASE_PATH`, rather
- *  than a class-level `@RequestMapping(API_BASE_PATH)`: Spring always
- *  concatenates a class-level mapping, so there would be no way to leave the
- *  scaffold-duplicate routes at the root — and a duplicated slot is an
- *  `Ambiguous handler methods mapped` failure at request time.  Which routes
- *  move is decided once, in `_api/explicit-route-mount.ts`. */
+ *  Each `@*Mapping` carries the FULL path including `API_BASE_PATH`
+ *  (`explicitRoutePath`, `_api/explicit-route-mount.ts`).  A slot shared with
+ *  the auto-derived surface is this controller's alone: the derived controller
+ *  yields it, so Spring never sees two handlers on one mapping. */
 export function emitExplicitRouteController(
   apiName: string,
   routes: readonly RouteIR[],
@@ -867,7 +865,6 @@ export function emitExplicitRouteController(
   responsePkgOf: (agg: string) => string,
 ): { name: string; content: string } | null {
   if (routes.length === 0) return null;
-  const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map(contexts.map((c) => [c.name, c]));
   const imports = new Set<string>();
   // Response DTO packages an entity-returning route projects into (C2) — each
@@ -906,7 +903,7 @@ export function emitExplicitRouteController(
       actions.push(
         ...emitPagedRunAction(
           r,
-          explicitRoutePath(r, derivedSlots),
+          explicitRoutePath(r),
           h,
           ctx,
           field,
@@ -1024,7 +1021,7 @@ export function emitExplicitRouteController(
           `        return ResponseEntity.noContent().build();`,
         ];
     actions.push(
-      `    @${annot}("${explicitRoutePath(r, derivedSlots)}")`,
+      `    @${annot}("${explicitRoutePath(r)}")`,
       `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
       ...callLines,
       `    }`,

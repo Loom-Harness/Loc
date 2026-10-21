@@ -281,10 +281,12 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
     const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
     expect(routes).toContain("POST /orders -> CreateOrder");
     expect(routes).toContain("GET /orders/by_status -> ByStatusOrder");
-    // Full ordered surface: get-by-id, find, create, operation, destroy.
+    // Full ordered surface: find, get-by-id, create, operation, destroy — the
+    // static `by_status` precedes `{orderId}`, which first-match routers would
+    // otherwise let swallow it.
     expect(routes).toEqual([
-      "GET /orders/{orderId} -> GetOrder",
       "GET /orders/by_status -> ByStatusOrder",
+      "GET /orders/{orderId} -> GetOrder",
       "POST /orders -> CreateOrder",
       "POST /orders/{orderId}/cancel -> CancelOrder",
       "DELETE /orders/{orderId} -> DestroyOrder",

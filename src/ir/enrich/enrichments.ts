@@ -59,6 +59,7 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
+import { explicitRouteSlot } from "../util/api-surface.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
@@ -170,6 +171,26 @@ function enrichSystem(
       if (!(err in merged)) merged[err] = code;
     errorStatusesBySubdomain.set(a.sourceModule, merged);
   }
+  // The slots the explicit `route`s occupy, keyed by the subdomain of each
+  // route's TARGET context — the auto-derived surface over that subdomain
+  // yields them (D-EXPLICIT-ROUTE-WINS).  Keyed by target rather than by the
+  // api's `from` subdomain because an api built `with scaffoldApi(of: …)`
+  // declares no `from`, and its routes still sit beside the derived routes of
+  // the contexts they dispatch into.
+  const subdomainOfContext = new Map<string, string>();
+  for (const m of sys.subdomains)
+    for (const c of m.contexts) subdomainOfContext.set(c.name, m.name);
+  const explicitRouteSlotsBySubdomain = new Map<string, string[]>();
+  for (const a of sys.apis) {
+    for (const r of a.routes) {
+      const sub = subdomainOfContext.get(r.target.context);
+      if (sub === undefined) continue;
+      const slots = explicitRouteSlotsBySubdomain.get(sub) ?? [];
+      const s = explicitRouteSlot(r);
+      if (!slots.includes(s)) slots.push(s);
+      explicitRouteSlotsBySubdomain.set(sub, slots);
+    }
+  }
   // App-wide fold of the structural-conflict statuses (expressible-builtins.md
   // §3 / M-T3.4a). Unlike user `error` payloads (per-subdomain), the structural
   // conflicts (unique / version / when / FK / event-store) surface in
@@ -213,6 +234,9 @@ function enrichSystem(
         rootPayloads,
       ),
       errorStatusOverrides: errorStatusesBySubdomain.get(m.name),
+      ...(explicitRouteSlotsBySubdomain.has(m.name)
+        ? { explicitRouteSlots: explicitRouteSlotsBySubdomain.get(m.name) }
+        : {}),
       structuralErrorStatuses,
     })),
   }));

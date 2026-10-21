@@ -31,6 +31,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
   relativeOpPath,
+  servedOperations,
 } from "../../../ir/util/api-surface.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
@@ -209,13 +210,17 @@ export function emitVanillaApiControllers(
     // cannot diverge.  An abstract
     // base derives nothing (the derivation's aggregate skip): its read-only
     // index/show below stay an elixir-local extra, like the history route.
-    const derivedOps = isAbstractBase(agg)
+    const allOps = isAbstractBase(agg)
       ? []
       : deriveAggregateOperations(
           agg,
           ctx.repositories.find((r) => r.aggregateName === agg.name),
           apiStatusContext(ctx),
         );
+    // A slot an explicit `route` claims is served by that route's controller
+    // alone (D-EXPLICIT-ROUTE-WINS) — the controller action stays, the router
+    // line does not.
+    const derivedOps = servedOperations(allOps);
     const abstract = isAbstractBase(agg);
     const routeOf = (o: ApiOperationIR, action: string): ApiRoute => ({
       method: o.method,
@@ -254,7 +259,7 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, derivedOps));
+    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (abstract) {
@@ -299,16 +304,19 @@ export function emitVanillaApiControllers(
     // public non-CRUD operation, matching the node/dotnet/python/java
     // backends.  The URL segment uses
     // `routeSlug` (D-URLSTYLE) while the action atom stays the op verb.
-    const served = servedOperationEntries(agg, derivedOps);
+    // Over the FULL list: an explicit route can claim an operation and leave its
+    // `can_<op>` probe to this router, or the other way round.
+    const served = servedOperationEntries(agg, allOps);
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
+      if (!entry.claimedByExplicitRoute) routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
       // The side-effect-free `GET /<plural>/:id/can_<op>` companion of a
       // `when`-gated op (criterion.md, use site 2).  It was once DECLARED in
       // this backend's own OpenAPI and never mounted (the published probe
       // 404'd) — served and documented off the same derived entry now.
       const probe = served.probeByOp.get(op);
-      if (probe) routes.push(routeOf(probe, `:can_${snake(op.name)}`));
+      if (probe && !probe.claimedByExplicitRoute)
+        routes.push(routeOf(probe, `:can_${snake(op.name)}`));
     }
   }
 
