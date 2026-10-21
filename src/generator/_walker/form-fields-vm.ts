@@ -12,7 +12,7 @@
 
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
-import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { humanize } from "../../util/naming.js";
 import { idTargetHookVar, unwrapOpt } from "../_frontend/form-helpers.js";
 import type { FormFieldVM } from "../_frontend/view-models.js";
@@ -101,7 +101,7 @@ export function prepareFormFieldVM(
   }
 
   if (inner.kind === "enum") {
-    const en = ctx.enums.find((e) => e.name === inner.name);
+    const en = enumPool(ctx).find((e) => e.name === inner.name);
     if (en) {
       return {
         template: "field-input-enum-select",

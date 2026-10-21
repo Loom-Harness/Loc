@@ -8,6 +8,7 @@
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -110,7 +111,7 @@ function isStringType(type: TypeIR | undefined): boolean {
  *  enum field then renders as text — byte-identical to before enum-select). */
 function enumsFromBc(bc: BoundedContextIR | undefined): Map<string, string[]> {
   const m = new Map<string, string[]>();
-  if (bc) for (const e of bc.enums) m.set(e.name, e.values);
+  if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
   return m;
 }
 

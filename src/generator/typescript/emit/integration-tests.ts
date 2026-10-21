@@ -204,7 +204,7 @@ export function renderContextIntegrationTest(
   // Value objects, enums, `Ids` and `Decimal` the body constructs or names —
   // the same body-derived set the aggregate-level unit tests import.
   const value = testBodyValueImports(bodyStr, ctx, "../domain");
-  // When the context runs workflows, wire the SYNCHRONOUS in-process dispatcher
+  // A context that runs workflows wires the SYNCHRONOUS in-process dispatcher
   // so a `save`'s emitted event fires its reactors inline (a placed order
   // reserves stock before the next read) — when the deployable emits one;
   // without event subscriptions there is no reactor to fire and
