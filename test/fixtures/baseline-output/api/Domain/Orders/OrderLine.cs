@@ -28,7 +28,7 @@ public sealed class OrderLine
 
     private void AssertInvariants()
     {
-        if (!(this.Quantity > 0)) throw new DomainException("Invariant violated: quantity > 0");
+        if (!(this.Quantity > 0)) throw new DomainException("Invariant violated: quantity > 0", DomainErrorKind.Invariant);
     }
 
     public sealed class __State

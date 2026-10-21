@@ -2,6 +2,7 @@ import type { BoundedContext, TypeRef } from "../../api/index.js";
 import {
   callStmt,
   commandHandler,
+  createInputProperties,
   defineMacro,
   idRef,
   letStmt,
@@ -13,7 +14,6 @@ import {
   primType,
   queryHandler,
   returnStmt,
-  writableCreateFields,
 } from "../../api/index.js";
 import { contractRecords } from "./_contracts-shared.js";
 import {
@@ -119,7 +119,7 @@ function buildHandler(t: HandlerTarget) {
       // A create handler takes the aggregate's create-INPUT fields (the same
       // shape the factory `<Agg>.create(...)` accepts and the create command
       // record exposes) as a single `cmd: <Create<Agg>>Command` body record.
-      const fields = writableCreateFields(t.agg).filter((f) => f.type != null);
+      const fields = createInputProperties(t.agg).filter((f) => f.type != null);
       const params =
         fields.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : [];
       const body = [

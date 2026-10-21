@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   emitsRestCreate,
-  forCreateInput,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -145,7 +145,7 @@ export function renderJavaService(
   const dispatches = true;
   const idJava = javaValueTypeForId(agg.idValueType);
   if (idJava === "UUID") imports.add("java.util.UUID");
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   const eff = (t: TypeIR, optional: boolean): TypeIR =>
     optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
   // A `mask unless` aggregate projects RESPONSE reads through the redacting

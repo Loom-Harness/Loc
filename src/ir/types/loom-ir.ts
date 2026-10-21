@@ -804,6 +804,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
@@ -930,6 +934,12 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** The order a PAGED find's page is taken in when the caller's `sort` key
+   *  names no whitelisted column — its route's `sort` then defaults to `""`
+   *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
+   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  synthesizes, from the retrieval's declared `sort:`. */
+  defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto

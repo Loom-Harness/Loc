@@ -282,10 +282,10 @@ system Denials3 {
 /** The coded domain-error surface each backend emits only when the
  *  domain-floor gate is on. */
 const CODED_ERROR_SURFACE: Record<string, string> = {
-  node: "constructor(message: string, code?: string, pointer?: string)",
+  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string)",
   dotnet: "public string? RuleCode { get; }",
-  java: "public DomainException(String message, String ruleCode, String pointer)",
-  python: "def __init__(self, message: str, code: str | None = None, pointer: str | None = None)",
+  java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
+  python: "        code: str | None = None,",
   elixir:
     "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer})",
 };

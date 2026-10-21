@@ -381,7 +381,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 31,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -390,14 +390,14 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 32,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 30,
+      "seq": 33,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 404,
@@ -410,14 +410,14 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 34,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 32,
+      "seq": 35,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -426,7 +426,7 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 36,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -439,7 +439,7 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 37,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,

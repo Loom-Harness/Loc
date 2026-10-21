@@ -131,6 +131,7 @@ import {
 } from "./emit/dapper-workflow.js";
 import { renderDomainLog, renderExecutionContextBehavior } from "./emit/domain-log.js";
 import { emitDomainServices } from "./emit/domain-service.js";
+import { renderEmptyJsonBodyMiddleware } from "./emit/empty-body-middleware.js";
 import type { OpFragment } from "./emit/entity.js";
 import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
@@ -2123,6 +2124,8 @@ function emitProject(
   // Catalog-identity request log — always-on.  Cross-backend parity
   // with Phoenix's <App>.Telemetry and Hono's pino access log.
   out.set("Middleware/RequestLoggingMiddleware.cs", renderRequestLoggingMiddleware(ns));
+  // RS-39 — an empty request body reads as `{}` (mounted in Program.cs).
+  out.set("Middleware/EmptyJsonBodyMiddleware.cs", renderEmptyJsonBodyMiddleware(ns));
   // Prometheus HTTP metrics — catalog-driven, served at /metrics (Program.cs
   // MapMetrics), recorded from RequestLoggingMiddleware's request_end seam.
   out.set("Observability/HttpMetrics.cs", renderHttpMetrics(ns));

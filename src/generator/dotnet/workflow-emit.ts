@@ -1819,7 +1819,7 @@ export function csWorkflowStmtTarget(
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")});`,
       ];
     },
     requires: (st, indent) => {

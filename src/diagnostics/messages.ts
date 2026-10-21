@@ -320,7 +320,7 @@ export const DIAGNOSTIC_MESSAGES = {
     reason: unknown;
     plural: unknown;
   }) =>
-    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. The body is lowered into the IR but no backend renders it (an event-sourced \`create\` is the exception — that path does run). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
+    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. A \`create\` body renders only its \`requires\`, \`precondition\`, \`emit\` and \`let\` statements, a \`destroy\` body only its \`requires\` (an event-sourced \`create\` runs its whole body). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
   // The sibling of the above, one level up: the whole ACTION is dropped, not
   // just its body.  Kept separate because the remedy differs — the canonical
   // case keeps its route and loses the braces, this one has no route to keep.
@@ -814,10 +814,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
   "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — pass a criterion to ` +
-    `'run' (Repo.run(<Criterion>(args))) or name a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository. (A unique-key reconstitution find returning a ` +
-    `single 'T' / 'T?' stays fine.)`,
+    `repository find '${p.name}' is a wire-shaped list query — declare a 'criterion' ` +
+    `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
+    `bespoke list finder on the repository, and put it on the wire with ` +
+    `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
+    `when a client must call it. (A unique-key reconstitution find returning a single ` +
+    `'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -899,8 +901,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.e2e-throw-kind-invalid": (p: { kind: unknown }) =>
     `'toThrow(${p.kind})' pins WHICH domain rung rejected the call, and that is only ` +
     "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
-    "rung (elixir a structural `kind:` on `GuardError`, the other four a stable " +
-    '"Precondition failed: " / "Invariant violated: " message prefix). Over HTTP both ' +
+    "rung as a structural `kind` field, whatever the rule's message says. Over HTTP both " +
     "rungs answer 422, and their only discriminator is the RFC 7807 `detail` sentence — " +
     'which an authored `message "..."` on the rule overwrites. Pin the wire fact here ' +
     "instead — `toThrow(<status>)`, e.g. `toThrow(422)` — and move the rung assertion to " +
@@ -917,28 +918,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`.${p.member}(...)\`, which would drop it. If you meant the domain rule, a ` +
     "`precondition` is a statement in an operation body and an `invariant` is an aggregate " +
     "member — neither is an expression.",
-  // `toThrow(<kind>)` against a rule carrying an authored `message "..."`.  The
-  // clause that makes a rule legible to a human is the clause that makes it
-  // illegible to this matcher on four of the five backends — say exactly that,
-  // and name the rule, or the refusal reads as arbitrary.
-  "loom.throw-kind-custom-message": (p: {
-    kind: unknown;
-    rule: unknown;
-    message: unknown;
-    subject: unknown;
-  }) =>
-    `'toThrow(${p.kind})' cannot read the rung off '${p.subject}': its ${p.kind} ` +
-    `\`${p.rule}\` carries \`message "${p.message}"\`, and an authored message REPLACES the ` +
-    `"${p.kind === "invariant" ? "Invariant violated" : "Precondition failed"}: " prefix ` +
-    "that the node / python / java / .NET domain layers discriminate on — so on four of the " +
-    "five backends there is nothing left to match. (Elixir alone is structural: `GuardError` " +
-    "carries a `kind:` field.) Either drop the `message` clause from that rule and let the " +
-    "derived text stand, or assert the bare `toThrow()` here and pin the wording with a " +
-    "`test e2e` block, where the message is the RFC 7807 `detail`.",
   // `toThrow(<kind>)` in a CONTEXT-INTEGRATION test.  Third tier, third reason:
-  // not the wire flattening the rung (that is the e2e message above) and not a
-  // messaged rule erasing the prefix — simply that this tier renders through a
-  // different emitter which does not carry the rung, and would drop the word.
+  // not the wire flattening the rung (that is the e2e message above) — simply
+  // that this tier renders through a different emitter which does not carry
+  // the rung, and would drop the word.
   "loom.throw-kind-integration-unsupported": (p: {
     kind: unknown;
     name: unknown;
@@ -2671,7 +2654,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
   "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+  "loom.paged-query-handler-shape#sorted-retrieval-shape": (p: {
+    name: unknown;
+    retrieval: unknown;
+    aggName: unknown;
+  }) =>
+    `queryHandler '${p.name}' pages retrieval '${p.retrieval}', whose \`sort:\` is the page's default order — but '${p.aggName}' is not a single-table relational aggregate, and its paged read is taken in memory without that order. Drop the retrieval's \`sort:\` (the client orders through the route's \`sort\`/\`dir\`), or page a criterion instead.`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
@@ -3094,25 +3083,42 @@ export const DIAGNOSTIC_MESSAGES = {
     `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
     `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
     `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
-  "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
-    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
-    `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
-    `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
-    `does not accept it — a client (or a \`test\` block) written from the ` +
-    `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
-    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
-  // The OPTIONAL-field half: the narrowed list leaves out a nullable field —
-  // usually one only an operation should set — and `POST /<plural>` still
-  // accepts it, so a client can create the row with it already set.
-  "loom.create-params-not-wire#optional": (p: { agg: unknown; missing: unknown; verb: unknown }) =>
-    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
-    `request contract.  Its optional ${p.missing} ${p.verb} not declared, yet ` +
-    `\`POST /<plural>\` takes the FIELD-DERIVED create input and ACCEPTS ${p.missing} ` +
-    `at creation — a client can create the row with it already set, bypassing every ` +
-    `operation that is meant to set it.  If only operations should set it, mark it ` +
-    `\`managed\`; if creation may set it, list it in the \`create(…)\` parameters ` +
-    `— a narrowed list shapes nothing.`,
+  "loom.create-call-field-not-in-create": (p: { agg: unknown; fields: unknown; params: unknown }) =>
+    `\`${p.agg}.create({ … })\` passes ${p.fields}, which the declared \`create(…)\` does not ` +
+    `list.  Its parameters (${p.params}) are the factory input; every other field takes its ` +
+    `declared default.  Drop the key, or add the field to the \`create\` parameters.`,
+  // A declared `create(…)`'s parameter list is the create input, so each
+  // param must BE a client-suppliable field.
+  "loom.create-param-not-a-field": (p: { agg: unknown; param: unknown; fields: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names no field.  A declared ` +
+    `\`create(…)\`'s parameters ARE the \`POST /<plural>\` request contract — each one is ` +
+    `the wire slot of the same-named field, so a free-standing parameter has nowhere to ` +
+    `land.  Rename it to one of ${p.fields}, or declare the field.`,
+  "loom.create-param-not-a-field#server-owned": (p: {
+    agg: unknown;
+    param: unknown;
+    access: unknown;
+  }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names a \`${p.access}\` field, ` +
+    `which the server owns — a client cannot supply it at creation.  Drop it from the ` +
+    `parameter list (its declared default initialises it), or remove the \`${p.access}\` modifier.`,
+  "loom.create-param-not-a-field#type": (p: { agg: unknown; param: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' does not have the type of the ` +
+    `field '${p.param}' (including its \`?\`).  The parameter is that field's wire slot, so ` +
+    `declare it with the field's exact type.`,
+  // A field a narrowed `create(…)` leaves out must be one the factory can
+  // initialise on its own.
+  "loom.create-param-required-omitted": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', which is ` +
+    `required — non-nullable, with no default.  A declared parameter list IS the request ` +
+    `contract, so nothing would give '${p.field}' a value at creation.  Add it to the ` +
+    `parameters, give the field an \`= <default>\`, or make it optional (\`${p.field}: T?\`).`,
+  "loom.create-param-required-omitted#default": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', whose default ` +
+    `is not a compile-time constant (a literal or an enum member).  A field outside the ` +
+    `parameter list is initialised by the domain factory, which has no clock, principal or ` +
+    `constructor context to evaluate that default in.  Add '${p.field}' to the parameters, ` +
+    `or give it a constant default.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
@@ -3867,6 +3873,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unrouted": (p: {
+    aggregate: unknown;
+    operation: unknown;
+    framework: unknown;
+    deployable: unknown;
+  }) =>
+    `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
+    `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
+    `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
+    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
+    `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
+    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;

@@ -24,7 +24,7 @@ public sealed class PlaceOrderHandler : ICommandHandler<PlaceOrderCommand, Unit>
     public async ValueTask<Unit> Handle(PlaceOrderCommand command, CancellationToken cancellationToken)
     {
         _log.LogInformation("{Event} workflow={Workflow}", "workflow_started", "placeOrder");
-        if (!(command.Quantity > 0)) throw new DomainException("Precondition failed: quantity > 0");
+        if (!(command.Quantity > 0)) throw new DomainException("Precondition failed: quantity > 0", DomainErrorKind.Precondition);
         var order = Order.Create(customerId: command.CustomerId, status: OrderStatus.Draft, placedAt: DateTime.UtcNow);
         order.AddLine(command.ProductId, command.Quantity);
         await _orders.SaveAsync(order, cancellationToken);

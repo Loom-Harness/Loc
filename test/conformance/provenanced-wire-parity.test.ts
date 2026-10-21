@@ -40,7 +40,7 @@ system ProvShop {
         quantity: int
         unitPrice: int
         total: int provenanced
-        create(quantity: int, unitPrice: int) {
+        create(quantity: int, unitPrice: int, total: int) {
           quantity := quantity
           unitPrice := unitPrice
         }

@@ -192,6 +192,58 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/invoices/{id}/charge",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/charge",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/invoices/{id}/charge",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/charge",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/invoices/{id}/charge",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/invoices/{id}/charge",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/invoices/{id}/set_fee",
+      "status": 404,
+      "body": {
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}/set_fee",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
     }
   ]
 }
