@@ -211,7 +211,7 @@ describe("outbox write atomicity — .NET (Dapper)", () => {
     const record = save.indexOf(
       "var __deferred = await _events.RecordDurableAsync(__pending, __tx, cancellationToken);",
     );
-    const commit = save.indexOf("await __tx.CommitAsync(cancellationToken);");
+    const commit = save.indexOf("await __lease.CommitAsync(cancellationToken);");
     expect(record, "durable capture is emitted, holding __tx").toBeGreaterThan(-1);
     expect(record, "capture precedes the commit").toBeLessThan(commit);
     expect(save).toContain("foreach (var ev in __deferred)");

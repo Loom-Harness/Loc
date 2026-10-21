@@ -50,6 +50,12 @@ system FnDemo {
           return label
         }
 
+        // A bare call to another (guarded) function, for its guard alone.
+        function shippingChecked(extra: int): int {
+          shippingFor(extra)
+          return total
+        }
+
         operation approve() {
           precondition passed()
           status := "approved"
@@ -127,6 +133,15 @@ describe("vanilla aggregate `function` emit (gap §11b)", () => {
     );
     // `return base` yields the bare value — NOT wrapped in `{:ok, …}`.
     expect(ctx).not.toContain("{:ok, base}");
+  });
+
+  it("runs a bare call to another function for its guard instead of dropping it", async () => {
+    const ctx = await contextModule();
+    const head = ctx.indexOf("def shipping_checked(%Api.Ordering.Order{} = record, extra) do");
+    expect(head).toBeGreaterThan(-1);
+    const body = ctx.slice(head, ctx.indexOf("\n  end", head));
+    expect(body).toContain("_ = shipping_for(record, extra)");
+    expect(body).toContain("record.total");
   });
 
   // ---- F8 (2026-09-03 language-docs audit) -------------------------------

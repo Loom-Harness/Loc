@@ -315,7 +315,10 @@ saves committed.
 
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
-`BeginTransactionAsync` / one Drizzle `db.transaction`).  Use it
+`BeginTransactionAsync` / one Drizzle `db.transaction`; on
+`persistence: dapper` every repository enlists in the unit of work's
+one Npgsql connection + transaction, so a later failure rolls the
+earlier saves back there too).  Use it
 when the workflow's aggregates share a database AND you want
 all-or-nothing semantics — at the cost of locking and the
 distribution barrier the keyword represents.

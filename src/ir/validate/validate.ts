@@ -112,6 +112,7 @@ import {
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
+  validateUiThisUnbound,
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
@@ -233,6 +234,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validateUiThisUnbound(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
