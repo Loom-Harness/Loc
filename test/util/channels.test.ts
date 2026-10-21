@@ -82,6 +82,8 @@ describe("channel transport vocabulary", () => {
       "correlationid",
       "scopeid",
       "tenantid",
+      "loomorgpath",
+      "loomcausedby",
     ]);
   });
 });
