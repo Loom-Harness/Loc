@@ -5,6 +5,7 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
@@ -205,7 +206,7 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
     }
   }
   if (t.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === t.name);
+    const e = enumPool(ctx).find((x) => x.name === t.name);
     const first = e?.values[0];
     return first ? `${t.name}.${jid(first)}` : "null";
   }

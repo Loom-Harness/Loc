@@ -1,0 +1,60 @@
+// A member named after a VALUE OBJECT — `amount: decimal` beside
+// `valueobject Amount` (M-T6.69).
+//
+// Why this fixture exists: the dotnet backend emits every declared member of an
+// aggregate as a bare C# member (`public decimal Amount`), and
+// `loom.dotnet-name-collision` refused any member whose C# name equalled a type
+// the aggregate class could reach by simple name — value objects included.  So
+// the most canonical DDD shape there is, a scalar `amount` beside an `Amount`
+// value object, was refused on .NET and accepted on the other four backends.
+// The deep fuzz leg found it unprompted (seeds 45, 70, 115 all shrink to this
+// model) and the independent completeness audit filed it as F1.
+//
+// The refusal was an over-fire, not a real limit: the emitted aggregate class
+// only ever names a value object (or an event) in TYPE position — a declaration
+// (`public Amount Price`), a parameter, or `new Amount(…)`, where `new` binds a
+// type and member lookup never runs — so a same-named member hides nothing, and
+// `dotnet build /warnaserror` is clean.  The gate now counts only the types the
+// class names in EXPRESSION position (its parts, enums and id classes).
+//
+// Compile-tier on all five backends, plus a runtime round-trip so every derived
+// route has a caller and the wire shape of the two same-named slots is pinned.
+system MemberNamedLikeVo {
+  subdomain Claims {
+    context Claiming {
+      valueobject Amount { scale: int }
+
+      aggregate Claim with crudish {
+        amount: decimal
+        price: Amount
+      }
+
+      repository Claims for Claim { }
+    }
+  }
+
+  api ClaimsApi from Claims
+  storage primary { type: postgres }
+  resource claimingState { for: Claiming, kind: state, use: primary }
+
+  test e2e "a scalar amount and an Amount value object round-trip side by side" against d {
+    let c = api.claims.create({ amount: 12.5, price: { scale: 2 } })
+    let read = api.claims.getById(c)
+    expect(read.amount).toBe(12.5)
+    expect(read.price.scale).toBe(2)
+    let all = api.claims.all({})
+    api.claims.update(c, { amount: 7, price: { scale: 3 } })
+    let after = api.claims.getById(c)
+    expect(after.amount).toBe(7)
+    expect(after.price.scale).toBe(3)
+    api.claims.destroy(c)
+  }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Claiming]
+    dataSources: [claimingState]
+    serves: ClaimsApi
+    port: 4000
+  }
+}

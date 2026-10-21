@@ -179,4 +179,19 @@ describe(".NET enhanced #line directives (M7 phase 6a)", () => {
     const content = files.get(ORDER_CS_PATH)!;
     expect(content).not.toContain("#line");
   });
+
+  // C5 (M-T6.75): the CLI hands `sourceTexts` to EVERY `generate system`
+  // run, so the weave must also key on the recorder — docs/debugging.md
+  // promises byte-identical output with `--sourcemap` off.
+  it("without sourcemap, sourceTexts alone weaves no directives (and the file matches a plain generate)", async () => {
+    const { model, sourceTexts } = await parseWithSourceTexts(SOURCE);
+    const withTexts = generateSystems(model, { sourceTexts }).files.get(ORDER_CS_PATH)!;
+    const plain = generateSystems(model, {}).files.get(ORDER_CS_PATH)!;
+    expect(withTexts).not.toContain("#line");
+    expect(withTexts).toBe(plain);
+    const mapped = generateSystems(model, { sourcemap: true, sourceTexts }).files.get(
+      ORDER_CS_PATH,
+    )!;
+    expect(mapped).toContain("#line");
+  });
 });

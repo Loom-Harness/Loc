@@ -1056,11 +1056,35 @@ On a success status (< 400) the session is committed before the first
 response byte leaves; on an error status (or an exception) it is rolled
 back.  Repositories/handlers pull this session via \`get_session\`
 (app/db/engine.py) off the \`request_session\` ContextVar.
+
+Events drained during the request are NOT fanned out inside that
+transaction (D-WRITE-TX): \`PostCommitDispatcher\` queues them on the
+request's \`post_commit\` list, which runs only AFTER the commit — still
+before the response starts, so a client reading right after sees the
+reactors' effects — and is dropped on a rollback.  The deferred work runs
+in a fresh transaction on the same session, committed once it is done.
 """
 
+from collections.abc import Awaitable, Callable
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.db.engine import request_session, session_factory
+from app.domain.events import post_commit
+
+
+async def _run_post_commit(
+    session: AsyncSession, deferred: list[Callable[[], Awaitable[None]]]
+) -> None:
+    # Closed first: anything this work dispatches in turn runs inline.
+    post_commit.set(None)
+    if not deferred:
+        return
+    for work in deferred:
+        await work()
+    deferred.clear()
+    await session.commit()
 
 
 class TransactionMiddleware:
@@ -1074,6 +1098,8 @@ class TransactionMiddleware:
 
         async with session_factory() as session:
             token = request_session.set(session)
+            deferred: list[Callable[[], Awaitable[None]]] = []
+            deferred_token = post_commit.set(deferred)
             finalized = False
 
             async def send_wrapper(message: Message) -> None:
@@ -1082,7 +1108,9 @@ class TransactionMiddleware:
                     finalized = True
                     if message["status"] < 400:
                         await session.commit()
+                        await _run_post_commit(session, deferred)
                     else:
+                        deferred.clear()
                         await session.rollback()
                 await send(message)
 
@@ -1090,9 +1118,11 @@ class TransactionMiddleware:
                 await self.app(scope, receive, send_wrapper)
             except BaseException:
                 if not finalized:
+                    deferred.clear()
                     await session.rollback()
                 raise
             finally:
+                post_commit.reset(deferred_token)
                 request_session.reset(token)
 `;
 

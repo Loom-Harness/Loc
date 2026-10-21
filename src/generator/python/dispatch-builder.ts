@@ -162,10 +162,10 @@ export function buildPyDispatchFile(
         outboxBlock(durableEvents, { durableBroker: true, pureProducer: true, hasRealtime }),
         "",
         "",
-        "def make_dispatcher(session: AsyncSession) -> ChannelTeeDispatcher:",
+        "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
         hasRealtime
-          ? `    return ChannelTeeDispatcher(OutboxDispatcher(session, ${REALTIME}(${NOOP}())))`
-          : `    return ChannelTeeDispatcher(OutboxDispatcher(session, ${NOOP}()))`,
+          ? `    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, ${REALTIME}(${NOOP}()))), _DURABLE_EVENT_TYPES)`
+          : `    return PostCommitDispatcher(ChannelTeeDispatcher(OutboxDispatcher(session, ${NOOP}())), _DURABLE_EVENT_TYPES)`,
       );
       return lines(
         `"""In-process event dispatch (channels.md).  Auto-generated.`,
@@ -181,6 +181,7 @@ export function buildPyDispatchFile(
         `from app.domain.events import ${[
           "DomainEvent",
           "NoopDomainEventDispatcher",
+          "PostCommitDispatcher",
           ...durableEvents.map((e) => e.name).sort(),
         ].join(", ")}`,
         "",
@@ -204,7 +205,7 @@ export function buildPyDispatchFile(
       "",
       "from sqlalchemy.ext.asyncio import AsyncSession",
       "",
-      "from app.domain.events import DomainEvent, DomainEventDispatcher",
+      "from app.domain.events import DomainEvent, DomainEventDispatcher, PostCommitDispatcher",
       "",
       // The PROTOCOL, not the Noop (M-T6.68, audit #2864 T6).  What the factory
       // below actually passes is the Noop OR — when a `delivery: broadcast`
@@ -217,9 +218,9 @@ export function buildPyDispatchFile(
       channelTeeClass("DomainEventDispatcher"),
       "",
       "",
-      "def make_dispatcher(_session: AsyncSession) -> ChannelTeeDispatcher:",
+      "def make_dispatcher(_session: AsyncSession) -> PostCommitDispatcher:",
       "    # The tee needs no db access; signature parity with the saga shape.",
-      `    return ChannelTeeDispatcher(${producerInner})`,
+      `    return PostCommitDispatcher(ChannelTeeDispatcher(${producerInner}))`,
       "",
     );
   }
@@ -302,13 +303,12 @@ export function buildPyDispatchFile(
     ? `${REALTIME}(InProcessDispatcher(session, isolate=True))`
     : "InProcessDispatcher(session, isolate=True)";
   const innerExpr = hasOutbox ? `OutboxDispatcher(session, ${innerCore})` : innerCore;
-  const returnType = hasChannels
-    ? '"ChannelTeeDispatcher"'
-    : hasOutbox
-      ? '"OutboxDispatcher"'
-      : hasRealtime
-        ? REALTIME
-        : "InProcessDispatcher";
+  // Outermost: `PostCommitDispatcher` (app/domain/events.py) defers the whole
+  // chain to the request's post-commit list (D-WRITE-TX, M-T4.3 item 6) — the
+  // reactors, the realtime wire and a broker publish all run after the request
+  // transaction commits, never inside it.  Durable events pass straight through
+  // so the OutboxDispatcher still records them INSIDE the transaction.
+  const chainExpr = hasChannels ? `ChannelTeeDispatcher(${innerExpr})` : innerExpr;
   const dispatcher = lines(
     "class InProcessDispatcher:",
     '    """Routes each emitted event to its subscribed workflow handlers;',
@@ -350,8 +350,8 @@ export function buildPyDispatchFile(
     // outermost: InProcess → Realtime → Outbox → ChannelTee — ephemeral
     // events stream inline, durable ones stream when the relay redelivers,
     // and broker-routed events publish from the outermost tee (mirrors Hono).
-    `def make_dispatcher(session: AsyncSession) -> ${returnType}:`,
-    hasChannels ? `    return ChannelTeeDispatcher(${innerExpr})` : `    return ${innerExpr}`,
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    `    return PostCommitDispatcher(${chainExpr}${hasOutbox ? ", _DURABLE_EVENT_TYPES" : ""})`,
   );
 
   const body = lines(
@@ -400,6 +400,7 @@ export function buildPyDispatchFile(
     `from app.domain.events import ${[
       "DomainEvent",
       ...(hasChannels ? ["DomainEventDispatcher"] : []),
+      "PostCommitDispatcher",
       ...[...new Set([...eventNames, ...esEventNames, ...emittedEventNames])].sort(),
     ].join(", ")}`,
     ...factoryAggs.map((n) => `from app.domain.${snake(n)} import ${n}`),
@@ -1207,7 +1208,7 @@ function buildRealtimeOnlyDispatch(): string {
     "",
     "from sqlalchemy.ext.asyncio import AsyncSession",
     "",
-    "from app.domain.events import DomainEvent",
+    "from app.domain.events import DomainEvent, PostCommitDispatcher",
     "from app.realtime import RealtimeDispatcher",
     "",
     "",
@@ -1223,8 +1224,8 @@ function buildRealtimeOnlyDispatch(): string {
     "        return None",
     "",
     "",
-    "def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:",
-    "    return RealtimeDispatcher(InProcessDispatcher(session))",
+    "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    "    return PostCommitDispatcher(RealtimeDispatcher(InProcessDispatcher(session)))",
     "",
   );
 }

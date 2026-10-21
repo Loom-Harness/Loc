@@ -5,8 +5,9 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake, upperFirst } from "../../util/naming.js";
+import { pythonIdent, pythonWireIdent, snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
@@ -332,10 +333,12 @@ export function esWorkflowFoldBlock(
 function esZeroFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === inner.name);
+    // `enumPool`, not `ctx.enums`: a state field typed by a SIBLING context's
+    // enum otherwise misses and zeroes to `cast(Kind, "")` (claims D1).
+    const e = enumPool(ctx).find((x) => x.name === inner.name);
     const first = e?.values[0];
     return first
-      ? `${pyVoOrEnum(inner.name)}.${first}`
+      ? `${pyVoOrEnum(inner.name)}.${pythonWireIdent(first)}`
       : `${PY.cast}(${pyVoOrEnum(inner.name)}, "")`;
   }
   return esZero(t);

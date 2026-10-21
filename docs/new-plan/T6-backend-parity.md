@@ -405,7 +405,7 @@ the correlation row, so a later `on` reactor logs `event_unrouted` forever.
 - **The wire contract for a payload-typed create param** (`z.unknown()` / `TS18046`) was [#2886](https://github.com/Loom-Harness/Loc/pull/2886)'s — **merged** (`7534696f`); the `loom.workflow-create-correlation-unsupplied#payload` refusal above can now be revisited against it.
 - **An `eventSourced` workflow with state fields and no id-shaped field** is unexamined; the `apply(...)` fold path is `StmtIR`, not `WorkflowStmtIR`, and is out of this packet's scope.
 
-## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `open` · **S–M** · P1 ⚠ verify-first
+## M-T6.69 — A field named `amount` beside a value object named `Amount` is refused on .NET only — `done` (#3107) · **S–M** · P1 ⚠ verify-first
 
 Found 2026-09-10 by the [independent completeness audit](../audits/2026-09-10-independent-completeness-audit.md) (F1),
 which the deep fuzz leg produced unprompted — three of 400 seeds reduce to this one shape.
@@ -752,6 +752,8 @@ Suspect: the java workflow request record's payload-field coercion (`src/generat
 Found by #3224 while keying `transactional-workflow-event-rollback` for the .NET legs. Its `debitTwice` workflow loads the same `Acct` twice (`let first = Accts.getById(src)`, `let second = Accts.getById(src)`) and debits each. Node and the Dapper adapter hold two handles with their own `version`, so the second save is stale → 409 and the transactional workflow rolls back (balance stays 90). On EF Core, `GetByIdAsync` is a tracked `FirstOrDefaultAsync` and the scoped `AppDbContext`'s identity map hands back the SAME instance both times: the operation runs twice on one object, the second `SaveAsync` has nothing new to write, no version check can fail, and the double debit commits (204, balance 80). Measured on the booted `run-dotnet.mjs` leg: `expected the call to reject, but it resolved`.
 
 Decide first which is the contract (the node golden says two loads are two handles); then on EF either load untracked and attach on save (the repository's `Detached ⇒ Add` branch in `SaveAsync` would have to become an upsert-by-version), or detach between loads. Python (SQLAlchemy session) may share the shape — unverified. Exit: add `dotnet` to `POST_COMMIT_WORKFLOW_DISPATCH` in `test/fixtures/corpus/manifest.ts` and delete the case's Dapper entry from `ADAPTER_ONLY_CASES` (`test/behavioral/registers.mjs`) — `test/behavioral/adapter-only-cases.test.ts` fails the entry as stale the moment the key lands.
+
+**java shares it (measured 2026-10-12, #3262).** Booted `run-java.mjs` on the case once M-T4.3 item 6 made java's workflow route publish: `debitOnce` passes (one Audit, after the commit), `debitTwice` answers 204 — `expected the call to reject, but it resolved`.  JPA's persistence context hands both `AcctRepositoryImpl.getById` loads the SAME managed entity, so the second `bumpVersion` reads the version the first save already applied.  Same ruling, same exit for the `java` key.  Python does NOT share it: its `debitTwice` 409s (booted, the leg is armed).
 
 ## M-T6.91 — the optimistic-concurrency 409 `detail` is spelled two ways: node `"<Aggregate> <id> was modified by another request"`, the other four `"The resource was modified by another request; reload and retry."` — `open` · **S** · P2 ⚠ needs a ruling first
 
