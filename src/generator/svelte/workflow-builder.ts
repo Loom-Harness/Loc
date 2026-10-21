@@ -3,9 +3,10 @@ import {
   contextUsesMoney,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
-import { collectSchemaDeps } from "../_frontend/workflows-module.js";
+import { collectSchemaDeps, hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -15,10 +16,9 @@ import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 // exported use* names).  Page objects come from the shared builders.
 // ---------------------------------------------------------------------------
 
-/** Whether any workflow exists across the deployable's contexts. */
-export function hasAnyWorkflow(contexts: BoundedContextIR[]): boolean {
-  return contexts.some((c) => c.workflows.length > 0);
-}
+/** Whether the deployable's workflows API module has anything to emit — the
+ *  shared gate (a command-startable or observable workflow exists). */
+export { hasAnyWorkflow };
 
 /** Gather every workflow with its owning context, sorted by name for
  *  stable emission. */
@@ -49,12 +49,16 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   // only imported when at least one exists, so a saga-less project's module
   // stays byte-identical.
   const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
+  // Only a command-startable workflow gets a request schema + mutation — an
+  // event-only saga has no `POST /workflows/<wf>` route on any backend.
+  const anyCommands = workflows.some(({ wf }) => emitsCommandRoute(wf));
+  const factories = [anyCommands ? "createMutation" : "", anyInstances ? "createQuery" : ""].filter(
+    Boolean,
+  );
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
-  lines.push(
-    `import { ${anyInstances ? "createMutation, createQuery" : "createMutation"} } from "@tanstack/svelte-query";`,
-  );
+  lines.push(`import { ${factories.join(", ")} } from "@tanstack/svelte-query";`);
   lines.push(`import { api, seg } from "./client";`);
   if (contexts.some(contextUsesMoney)) {
     lines.push(`import { moneySchema } from "../schemas";`);
@@ -68,6 +72,10 @@ export function buildWorkflowsApiModule(contexts: BoundedContextIR[]): string {
   }
 
   for (const { wf } of workflows) {
+    if (!emitsCommandRoute(wf)) {
+      if (wf.instanceWireShape) lines.push(...emitInstanceHooks(wf));
+      continue;
+    }
     const base = names.workflow(wf.name);
     lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {

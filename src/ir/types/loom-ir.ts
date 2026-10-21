@@ -1141,6 +1141,14 @@ export interface BoundedContextIR {
    *  translator reads `errorStatusOverrides?.[name] ?? defaultErrorStatus(name)`.
    *  Undefined in single-context (no-api) lowering — defaults apply. */
   errorStatusOverrides?: Record<string, number>;
+  /** Router slots (`routeSlot` form, `"get /api/orders/{}"`) occupied by the
+   *  explicit `route`s of the apis surfacing this subdomain.  The auto-derived
+   *  REST surface YIELDS any of its operations whose slot is listed
+   *  (D-EXPLICIT-ROUTE-WINS): the derivation flags it `claimedByExplicitRoute`,
+   *  the route + OpenAPI emitters skip it, and the explicit handler alone
+   *  serves the slot.  Populated by `enrichLoomModel`; undefined when those
+   *  apis declare no explicit route. */
+  explicitRouteSlots?: string[];
   /** App-wide resolved HTTP status for each structural-conflict built-in
    *  (`UniquenessConflict` / `ConcurrencyConflict` / `Disallowed` /
    *  `ReferencedInUse` — expressible-builtins.md §3 / M-T3.4a). Folded across
