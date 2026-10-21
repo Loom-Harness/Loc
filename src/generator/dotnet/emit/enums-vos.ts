@@ -16,7 +16,9 @@ import { collectCsStmtUsings, renderCsStatements } from "../render-stmt.js";
 // skip the invariant block).
 
 export function renderEnum(e: EnumIR, ns: string): string {
-  const valueLines = e.values.map((v, i) => `    ${v}${i < e.values.length - 1 ? "," : ""}`);
+  const valueLines = e.values.map(
+    (v, i) => `    ${escapeCsharpIdent(v)}${i < e.values.length - 1 ? "," : ""}`,
+  );
   return (
     lines(
       "// Auto-generated.",

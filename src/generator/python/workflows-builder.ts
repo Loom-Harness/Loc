@@ -40,6 +40,7 @@ import {
   upperFirst,
   workflowFnSnake,
 } from "../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
@@ -914,7 +915,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise ${PY.DomainError}(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
+      `${i}    raise ${PY.DomainError}(${workflowPreconditionThrowArgs(st)})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,

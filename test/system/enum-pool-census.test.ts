@@ -180,10 +180,6 @@ const p3 = (what: string): Waiver => ({
   deferred: `D1 / P3 (elixir+java+dotnet): ${what} — resolve against enumPool(ctx)`,
   reviewUntil: D1_DUE,
 });
-const p4 = (what: string): Waiver => ({
-  deferred: `D1 / P4 (frontends): ${what} — resolve against enumPool(ctx)`,
-  reviewUntil: D1_DUE,
-});
 
 const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
@@ -289,21 +285,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/dotnet/emit/tests.ts#renderSubjectTestsFile": p3(
     "unit-test `using …Domain.Enums` gate (a sibling enum lives in the sibling's namespace)",
   ),
-
-  // =========================================================================
-  // DEFERRED — fleet packet P4 (frontends) drains these.
-  // =========================================================================
-  "src/generator/_frontend/form-helpers.ts#initialValueTs": p4(
-    'form default (`""` instead of the first value)',
-  ),
-  "src/generator/_walker/form-fields-vm.ts#prepareFormFieldVM": p4(
-    "form field kind (TextInput instead of Select)",
-  ),
-  "src/generator/_frontend/workflows-module.ts#ensure": p4("workflows-module enum lookup"),
-  "src/generator/angular/form-fields.ts#fieldInput": p4("angular form field (empty option list)"),
-  "src/generator/angular/api-module.ts#collectResponseTypes": p4("angular response-type enum map"),
-  "src/generator/feliz/feliz-target.ts#enumsFromBc": p4("feliz form enum map"),
-  "src/generator/flutter/forms-emit.ts#enumsFromBc": p4("flutter form enum map"),
 };
 
 describe("enum-pool census — no name resolution of an enum through a context's own `.enums`", () => {
