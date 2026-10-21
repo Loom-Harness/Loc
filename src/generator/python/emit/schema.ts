@@ -3,6 +3,7 @@ import type {
   AssociationIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  FieldIR,
   ProjectionIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
@@ -20,7 +21,7 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, workflowStateTableName } from "../../../util/naming.js";
+import { plural, pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
 import { pyRef } from "../../_imports/python.js";
 import {
   columnsForFields,
@@ -34,7 +35,8 @@ import {
   valueCollectionChildColumns,
   valueCollectionRowClassName,
 } from "../py-columns.js";
-import { PY } from "../py-symbols.js";
+import { PY, pyVoOrEnum } from "../py-symbols.js";
+import { hydrateField, persistFieldValue } from "../repository-builder.js";
 import { provColumn } from "./provenance.js";
 
 // ---------------------------------------------------------------------------
@@ -218,7 +220,6 @@ export function renderPySchema(
   // `__loom_outbox` table when any channel asks for durability.
   if (durable) models.push(renderOutboxModel());
   const body = models.join("\n\n\n");
-
   return lines(
     `"""SQLAlchemy persistence model.  Auto-generated."""`,
     "",
@@ -482,7 +483,41 @@ function renderWorkflowStateModel(
     schema ? `    __table_args__ = ({"schema": "${schema}"},)` : null,
     "",
     cols.map(renderColumn),
+    ...(wf.stateFields ?? [])
+      .filter((f) => f.name !== corr)
+      .flatMap((f) => valueObjectStateProperty(f, ctx)),
   );
+}
+
+/** A value-object state field is FLATTENED to its leaf columns
+ *  (`total_amount` / `total_currency`, the shared migration's shape), but the
+ *  workflow handlers and the instance routes read and write it whole
+ *  (`state.total = Money(…)`, `row.total`).  A property pair over the leaf
+ *  columns gives the row that attribute: the getter rebuilds the value object
+ *  exactly as a repository hydrates one (`hydrateField`), the setter writes
+ *  the leaves exactly as a repository persists one (`persistFieldValue`).
+ *  Before it, `row.total` named no column — an AttributeError-free silent
+ *  instance attribute that never reached the table, while the NOT NULL leaf
+ *  columns stayed unset (eval B-A3a, python's #14a).  Empty for any other
+ *  field type. */
+function valueObjectStateProperty(f: FieldIR, ctx: EnrichedBoundedContextIR): string[] {
+  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (inner.kind !== "valueobject") return [];
+  if (!ctx.valueObjects.some((v) => v.name === inner.name)) return [];
+  const opt = f.optional || f.type.kind === "optional";
+  const attr = pythonIdent(f.name);
+  const voType = pyVoOrEnum(inner.name);
+  const ty = opt ? `${voType} | None` : voType;
+  return [
+    "",
+    "    @property",
+    `    def ${attr}(self) -> ${ty}:`,
+    `        return ${hydrateField("self", f, ctx)}`,
+    "",
+    `    @${attr}.setter`,
+    `    def ${attr}(self, value: ${ty}) -> None:`,
+    ...persistFieldValue("value", f, ctx).map(([col, val]) => `        self.${col} = ${val}`),
+  ];
 }
 
 /** Projection read-model row (mirrors `renderWorkflowStateModel`): PK is the

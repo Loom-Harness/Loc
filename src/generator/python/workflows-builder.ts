@@ -657,7 +657,7 @@ function workflowRoute(
     out.push(`        __key = str(${snake(corrParam.name)})`);
     out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
     out.push("        if state is None:");
-    out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf)})`);
+    out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf, ctx)})`);
     out.push("            session.add(state)");
   } else if (usesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow

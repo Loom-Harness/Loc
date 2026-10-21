@@ -575,6 +575,12 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
     const arg = decimalChainOperand(right, e.right) ?? right;
     return `${recv}.${DECIMAL_METHOD[e.op]}(${arg})${DECIMAL_NARROW}`;
   }
+  // A `money?` operand (or the `null` literal) in a comparison: null-safe
+  // before the `Decimal` method dispatch below, which would render
+  // `x.eq(null)` — a decimal.js throw — or fall a nullable left to reference
+  // `===` / native `>` on a Decimal.
+  const moneyCmp = renderNullableMoneyComparison(left, right, e);
+  if (moneyCmp !== null) return moneyCmp;
   // Money operands carry through as decimal.js `Decimal` instances —
   // their JS operators don't do precise math, so dispatch through the
   // class's method API.  Other primitives use native operators.  A decimal
@@ -647,6 +653,54 @@ function renderTemporalEquality(
   if (lt === null || rt === null) return null;
   const opPrint = e.op === "==" ? "===" : "!==";
   return `(${left})${lt}.getTime() ${opPrint} (${right})${rt}.getTime()`;
+}
+
+/** A money comparison with a nullable side, or null to fall through to the
+ *  `Decimal` method dispatch (both sides a plain `money`).
+ *  - `x == null` / `x != null` (either side the `null` literal) is a plain null
+ *    check, never `x.eq(null)` — decimal.js throws on a null argument.
+ *  - `==` / `!=` with a `money?` side compares canonical text: decimal.js
+ *    keeps no trailing zeros, so equal values print equal (`10.00` → `"10"`).
+ *    Both absent → equal, one absent → unequal, both present → same value —
+ *    the datetime arm's (B-13) null semantics.
+ *  - `<` / `<=` / `>` / `>=` with a `money?` side asserts presence (`!`) and
+ *    dispatches through the Decimal method (native `>` on a Decimal compares
+ *    `valueOf()` STRINGS — `"10" > "9"` is false); a guarded
+ *    `x == null || x > …` never reaches it absent. */
+function renderNullableMoneyComparison(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  const lt = moneyOperand(e.leftType);
+  const rt = moneyOperand(e.rightType);
+  if (e.op === "==" || e.op === "!=") {
+    const opPrint = e.op === "==" ? "===" : "!==";
+    if (isNullLiteral(e.left) || isNullLiteral(e.right)) {
+      return lt === null && rt === null ? null : `${left} ${opPrint} ${right}`;
+    }
+    if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+    return `(${left})${lt}.toString() ${opPrint} (${right})${rt}.toString()`;
+  }
+  const method = RELATIONAL_MONEY_METHOD[e.op];
+  if (method === undefined || lt === null || rt === null || (lt === "" && rt === "")) return null;
+  const present = (text: string, t: "" | "?") => (t === "?" ? `(${text})!` : text);
+  return `${present(left, lt)}.${method}(${present(right, rt)})`;
+}
+
+const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
+  "<": "lt",
+  "<=": "lte",
+  ">": "gt",
+  ">=": "gte",
+};
+
+/** `""` for a `money`, `"?"` for a `money?`, null for anything else. */
+function moneyOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && t.name === "money") return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && t.inner.name === "money")
+    return "?";
+  return null;
 }
 
 /** `""` for a `datetime`, `"?"` (optional chaining) for a `datetime?`, null

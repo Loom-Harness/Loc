@@ -17,6 +17,8 @@ import { PY, pyIdType } from "./py-symbols.js";
 import {
   aggHasFieldMask,
   aggRef,
+  allFindCapabilityFilter,
+  declaredAllFilterPredicate,
   emittableFinds,
   hydrateField,
   partWireMethod,
@@ -66,6 +68,8 @@ export function buildPyEmbeddedRepositoryFile(
   // Null when the aggregate has no capability filter — emission stays
   // byte-identical (`rootWhere(null, …)` → no `.where(...)`).
   const filterPred = contextFilterPredicate(agg, ctx);
+  const allPred = declaredAllFilterPredicate(agg, repo, ctx);
+  const allFilterPred = allFindCapabilityFilter(agg, repo, ctx, filterPred);
 
   const body = lines(
     `class ${agg.name}Repository:`,
@@ -99,7 +103,11 @@ export function buildPyEmbeddedRepositoryFile(
     ...writeGuardMethod(agg, row, writeScopePredicate(agg, ctx)),
     "",
     `    async def all(self) -> list[${aggRef(agg)}]:`,
-    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(null, row, undefined, filterPred)})).scalars().all()`,
+    // A DECLARED `find all(): X[] where <pred>` keeps its predicate (B-A1 —
+    // the embedded half of eval item 2): the root scalars are real columns, so
+    // it AND-s into the SQL `where` exactly as the relational `all()` does,
+    // and its `ignoring` stance narrows the capability filter the same way.
+    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(allPred, row, undefined, allFilterPred)})).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
     // `false`: the embedded repo loads the whole aggregate from one jsonb column
     // (no per-row child SELECT), so it emits no `_hydrate_many` — find methods
