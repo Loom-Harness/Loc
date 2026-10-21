@@ -310,6 +310,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
   "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-retired": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
@@ -386,7 +387,12 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.auth-unknown-provider": "17-auth.md#errors",
   "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
-  "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-param-not-a-field":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-param-required-omitted":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-call-field-not-in-create":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
@@ -434,7 +440,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",
   "loom.contain-receiver-invalid": "18-testing.md#tocontain--membership-or-substring",
   "loom.absent-receiver-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.throw-kind-custom-message": "18-testing.md#tothrow--the-throw-assertion",
   "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",

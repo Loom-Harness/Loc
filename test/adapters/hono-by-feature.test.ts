@@ -16,7 +16,7 @@ import {
   byLayerLayoutAdapter,
   type HonoArtifact,
 } from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
-import honoPlatform from "../../src/platform/hono/v4/index.js";
+import honoPlatform from "../../src/platform/hono/v5/index.js";
 import { resolveLayout, resolveStyle } from "../../src/platform/resolve-adapters.js";
 import { parseValid } from "../_helpers/parse.js";
 

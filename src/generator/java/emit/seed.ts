@@ -51,7 +51,7 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
   // each one's ordered create-call parameters — the aggregate's full
   // create-input set for a state aggregate, or the event-sourced `create`
   // action's OWN declared params for an event-sourced one.  `renderArgs`
-  // used to build every call from `forCreateInput(agg.fields)` regardless
+  // used to build every call from `createInputFields(agg)` regardless
   // of shape — on an event-sourced aggregate that is a param-count/name
   // mismatch against the `create` factory's OWN params
   // (`Account.create("seeded-alice", null)` against `create(String owner)`,
@@ -177,7 +177,7 @@ function renderDatasetFn(
  *  state aggregate, or the event-sourced `create` action's OWN declared
  *  params for an event-sourced one.  Java's factory takes every one of
  *  THOSE positionally; rows omit trailing/middle params → null.  This used
- *  to always read `forCreateInput(agg.fields)` — every declared FIELD —
+ *  to always read `createInputFields(agg)` — every declared FIELD —
  *  which on an event-sourced aggregate is a different, usually longer, list
  *  than the `create` factory's own params: `Account.create("seeded-alice",
  *  null)` positionally against `create(String owner)` (javac "cannot be

@@ -4,7 +4,7 @@
 // packaging-split P3 slice 4 (docs/packaging-split.md + plan file).
 // Today this is a thin re-export of the in-tree `src/` toolchain so
 // the `@loom/core` package identity exists on disk: backend packages
-// peer-depend on it (`@loom/backend-hono-v4` flips its peer to
+// peer-depend on it (`@loom/backend-hono-v5` flips its peer to
 // `@loom/core: workspace:*` in this slice) and `@loom/cli` will
 // depend on it.  Slice 5 physically relocates source into the
 // packages and this stops being a re-export.

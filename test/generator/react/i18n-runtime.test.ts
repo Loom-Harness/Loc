@@ -268,10 +268,10 @@ describe("React i18n runtime", () => {
   });
 
   it("renders the translated Divider label on the chakra packs too", async () => {
-    // chakra v2/v3 had a `hasLabel` branch identical to the unlabelled one, so the
-    // label was extracted into the catalog and rendered NOWHERE — a translator
-    // translating a string the app never showed.  Both now split the rule.
-    for (const design of ["chakra", `"chakra@v2"`]) {
+    // A `hasLabel` branch identical to the unlabelled one extracts the label
+    // into the catalog and renders it NOWHERE — a translator translating a
+    // string the app never shows.  The pack splits the rule around the label.
+    for (const design of ["chakra", `"chakra@v3"`]) {
       const files = await generateSystemFiles(
         SYSTEM(`Divider { label: "Section break" }`).replace(
           "ui: Web { Sales: api } port: 3100",

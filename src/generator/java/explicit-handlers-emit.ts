@@ -53,13 +53,20 @@ import {
   isReadingServiceOp,
 } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../ir/util/paged-run.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { JAVA_PAGED_QUERY_PARAMS } from "./emit/common.js";
+import { javaPagedQueryParams } from "./emit/common.js";
 import { domainToWire } from "./emit/wire.js";
 import {
   boundLocal,
@@ -305,17 +312,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -364,6 +361,17 @@ function renderPagedRunHandlerClass(
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
     .filter(Boolean)
     .join(", ");
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a ForbiddenException (→ 403) before the read; a gate reading `currentUser`
+  // resolves the actor through the injected accessor.
+  const usesUser = pagedRunGatesUseCurrentUser(h);
+  const gateLines = pagedRunGates(h).map(
+    (g) =>
+      `        if (!(${renderJavaExpr(g.expr, renderCtx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+  );
+  for (const g of pagedRunGates(h)) collectJavaExprImports(g.expr, imports);
+  const repo = `${agg}Repository ${repoField(agg)}`;
+  const ctorParams = usesUser ? `${repo}, CurrentUserAccessor currentUserAccessor` : repo;
   const ePkg = entityPkgOf(agg);
   const rPkg = repoPkgOf(agg);
   const aggImports = [
@@ -379,6 +387,8 @@ function renderPagedRunHandlerClass(
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
     ...aggImports,
+    usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
+    gateLines.length > 0 ? `import ${basePkg}.domain.common.ForbiddenException;` : null,
     `import ${basePkg}.domain.common.Paged;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -388,13 +398,17 @@ function renderPagedRunHandlerClass(
     `@Transactional(readOnly = true)`,
     `public class ${handlerName} {`,
     `    private final ${agg}Repository ${repoField(agg)};`,
+    usesUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
     ``,
-    `    public ${handlerName}(${agg}Repository ${repoField(agg)}) {`,
+    `    public ${handlerName}(${ctorParams}) {`,
     `        this.${repoField(agg)} = ${repoField(agg)};`,
+    usesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
     `    public Paged<${agg}> handle(${sigParams}) {`,
-    `        return ${repoField(agg)}.${run.retrievalName}(${callArgs});`,
+    usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+    ...gateLines,
+    `        return ${repoField(agg)}.${pagedRunFindName(run)}(${callArgs});`,
     `    }`,
     `}`,
     ``,
@@ -754,7 +768,7 @@ function emitPagedRunAction(
   );
   const actionParams = [
     ...h.params.map((p) => bind.get(p.name)!.actionParam),
-    ...JAVA_PAGED_QUERY_PARAMS,
+    ...javaPagedQueryParams(pagedRunSortDefault(h, ctx)),
   ].join(", ");
   const callArgs = [
     ...h.params.map((p) => bind.get(p.name)!.callArg),

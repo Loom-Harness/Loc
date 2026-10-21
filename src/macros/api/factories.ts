@@ -1086,6 +1086,31 @@ export function writableCreateFields(target: Aggregate): readonly Property[] {
   });
 }
 
+/**
+ * The fields a create REQUEST carries, as a macro sees them: the aggregate's
+ * author-written unnamed `create(p1, p2, …)` narrows the input to exactly its
+ * params (the IR's `declaredCreateParamNames`, which this mirrors at the AST
+ * layer), otherwise {@link writableCreateFields}.  A macro that builds a
+ * create command record or calls `<Agg>.create({ … })` must use this, or it
+ * would name fields the declared factory does not take.
+ *
+ * Mirrors the IR rule: a macro-synthesized create (`with crudish`, tagged with
+ * an origin token) and an event-sourced aggregate are never narrowed.
+ */
+export function createInputProperties(target: Aggregate): readonly Property[] {
+  const writable = writableCreateFields(target);
+  if ((target as { persistedAs?: string }).persistedAs === "eventLog") return writable;
+  const create = (target.members ?? []).find(
+    (m) =>
+      m.$type === "Create" &&
+      !(m as { name?: string }).name &&
+      (m as { [ORIGIN_PROP]?: OriginToken })[ORIGIN_PROP] === undefined,
+  ) as { params?: readonly { name: string }[] } | undefined;
+  if (!create?.params || create.params.length === 0) return writable;
+  const names = new Set(create.params.map((p) => p.name));
+  return writable.filter((f) => names.has(f.name));
+}
+
 // ---------------------------------------------------------------------------
 // Cross-decl accessors — typed views over Subdomain / BoundedContext
 // members, computed on the fly.  Used by ui-targeted macros like

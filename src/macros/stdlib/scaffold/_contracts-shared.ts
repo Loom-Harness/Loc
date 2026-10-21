@@ -31,11 +31,11 @@ import {
   apiReadFieldsOf,
   cloneTypeRef,
   command,
+  createInputProperties,
   field,
   idRef,
   query,
   response,
-  writableCreateFields,
 } from "../../api/index.js";
 import {
   type HandlerTarget,
@@ -86,7 +86,7 @@ function contractForTarget(t: HandlerTarget): ContractRecord {
   const base = targetHandlerName(t);
   switch (t.kind) {
     case "create":
-      return command(`${base}Command`, fieldsFromProps(writableCreateFields(t.agg)));
+      return command(`${base}Command`, fieldsFromProps(createInputProperties(t.agg)));
     case "operation":
       return command(`${base}Command`, fieldsFromParams(t.op.params));
     case "destroy":
