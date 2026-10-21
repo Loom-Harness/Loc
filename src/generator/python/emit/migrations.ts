@@ -2,7 +2,7 @@ import type { BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../../ir/types/migrations-ir.js";
 import { snake } from "../../../util/naming.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
-import { renderPgStep } from "../../sql-pg.js";
+import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 import {
   provenancedAggregates,
   provenanceMigrationTag,
@@ -38,22 +38,11 @@ function migrationTag(version: string, module: string, name: string): string {
   return `${version}_${snake(module)}_${snake(name)}`;
 }
 
-/** Split one rendered step into single statements (asyncpg executes one
- *  statement per call).  The DDL is loom-rendered, so a `;` at end of
- *  line is always a statement boundary. */
-function splitStatements(sql: string): string[] {
-  return sql
-    .split(/;\s*\n|;\s*$/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .map((s) => `${s};`);
-}
-
 export function emitPythonMigrations(migrations: MigrationsIR[], out: Map<string, string>): void {
   for (const m of migrations) {
     if (m.steps.length === 0) continue;
     const tag = migrationTag(m.version, m.module, m.name);
-    const statements = m.steps.flatMap((s) => splitStatements(renderPgStep(s)));
+    const statements = m.steps.flatMap((s) => splitPgStatements(renderPgStep(s)));
     out.set(`migrations/${tag}.sql`, `${statements.join(`\n${STATEMENT_BREAKPOINT}\n`)}\n`);
   }
 }

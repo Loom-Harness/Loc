@@ -632,9 +632,12 @@ pushes repeatedly while in progress — draft pushes were the bulk of the
 queue load, and the queue was the bulk of CI latency (jobs have sat queued
 for an hour before starting).
 
-So the fan-out is **draft-gated**: on a draft PR only the fast lane runs —
-`test.yml` (the required floor), `langium-generated`, `workflow-lint`, and
-`pr-gate` (which waits on whatever ran). Every other per-PR workflow carries
+So the fan-out is **draft-gated**: on a draft PR only the seconds-cheap lane
+runs — `langium-generated`, `workflow-lint`, and `pr-gate` (which waits on
+whatever ran). Drafts are train members (`docs/agent-runbook.md` → "Trains"):
+their authors run the suite locally and the train PR runs it once, so
+`test.yml` is draft-gated too — a draft cannot merge, so its skipped required
+check strands nothing. Every other per-PR workflow carries
 
 ```yaml
 on:
@@ -650,8 +653,8 @@ Marking the PR **ready for review** fires the full fan-out (that's what the
 `if` sits only on entry jobs — `needs:`-chained jobs cascade-skip, and the
 `<stem>-passed` rollups treat skipped needs as OK, exactly as in the merge
 queue. `pr-gate` also triggers on `ready_for_review`, so its verdict always
-covers the full set. Drafts can't merge anyway, so nothing is lost — a
-draft gets fast feedback, and "ready" means "now spend the fleet on me."
+covers the full set. Drafts can't merge anyway, so nothing is lost —
+"ready" means "now spend the fleet on me."
 
 The label-gated heavy workflows (`run-tenancy`, `run-channels`, …) are
 deliberately NOT draft-gated: applying the label to a draft is an explicit

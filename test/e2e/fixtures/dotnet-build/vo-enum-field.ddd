@@ -41,10 +41,11 @@ context Catalog {
   }
 
   aggregate Parcel {
-    create(shipTo: Address, routing: Routing, weight: Weight) {
+    create(shipTo: Address, routing: Routing, weight: Weight, origin: Country) {
       shipTo := shipTo
       routing := routing
       weight := weight
+      origin := origin
     }
     shipTo: Address
     routing: Routing

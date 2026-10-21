@@ -58,3 +58,24 @@ export function sortableFields(agg: AggregateIR): string[] {
   if (!out.includes("id")) out.unshift("id");
   return out;
 }
+
+/** The ORDER a paged find takes its page in when the caller's `sort` key is
+ *  not whitelisted, or `undefined` for the `id` fallback every paged read
+ *  shares.  A find carrying a `defaultSort` (a retrieval's declared `sort:`)
+ *  answers its declared terms, then `id` ascending as the tie-break so a page
+ *  boundary never splits equal keys nondeterministically.  Field names are the
+ *  candidate's own (first path segment — nested sort paths are refused at
+ *  validation); each backend spells the column. */
+export function defaultSortOrder(
+  defaultSort:
+    | readonly { path: readonly { name: string }[]; direction: "asc" | "desc" }[]
+    | undefined,
+): { field: string; direction: "asc" | "desc" }[] | undefined {
+  if (!defaultSort || defaultSort.length === 0) return undefined;
+  const terms = defaultSort.map((t) => ({
+    field: t.path[0]!.name,
+    direction: t.direction,
+  }));
+  if (!terms.some((t) => t.field === "id")) terms.push({ field: "id", direction: "asc" });
+  return terms;
+}

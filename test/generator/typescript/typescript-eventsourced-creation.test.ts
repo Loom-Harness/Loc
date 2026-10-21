@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_V4_PINS } from "../../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ context Accounts {
 async function generate(): Promise<Map<string, string>> {
   const { model, errors } = await parseString(SRC);
   expect(errors, errors.join("\n")).toEqual([]);
-  return generateTypeScript(model, HONO_V4_PINS);
+  return generateTypeScript(model, HONO_PINS);
 }
 
 function routesFile(files: Map<string, string>): string {
@@ -126,7 +126,7 @@ describe("Hono/Drizzle event-sourced creation (persistedAs: eventLog + create)",
         repository Accounts for Account { }
       }
     `);
-    const files = generateTypeScript(model, HONO_V4_PINS);
+    const files = generateTypeScript(model, HONO_PINS);
     const routes = routesFile(files);
     // No POST create route / request schema when there's no creator.
     expect(routes).not.toContain("CreateAccountRequest");

@@ -29,13 +29,9 @@ import {
 } from "../../src/generator/_packs/required-primitives.js";
 
 const BUILTIN_PACKS: ReadonlyArray<{ name: string; format: "tsx" | "heex" | "svelte" }> = [
-  { name: "mantine@v7", format: "tsx" },
   { name: "mantine@v9", format: "tsx" },
-  { name: "shadcn@v3", format: "tsx" },
   { name: "shadcn@v4", format: "tsx" },
-  { name: "mui@v5", format: "tsx" },
   { name: "mui@v7", format: "tsx" },
-  { name: "chakra@v2", format: "tsx" },
   { name: "chakra@v3", format: "tsx" },
   { name: "coreComponents@v3", format: "heex" },
   { name: "daisyui@v1", format: "heex" },

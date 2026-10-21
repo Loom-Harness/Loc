@@ -388,7 +388,7 @@ The backend families and what they generate (registered in `src/platform/registr
 | `python` | FastAPI + SQLAlchemy 2 (async) | 8000 | postgres | embeds a SPA |
 | `elixir` | Phoenix + Ecto, LiveView when a `ui:` is mounted — fullstack | 4000 | postgres | LiveView or a SPA |
 
-These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them now fails validation as an unknown platform. A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v4"` selects the zod-3 / TS-5 Hono package (`platform: node` resolves to the default `v5`). `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
+These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them now fails validation as an unknown platform. A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
 
 Per-platform output for the same `aggregate Order` is the subject of [Aggregates & domain model](03-domain-modeling.md); here the platform choice is what selects the *whole project shape* shown above.
 
@@ -449,11 +449,11 @@ DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyu
           | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin an older one with `design: "mantine@v7"`.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|
-| `react` / `static` (tsx) | `mantine` (v9; v7 pinnable), `shadcn` (v4; v3), `mui` (v7; v5), `chakra` (v3; v2) | `mantine` |
+| `react` / `static` (tsx) | `mantine` (v9), `shadcn` (v4), `mui` (v7), `chakra` (v3) | `mantine` |
 | `vue` | `vuetify` (v3), `shadcnVue` (v1) | `vuetify` |
 | `svelte` | `shadcnSvelte` (v1), `flowbite` (v1) | `shadcnSvelte` |
 | `angular` | `angularMaterial` (v1), `primeng` (v1), `spartanNg` (v1) | `angularMaterial` |

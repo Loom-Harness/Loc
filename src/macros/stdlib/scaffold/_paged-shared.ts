@@ -7,15 +7,22 @@
 // exactly like the `scaffoldHandlers` / `scaffoldApi` pair does through
 // `_handlers-shared.ts`.
 
-import type { Criterion } from "../../../language/generated/ast.js";
+import type { Criterion, Retrieval } from "../../../language/generated/ast.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { collectionPath } from "./_handlers-shared.js";
 
-/** The aggregate a criterion targets — the `T` in `criterion X(...) of T`.
- * Read off the criterion's target `TypeRef` base (`NamedType`/`IdType`, both
- * carrying a `target.$refText`). */
-export function criterionAggName(crit: Criterion): string {
-  const base = crit.target.base as { target?: { $refText?: string } };
+/** The read a paged scaffold exposes — the polymorphic `of:` argument of
+ * `scaffoldPaged` / `scaffoldPagedApi`: a `criterion` (the predicate) or a
+ * named `retrieval` (predicate + `sort:` / `loads:`).  Both run through
+ * `Repo.run(<it>(args))`, take their own params as the handler's, and target
+ * one aggregate (`of T`). */
+export type PagedReadSource = Criterion | Retrieval;
+
+/** The aggregate a criterion or retrieval targets — the `T` in `… of T`.
+ * Read off the target `TypeRef` base (`NamedType`/`IdType`, both carrying a
+ * `target.$refText`). */
+export function criterionAggName(src: PagedReadSource): string {
+  const base = src.target.base as { target?: { $refText?: string } };
   return base.target?.$refText ?? "";
 }
 

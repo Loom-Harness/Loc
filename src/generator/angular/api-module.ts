@@ -24,10 +24,16 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
-import { aggregateHasProvenanced, historyHookName } from "../_frontend/api-module.js";
+import {
+  aggregateHasProvenanced,
+  clientFinds,
+  findHookPath,
+  historyHookName,
+} from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 
@@ -255,8 +261,12 @@ function emitPartResponseInterface(part: EntityPartIR): string[] {
 /** Parameterised finds (everything but the auto `all`) the aggregate's
  *  repository declares — each lowers to a `GET /<tag>/<find>?<params>` route +
  *  an `injectQuery` factory keyed on the rendered params. */
-function paramFinds(repo: RepositoryIR | undefined): FindIR[] {
-  return (repo?.finds ?? []).filter((f) => f.name !== "all");
+function paramFinds(
+  aggName: string,
+  repo: RepositoryIR | undefined,
+  findRoutes: PagedFindRoutes | undefined,
+): FindIR[] {
+  return clientFinds(aggName, repo?.finds ?? [], findRoutes).filter((f) => f.name !== "all");
 }
 
 /** The `<Op><Agg>Response` discriminated-union alias for a union-returning
@@ -331,6 +341,9 @@ export function buildAngularApiModule(
   agg: EnrichedAggregateIR,
   repo?: RepositoryIR,
   bc?: BoundedContextIR,
+  /** The target backend's routes for synthesized paged finds — see the shared
+   *  `ApiModuleOptions.pagedFindRoutes`. */
+  findRoutes?: PagedFindRoutes,
 ): string {
   const single = agg.name;
   const serviceName = `${single}Service`;
@@ -514,7 +527,7 @@ export function buildAngularApiModule(
   // `<Agg>Response[]`, an optional/single find `<Agg>Response | null`.  (Paged /
   // discriminated-union returns fall back to the list shape — the precise
   // envelope typing is a later slice; the read path only needs the row shape.)
-  const finds = paramFinds(repo);
+  const finds = paramFinds(single, repo, findRoutes);
   const findReturnTs = (f: FindIR): string =>
     f.returnType.kind === "array"
       ? `${responseName}[]`
@@ -533,14 +546,14 @@ export function buildAngularApiModule(
     "",
   ]);
   const findMethods = finds.flatMap((f) => {
-    const findSnake = snake(f.name);
+    const path = findHookPath(tag, f, servedFindRoute(single, f, findRoutes));
     return [
       "",
       `  ${f.name}(query: ${findQueryType(f)}) {`,
       "    const qs = new URLSearchParams(",
       "      Object.entries(query).map(([k, v]) => [k, String(v)]),",
       "    ).toString();",
-      `    return this.http.get<${findReturnTs(f)}>(\`\${API_BASE_URL}/${tag}/${findSnake}\${qs ? "?" + qs : ""}\`);`,
+      `    return this.http.get<${findReturnTs(f)}>(\`\${API_BASE_URL}${path}\${qs ? "?" + qs : ""}\`);`,
       "  }",
     ];
   });

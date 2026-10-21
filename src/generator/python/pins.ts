@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // python@v1 — dependency pins (the version-owned slice of the backend;
-// mirrors `src/platform/hono/v4/pins.ts`).  PEP 508 requirement strings
+// mirrors `src/platform/hono/v5/pins.ts`).  PEP 508 requirement strings
 // spliced into the generated `pyproject.toml`.
 //
 // All ranges are within-major.  The `LOOM_PYTHON_BUILD` gate

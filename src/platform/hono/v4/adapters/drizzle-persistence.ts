@@ -15,7 +15,7 @@ import type { EmitCtx, Lines, PersistenceAdapter } from "../../../../generator/_
 import { renderSchema } from "../../../../generator/typescript/emit/schema.js";
 import type { EnrichedBoundedContextIR } from "../../../../ir/types/loom-ir.js";
 import { dedupeByName } from "../../../../util/dedupe.js";
-import { BACKEND_PINS } from "../pins.js";
+import { BACKEND_PINS } from "../../v5/pins.js";
 
 /** Find the matching repository declaration across the deployable's
  *  contexts.  Mirrors `findRepoFor` in the dotnet adapter. */

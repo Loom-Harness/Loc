@@ -30,6 +30,7 @@ When a check is red on your PR **because `main` is red too**, or because of an e
 - **Re-run a job at most once**, and only for the reasons the generic rules allow (it died before any test ran, or it passed earlier on this exact commit).
 - **Don't open a PR while more than ~20 non-draft PRs are open.** Help land the existing ones instead: review, resolve conflicts, fix red heads.
 - **No claim PRs.** Claim on the issue (see CLAUDE.md); open the PR when there is something to review.
+- **In a fleet, land through a train.** Workers open finished work as drafts (draft-gated, so almost free); a coordinator stacks 3–8 into one train PR, bisects failures locally, and queues only the train. The protocol is `docs/agent-runbook.md` → "Trains".
 
 ## 4. Order of work when the queue is backed up
 

@@ -116,3 +116,12 @@ jobs:
       - name: Run paged-list acceptance (1000-row seed)
         working-directory: test/behavioral
         run: node pagination.mjs
+
+      # A declared `create(…)`'s parameter list is the POST contract: post a
+      # FORGED body (a `when`-gated `status`, `notes`, defaulted fields) to the
+      # booted backend and assert each took its declared default.  The emitted
+      # DSL `test e2e` cannot express it — its create call is checked against
+      # the contract at compile time, so it cannot send a forged key.
+      - name: Run create-contract acceptance (forged create body)
+        working-directory: test/behavioral
+        run: node create-contract.mjs
