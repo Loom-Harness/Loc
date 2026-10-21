@@ -4,7 +4,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimPathFor } from "../_auth/claim-types.js";
+import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { pyRef } from "../_imports/python.js";
@@ -84,9 +84,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
   return `os.environ.get(${JSON.stringify(v.env)}, "")`;
 }
 
-/** The IdP claim path projected onto a user field — explicit `claims:` wins;
- *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
- *  Hono / .NET / Phoenix `claimPathFor`. */
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */
@@ -603,20 +600,79 @@ __PROJECTION__
 // https requirement, so a plain-http dev issuer (the bundled Keycloak) works.
 // ---------------------------------------------------------------------------
 
+/** One `field=cast(T, <read>),` kwarg per user field.  An identifier claim
+ *  (`claimShapes`) is read through `_claim_as` / `_claim_list`, so a malformed
+ *  value is None (a list drops it) rather than a non-None string that would
+ *  pass `currentUser.x != None`. */
 function renderBuildUserKwargs(user: UserIR, auth: AuthIR): string {
-  return user.fields
-    .map((f) => {
+  return claimShapes(user.fields, auth)
+    .map(({ field: f, path, optional, list, format }) => {
       const key = snake(f.name);
       const pyType = renderPyType(f.optional ? { kind: "optional", inner: f.type } : f.type);
-      const path = claimPathFor(f.name, auth);
-      const isArray =
-        f.type.kind === "array" || (f.type.kind === "optional" && f.type.inner.kind === "array");
-      const read = isArray
-        ? `_claim(payload, ${JSON.stringify(path)}) or []`
-        : `_claim(payload, ${JSON.stringify(path)})`;
+      const raw = `_claim(payload, ${JSON.stringify(path)})`;
+      let read: string;
+      if (format !== null && list) {
+        const decoded = `_claim_list(${raw}, ${JSON.stringify(format)})`;
+        read = optional ? `None if ${raw} is None else ${decoded}` : decoded;
+      } else if (format !== null) {
+        read = `_claim_as(${raw}, ${JSON.stringify(format)})`;
+      } else {
+        read = list ? `${raw} or []` : raw;
+      }
       return `        ${key}=cast(${pyType}, ${read}),`;
     })
     .join("\n");
+}
+
+/** `_REQUIRED_CLAIMS` + the format helpers.  A required scalar claim that is
+ *  absent or malformed rejects the token (→ 401); a required list is exempt
+ *  (an IdP omits an empty list, read as `[]`). */
+function renderClaimChecks(user: UserIR, auth: AuthIR): { defs: string; check: string } {
+  const shapes = claimShapes(user.fields, auth);
+  const formatted = shapes.some((s) => s.format !== null);
+  const required = shapes
+    .filter((s) => !s.optional && !s.list)
+    .map(
+      (s) =>
+        `(${JSON.stringify(s.path)}, ${s.format === null ? "None" : JSON.stringify(s.format)})`,
+    );
+  const helpers = formatted
+    ? `
+
+_CLAIM_FORMATS: dict[str, ${PY.re}.Pattern[str]] = {
+    "uuid": ${PY.re}.compile(r"${UUID_PATTERN}"),
+}
+
+
+def _claim_as(value: Any, fmt: str) -> str | None:
+    """A claim value in its declared wire format (a UUID for a guid id), or
+    None when it is absent or malformed."""
+    if isinstance(value, str) and _CLAIM_FORMATS[fmt].fullmatch(value):
+        return value
+    return None
+
+
+def _claim_list(value: Any, fmt: str) -> list[str]:
+    """A list claim with its malformed elements dropped; not a list → empty."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in (_claim_as(e, fmt) for e in value) if v is not None]`
+    : "";
+  const read = formatted
+    ? "_claim(payload, path) if fmt is None else _claim_as(_claim(payload, path), fmt)"
+    : "_claim(payload, path)";
+  const defs = `
+
+# Every REQUIRED scalar claim, with its wire format for an identifier claim.  A
+# verified token where one is absent or malformed does not describe a principal
+# the model declares, so it is rejected (→ 401).
+_REQUIRED_CLAIMS: list[tuple[str, str | None]] = [${required.join(", ")}]${helpers}`;
+  const check = `    for path, fmt in _REQUIRED_CLAIMS:
+        if (${read}) is None:
+            ${PY.log}("debug", "auth_token_rejected", reason=f"claim {path} absent or malformed")
+            return None
+`;
+  return { defs, check };
 }
 
 function renderOidcModule(user: UserIR, auth: AuthIR): string {
@@ -642,7 +698,8 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   if (!scopeList.includes("offline_access")) scopeList.push("offline_access");
   const scopes = scopeList.join(" ");
   const buildUser = renderBuildUserKwargs(user, auth);
-  return `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
+  const claimChecks = renderClaimChecks(user, auth);
+  const moduleText = `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
 claims onto User; the handshake router runs the authorization-code flow and
@@ -719,7 +776,7 @@ def _claim(payload: dict[str, Any], path: str) -> Any:
             current = current[segment]
         else:
             return None
-    return current
+    return current${claimChecks.defs}
 
 
 def _token_from(request: Request) -> str | None:
@@ -749,7 +806,7 @@ async def _oidc_verifier(request: Request) -> User | None:
         # misconfigured issuer / audience is diagnosable from the log stream.
         ${PY.log}("debug", "auth_token_rejected", reason=str(err))
         return None
-    return User(
+${claimChecks.check}    return User(
 ${buildUser}
     )
 
@@ -888,4 +945,5 @@ def _exchange_refresh(refresh_token: str) -> dict[str, Any] | None:
         }
     )
 `;
+  return moduleText;
 }

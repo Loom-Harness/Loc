@@ -30,7 +30,12 @@ import { lowerFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { renderJavaExpr } from "../render-expr.js";
-import { renderCreateCall, renderExplicitMatcher, renderOperationCall } from "./tests.js";
+import {
+  javaBareToThrow,
+  renderCreateCall,
+  renderExplicitMatcher,
+  renderOperationCall,
+} from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -75,7 +80,12 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR): string | undefined {
 }
 
 /** Render one integration-test statement (8-space body indent). */
-function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
+function renderStmt(
+  s: TestStmtIR,
+  ctx: BoundedContextIR,
+  /** Position in the test body: mints a collision-free local per throw assertion. */
+  index = 0,
+): string[] {
   const I = "        ";
   switch (s.kind) {
     case "let": {
@@ -111,7 +121,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR): string[] {
     case "expect-throws": {
       const inner =
         renderCreateCall(s.expr, ctx) ?? renderOperationCall(s.expr, ctx) ?? renderJavaExpr(s.expr);
-      return [`${I}assertThrows(DomainException.class, () -> ${inner});`];
+      return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
     }
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
@@ -124,7 +134,7 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s) => renderStmt(s, ctx));
+  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,

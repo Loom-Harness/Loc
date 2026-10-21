@@ -16,5 +16,6 @@ export const J = {
   Map: javaRef("java.util", "Map"),
   List: javaRef("java.util", "List"),
   UUID: javaRef("java.util", "UUID"),
+  Function: javaRef("java.util.function", "Function"),
   JsonNode: javaRef("tools.jackson.databind", "JsonNode"),
 } as const;

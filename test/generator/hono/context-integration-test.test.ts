@@ -97,4 +97,42 @@ system Ship {
     expect(f).toContain("o.place();");
     expect(f).toContain("await repos.order.save(o);");
   });
+
+  // `http/workflows.ts` exports `createInProcessDispatcher` only for a
+  // deployable with event subscriptions or durable events; a workflow alone
+  // (a command-started one, nothing reacting) does not emit it.  The test must
+  // not import a factory that is not there (TS2305 in the generated project).
+  it("a workflow with no event subscription uses the no-op dispatcher (no factory is emitted)", async () => {
+    const noReactor = `
+system Shop {
+  subdomain Sales { context Ordering {
+    aggregate Order {
+      code: string  qty: int
+      operation bump() { qty := qty + 1  emit OrderBumped { order: id } }
+    }
+    repository Orders for Order { }
+    event OrderBumped { order: Order id }
+    workflow placeOrder {
+      create(code: string) { let o = Order.create({ code: code, qty: 1 }) }
+    }
+    test "persists and reads back an order" {
+      let o = Order.create({ code: "abc", qty: 2 })
+      let found = Order.findById(o.id)
+      expect(found.qty).toBe(2)
+    }
+  } }
+  api ShopApi from Sales
+  storage db { type: postgres }
+  resource st { for: Ordering, kind: state, use: db }
+  deployable api { platform: node contexts: [Ordering] serves: ShopApi dataSources: [st] port: 8080 }
+}`;
+    const files = await generateSystemFiles(noReactor);
+    const wf = get(files, "http/workflows.ts");
+    expect(wf, "http/workflows.ts").toBeDefined();
+    expect(wf).not.toContain("createInProcessDispatcher");
+    const f = get(files, "test/ordering.integration.test.ts") ?? "";
+    expect(f).not.toContain("createInProcessDispatcher");
+    expect(f).toContain('import { NoopDomainEventDispatcher } from "../domain/events";');
+    expect(f).toContain("const events = NoopDomainEventDispatcher;");
+  });
 });

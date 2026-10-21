@@ -9,22 +9,14 @@ name: Elixir / Vanilla build verification
 #
 # The generate + compile loop lives in
 # `test/e2e/generated-elixir-vanilla-build.test.ts` (entrypoint:
-# `npm run test:phoenix-vanilla`).  A `configure` job enumerates the
-# fixtures dynamically, then a matrix runs ONE fixture per cell
-# (selected via `LOOM_PHOENIX_VANILLA_BUILD_CASE`): each cell
-# pre-generates to compute its own deps-cache signature, restores its
-# per-fixture cache, then hands off to the test (which honours
-# `LOOM_PHOENIX_OUT_DIR` and skips regeneration when mix.exs already
-# exists).  Sharding keeps a cold cache self-healing — see the job
-# comment below.
-#
-# The Elixir-foundation compile gate, sharded (#1367): the old single
-# job compiled all ~14
-# fixtures sequentially behind one shared cache, so a fully-cold run
-# (after the 7-day cache eviction) couldn't finish in the timeout, got
-# cancelled, and never reseeded the cache — staying red until a
-# maintainer intervened.
-#
+# `npm run test:phoenix`).  One job builds every fixture,
+# PARALLELISM (the runner's cores) at a time; each distinct dependency set is
+# fetched and compiled once into a template that every project starts from
+# (test/e2e/support/mix-workspace.ts), so a fixture costs its own compile and
+# suite rather than a cold `mix deps.get` + dependency build.  Sharded one
+# fixture per job, that setup (toolchain install, image pull, dependency
+# build) was repeated for every fixture for well under a minute of real work.
+
 # Triggers:
 #   - PRs that touch the vanilla generator subtree, the fixtures, or
 #     the test.
@@ -32,61 +24,6 @@ name: Elixir / Vanilla build verification
 #   - Manual dispatch.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      # Whole elixir generator subtree — render-expr.ts, domain/, heex-*,
-      # AND vanilla/ — not just vanilla/ + index.ts (audit A6.1: this was
-      # the narrowest backend gate, blind to its own render-expr/heex code).
-      - 'src/generator/elixir/**'
-      - 'src/generator/_api/**'
-      - 'src/generator/_frontend/**'
-      - 'src/generator/_openapi/**'
-      # Shared expression-renderer seam every domain-logic backend consumes.
-      - 'src/generator/_api/**'
-      - 'src/generator/_expr/**'
-      - 'src/generator/_openapi/**'
-      - 'src/platform/elixir.ts'
-      # Shared emission seams the platform tree above delegates into: `_stmt` is
-      # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
-      # the one tagged-union wire shape, `_i18n` the validation-catalog
-      # collector.  The leading underscore means SHARED, not per-target -- a
-      # change confined to one of them changes what this gate compiles.  Derived
-      # from this block's platform claim and pinned by
-      # test/system/workflow-path-coverage.test.ts.
-      - 'src/generator/_adapters/**'
-      - 'src/generator/_api/**'
-      - 'src/generator/_auth/**'
-      - 'src/generator/_channels/**'
-      - 'src/generator/_docker/**'
-      - 'src/generator/_i18n/**'
-      - 'src/generator/_numeric/**'
-      - 'src/generator/_obs/**'
-      - 'src/generator/_openapi/**'
-      - 'src/generator/_packs/**'
-      - 'src/generator/_payload/**'
-      - 'src/generator/_persistence/**'
-      - 'src/generator/_stmt/**'
-      - 'src/generator/_imports/**'
-      - 'src/generator/_test/**'
-      - 'src/generator/_trace/**'
-      - 'src/generator/_walker/**'
-      - 'src/generator/_workflow/**'
-      - 'test/e2e/fixtures/elixir-vanilla-build/**'
-      - 'test/e2e/generated-elixir-vanilla-build.test.ts'
-      - 'package.json'
-      - '.github/workflows/elixir-vanilla-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -104,6 +41,7 @@ on:
       - 'src/generator/elixir/**'
       - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_frontend/**'
       - 'src/generator/_openapi/**'
       - 'src/platform/elixir.ts'
@@ -127,13 +65,17 @@ on:
       - 'src/generator/_payload/**'
       - 'src/generator/_persistence/**'
       - 'src/generator/_stmt/**'
-      - 'src/generator/_imports/**'
       - 'src/generator/_test/**'
       - 'src/generator/_trace/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_workflow/**'
       - 'test/e2e/fixtures/elixir-vanilla-build/**'
       - 'test/e2e/generated-elixir-vanilla-build.test.ts'
+      - 'test/e2e/support/hex-mirror.ts'
+      - 'test/e2e/support/mix-retry.ts'
+      - 'test/e2e/support/mix-workspace.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - '.github/workflows/elixir-vanilla-build.yml'
   workflow_dispatch:
@@ -147,38 +89,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Enumerate the fixtures dynamically so adding/removing a `.ddd` under
-  # test/e2e/fixtures/elixir-vanilla-build/ needs no workflow edit.  Output is
-  # JSON consumed by the matrix below via `fromJSON`.  ~5s of runner time.
-  configure:
+  # Every fixture in one job — see the header.  The fixture list is read from
+  # the directory inside the test, so adding a `.ddd` needs no workflow edit.
+  build-generated-elixir-vanilla:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v6
-      - id: set
-        run: |
-          fixtures=$(for f in test/e2e/fixtures/elixir-vanilla-build/*.ddd; do
-            basename "$f" .ddd
-          done | jq -R . | jq -cs .)
-          echo "matrix={\"fixture\":$fixtures}" >> "$GITHUB_OUTPUT"
-
-  # One job PER fixture (sharded, #1367).  A
-  # fully cold cell is ONE fixture (~2-3min) — it always completes within the
-  # timeout and reseeds its own per-fixture cache, so a cold cache self-heals.
-  build-generated-elixir-vanilla:
-    needs: configure
-    runs-on: ubuntu-latest
-    strategy:
-      # Surface every broken fixture rather than aborting on the first.
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    timeout-minutes: 15
-    name: ${{ matrix.fixture }}
+    timeout-minutes: 60
+    name: elixir vanilla build (every fixture)
     steps:
       - uses: actions/checkout@v6
 
@@ -187,16 +107,14 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # `npm ci` runs the `prepare` lifecycle (langium:generate +
-      # build); the toolchain compiles before any test step needs it.
       # Docker Hub pulls flake: a registry timeout (Client.Timeout on
-      # registry-1.docker.io) killed an otherwise-green cell on #2380 with
-      # exit 125 before any compile ran. Pre-pull with backoff so a transient
-      # hiccup costs seconds, not the cell. The tag is grepped from the test
-      # file — the single source of truth — so a version bump cannot drift.
+      # registry-1.docker.io) killed an otherwise-green run with exit 125
+      # before any compile ran. Pre-pull with backoff so a transient hiccup
+      # costs seconds, not the run. The tag is grepped from the support module
+      # that pins it — the single source of truth — so a bump cannot drift.
       - name: Pre-pull the hexpm/elixir image (retries)
         run: |
-          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/generated-elixir-vanilla-build.test.ts | head -1)
+          IMG=$(grep -ohE 'hexpm/elixir:[A-Za-z0-9._-]+' test/e2e/support/mix-workspace.ts | head -1)
           echo "pre-pulling $IMG"
           for i in 1 2 3 4; do
             docker pull "$IMG" && exit 0
@@ -204,52 +122,23 @@ jobs:
           done
           exit 1
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      # `npm ci` runs the `prepare` lifecycle (langium:generate + build); the
+      # toolchain compiles before any test step needs it.
       - name: Install Loom toolchain
         run: npm ci
 
-      # Pre-generate THIS fixture into a stable path so we can hash the
-      # emitted mix.exs for the cache key.  Vanilla fixtures emit to
-      # `<deployable>/` (e.g. `api/`) — so the cache globs `*/out/*/`.
-      - name: Pre-generate fixture (for cache key)
-        run: |
-          mkdir -p "/tmp/ci/vanilla/${{ matrix.fixture }}/out"
-          node bin/cli.js generate system \
-            "test/e2e/fixtures/elixir-vanilla-build/${{ matrix.fixture }}.ddd" \
-            -o "/tmp/ci/vanilla/${{ matrix.fixture }}/out"
-
-      - name: Compute vanilla dep signature
-        id: vanilla-depsig
-        run: |
-          hash=$(find "/tmp/ci/vanilla/${{ matrix.fixture }}" -name mix.exs -print0 \
-            | xargs -0 cat | sha256sum | cut -d' ' -f1)
-          echo "hash=$hash" >> "$GITHUB_OUTPUT"
-
-      - name: Cache vanilla deps + _build
-        uses: actions/cache@v5
-        with:
-          path: |
-            /tmp/ci/vanilla/${{ matrix.fixture }}/out/*/deps
-            /tmp/ci/vanilla/${{ matrix.fixture }}/out/*/_build
-          key: vanilla-mix-${{ matrix.fixture }}-${{ steps.vanilla-depsig.outputs.hash }}
-          # On cache miss (mix.exs changed), fall back to this fixture's most
-          # recent stale cache so mix only re-fetches/-compiles deltas.
-          restore-keys: |
-            vanilla-mix-${{ matrix.fixture }}-
-
-      - name: Run test:phoenix-vanilla (this fixture)
-        env:
-          LOOM_PHOENIX_VANILLA_BUILD: "1"
-          LOOM_PHOENIX_OUT_DIR: /tmp/ci/vanilla
-          LOOM_PHOENIX_VANILLA_BUILD_CASE: ${{ matrix.fixture }}.ddd
-        run: npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts
+      - name: mix compile + mix test every vanilla fixture
+        run: npm run test:phoenix
 
       - name: Surface failure context
         if: failure()
         run: |
-          echo "## Elixir / Vanilla mix compile failed: ${{ matrix.fixture }}.ddd" >> $GITHUB_STEP_SUMMARY
+          echo "## Elixir / Vanilla mix compile failed" >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
-          echo 'See the "Run test:phoenix-vanilla" step above for the captured `mix deps.get` + `mix compile --warnings-as-errors` diagnostics.' >> $GITHUB_STEP_SUMMARY
-          echo 'This cell builds `test/e2e/fixtures/elixir-vanilla-build/${{ matrix.fixture }}.ddd` via its `it.each` iteration in `test/e2e/generated-elixir-vanilla-build.test.ts`.' >> $GITHUB_STEP_SUMMARY
+          echo 'The vitest report above names each failing fixture and carries its captured `mix compile --warnings-as-errors` / `mix test` / SPA build output.' >> $GITHUB_STEP_SUMMARY
+          echo 'Reproduce one fixture locally: `LOOM_PHOENIX_VANILLA_BUILD=1 LOOM_PHOENIX_VANILLA_BUILD_CASE=<fixture>.ddd npx vitest run test/e2e/generated-elixir-vanilla-build.test.ts` (add LOOM_HEX_MIRROR=1 behind a TLS-fingerprinting proxy).' >> $GITHUB_STEP_SUMMARY
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
   # One stable check name for this workflow.  The jobs above are a matrix
@@ -268,7 +157,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [configure, build-generated-elixir-vanilla]
+    needs: [build-generated-elixir-vanilla]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

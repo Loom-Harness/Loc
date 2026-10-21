@@ -11,6 +11,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { workflowEmits } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -1162,8 +1163,10 @@ function renderEsMergedHandler(
   ];
 }
 
+/** Whether a handler body emits anywhere — `if let` / `else` / `for` bodies
+ *  included (`workflowEmits` rides `walkWorkflowStmtsDeep`).  The recursion
+ *  this replaced descended `for` only, so an `emit` inside an `if let` branch
+ *  rendered as a bare log line and was never re-published (claims D4). */
 function bodyHasEmit(statements: WorkflowStmtIR[]): boolean {
-  return statements.some(
-    (s) => s.kind === "emit" || (s.kind === "for-each" && bodyHasEmit(s.body)),
-  );
+  return workflowEmits(statements).length > 0;
 }

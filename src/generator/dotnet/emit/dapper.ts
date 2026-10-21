@@ -33,7 +33,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import type { TableShape } from "../../../ir/types/migrations-ir.js";
+import type { IndexShape, TableShape } from "../../../ir/types/migrations-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import {
   isTphBase,
@@ -62,11 +62,11 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { renderCreateTableIfNotExists } from "../../sql-pg.js";
+import { renderCreateIndexIfNotExists, renderCreateTableIfNotExists } from "../../sql-pg.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
-import { csLocalNamer } from "../local-names.js";
+import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -1196,7 +1196,7 @@ function renderParams(params: ParamIR[], extra: readonly string[] = [], usesUser
     ...ps,
     ...extra,
     ...(usesUser ? ["User currentUser"] : []),
-    "CancellationToken cancellationToken = default",
+    `CancellationToken ${csReadOwnParams(params.map((p) => p.name)).ct} = default`,
   ].join(", ");
 }
 
@@ -1760,6 +1760,7 @@ export function renderDapperRepository(
       f.params.map((p) => p.name),
       DAPPER_FIND_LOCALS,
     );
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
     // Id-typed params bind their wrapped `.Value` (Dapper has no handler for
     // the strongly-typed id struct); ENUM-typed params bind `.ToString()`;
     // scalars bind directly.
@@ -1842,24 +1843,24 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,
-        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
+        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
         `        var ${L("offset")} = (page - 1) * pageSize;`,
         `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "id" };`,
         `        var ${L("sortDir")} = dir == "desc" ? "DESC" : "ASC";`,
-        `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: cancellationToken));`,
+        `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: ${ct}));`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY {${L("sortColumn")}} {${L("sortDir")}} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: cancellationToken));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY {${L("sortColumn")}} {${L("sortDir")}} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
         ...(hasContains
           ? [
-              `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
+              `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`,
               ...(hasAssoc
-                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, cancellationToken);`]
+                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, ${ct});`]
                 : []),
             ]
           : [
               `        var ${L("items")} = ${L("rows")}.Select(Map).ToList();`,
               ...(hasAssoc
-                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, cancellationToken);`]
+                ? [`        await LoadRefsAsync(${L("conn")}, ${L("items")}, ${ct});`]
                 : []),
             ]),
         `        return new Paged<${agg.name}>(${L("items")}, page, pageSize, ${L("total")}, ${L("totalPages")});`,
@@ -1870,22 +1871,20 @@ export function renderDapperRepository(
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
         `    {`,
-        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: cancellationToken));`,
+        `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: ${ct}));`,
         ...(hasContains
           ? hasAssoc
             ? [
-                `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
-                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+                `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`,
+                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${ct});`,
                 `        return ${L("__roots")};`,
               ]
-            : [
-                `        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
-              ]
+            : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`]
           : hasAssoc
             ? [
                 `        var ${L("__roots")} = ${L("rows")}.Select(Map).ToList();`,
-                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+                `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${ct});`,
                 `        return ${L("__roots")};`,
               ]
             : [`        return ${L("rows")}.Select(Map).ToList();`]),
@@ -1919,14 +1918,14 @@ export function renderDapperRepository(
     return lines(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
-      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
-      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: cancellationToken));`,
+      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${ct});`,
+      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: ${ct}));`,
       ...(hasContains
         ? [
             absentGuard,
-            `        var ${L("__one")} = await HydrateAsync(${L("conn")}, new List<Row> { ${L("r")} }, cancellationToken);`,
+            `        var ${L("__one")} = await HydrateAsync(${L("conn")}, new List<Row> { ${L("r")} }, ${ct});`,
             ...(hasAssoc
-              ? [`        await LoadRefsAsync(${L("conn")}, ${L("__one")}, cancellationToken);`]
+              ? [`        await LoadRefsAsync(${L("conn")}, ${L("__one")}, ${ct});`]
               : []),
             `        return ${L("__one")}[0];`,
           ]
@@ -1934,7 +1933,7 @@ export function renderDapperRepository(
           ? [
               absentGuard,
               `        var ${L("__one")} = new List<${agg.name}> { Map(${L("r")}) };`,
-              `        await LoadRefsAsync(${L("conn")}, ${L("__one")}, cancellationToken);`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__one")}, ${ct});`,
               `        return ${L("__one")}[0];`,
             ]
           : [`        return ${L("r")} is null ? ${absent} : Map(${L("r")});`]),
@@ -1954,6 +1953,7 @@ export function renderDapperRepository(
       r.params.map((p) => p.name),
       DAPPER_RETRIEVAL_LOCALS,
     );
+    const own = csReadOwnParams(r.params.map((p) => p.name));
     let whereSql: string;
     try {
       whereSql = whereToSql(r.where, sqlCtx);
@@ -1992,8 +1992,8 @@ export function renderDapperRepository(
               const guard = !part.bypassable
                 ? ""
                 : part.origin != null
-                  ? `if (!bypass.All && bypass.Capabilities?.Contains(${JSON.stringify(part.origin)}) != true) `
-                  : `if (!bypass.All) `;
+                  ? `if (!${own.bypass}.All && ${own.bypass}.Capabilities?.Contains(${JSON.stringify(part.origin)}) != true) `
+                  : `if (!${own.bypass}.All) `;
               return `        ${guard}${L("__caps")}.Add("${part.sql}");`;
             }),
             `        var ${L("sql")} = "${headSql}" + (${L("__caps")}.Count > 0 ? " AND " + string.Join(" AND ", ${L("__caps")}) : "")${orderSql ? ` + "${orderSql}"` : ""};`,
@@ -2019,26 +2019,24 @@ export function renderDapperRepository(
     return lines(
       `    public async Task<IReadOnlyList<${agg.name}>> Run${name}Async(${renderRetrievalParamsWithCt(r.params)})`,
       `    {`,
-      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(cancellationToken);`,
+      `        await using var ${L("conn")} = await _db.OpenConnectionAsync(${own.ct});`,
       ...bypassLines,
       `        var ${L("p")} = new DynamicParameters();`,
       ...paramAdds,
-      `        if (page is { } ${L("pg")})`,
+      `        if (${own.page} is { } ${L("pg")})`,
       `        {`,
       `            if (${L("pg")}.limit is { } ${L("lim")}) { ${L("sql")} += " LIMIT @__lim"; ${L("p")}.Add("__lim", ${L("lim")}); }`,
       `            if (${L("pg")}.offset is { } ${L("off")}) { ${L("sql")} += " OFFSET @__off"; ${L("p")}.Add("__off", ${L("off")}); }`,
       `        }`,
-      `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition(${L("sql")}, ${L("p")}, cancellationToken: cancellationToken));`,
+      `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition(${L("sql")}, ${L("p")}, cancellationToken: ${own.ct}));`,
       ...(hasContains
         ? hasAssoc
           ? [
-              `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
-              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, cancellationToken);`,
+              `        var ${L("__roots")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`,
+              `        await LoadRefsAsync(${L("conn")}, ${L("__roots")}, ${own.ct});`,
               `        return ${L("__roots")};`,
             ]
-          : [
-              `        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), cancellationToken);`,
-            ]
+          : [`        return await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${own.ct});`]
         : [`        return ${L("rows")}.Select(Map).ToList();`]),
       `    }`,
     );
@@ -2206,7 +2204,7 @@ export function renderDapperRepository(
       "        await __tx.CommitAsync(cancellationToken);",
       "        foreach (var ev in __deferred)",
       "        {",
-      "            await _events.DispatchAsync(ev, cancellationToken);",
+      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "        }",
       "    }",
       deleteMethod ? "" : null,
@@ -2384,14 +2382,15 @@ export function renderDapperDocumentRepository(
     const filter = body?.filterClause ?? "";
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects twins.
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()");
     const usesUser = findUsesCurrentUser(f);
     // `conn` steps aside for a same-named find param (CS0136) — see csLocalNamer.
     const conn = csLocalNamer(f.params.map((p) => p.name))("conn");
     const loadAllLines = [
-      `await using var ${conn} = await _db.OpenConnectionAsync(cancellationToken);`,
+      `await using var ${conn} = await _db.OpenConnectionAsync(${ct});`,
       // ORDER BY id — the document carrier's whole-table read answers in
       // Postgres heap order without it, and an `update` rewrites the tuple, so
       // a row MOVES after an unrelated write.  The EF twin of this read (see
@@ -2400,7 +2399,7 @@ export function renderDapperDocumentRepository(
       // that one was reached, so dapper kept answering heap order while EF did
       // not.  It is the same read on the same table, so it gets the same
       // ordering.  Id is the primary key, so this is an index scan.
-      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: cancellationToken));`,
+      `var __rows = await ${conn}.QueryAsync<Row>(new CommandDefinition("SELECT id, data, version FROM ${table} ORDER BY id", cancellationToken: ${ct}));`,
       // The capability filter narrows the visible set BEFORE the find's own
       // predicate runs, so a find never returns a capability-hidden (foreign
       // tenant, soft-deleted) document.
@@ -2516,7 +2515,7 @@ export function renderDapperDocumentRepository(
       ...saveLines,
       "        foreach (var ev in aggregate.PullEvents())",
       "        {",
-      "            await _events.DispatchAsync(ev, cancellationToken);",
+      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "        }",
       "    }",
       deleteMethod ? "" : null,
@@ -2615,16 +2614,17 @@ export function renderDapperEventSourcedRepository(
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
     // ES finds load every stream in-memory, so strip the async EF terminal
-    // (the projection clause is built with `cancellationToken`).
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()");
+    // (the projection clause passes the method's own token, `ct`).
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()");
     // `find … paged` over an event-log carrier (ledger row F2-CB-C1) — the
     // same in-memory page the EF event-store path emits; see the document
     // repository above for why the Dapper mirror must offer the paged contract.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, {
-        loadAll: "var __all = await _LoadAllAsync(cancellationToken);",
+        loadAll: `var __all = await _LoadAllAsync(${ct});`,
         filter,
         usesUser: findUsesCurrentUser(f),
         log: false,
@@ -2633,7 +2633,7 @@ export function renderDapperEventSourcedRepository(
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
       "    {",
-      "        var __all = await _LoadAllAsync(cancellationToken);",
+      `        var __all = await _LoadAllAsync(${ct});`,
       `        return __all${filter}${projection};`,
       "    }",
     ];
@@ -2731,7 +2731,7 @@ export function renderDapperEventSourcedRepository(
       "        }",
       ...audit.flush,
       audit.commit,
-      "        foreach (var ev in __pending) await _events.DispatchAsync(ev, cancellationToken);",
+      "        foreach (var ev in __pending) await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "    }",
       "",
       `    private async Task<List<${agg.name}>> _LoadAllAsync(CancellationToken cancellationToken)`,
@@ -2763,6 +2763,27 @@ export function renderDapperEventSourcedRepository(
 // aggregate, embedded in a C# helper run once at startup.
 // ---------------------------------------------------------------------------
 
+/** Collect the `unique` indexes the MigrationsIR derived (from `unique (…)`)
+ *  for the tables this deployable's migrations carry, keyed by table name — the
+ *  data `renderDapperSchema` appends after each CREATE TABLE.  Reads only the
+ *  `_uq`-suffixed unique indexes (`uniqueIndexName`'s convention); the event-log
+ *  `seq` cursor index is unique too, but the bootstrap already emits it. */
+export function dapperUniqueIndexesByTable(
+  tables: readonly TableShape[],
+): Map<string, readonly IndexShape[]> {
+  const out = new Map<string, IndexShape[]>();
+  for (const t of tables) {
+    for (const ix of t.indexes) {
+      if (!ix.unique || !ix.name.endsWith("_uq")) continue;
+      const list = out.get(t.name) ?? [];
+      if (list.some((x) => x.name === ix.name)) continue;
+      list.push(ix);
+      out.set(t.name, list);
+    }
+  }
+  return out;
+}
+
 export function renderDapperSchema(
   aggs: readonly EnrichedAggregateIR[],
   ns: string,
@@ -2791,7 +2812,17 @@ export function renderDapperSchema(
    *  deployable owns this module's migrations (that owner's migration creates
    *  the table). */
   provenanceHistoryTable?: TableShape,
+  /** The MigrationsIR's derived `unique (…)` indexes, keyed by table name
+   *  (`dapperUniqueIndexesByTable`).  The Dapper path writes its own CREATE
+   *  TABLE but must not re-derive uniqueness: the shared derivation owns the
+   *  index name (`<table>_<cols>_uq`, the 23505 → 409 join key), the column
+   *  spelling and the softDeletable partial predicate.  Each table's indexes
+   *  are appended right after its CREATE TABLE. */
+  uniqueIndexesByTable: ReadonlyMap<string, readonly IndexShape[]> = new Map(),
 ): string {
+  // Unqualified: DbSchema creates every table in `public`.
+  const uniqueIndexesOn = (table: string): string[] =>
+    (uniqueIndexesByTable.get(table) ?? []).map((ix) => renderCreateIndexIfNotExists(ix));
   // Event-sourced aggregates own no per-aggregate table — their stream lives in
   // the shared per-context `<ctx>_events` log emitted after this map.  Document
   // aggregates own one `(id, data, version)` blob table.  A TPC (`ownTable`)
@@ -2878,7 +2909,12 @@ export function renderDapperSchema(
       const shared = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${ddlCols.join(",\n")}\n);`;
       // A TPH base may itself declare `contains` / `X id[]` — its own child /
       // join tables FK the shared table (owner = the base).
-      return [shared, ...childTablesFor(agg, agg.name), ...joinTablesFor(agg)];
+      return [
+        shared,
+        ...uniqueIndexesOn(tableOf(agg.name)),
+        ...childTablesFor(agg, agg.name),
+        ...joinTablesFor(agg),
+      ];
     }
     // Document shape: the whole aggregate is one JSONB `data` column.  No
     // per-field columns, no child/join tables — the graph folds into the blob.
@@ -2902,7 +2938,12 @@ export function renderDapperSchema(
       return `    ${sqlIdent(c.col)} ${c.sql}${pk}${nn}`;
     });
     const root = `CREATE TABLE IF NOT EXISTS ${sqlIdent(tableOf(agg.name))} (\n${cols.join(",\n")}\n);`;
-    return [root, ...joinTablesFor(agg), ...(embedded ? [] : childTablesFor(agg, agg.name))];
+    return [
+      root,
+      ...uniqueIndexesOn(tableOf(agg.name)),
+      ...joinTablesFor(agg),
+      ...(embedded ? [] : childTablesFor(agg, agg.name)),
+    ];
   });
   // The single per-context event log `<ctx>_events` (event-log-architecture.md):
   // seq cursor + stream_type discriminator + PK (stream_type, stream_id,

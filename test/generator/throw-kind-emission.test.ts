@@ -209,10 +209,23 @@ const BARE_PINS: Record<string, { must: string[]; mustNot: string[] }> = {
     ],
     mustNot: ["pytest.raises(Exception)"],
   },
-  dotnet: { must: ["Assert.Throws<DomainException>("], mustNot: ["Assert.ThrowsAny<Exception>"] },
+  // java / .NET catch broadly and then ASSERT the domain-rejection family
+  // (D17): the `when` gate's DisallowedException is a sibling of
+  // DomainException, so a single-type assertion missed it.  A non-domain
+  // exception still fails the test on the family check.
+  dotnet: {
+    must: [
+      "Assert.ThrowsAny<Exception>(() => { wo.Complete(); });",
+      "is DomainException or DisallowedException or ForbiddenException,",
+    ],
+    mustNot: ["Assert.Throws<DomainException>("],
+  },
   java: {
-    must: ["assertThrows(DomainException.class, "],
-    mustNot: ["assertThrows(Exception.class", "assertThrows(RuntimeException.class"],
+    must: [
+      "assertThrows(RuntimeException.class, () -> wo.complete());",
+      "instanceof DomainException || __thrown1 instanceof DisallowedException || __thrown1 instanceof ForbiddenException,",
+    ],
+    mustNot: ["assertThrows(Exception.class", "assertThrows(DomainException.class, "],
   },
   elixir: { must: [".GuardError, fn ->"], mustNot: ["assert_raise RuntimeError"] },
 };

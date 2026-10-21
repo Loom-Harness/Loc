@@ -92,6 +92,8 @@ jobs:
         with:
           dotnet-version: '8.0'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate) and pulls
       # the repo-side axe/playwright devDeps.
       - name: Install Loom toolchain

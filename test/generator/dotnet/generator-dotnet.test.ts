@@ -102,7 +102,10 @@ describe(".NET generator", () => {
     const tests = files.get("Tests/Sales.Tests/Orders/OrderTests.cs")!;
     expect(tests).toMatch(/using Xunit;/);
     expect(tests).toMatch(/\[Fact\(DisplayName = "money literal builds"\)\]/);
-    expect(tests).toMatch(/Assert\.Throws<DomainException>/);
+    // sales.ddd's only `toThrow()` is a Money literal: a value object's
+    // invariant throws `ValueObjectInvariantException`, and xUnit's
+    // `Assert.Throws<T>` matches the exact type.
+    expect(tests).toMatch(/Assert\.Throws<ValueObjectInvariantException>/);
     const testCsproj = files.get("Tests/Sales.Tests/Sales.Tests.csproj")!;
     expect(testCsproj).toMatch(/Microsoft\.NET\.Test\.Sdk/);
     expect(testCsproj).toMatch(/<PackageReference Include="xunit"/);
@@ -1393,7 +1396,10 @@ describe(".NET generator", () => {
         SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
       );
       const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      expect(verifier).toContain("Levels: new System.Collections.Generic.List<int>()");
+      // D16: the claim is now DECODED; an absent one still folds to the empty list.
+      expect(verifier).toContain(
+        'Levels: ClaimList<int>(payload, "levels", AsInt) ?? new System.Collections.Generic.List<int>()',
+      );
       expect(verifier).not.toContain("Levels: default!");
       // The dev stub — the other principal-construction site — already agreed.
       const stub = files.get("Auth/DevStubUserVerifier.cs")!;

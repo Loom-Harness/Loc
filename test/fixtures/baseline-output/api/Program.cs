@@ -15,6 +15,13 @@ using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// A native `dotnet run` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:8080");
+}
+
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot

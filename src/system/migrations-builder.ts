@@ -71,7 +71,13 @@ import {
   AUDIT_RECORDS_PK,
   AUDIT_RECORDS_TABLE,
 } from "../util/audit-records-table.js";
-import { plural, snake, upperFirst } from "../util/naming.js";
+import {
+  legacyWorkflowStateTableName,
+  plural,
+  snake,
+  upperFirst,
+  workflowStateTableName,
+} from "../util/naming.js";
 import type { SnapshotStore } from "./snapshot.js";
 
 // ---------------------------------------------------------------------------
@@ -366,11 +372,31 @@ export function schemaFromModule(
       bySchemaAndName.has(`${t.schema ?? ""}.${fk.refTable}`),
     );
   }
+  for (const t of tables) t.indexes = withoutIndexesImpliedByUnique(t.indexes);
   // The snapshot stays alphabetical (a stable, diff-friendly record);
   // `diffSchema` reorders the emitted `createTable` steps by FK
   // dependency so the SQL applies cleanly.
   tables.sort((a, b) => a.name.localeCompare(b.name));
   return { schemaVersion: 1, tables };
+}
+
+/** Drop a plain index a unique index already provides (D13).  A `unique (p)`
+ *  on an FK column `p` used to sit beside the derived FK index on the same
+ *  column (`r2s_p_uq` + `r2s_p_idx`) — two B-trees over one key, the plain one
+ *  pure write overhead.  An unconditional unique index on EXACTLY the same
+ *  ordered column list serves every lookup the plain one would, so the plain
+ *  one goes.  Kept when either side is partial (a soft-delete `WHERE` unique
+ *  covers only live rows) or the plain one carries an operator class (a
+ *  `text_pattern_ops` prefix index answers `LIKE` the default opclass can't).
+ *  On an existing project the delta is a plain `DROP INDEX` — not a
+ *  destructive step. */
+function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
+  const key = (i: IndexShape): string => JSON.stringify(i.columns);
+  const uniqueKeys = new Set(indexes.filter((i) => i.unique && !i.predicate).map(key));
+  if (uniqueKeys.size === 0) return indexes;
+  return indexes.filter(
+    (i) => i.unique || !!i.predicate || !!i.opclasses || !uniqueKeys.has(key(i)),
+  );
 }
 
 /** Persisted workflow-correlation state table (mirrors `tableForAggregate`):
@@ -500,7 +526,7 @@ function workflowStateTableShape(
    *  relay's at-least-once redelivery. */
   durable = false,
 ): TableShape {
-  const tableName = plural(snake(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const corr = wf.correlationField as string;
   const columns: ColumnShape[] = [];
   for (const f of wf.stateFields ?? []) {
@@ -1172,6 +1198,77 @@ export interface MigrationWarning {
   readonly module: string;
   /** Rendered via `diagMessage(code, …)` — never an inline literal. */
   readonly message: string;
+}
+
+/** B-20b: a `unique (…)` index added to a table the BASELINE already has.
+ *
+ *  The table holds rows, and nothing guarantees they are unique over the new
+ *  column set — a duplicate makes `CREATE UNIQUE INDEX` fail at boot, the
+ *  migration rolls back, and every later generation is queued behind it.  A
+ *  diff cannot see the data, so this is a WARNING pointing at the one fix the
+ *  author controls: a `sql before "…"` dedupe in the same generation.  Declaring
+ *  one (any `before` step for the module this generation) is read as "handled"
+ *  and silences it.
+ *
+ *  Not raised for: a table created this generation (empty); a rebuild of a
+ *  unique index the baseline already had over the same columns (mapped through
+ *  this generation's column renames) and predicate — the derived-name churn a
+ *  rename causes (or a full unique narrowed to a partial one).  A NEW partial
+ *  unique (`softDeletable`'s `WHERE is_deleted = false`) is still a uniqueness
+ *  claim over the existing live rows, so it warns. */
+export function uniqueOnExistingTableWarnings(
+  steps: readonly MigrationStep[],
+  baseline: SchemaSnapshot | null,
+  module: string,
+): MigrationWarning[] {
+  if (baseline === null) return [];
+  const key = (schema: string | undefined, name: string): string => qualifiedName(schema, name);
+  // Tables that exist in the database before this generation runs, under the
+  // name they will carry once its renames apply.
+  const existing = new Map<string, TableShape>();
+  for (const t of baseline.tables) existing.set(key(t.schema, t.name), t);
+  for (const s of steps) {
+    if (s.op !== "renameTable") continue;
+    const t = existing.get(key(s.schema, s.from));
+    if (t) existing.set(key(s.schema, s.to), t);
+  }
+  const out: MigrationWarning[] = [];
+  for (const s of steps) {
+    if (s.op !== "addIndex" || !s.index.unique) continue;
+    const tableKey = key(s.schema, s.index.table);
+    const before = existing.get(tableKey);
+    if (!before) continue;
+    // Old column name → new, for this table, from this generation's renames.
+    const renamed = new Map<string, string>();
+    for (const r of steps) {
+      if (r.op === "renameColumn" && key(r.schema, r.table) === tableKey) renamed.set(r.from, r.to);
+    }
+    const cols = [...s.index.columns].sort().join(",");
+    const rebuild = before.indexes.some(
+      (i) =>
+        i.unique &&
+        // A baseline FULL unique already proves every row unique, so a
+        // partial one over the same columns cannot fail either.
+        (!i.predicate || i.predicate === s.index.predicate) &&
+        i.columns
+          .map((c) => renamed.get(c) ?? c)
+          .sort()
+          .join(",") === cols,
+    );
+    if (rebuild) continue;
+    out.push({
+      code: "loom.migration-unique-on-existing-table",
+      module,
+      message: diagMessage("loom.migration-unique-on-existing-table", {
+        module,
+        table: tableKey,
+        columns: s.index.columns.join(", "),
+        index: s.index.name,
+        partial: s.index.predicate ? ` (partial: WHERE ${s.index.predicate})` : "",
+      }),
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -2149,6 +2246,7 @@ export function buildMigrations(
       diffSchema(baseline, next, allRenames, [
         ...tableRenamePlan.tableRenames,
         ...reshapeTableRenames,
+        ...namingFixTableRenames(m, next),
       ]),
       baseline,
       {
@@ -2160,7 +2258,12 @@ export function buildMigrations(
     );
     // Raw sql steps + ledgered data fix-ups (M-T2.3): emitted exactly once —
     // the baseline's `appliedDataMigrations` records each emitted key — after
-    // the generation's structural steps, in declaration order.
+    // the generation's structural steps, in declaration order.  A
+    // `sql before "…"` step (B-20) is emitted AHEAD of the structural steps
+    // instead — the dedupe a new `unique (…)` index needs to run first.  On a
+    // module's Initial generation there is nothing to precede (none of its
+    // tables exist yet), so `before` keeps the trailing position there — one
+    // rule for every backend, including Ecto's per-table initial layout.
     const applied = new Set(baseline?.appliedDataMigrations ?? []);
     const sqlForModule = (options.sqlSteps ?? []).filter((step) => {
       const mods = blockModules.get(step.migration);
@@ -2171,14 +2274,25 @@ export function buildMigrations(
       if (ownerModules.length === 1) return ownerModules[0] === m.name;
       throw new MigrationSqlScopeError(step.migration, []);
     });
-    const newData = [
-      ...sqlForModule.map((step) => ({ key: `${step.migration}#${step.index}`, sql: step.sql })),
+    const newData: { key: string; sql: string; before?: boolean }[] = [
+      ...sqlForModule.map((step) => ({
+        key: `${step.migration}#${step.index}`,
+        sql: step.sql,
+        before: step.before === true && baseline !== null,
+      })),
       ...tableRenamePlan.dataFixups,
     ].filter((d) => !applied.has(d.key));
+    const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
+    // B-20b — announce a `unique (…)` landing on a populated table, unless the
+    // author already declared a `sql before` step for this generation.
+    if (options.warnings && !newData.some((d) => d.before)) {
+      options.warnings.push(...uniqueOnExistingTableWarnings(structuralSteps, baseline, m.name));
+    }
     const steps: MigrationStep[] = [
+      ...newData.filter((d) => d.before).map(toExec),
       ...structuralSteps,
       ...reshapeComments,
-      ...newData.map((d): MigrationStep => ({ op: "sqlExec", sql: d.sql })),
+      ...newData.filter((d) => !d.before).map(toExec),
     ];
     const storageName = findPrimaryStorageBinding(sys, m, m.migrationsOwner) ?? "";
     // Version allocation is per-module BLOCK (fleet-bug-hunt I1).  A module's
@@ -2288,6 +2402,36 @@ function resolveRenames(
       from: snake(ri.from),
       to: snake(ri.to),
     });
+  }
+  return out;
+}
+
+/** Generator-side table-name corrections, as `renameTable`s (D13).  A saga
+ *  table once spelled `plural(snake(wf))` double-pluralised an `-ies` stem
+ *  (`replicate_policieses`); {@link workflowStateTableName} now keeps it
+ *  (`replicate_policies`).  An existing project's baseline still records the
+ *  old relation, so each corrected name is offered to `diffSchema` as a
+ *  rename — which applies it only when the baseline holds the OLD relation and
+ *  not the new one, so a fresh project (no baseline) or an already-renamed
+ *  one is untouched, and the delta is an `ALTER TABLE … RENAME`, never a
+ *  drop + create.  Skipped when the old spelling is itself a live table in
+ *  `next` (it then pairs with itself). */
+function namingFixTableRenames(
+  module: EnrichedSubdomainIR,
+  next: SchemaSnapshot,
+): ResolvedTableRename[] {
+  const out: ResolvedTableRename[] = [];
+  const liveNames = new Set(next.tables.map((t) => t.name));
+  for (const ctx of module.contexts) {
+    for (const wf of ctx.workflows) {
+      if (wf.eventSourced || !wf.correlationField) continue; // no state table
+      const from = legacyWorkflowStateTableName(wf.name);
+      const to = workflowStateTableName(wf.name);
+      if (from === to || liveNames.has(from)) continue;
+      for (const t of next.tables) {
+        if (t.name === to) out.push({ from, to, schema: t.schema });
+      }
+    }
   }
   return out;
 }
