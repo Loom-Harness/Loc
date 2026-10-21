@@ -35,6 +35,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { IndexShape, TableShape } from "../../../ir/types/migrations-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -1815,9 +1816,11 @@ export function renderDapperRepository(
     // COUNT (via `fromClause`), so it MUST bind the same params, or a paged find
     // with a `where this.f == x` throws on an unbound `@x` at runtime.
     const allFindParamsSuffix = allFindParams.length > 0 ? `, ${allFindParams.join(", ")}` : "";
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
     let where = "";
     try {
-      where = f.filter ? ` WHERE ${whereToSql(f.filter, sqlCtx)}` : "";
+      where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";
     } catch {
       // Unsupported predicate — emit a compile-safe stub.
       return lines(

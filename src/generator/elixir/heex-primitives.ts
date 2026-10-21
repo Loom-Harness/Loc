@@ -20,6 +20,7 @@ import {
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
@@ -387,6 +388,12 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // `handle_event("run_<wf>", …)` clause.  Without that clause
   // `phx-submit="run_<wf>"` raises `FunctionClauseError` and kills the LiveView.
   const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
+  // An event-only saga (`create(e: Event) by …`) has no command surface — the
+  // backend emits no `run/2` for it (`emitsCommandRoute`) — so there is
+  // nothing for `phx-submit` to call.  Same give-up as the shared walker.
+  if (runsWorkflow && !emitsCommandRoute(runsWorkflow)) {
+    return `<%!-- ${giveUpText("loom.page-ref-unreachable", `WorkflowForm(runs: ${runsWorkflow.name}): an event-triggered workflow has no command route to submit to`)} --%>`;
+  }
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {

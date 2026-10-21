@@ -165,6 +165,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
+    id: "implicit-find-filter",
+    title:
+      "a clause-less find (`find byReference(reference: string): WorkOrder?`) filters by the fields its parameters name — single, multi-parameter, paged",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
+  },
+  {
     id: "envelope",
     title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
     doc: "payloads",
@@ -677,6 +685,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "stdlib",
     backends: ALL,
     note: "minted by the 2026-08-23 numeric-types audit (F7 / M-T6.44): the validator admits every one of these, but the TS and Elixir binary renderers gated money/decimal dispatch on `leftType` ALONE — node emitted native `*` on a decimal.js Decimal (TS2363, uncompilable), elixir emitted native arithmetic on a %Decimal{} (runtime ArithmeticError) and native `<` (Erlang TERM ordering: number < map is ALWAYS true, silently).  No corpus fixture had a right-hand money/decimal operand, so no compile gate could reach the arms.  The `test` block is the runtime value proof on every backend's unit tier; no `test e2e` — the derived decimal values sit inside the un-ruled F11/M-T5.22 cross-backend arithmetic divergence, so a wire golden here would pre-empt that owner ruling (literals are binary-exact so the unit assertions agree everywhere regardless)",
+  },
+  {
+    id: "money-nullable",
+    title:
+      "a NULLABLE `money?` in every comparison position — `== null` / `!= null`, bare money vs `money?` both ways, a guarded ordering over a stored field and a parameter, `money?` vs `money?` — null and present paths, `10` vs `10.00`",
+    doc: "language",
+    backends: ALL,
+    note: "minted by #3227 (follow-up to the banking eval #3137): money is an object on node / java / elixir and each compared it through a method with no null story — node `subtotal.eq(null)` threw a DecimalError (500 on the read), java `fee.compareTo(null)` NPE'd on every call, elixir `Decimal.compare(_, nil)` raised and a nullable left fell to struct `==` (10 ≠ 10.00) and Erlang term order (`setFee(-5)` accepted).  .NET and python were already right and ride as regression pins.  The `test` block is the in-memory proof (the scale difference survives only before storage); the `test e2e` block is the wire proof and carries this fixture's golden",
   },
   {
     id: "absent-optional",

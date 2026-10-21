@@ -27,6 +27,7 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { discriminatorValue } from "../../ir/util/inheritance.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
@@ -754,13 +755,8 @@ export function buildFindWhereClause(
   // (a column rename desyncing from a find name produced bad runtime
   // SQL with no compile error) and is gone now.
   const conditions: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) {
-      conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
-    }
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
   }
   // TPH `kind` scope joins the convention-matched param conditions.
   if (kindPred) conditions.push(kindPred);
