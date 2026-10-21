@@ -51,7 +51,7 @@ describe("react Modal { open: <state> } — state-controlled dialog", () => {
     // The `title:` named slot is user-visible text — under i18n it binds through
     // `t()` at the attribute position (keyed to the `modalTitle` slot), M-T1.11.
     expect(page).toMatch(
-      /<Modal opened=\{\s*archiveOpen\s*\} onClose=\{\(\) => setArchiveOpen\(false\)\} title=\{t\("page\.Confirm\.modalTitle\.\w+", "Archive"\)\}>/,
+      /<Modal opened=\{\s*archiveOpen\s*\} onClose=\{\(\) => setArchiveOpen\(false\)\} closeButtonProps=\{ \{ "aria-label": t\("chrome\.close", "Close"\) \} \} title=\{t\("page\.Confirm\.modalTitle\.\w+", "Archive"\)\}>/,
     );
     expect(page).toContain("Confirm archive?");
     // No stub comment.

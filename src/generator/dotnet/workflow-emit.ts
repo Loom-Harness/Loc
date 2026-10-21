@@ -14,6 +14,7 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -44,7 +45,7 @@ import {
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import {
   workflowParamPayloads,
@@ -69,6 +70,7 @@ import {
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
+import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
@@ -715,6 +717,15 @@ function renderEventReactorHandler(
   // method level and the buffer may lead the statements.  `renderHandler`'s
   // twin must NOT do this; see the note there.
   if (usage.hasEmit) stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1), carrying the dispatching request's tenant and recording its
+  // user as `CausedBy`.  Bound only when the body — or an operation it calls,
+  // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
+  if (reactorNeedsPrincipal(statements, ctx)) {
+    stmtLines.push(
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+    );
+  }
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = statements.some((st) => {
     const call =
@@ -1793,6 +1804,13 @@ export function csWorkflowStmtTarget(
   // namer per rendered body hands out a distinct name to every wrap — see
   // `MaskNamer` in dto-mapping.ts.
   const maskNames = maskNamer();
+  // The `Run<Name>Async` method's own `bypass` / `cancellationToken` names —
+  // each yields to a same-named retrieval param, so a call passing them by
+  // name must spell the yielded name.
+  const runOwnParams = (retrievalName: string) =>
+    csReadOwnParams(
+      (ctx.retrievals ?? []).find((r) => r.name === retrievalName)?.params.map((p) => p.name) ?? [],
+    );
   return {
     indentUnit: "    ",
     precondition: (st, indent) => {
@@ -1816,7 +1834,7 @@ export function csWorkflowStmtTarget(
       // (matching the source field name), so the named-arg call site
       // must use the same casing — PascalCase here would fail with
       // CS1739 "best overload does not have a parameter named X".
-      const provided = st.fields.map((f) => `${f.name}: ${renderArg(f.value)}`);
+      const provided = st.fields.map((f) => `${escapeCsharpIdent(f.name)}: ${renderArg(f.value)}`);
       // The .NET Create(...) factory declares *every* canonical create
       // input as a required parameter (no C# default — optionals would
       // have to trail the required params, which the wire-shape ordering
@@ -1829,7 +1847,10 @@ export function csWorkflowStmtTarget(
       const agg = ctx.aggregates.find((a) => a.name === st.aggName);
       const omitted = (agg ? createInputFields(agg) : [])
         .filter((f) => !named.has(f.name))
-        .map((f) => `${f.name}: ${renderCsOmission(createOmissionValue(f), renderArg)}`);
+        .map(
+          (f) =>
+            `${escapeCsharpIdent(f.name)}: ${renderCsOmission(createOmissionValue(f), renderArg)}`,
+        );
       const args = [...provided, ...omitted].join(", ");
       // C# doesn't support reordering positional args; using named
       // args lets the user write fields in any order in the .ddd source.
@@ -1981,19 +2002,20 @@ export function csWorkflowStmtTarget(
       // names>)` — the DSL capability names, NOT EF filter names; the repository
       // adapter translates them (see `emit/repository.ts`).  `FilterBypass`
       // resolves via the handler file's `using <ns>.Domain.Common;` preamble.
+      const own = runOwnParams(st.retrievalName);
       const bypassArgs: string[] = [];
       if (st.bypassAll) {
-        bypassArgs.push("bypass: FilterBypass.BypassAll()");
+        bypassArgs.push(`${own.bypass}: FilterBypass.BypassAll()`);
       } else if ((st.bypassCaps?.length ?? 0) > 0) {
         const caps = st.bypassCaps ?? [];
         bypassArgs.push(
-          `bypass: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
+          `${own.bypass}: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
         );
       }
       // `cancellationToken` is passed NAMED: the run method has an optional
       // `page` param before it (and the optional `ignore*` params after), so a
       // positional token would bind to `page`.  Named, it skips the defaults.
-      const callArgs = [...args, ...bypassArgs, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, ...bypassArgs, `${own.ct}: cancellationToken`].join(", ");
       return [
         `${indent}var ${st.name} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
       ];
@@ -2023,7 +2045,9 @@ export function csWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("(null, 1)"); // page: limit 1, no offset — single result
       // Named `cancellationToken` — it now follows the optional `ignore*` params.
-      const callArgs = [...args, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, `${runOwnParams(st.retrievalName).ct}: cancellationToken`].join(
+        ", ",
+      );
       const hits = `__${st.var}Hits`;
       const inner = `${indent}    `;
       const saveLine = (sv: { repoName: string; name: string }): string => {
@@ -2032,9 +2056,19 @@ export function csWorkflowStmtTarget(
       };
       const thenSaves = st.savesInThen.map(saveLine);
       const elseSaves = st.savesInElse.map(saveLine);
+      // A declared optional find (`findMethod`) is emitted under its own name
+      // with no `Async` suffix (the `repoLet` convention) and already answers
+      // `Task<T?>`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${indent}var ${st.var} = await ${fieldName}.${upperFirst(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+          ]
+        : [
+            `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
+            `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+          ];
       const out = [
-        `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
-        `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+        ...lookup,
         `${indent}if (${st.var} is not null)`,
         `${indent}{`,
         ...thenLines,

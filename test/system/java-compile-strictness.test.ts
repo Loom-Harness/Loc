@@ -53,7 +53,41 @@ describe("the java compile gate runs javac at -Xlint:all -Werror", () => {
   it.each(LEGS)("$workflow re-runs when the init script changes", (leg) => {
     const wf = read(`.github/workflows/${leg.workflow}`);
     const pins = wf.split("\n").filter((l) => l.trim() === `- '${INIT_SCRIPT}'`);
-    // One per path-filtered trigger (`push:` and `pull_request:`).
-    expect(pins).toHaveLength(2);
+    // One per path-filtered trigger (`pull_request:`).
+    expect(pins).toHaveLength(1);
+  });
+});
+
+// The two java legs that run gradle themselves rather than through an
+// installed init.d: the behavioural boot leg (the only java compile of the
+// shared `systems/*.ddd` models) and the pairwise crossings (one container
+// per fixture).  Each passes the script with `-I`, so it is read here too.
+describe("the self-invoking java legs pass the same init script", () => {
+  it("run-java.mjs adds `-I <init script>` to every gradle run", () => {
+    const src = code(read("test/behavioral/run-java.mjs"));
+    expect(src).toContain('join(REPO, "test", "e2e", "support", "java-werror.init.gradle")');
+    const args = src.match(/const gradleArgs = \[([^\n]*)\];/);
+    expect(args, "run-java.mjs no longer builds gradleArgs in one place").not.toBeNull();
+    expect(args?.[1]).toContain('"-I", JAVA_WERROR_INIT');
+  });
+
+  it("pairwise-corpus-java mounts the script and passes `-I` to gradle", () => {
+    const src = code(read("test/e2e/pairwise-corpus-java.test.ts"));
+    expect(src).toContain('path.resolve(__dirname, "support", "java-werror.init.gradle")');
+    expect(src).toContain("`${JAVA_WERROR_INIT}:/opt/loom/java-werror.init.gradle:ro`");
+    const gradle = src.indexOf('"gradle",');
+    const flag = src.indexOf('"/opt/loom/java-werror.init.gradle",');
+    const task = src.indexOf('"testClasses",');
+    expect(gradle).toBeGreaterThan(-1);
+    expect(flag, "`-I` must be an argument of the gradle run").toBeGreaterThan(gradle);
+    expect(flag).toBeLessThan(task);
+  });
+
+  it.each([
+    { workflow: "behavioral-e2e-java.yml", pins: 1 }, // pull_request:
+    { workflow: "pairwise.yml", pins: 1 }, // pull_request:
+  ])("$workflow re-runs when the init script changes", ({ workflow, pins }) => {
+    const wf = read(`.github/workflows/${workflow}`);
+    expect(wf.split("\n").filter((l) => l.trim() === `- '${INIT_SCRIPT}'`)).toHaveLength(pins);
   });
 });

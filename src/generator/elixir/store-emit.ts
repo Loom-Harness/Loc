@@ -40,8 +40,10 @@
 // ---------------------------------------------------------------------------
 
 import type { ActionIR, ExprIR, StateFieldIR, StmtIR } from "../../ir/types/loom-ir.js";
-import { elixirString, snake, upperFirst } from "../../util/naming.js";
+import { mapExprChildren, walkStmtExprsDeep } from "../../ir/util/walk.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../util/naming.js";
 import { defaultInitFor } from "./heex-walker.js";
+import { type RenderCtx, renderExpr } from "./render-expr.js";
 
 /** Render one `StoreIR` as its `lib/<app>_web/stores/<snake>.ex` content.
  *  `webModule` is the `<App>Web` prefix (e.g. "StoreLiveViewWeb"). */
@@ -83,7 +85,20 @@ function storeFieldDefault(f: StateFieldIR): string {
  *  one-liner. */
 function renderStoreAction(action: ActionIR, fieldNames: ReadonlySet<string>): string {
   const fn = snake(action.name);
-  const params = action.params.map((p) => snake(p.name));
+  // A param the body never reads is bound `_<name>` — Elixir warns on an
+  // unused variable, and the generated project compiles with
+  // `--warnings-as-errors` (an `action push(sku: string) { count += 1 }` is
+  // valid `.ddd`; the SPA twins simply ignore the argument).
+  const read = new Set<string>();
+  for (const s of action.body) {
+    walkStmtExprsDeep(s, (e) => {
+      if (e.kind === "ref") read.add(snake(e.name));
+    });
+  }
+  const params = action.params.map((p) => {
+    const nm = snake(p.name);
+    return read.has(nm) ? escapeElixirIdent(nm) : `_${nm}`;
+  });
   const head = ["%__MODULE__{} = state", ...params].join(", ");
 
   const stmtForms = action.body.map((s) => renderStoreStmt(s, fieldNames));
@@ -117,7 +132,8 @@ interface StoreStmtForm {
 
 /** Render one store-action statement as a struct-producing value.  Writes
  *  (`:=` / `+=` / `-=`) become `%{state | field: <v>}`; a same-store action
- *  call becomes `<other>(state, …)`. */
+ *  call becomes `<other>(state, …)`; a `let` or a bare expression evaluates
+ *  and passes the struct through. */
 function renderStoreStmt(stmt: StmtIR, fieldNames: ReadonlySet<string>): StoreStmtForm {
   switch (stmt.kind) {
     case "assign": {
@@ -155,81 +171,57 @@ function renderStoreStmt(stmt: StmtIR, fieldNames: ReadonlySet<string>): StoreSt
       const v = renderStoreExpr(stmt.expr, fieldNames);
       return { value: `(${snake(stmt.name)} = ${v}; state)` };
     }
-    default:
-      // No other statement kind is valid in a store action (the validator
-      // gates view-effects / inline foreign writes).  Pass the struct through.
-      return { value: "state" };
+    case "expression":
+      return { value: `(_ = ${renderStoreExpr(stmt.expr, fieldNames)}; state)` };
+    case "precondition":
+    case "requires":
+    case "return":
+    case "variant-match":
+      // A store module is a pure per-process struct transform: no socket to
+      // flash or halt on, no value sink, no remote-call seam.
+      // `loom.ui-body-statement-kind` refuses all four in a LiveView store
+      // action at phase ⑦ (ui-framework-checks.ts#validateUiBodyStatementKinds).
+      throw new Error(
+        `internal: store action statement '${stmt.kind}' reached the LiveView store emitter; ` +
+          "loom.ui-body-statement-kind should have refused it. Please file a bug.",
+      );
+    case "if":
+      // Refused in every ui body by `loom.if-stmt-page-body-unsupported`.
+      throw new Error(
+        "internal: an `if` statement reached the LiveView store emitter; " +
+          "loom.if-stmt-page-body-unsupported should have refused it. Please file a bug.",
+      );
+    case "emit":
+      // Scope resolution gives a ui body no aggregate to emit from.
+      throw new Error(
+        "internal: an `emit` statement reached the LiveView store emitter. Please file a bug.",
+      );
+    default: {
+      const _exhaustive: never = stmt;
+      return _exhaustive;
+    }
   }
 }
 
-/** Render a store-action RHS expression to Elixir.  The only divergence from
- *  the general HEEx expr renderer is the state seam: an own-store field read
- *  (a bare `let` ref whose name is a store field) reads `state.<field>` rather
- *  than a page assign.  The supported RHS surface in a store action is small
- *  (literals, params, own-field reads, arithmetic), so this is a focused
- *  renderer — not the full page-body walker. */
+/** The store module's render context: an own-state read is a `this-prop` off
+ *  the threaded `state` struct (`state.<field>`).  A store has no context
+ *  module of its own. */
+const STORE_RENDER_CTX: RenderCtx = { thisName: "state", contextModule: "" };
+
+/** Render a store-action RHS expression to Elixir through the backend's
+ *  shared expression renderer — the same leaves a domain body uses, so a
+ *  method call (`lines.count()`), a conversion (`string(n)`), a `match` or
+ *  `Decimal` arithmetic renders exactly as it does in an operation.  The one
+ *  store-specific seam is the state read: an own-store field arrives as a bare
+ *  `let` ref (lowering binds each field as a local) and is retargeted to a
+ *  `this-prop` read of `state`. */
 function renderStoreExpr(expr: ExprIR, fieldNames: ReadonlySet<string>): string {
-  switch (expr.kind) {
-    case "literal":
-      return renderStoreLiteral(expr.lit, expr.value);
-    case "ref": {
-      const nm = snake(expr.name);
-      // Own-store field read → `state.<field>` (the field bound as a `let`
-      // local during lowering, so it arrives as a bare ref).
-      if (fieldNames.has(nm)) return `state.${nm}`;
-      if (expr.refKind === "enum-value") return `:${nm}`;
-      return nm;
-    }
-    case "member":
-      return `${renderStoreExpr(expr.receiver, fieldNames)}.${snake(expr.member)}`;
-    case "paren":
-      return `(${renderStoreExpr(expr.inner, fieldNames)})`;
-    case "unary":
-      return expr.op === "!"
-        ? `not ${renderStoreExpr(expr.operand, fieldNames)}`
-        : `-${renderStoreExpr(expr.operand, fieldNames)}`;
-    case "binary": {
-      const l = renderStoreExpr(expr.left, fieldNames);
-      const r = renderStoreExpr(expr.right, fieldNames);
-      if (expr.op === "+" && (isStringLit(expr.left) || isStringLit(expr.right))) {
-        return `${l} <> ${r}`;
-      }
-      const op = expr.op === "&&" ? "and" : expr.op === "||" ? "or" : expr.op;
-      return `${l} ${op} ${r}`;
-    }
-    case "list":
-      return `[${expr.elements.map((el) => renderStoreExpr(el, fieldNames)).join(", ")}]`;
-    case "ternary":
-      return `if ${renderStoreExpr(expr.cond, fieldNames)}, do: ${renderStoreExpr(expr.then, fieldNames)}, else: ${renderStoreExpr(expr.otherwise, fieldNames)}`;
-    default:
-      // Anything else (calls, match, …) is out of the validated store-action
-      // RHS surface; emit a safe nil so output stays valid Elixir.
-      return "nil";
-  }
+  return renderExpr(storeStateReads(expr, fieldNames), STORE_RENDER_CTX);
 }
 
-function renderStoreLiteral(kind: string, value: string): string {
-  switch (kind) {
-    case "string":
-      // Through the shared escaping funnel — a store initial value / action RHS
-      // is `.ddd` text, and a raw `#{` would interpolate as Elixir.
-      return elixirString(value);
-    case "int":
-      return value;
-    case "decimal":
-    case "money":
-      return `Decimal.new(${JSON.stringify(value)})`;
-    case "bool":
-      return value === "true" ? "true" : "false";
-    case "null":
-      return "nil";
-    case "now":
-      return "DateTime.utc_now()";
-    default:
-      return value;
-  }
-}
-
-function isStringLit(e: ExprIR): boolean {
-  return e.kind === "literal" && e.lit === "string";
+/** Rewrite every own-store field ref in `e`, at any depth, to a `this-prop`
+ *  ref — rendered `state.<field>` under {@link STORE_RENDER_CTX}. */
+function storeStateReads(e: ExprIR, fieldNames: ReadonlySet<string>): ExprIR {
+  if (e.kind === "ref") return fieldNames.has(snake(e.name)) ? { ...e, refKind: "this-prop" } : e;
+  return mapExprChildren(e, (c) => storeStateReads(c, fieldNames));
 }

@@ -444,12 +444,12 @@ Inside an aggregate or an `entity` part:
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  **On a state-based aggregate (the default) the body is INERT** — every `precondition`, `emit` and assignment in it is dropped and raises `loom.lifecycle-body-dropped`, so the aggregate cannot guard its own construction or raise a creation event; put that logic in a `workflow` or an `operation`.  The body runs only on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  Closing the gap is M-T3.16.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  A body `requires` is enforced on every backend (403), reading `currentUser` only.  **Otherwise, on a state-based aggregate (the default) the body is not emitted** — a `precondition`, `emit` or value-changing assignment in it is `loom.lifecycle-body-dropped`, so the aggregate cannot check its own construction or raise a creation event there; put that logic in a `workflow` or an `operation`.  The whole body runs on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
-| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file). Lowers per backend — see [Tests](#tests). |
+| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file — which must be `import`ed from the entry file). Lowers per backend — see [Tests](#tests). |
 
 Entity parts may declare only `contains`, properties, `derived`,
 `invariant`, and `function` — no `operation` / `create` / `destroy` /
@@ -479,6 +479,31 @@ diagnostic points you at `Order.create({ … })` rather than the older generic
 "unknown builder type". The factory input follows the **create-input** column
 of the [access-modifier matrix](#field-access-modifiers): a `managed` field
 like `createdAt` is off it, so `Order.create({ createdAt: … })` is rejected.
+
+##### Comparing value objects
+
+Two value objects are equal when their fields are.  `a == b` and
+`a.equals(b)` are the same comparison — `equals` is an intrinsic every value
+object answers ([`stdlib.md`](stdlib.md#value-object-equality)), lowered to
+`==` and rendered as each backend's value equality:
+
+```ddd
+function isAt(pier: string, position: int): bool = berth.equals(Berth { pier: pier, position: position })
+```
+
+```ts
+public isAt(pier: string, position: number): boolean { return (this._berth.equals(new Berth(pier, position))); }
+```
+```python
+def is_at(self, pier: str, position: int) -> bool:
+    return (self._berth == Berth(pier, position))
+```
+
+Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
+`this.Berth == new Berth(pier, position)` (record equality), Elixir
+`Loom.ValueObject.equal?(record.berth, %{pier: pier, position: position})` — value
+equality across the shapes an Elixir value object takes (a column value, a
+constructor map, a collection-element struct; decimals by value, not scale).
 
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
@@ -656,12 +681,67 @@ per-member and identical across create/update/destroy, while the update still
 writes every field.
 
 The compiler will not decide this for you — a field with no modifier is
-*declared* `editable`, and there are legitimate models where the author really
-does want it writable both ways. It does point the case out: an aggregate whose
-`crudish` update mass-assigns a field that a `requires`-gated operation also
-writes earns the advisory `loom.update-gate-suggestion` (a `Suggestions:` hint
-from `ddd parse`, never an error). See also [`auth.md`](auth.md) → "Guarded
-state transitions".
+*declared* `editable`, and it never silently makes one non-editable. It does
+flag the case: an aggregate whose `crudish` update mass-assigns a field that a
+**gated** operation also writes raises the warning `loom.update-gate-suggestion`
+(counted among `ddd parse`'s warnings; never an error, never an exit code). An
+operation gates the field when it carries a `requires`, a `when` state gate, or
+a `precondition` that reads that same field and no operation parameter (a pure
+state predicate — what a `when` could say) — so the plain state machine with
+no auth at all is caught too:
+
+```ddd
+aggregate Ticket with crudish {
+  status: TicketStatus = New          // ⚠ loom.update-gate-suggestion
+  operation resolve() when status == Open { status := Resolved }
+  operation close() when status == Resolved { status := Closed }
+}
+```
+
+```
+loom.update-gate-suggestion Core/Ticket warning: 'Ticket.status' is assigned by 'resolve', which is gated by its 'when' state gate, but 'crudish' also exposes the field on its generic 'update' — a caller can set it there and skip that gate. Mark it 'immutable' …
+```
+
+A field only the generic update writes (`title` above) is ordinary data and
+never fires, nor does a `precondition` over *other* fields only or one comparing
+the field with an argument (`precondition stockLevel >= qty` validates the
+call's inputs, it does not gate the field's state).
+
+**`immutable` closes the update half; `managed` closes create too.** Every
+update-writable field is also on the create input, so with `immutable` a client
+can still `POST /tickets {"status":"Closed"}` and start an instance in any
+state. When the field has a default and every instance must start there, mark
+it `managed` instead — off both inputs, initialised from the default, and still
+assignable by `resolve()`/`close()`:
+
+```ddd
+  status: TicketStatus managed = New
+```
+
+```ts
+// generated: api/domain/ticket.ts (node)
+public resolve(): void {
+  if (!(this._status === TicketStatus.Open)) throw new DisallowedError("operation 'resolve' is not allowed in the current state of Ticket.");
+  this._status = TicketStatus.Resolved;      // the gated operation still moves it …
+  this._assertInvariants();
+}
+public update(title: string): void {         // … `status` is off the update input …
+  this._title = title;
+  this._assertInvariants();
+}
+static create(input: { title: string }): Ticket {
+  return new Ticket({
+    id: Ids.newTicketId(),
+    title: input.title,
+    status: TicketStatus.New,                // … and off create: it starts at the default
+    version: 1,
+  });
+}
+```
+
+The warning says which applies (the `managed` hint appears for `when` /
+`precondition` gates, where the initial state is the point). See also
+[`auth.md`](auth.md) → "Guarded state transitions".
 
 Examples:
 
@@ -1246,7 +1326,10 @@ Each aggregate may declare zero or more `test` blocks at the root level
 hoisted beside its subject — or into a `tests/*.ddd` file — as
 `test "…" for <Subject> { … }`, where the subject is an aggregate, value
 object, domain service, or a bounded context for the in-process
-integration rung):
+integration rung).  A `tests/*.ddd` file is **not** discovered on its own:
+like any other file it joins the project only through an `import` from
+the entry file (`import "./tests/order.ddd"` in `main.ddd`) — an
+unimported test file is silently ignored.
 
 ```ddd
 test "money literal builds" {
@@ -1284,7 +1367,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | vitest `expect(() => <call>).toThrow()` / xUnit `Assert.Throws<DomainException>(() => <call>)`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.ThrowsAny<Exception>(…)` + an `is DomainException or DisallowedException or ForbiddenException` check / JUnit `assertThrows(RuntimeException.class, …)` + the same `instanceof` family check (a `create(...)` keeps the exact `DomainException` assertion, and a value-object literal the exact `ValueObjectInvariantException` one, since its invariant throws that type) / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1347,6 +1430,80 @@ third lowering.  Most targets spell both the same way (`in` in Python,
 crashes the generated suite rather than returning a wrong answer.  The dispatch
 therefore reads the subject's resolved type off the IR.
 
+
+##### What a bare `toThrow()` accepts
+
+A bare `toThrow()` in a unit `test` asserts that the **domain** refused the call: a
+`precondition`, an aggregate / part / value-object `invariant`, or an operation's
+`when` state gate.  It does **not** accept an arbitrary error.  A
+`ReferenceError`, `TypeError` or `NameError` out of the code under test is a defect,
+not a rejection, so the test fails on it.  Before this rule, node lowered the bare
+form to vitest `.toThrow()` and python to `pytest.raises(Exception)`.  A negative
+test then passed when codegen had emitted an undefined name: the test said
+"rejected" and the code had simply crashed.
+
+```ddd
+test "a title must be longer than two characters" {
+    expect(Claim.create({ title: "x", status: Draft })).toThrow()
+}
+```
+
+```ts
+// generated (node): a file-local helper; any other error is rethrown, so it fails the test
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+function expectDomainRejection(call: () => unknown): void {
+  try {
+    call();
+  } catch (err) {
+    if (err instanceof DisallowedError || err instanceof DomainError || err instanceof ForbiddenError) return;
+    throw err;
+  }
+  expect.fail("expected the call to be rejected by the domain, but it returned");
+}
+// …
+expectDomainRejection(() => { Claim.create({ title: "x", status: ClaimStatus.Draft }); });
+```
+
+```python
+# generated (python)
+with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
+    Claim.create(title="x", status=ClaimStatus.Draft)
+```
+
+On both, `DomainError` covers preconditions and invariants; a value object's
+`ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
+and `ForbiddenError` is a `requires` left in the operation body.  Java, .NET and
+elixir accept the same **domain-rejection family** — a precondition, an
+invariant, a `when` gate and a `requires`.  Java and .NET catch the throw and then
+assert it is one of `DomainException` / `DisallowedException` /
+`ForbiddenException` (.NET adds `ValueObjectInvariantException` when the context
+emits it); the `when` gate's `DisallowedException` is a sibling of
+`DomainException`, not a subclass, so a single-type assertion would miss it.
+Elixir asserts its `GuardError` (whose `:kind` is `:precondition`, `:forbidden` or
+`:disallowed` — the pure op core checks the `when` gate first) or an
+`{:error, _}` result.  A `create(...)` or a value-object literal can only be
+refused by an invariant, so there the bare form keeps its exact single-type
+assertion (`DomainException`; `ValueObjectInvariantException` for a .NET value
+object).  Every member of the family is a domain class, so a crash fails the test
+on these backends too.
+
+```java
+// generated (java): `expect(t.close()).toThrow()` over a `when`-gated op
+RuntimeException __thrown2 = assertThrows(RuntimeException.class, () -> t.close());
+assertTrue(__thrown2 instanceof DomainException || __thrown2 instanceof DisallowedException || __thrown2 instanceof ForbiddenException,
+    "expected the domain to reject this call, but it threw: " + __thrown2);
+```
+
+```csharp
+// generated (.NET)
+var __thrown2 = Assert.ThrowsAny<Exception>(() => { t.Close(); });
+Assert.True(__thrown2 is DomainException or DisallowedException or ForbiddenException,
+    $"expected the domain to reject this call, but it threw: {__thrown2}");
+```
+
+The context-level integration `test` (the `for <Context>` rung) is not covered by
+this.  It still accepts any rejection, because a repository read can also refuse
+with not-found or a concurrency conflict.
 
 ##### `toThrow(precondition)` / `toThrow(invariant)` — which rule rejected
 
@@ -1446,6 +1603,9 @@ surface.  Member-access chains describe the call shape:
 | `api.<aggregate>.<find>(args)` | `GET /<plural>/<find_snake>?…` with args as query string. |
 | `api.<projection>.byKey(keyExpr)` | `GET /projections/<proj_snake>/{key}` — one folded read-model row by its correlation key. |
 | `api.<projection>.list()` | `GET /projections/<proj_snake>` — every folded read-model row. |
+| `api.<workflow>.run({ … })` | `POST /workflows/<wf_snake>` with the body — the workflow's command `create`, answering `204`. |
+| `api.<workflow>.instances()` | `GET /workflows/<wf_snake>/instances` — every persisted instance row. |
+| `api.<workflow>.instance(keyExpr)` | `GET /workflows/<wf_snake>/instances/{key}` — one instance row by its correlation key. |
 | `api.<context>.<handler>(args…)` | The explicit `route <METHOD> <PATH> -> <Context>.<Handler>` binding — `<METHOD> <PATH>` with each `{token}` substituted from the positionally matching argument and the remaining params in the JSON body. |
 
 `all` returns whatever the aggregate's `all` find returns, unwrapped by
@@ -1469,6 +1629,44 @@ The projection verbs read a folded `projection`'s read model (see
 [`projection.md`](old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
+
+The workflow verbs reach the orchestration tier through the workflow's own
+name in the slug position (an aggregate slug wins a collision):
+
+```ddd
+test e2e "shipping folds into the saga row" against api {
+    let ord = api.orders.create({ sku: "SKU-1", status: "Placed" })
+    api.fulfillment.run({ orderId: ord.id })
+    let running = api.fulfillment.instances()
+    expect(running.length).toBe(1)
+    api.orders.ship(ord)
+    let row = api.fulfillment.instance(ord)
+    expect(row.status).toBe("Shipped")
+}
+```
+
+```ts
+// e2e/Shop.e2e.test.ts
+const ord = await __post(`${base}/api/orders`, ({ sku: "SKU-1", status: "Placed" }));
+await __post(`${base}/api/workflows/fulfillment`, ({ orderId: ord.id }));
+const running = await __get(`${base}/api/workflows/fulfillment/instances`);
+expect(running.length).toBe(1);
+await __post(`${base}/api/orders/${ord.id}/ship`, {});
+const row = await __get(`${base}/api/workflows/fulfillment/instances/${ord.id}`);
+expect(row.status).toBe("Shipped");
+```
+
+`run`'s single argument is the workflow `create`'s params by name. A key
+the workflow does not declare is `loom.e2e-unknown-body-key`, and an
+omitted one `loom.e2e-missing-required-field`.  `instance` and `instances`
+return the instance wire shape: the correlation field, then the state
+fields.  Reading any other field off an `instance` result is
+`loom.e2e-unknown-response-field`.  Both routes are conditional.  An
+event-triggered workflow mounts no `POST`, so `.run()` on it is
+`loom.e2e-unrouted-verb`.  A workflow with no correlation field persists
+no row, so `.instances()` / `.instance(key)` on it is refused the same
+way.  The full rules are in
+[`language-reference/18-testing.md`](language-reference/18-testing.md).
 
 **Every verb must resolve to a route this same compilation emits.**  The
 table above is what a verb *lowers to*, not a promise that the route is

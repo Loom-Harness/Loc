@@ -40,13 +40,15 @@
 
 import type { IRecognitionException, IToken, TokenType } from "chevrotain";
 import type { LangiumCoreServices, ParseResult } from "langium";
-import { LangiumParserErrorMessageProvider } from "langium";
+import { AstUtils, GrammarAST, LangiumParserErrorMessageProvider } from "langium";
 import { diagMessage } from "../diagnostics/messages.js";
 import { nearestName } from "../util/edit-distance.js";
+import { DddGrammar } from "./generated/grammar.js";
 import {
   isDeclareOnlySoftKeyword,
   isFieldNameKeyword,
   isGrammarKeyword,
+  isNameOnlyKeywordIn,
   isSoftKeyword,
 } from "./soft-keywords.js";
 
@@ -126,7 +128,11 @@ function renderCandidates(
  *  when they wrote a name of their own and Loom has spoken for the word, and
  *  the alternation case had no equivalent of the mismatched-token path's
  *  reserved-name arm. */
-export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): string {
+export function unexpectedTokenMessage(
+  actual: IToken,
+  paths: TokenType[][],
+  ruleName?: string,
+): string {
   const { keywords, terminals } = firstTokenLabels(paths);
   const reserved = reservedInExpressionMessage(actual, terminals);
   if (reserved) return reserved;
@@ -138,12 +144,30 @@ export function unexpectedTokenMessage(actual: IToken, paths: TokenType[][]): st
   // buries the real alternatives under words the author was never choosing
   // between; `<ID>` already stands for all of them.  (The did-you-mean above
   // still sees the full list, so a misspelt soft keyword is still caught.)
-  const shown = terminals.includes("ID") ? keywords.filter((k) => !isSoftKeyword(k)) : keywords;
+  // The colon-guarded soft keywords (`check`, `mask`, …) match through a
+  // custom pattern, so they arrive among the TERMINALS (`<check>`) and need
+  // the same filter.  A name rule's own extras (`NameRefIdent`'s `create`,
+  // `LooseName`'s `from`, …) are dropped too, but only where the failing rule
+  // reaches them solely as a name — a keyword that also heads real syntax in
+  // that rule stays a candidate.
+  const nameLegal = terminals.includes("ID");
+  const rule = ruleName ? chevrotainRuleName(ruleName) : undefined;
+  const isName = (k: string) =>
+    isSoftKeyword(k) || (rule !== undefined && isNameOnlyKeywordIn(rule, k));
+  const shown = nameLegal ? keywords.filter((k) => !isName(k)) : keywords;
+  const shownTerminals = nameLegal ? terminals.filter((t) => !isSoftKeyword(t)) : terminals;
   return diagMessage("loom.parse-error#unexpected-token", {
     found: actual.image,
     suggestion: suggestion ? ` Did you mean '${suggestion}'?` : "",
-    candidates: renderCandidates(shown, terminals, suggestion),
+    candidates: renderCandidates(shown, shownTerminals, suggestion),
   });
+}
+
+/** The grammar rule name behind a chevrotain rule name.  Langium registers
+ *  each rule with a zero-width-space suffix so a rule cannot collide with a
+ *  chevrotain built-in; the grammar knows it without one. */
+function chevrotainRuleName(name: string): string {
+  return name.replace(/\u200B$/, "");
 }
 
 /** A Loom keyword sitting where a NAME was one of the legal continuations.
@@ -204,7 +228,7 @@ export class DddParserErrorMessageProvider extends LangiumParserErrorMessageProv
   }): string {
     const actual = options.actual[0];
     if (!actual) return super.buildNoViableAltMessage(options);
-    return unexpectedTokenMessage(actual, options.expectedPathsPerAlt.flat());
+    return unexpectedTokenMessage(actual, options.expectedPathsPerAlt.flat(), options.ruleName);
   }
 
   override buildEarlyExitMessage(options: {
@@ -216,7 +240,7 @@ export class DddParserErrorMessageProvider extends LangiumParserErrorMessageProv
   }): string {
     const actual = options.actual[0];
     if (!actual) return super.buildEarlyExitMessage(options);
-    return unexpectedTokenMessage(actual, options.expectedIterationPaths);
+    return unexpectedTokenMessage(actual, options.expectedIterationPaths, options.ruleName);
   }
 
   /** A keyword where a NAME was expected — `command File { … }`,
@@ -410,4 +434,60 @@ export function sourceTextOf(parseResult: ParseResult<object>): string | undefin
  *  holds a service reference the browser bundle would keep alive. */
 export function ruleParserOf(services: LangiumCoreServices): RuleParser {
   return services.parser.LangiumParser as unknown as RuleParser;
+}
+
+/** The field access-modifier keywords (`managed`, `immutable`, …), read off
+ *  the grammar's `FieldAccess` rule so a new modifier is covered the moment
+ *  it parses. */
+const FIELD_ACCESS_KEYWORDS: ReadonlySet<string> = (() => {
+  const rule = DddGrammar().rules.find(
+    (r): r is GrammarAST.ParserRule => GrammarAST.isParserRule(r) && r.name === "FieldAccess",
+  );
+  const out = new Set<string>();
+  if (rule) {
+    for (const n of AstUtils.streamAllContents(rule)) {
+      if (GrammarAST.isKeyword(n)) out.add(n.value);
+    }
+  }
+  return out;
+})();
+
+/** Exported for the test that pins the derivation. */
+export function fieldAccessKeywords(): ReadonlySet<string> {
+  return FIELD_ACCESS_KEYWORDS;
+}
+
+/**
+ * An access modifier written AFTER the field's default — `status: S = Draft
+ * managed`.  `Property` is `name ':' type <modifiers> ('=' default)?`, so the
+ * property ends at the default and the modifier (a soft keyword) is read as
+ * the NEXT field's name; the failure then lands on whatever follows it,
+ * wanting that field's `:` — `Expecting token of type ':' but found 'n'`, a
+ * line below the cause.  Say the order and point at the modifier.
+ * `undefined` for every other failure, so the message is only ever replaced.
+ */
+export function accessModifierAfterDefault(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset)) return undefined;
+  if (!err.message.startsWith("Expecting token of type ':'")) return undefined;
+  const m =
+    /(?:^|[\n{};])[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*([^=\n{};:]+?)[ \t]*=[ \t]*([^\n{};]+?)[ \t]+([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(
+      text.slice(0, token.startOffset),
+    );
+  const [, name, type, def, modifier] = m ?? [];
+  if (!m || !name || !type || !def || !modifier || !FIELD_ACCESS_KEYWORDS.has(modifier)) {
+    return undefined;
+  }
+  const offset = m.index + m[0].trimEnd().length - modifier.length;
+  return {
+    offset,
+    length: modifier.length,
+    message: diagMessage("loom.parse-error#access-modifier-after-default", {
+      modifier,
+      fixed: `${name}: ${type} ${modifier} = ${def}`,
+    }),
+  };
 }

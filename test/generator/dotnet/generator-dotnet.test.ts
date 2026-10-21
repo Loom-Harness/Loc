@@ -102,7 +102,10 @@ describe(".NET generator", () => {
     const tests = files.get("Tests/Sales.Tests/Orders/OrderTests.cs")!;
     expect(tests).toMatch(/using Xunit;/);
     expect(tests).toMatch(/\[Fact\(DisplayName = "money literal builds"\)\]/);
-    expect(tests).toMatch(/Assert\.Throws<DomainException>/);
+    // sales.ddd's only `toThrow()` is a Money literal: a value object's
+    // invariant throws `ValueObjectInvariantException`, and xUnit's
+    // `Assert.Throws<T>` matches the exact type.
+    expect(tests).toMatch(/Assert\.Throws<ValueObjectInvariantException>/);
     const testCsproj = files.get("Tests/Sales.Tests/Sales.Tests.csproj")!;
     expect(testCsproj).toMatch(/Microsoft\.NET\.Test\.Sdk/);
     expect(testCsproj).toMatch(/<PackageReference Include="xunit"/);
@@ -581,8 +584,10 @@ describe(".NET generator", () => {
       const controller = files.get("Api/OrdersController.cs")!;
       // sales.ddd's Order has `addLine(productId: Id<Product>, qty:
       // int, price: Money)` — three lowerCamel param names.
-      expect(controller).toMatch(
-        /_log\.LogTrace\("\{Event\} keys=\{Keys\}", "wire_in", new\[\] \{ "productId", "qty", "price" \}\);/,
+      // Bound to a local first — an inline constant `new[] { … }` argument
+      // trips CA1861 under /warnaserror.
+      expect(controller).toContain(
+        'var __wireInKeys = new[] { "productId", "qty", "price" };\n        _log.LogTrace("{Event} keys={Keys}", "wire_in", __wireInKeys);',
       );
       // And `confirm()` has zero params — Array.Empty<string>() is
       // the safe empty form (the implicit `new[] { }` is a compile
@@ -1368,8 +1373,10 @@ describe(".NET generator", () => {
       expect(verifier).toContain("ConfigurationManager<OpenIdConnectConfiguration>");
       expect(verifier).toContain("ValidateTokenAsync");
       // explicit claim mapping wins; id defaults to `sub`; dotted paths resolve
-      expect(verifier).toContain('Role: ClaimString(payload, "realm_access.roles")');
-      expect(verifier).toContain('Id: ClaimString(payload, "sub")');
+      expect(verifier).toContain(
+        'if (ClaimString(payload, "realm_access.roles") is not { } claimRole)',
+      );
+      expect(verifier).toContain('if (ClaimString(payload, "sub") is not { } claimId)');
       expect(verifier).toContain('Permissions: ClaimStringList(payload, "permissions")');
       // The verifier also reads the session cookie issued by the handshake.
       expect(verifier).toContain('request.Cookies["session"]');
@@ -1391,7 +1398,10 @@ describe(".NET generator", () => {
         SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
       );
       const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      expect(verifier).toContain("Levels: new System.Collections.Generic.List<int>()");
+      // D16: the claim is now DECODED; an absent one still folds to the empty list.
+      expect(verifier).toContain(
+        'Levels: ClaimList<int>(payload, "levels", AsInt) ?? new System.Collections.Generic.List<int>()',
+      );
       expect(verifier).not.toContain("Levels: default!");
       // The dev stub — the other principal-construction site — already agreed.
       const stub = files.get("Auth/DevStubUserVerifier.cs")!;

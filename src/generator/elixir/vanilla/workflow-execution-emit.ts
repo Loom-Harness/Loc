@@ -77,7 +77,6 @@ import {
   type IsolationLevel,
   type OperationIR,
   operationUsesCurrentUser,
-  type StmtIR,
   type SystemIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -93,7 +92,7 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -416,7 +415,7 @@ function lowerStatement(
       // do-branch then referenced (`** (CompileError) undefined variable`).
       const expr = renderExpr(st.expr, renderCtx);
       const bind = bindUsedLater(st.name, rest, reads.trailing)
-        ? snake(st.name)
+        ? escapeElixirIdent(snake(st.name))
         : `_${snake(st.name)}`;
       return [
         {
@@ -640,7 +639,9 @@ function lowerStatement(
       // Underscore an unread loop var so `--warnings-as-errors` stays clean when
       // the body iterates for effect without naming the row (e.g. a nested
       // find/loop keyed off a workflow param rather than the element).
-      const loopVar = bindUsedLater(st.var, st.body) ? snake(st.var) : `_${snake(st.var)}`;
+      const loopVar = bindUsedLater(st.var, st.body)
+        ? escapeElixirIdent(snake(st.var))
+        : `_${snake(st.var)}`;
       const bodyLines = renderLoopBody(st.body, renderCtx, contextModule, ctx);
       // Multi-line clause: assembleBody indents the FIRST line at the
       // with-chain's column; subsequent lines keep their authored
@@ -667,9 +668,19 @@ function lowerStatement(
       // head-or-nil, then `if` over the two branches.  Each branch ends in
       // `{:ok, _}` so the enclosing `{:ok, _} <-` clause threads through the
       // with-chain (a raised create/op rolls the transaction back).
-      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
-      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
-      const v = snake(st.var);
+      // A declared optional find (`findMethod`) calls the context's per-find
+      // delegate, which answers `{:ok, row | nil}` — the same head-or-nil
+      // `case` reads it.
+      const lookup = st.findMethod
+        ? {
+            call: `${contextModule}.${snake(st.findMethod)}_${snake(st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
+            hit: "{:ok, hit}",
+          }
+        : {
+            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"].join(", ")})`,
+            hit: "{:ok, [hit | _]}",
+          };
+      const v = escapeElixirIdent(snake(st.var));
       const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
@@ -686,36 +697,67 @@ function lowerStatement(
           for (let i = 0; i < body.length; i++) {
             const inner = body[i]!;
             const rest = body.slice(i + 1);
-            if (inner.kind === "precondition") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "requires") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "op-call") {
-              clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
-            } else if (inner.kind === "factory-let") {
-              const fields = inner.fields
-                .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-                .join(", ");
-              const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
-              clauses.push(
-                `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
-              );
-            } else if (inner.kind === "expr-let") {
-              const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
-              clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
-            } else if (NESTED_FLOW_KINDS.has(inner.kind)) {
-              // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
-              // lowers to a `<-` clause that threads {:error, _} up this branch.
-              // The branch's own result is `{:ok, <present>}`, so a nested bind
-              // nothing later reads is `_`-discardable (M-T6.21).
-              pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
-            } else {
-              // emit / resource-call — pure side-effects, run in the do-branch.
-              tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+            switch (inner.kind) {
+              case "precondition":
+              case "requires":
+                clauses.push(
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+                );
+                break;
+              case "op-call":
+                clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
+                break;
+              case "factory-let": {
+                const fields = inner.fields
+                  .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+                  .join(", ");
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(
+                  `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+                );
+                break;
+              }
+              case "expr-let": {
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
+                break;
+              }
+              case "domain-service-call": {
+                // A `mutating` service call is fallible persistence, exactly
+                // like an op-call: its inlined context mutating-fn clauses
+                // join this branch's with-chain IN ORDER (the loop body does
+                // the same), so a later op-call sees the service's writes and
+                // a failed save threads `{:error, _}` up instead of raising.
+                const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
+                if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
+                else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
+                break;
+              }
+              case "for-each":
+              case "if-let":
+              case "repo-run":
+              case "repo-let":
+              case "repo-delete":
+                // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
+                // lowers to a `<-` clause that threads {:error, _} up this branch.
+                // The branch's own result is `{:ok, <present>}`, so a nested bind
+                // nothing later reads is `_`-discardable (M-T6.21).
+                pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
+                break;
+              case "emit":
+              case "resource-call":
+              case "assign":
+                // Pure side-effects / own-state rebinds — run in the do-branch.
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                break;
+              default: {
+                const _exhaustive: never = inner;
+                void _exhaustive;
+              }
             }
           }
           return [
@@ -734,8 +776,8 @@ function lowerStatement(
       };
       const lines = [
         `{:ok, _} <- (`,
-        `           ${v} = case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
-        `             {:ok, [hit | _]} -> hit`,
+        `           ${v} = case ${lookup.call} do`,
+        `             ${lookup.hit} -> hit`,
         `             _ -> nil`,
         `           end`,
         `           if ${v} != nil do`,
@@ -776,7 +818,7 @@ function opCallSource(
   const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
-  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${snake(st.target)}, %{${argFields}}${actor})`;
+  return `${contextModule}.${snake(st.op)}_${snake(st.aggName)}(${escapeElixirIdent(snake(st.target))}, %{${argFields}}${actor})`;
 }
 
 /** Resolve a `mutating` `domain-service-call` to its inlined with-clauses
@@ -981,7 +1023,7 @@ function renderLoopBody(
           .join(", ");
         // The new aggregate is the iteration result only when nothing reads it
         // later; otherwise keep the real name and thread it out.
-        lastBind = snake(inner.name);
+        lastBind = escapeElixirIdent(snake(inner.name));
         const bind = bindUsedLater(inner.name, rest) ? lastBind : "_";
         clauses.push(
           `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
@@ -1000,7 +1042,7 @@ function renderLoopBody(
         );
         break;
       case "expr-let": {
-        const bind = bindUsedLater(inner.name, rest) ? snake(inner.name) : "_";
+        const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
         clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
         break;
       }
@@ -1127,7 +1169,7 @@ function tupleBind(
   rest: WorkflowStmtIR[],
   reads: ReadScope,
 ): { pattern: string; bindName: string | undefined } {
-  const bare = snake(name);
+  const bare = escapeElixirIdent(snake(name));
   if (!reads.discardableBind || bindUsedLater(name, rest, reads.trailing)) {
     return { pattern: bare, bindName: bare };
   }
@@ -1180,7 +1222,7 @@ function renderBranchStmt(
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
-      const bind = bindUsedLater(st.name, rest) ? snake(st.name) : "_";
+      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
       return [
         `{:ok, ${bind}} = ${contextModule}.${internalCreateFn(st.aggName, aggOf(ctx, st.aggName))}(%{${fields}})`,
       ];
@@ -1195,7 +1237,7 @@ function renderBranchStmt(
       ];
     }
     case "expr-let": {
-      const bind = bindUsedLater(st.name, rest) ? snake(st.name) : "_";
+      const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
       return [`${bind} = ${renderExpr(st.expr, renderCtx)}`];
     }
     case "resource-call":
@@ -1248,91 +1290,15 @@ function renderBranchStmt(
 // destructured off the `run/1` map.
 // ---------------------------------------------------------------------------
 
-/** Add every `refKind: "param"` name reachable from `e` into `acc`.
- *  Exhaustive over the child-bearing `ExprIR` kinds (a stricter superset
- *  of the validate-layer `walkExpr` — it also descends `list` / `convert`
- *  / `match`, which can appear in a workflow create-body). */
+/** Add every `refKind: "param"` name reachable from `e` into `acc` — at any
+ *  depth, through every child slot `walk.ts` knows (a `match` subject, a
+ *  `duration` amount, an `i18nFormat` hole, a block-bodied lambda's
+ *  statements).  A param read only in one of those slots and not destructured
+ *  off `run/1` is an undefined variable in the emitted Elixir. */
 export function collectParamRefs(e: ExprIR | undefined, acc: Set<string>): void {
-  if (!e) return;
-  switch (e.kind) {
-    case "ref":
-      if (e.refKind === "param") acc.add(e.name);
-      return;
-    case "member":
-      collectParamRefs(e.receiver, acc);
-      return;
-    case "method-call":
-      collectParamRefs(e.receiver, acc);
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "lambda":
-      collectParamRefs(e.body, acc);
-      if (e.block) for (const s of e.block) collectParamRefsInStmt(s, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectParamRefs(f.value, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectParamRefs(el, acc);
-      return;
-    case "paren":
-      collectParamRefs(e.inner, acc);
-      return;
-    case "unary":
-      collectParamRefs(e.operand, acc);
-      return;
-    case "binary":
-      collectParamRefs(e.left, acc);
-      collectParamRefs(e.right, acc);
-      return;
-    case "ternary":
-      collectParamRefs(e.cond, acc);
-      collectParamRefs(e.then, acc);
-      collectParamRefs(e.otherwise, acc);
-      return;
-    case "convert":
-      collectParamRefs(e.value, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectParamRefs(arm.cond, acc);
-        collectParamRefs(arm.value, acc);
-      }
-      collectParamRefs(e.otherwise, acc);
-      return;
-    default:
-      // Leaf kinds (`literal` / `this` / `id`) bind no params.
-      return;
-  }
-}
-
-/** A `StmtIR` (lambda block body) — only the expression-bearing arms can
- *  carry a param reference; collect from each. */
-function collectParamRefsInStmt(s: StmtIR, acc: Set<string>): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      collectParamRefs(s.expr, acc);
-      return;
-    case "assign":
-    case "add":
-    case "remove":
-    case "return":
-      collectParamRefs(s.value, acc);
-      return;
-    case "emit":
-      for (const f of s.fields) collectParamRefs(f.value, acc);
-      return;
-    case "call":
-      for (const a of s.args) collectParamRefs(a, acc);
-      return;
-  }
+  walkExprDeep(e, (sub) => {
+    if (sub.kind === "ref" && sub.refKind === "param") acc.add(sub.name);
+  });
 }
 
 /** Collect referenced create-params from EVERY lowered statement kind: each
@@ -1558,7 +1524,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => snake(p.name)).join(", ");
+      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
@@ -1691,7 +1657,7 @@ function renderWorkflowModule(
         ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
         : undefined;
     if (!payload) return [];
-    const v = snake(n);
+    const v = escapeElixirIdent(snake(n));
     const entries = payload.fields.map(
       (f) => `${snake(f.name)}: Map.get(${v}, ${JSON.stringify(f.name)})`,
     );
@@ -1699,7 +1665,7 @@ function renderWorkflowModule(
   });
   const paramDestructure =
     params.length > 0
-      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${snake(n)}`).join(", ")}} = params\n${payloadRebinds.join("")}`
+      ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}`
       : "";
   // That destructure is a BARE MATCH: a request missing one of these keys
   // raises `MatchError` rather than returning, so it never reaches the

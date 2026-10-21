@@ -837,6 +837,16 @@ export function emitExplicitRouteController(
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
         }
       }
+      // A scalar / id return crosses the same wire boundary.  An `<Agg> id` is a
+      // domain id RECORD, which System.Text.Json serialised as `{"value": "…"}`
+      // where every other backend answers the bare id; `money` / `datetime` /
+      // `decimal` likewise take their canonical wire spelling only through
+      // `projectToResponse`.  Found by the `handler-aggregate-ops` corpus
+      // fixture (M-T9.42 slice 2) — the per-backend string test pinned
+      // `return Ok(result);` and passed.
+      if (!h.extern && (info.refKind === "primitive" || info.refKind === "id")) {
+        okExpr = projectToResponse("result", retType, ctx);
+      }
       // A bare CLR `string` return must be sent as JSON EXPLICITLY (M-T6.73).
       // `Ok(<string>)` is the one value shape ASP.NET does not serialise as
       // JSON: `StringOutputFormatter` claims a raw string for `text/plain`, so

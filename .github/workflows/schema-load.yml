@@ -29,8 +29,6 @@ name: Schema load (emitted DDL)
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [main]
   workflow_dispatch:
   merge_group:
 permissions:
@@ -69,6 +67,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

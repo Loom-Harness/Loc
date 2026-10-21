@@ -4641,6 +4641,59 @@ create form's denial flash follows the same rule as the HTTP body.
 backends' error handlers and dev stubs; `test/generator/forbidden-detail-echo.test.ts`,
 `test/generator/dev-claims-parity.test.ts`.
 
+## D-TARGET-RESERVED-NAMES — a member named like a target keyword, or a generated helper, is escaped per backend
+
+**Status:** DECIDED (owner ruling D2, 2026-09-29 eval-closure review; implemented
+by wave C2).
+
+**Question.** A `.ddd` member, parameter, operation or enum value may be named
+`def`, `lambda`, `pass`, `class` — the `.ddd` grammar admits them, `generate
+system` answered `0 error(s)`, and the python project did not parse. A member
+named `assertInvariants` broke .NET (CS0102), node (duplicate class member) and
+python (a backing field overwriting its own method). Refuse such names with a
+validator, or escape them per backend?
+
+**Decision.** **Escape per backend; never refuse.** The target spelling is a
+host concern and the user's domain vocabulary should not have to know five
+languages' keyword lists.
+
+- **Python** gets ONE identifier funnel (`pythonIdent` / `pythonWireIdent` in
+  `src/util/naming.ts`, `def` → `def_`) at every identifier position, and keeps
+  the two outward names: the DB column via `mapped_column("def", …)`, the wire
+  key via a pydantic `alias` / `Query(alias=…)`. This mirrors Java's M-T6.36
+  (`@JsonProperty` / `@Column`).
+- **Node (Hono / TypeScript)** escapes through `escapeTsIdent` (`class` →
+  `class_`, the strict-mode + module reserved set) at every BINDING position:
+  operation / function / domain-service / VO-ctor / repository-find /
+  criterion-fn / extern-hook / event-applier / projection-fold params, and the
+  `const` locals the route, workflow and handler emitters bind. PROPERTY
+  positions keep the declared name — `this._class`, `get class()`,
+  `{ class: class_ }`, `schema.things.class`, the zod wire key — since any
+  string is a legal TS property, so the wire and the DB column never move. The
+  React / Vue / Svelte / Angular emitters bind no field name as an identifier
+  (form state is keyed objects), so they needed no change.
+- **.NET, node, python** rename the generated private invariant helper — and
+  only when a member actually takes its name, so every other model's output is
+  byte-identical (the conservative sub-choice: a fixed rename would have moved
+  every generated entity on three backends for a collision that needs a
+  specific member name).
+- The wire, the OpenAPI document and the stored data never differ between
+  backends; the escape is visible only in the generated host source.
+
+**Consequences.** `test/fixtures/corpus/python-reserved-words.ddd` (row `ALL`)
+is the ratchet on all five compile tiers and the wire-golden differential;
+`test/generator/target-reserved-member-names.test.ts` takes the python keyword
+list from the interpreter itself. The remaining unfunnelled python positions
+(projection read models, the `auth.user` record) and the OTHER helper-state
+collisions (`_events`, `pull_events`, `create`, `inspect` against a member of
+that name) are recorded in `docs/generators.md` § "Names that are Python
+keywords" as follow-ups — they fail loudly (a syntax/compile error), not
+silently.
+
+**Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
+[`generators.md`](generators.md) § "Names that are Python keywords" and
+§ "Names that are Java reserved words".
+
 ## D-DEFAULT-DENY-LIST-WARN — under `denyByDefault` an ungated list read is a warning; a cross-context policy call is a named error
 
 **Status:** ruled by the owner (eval closure review 2026-09-28, rulings D5 and
@@ -4674,8 +4727,9 @@ system types such a call `bool` (`outOfScopePolicyCall`,
 `src/language/type-system.ts`), so the named error is the only one raised.
 The detection has two limits:
 
-- It covers only the call form `P(args)`. A bare name has too many other
-  readings.
+- It covers the call forms `P(args)` and `Ctx.P(args)` (the qualified
+  spelling an author tries first when sharing a policy). A bare name has too
+  many other readings.
 - It sees only one document. In a multi-file model, a context declared in
   another file is not searched, and that case keeps the old wording.
 
@@ -4721,45 +4775,62 @@ them.
 `src/diagnostics/code-docs.ts`; `docs/language.md`;
 `docs/language-reference/05-expressions.md`.
 
-## D-TARGET-RESERVED-NAMES — a member named like a target keyword, or a generated helper, is escaped per backend
+## D-REACTOR-SYSTEM-PRINCIPAL — event reactors run as a tenant-scoped system principal
 
-**Status:** DECIDED (owner ruling D2, 2026-09-29 eval-closure review; implemented
-by wave C2).
+**Status:** PINNED (owner ruling D1, 2026-09-29 —
+`docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md` § Rulings).
 
-**Question.** A `.ddd` member, parameter, operation or enum value may be named
-`def`, `lambda`, `pass`, `class` — the `.ddd` grammar admits them, `generate
-system` answered `0 error(s)`, and the python project did not parse. A member
-named `assertInvariants` broke .NET (CS0102), node (duplicate class member) and
-python (a backing field overwriting its own method). Refuse such names with a
-validator, or escape them per backend?
+**Question.** A reactor — a workflow's event-triggered `create(e) by …`
+starter or `on(e)` subscription, including one driven by a `timerSource`
+tick or a broker-consumed event — has no request, so it has no request
+principal. What does a gated operation it calls do? Before this ruling the
+answer was five different defects (eval item 3): node, .NET and java emitted a
+`currentUser` nothing declared (TS2304 / CS0103 / javac), python dropped the
+operation's gate entirely (fail-open), elixir passed `nil` and crashed on
+`nil.permissions`.
 
-**Decision.** **Escape per backend; never refuse.** The target spelling is a
-host concern and the user's domain vocabulary should not have to know five
-languages' keyword lists.
+**Decision.** Reactors run as a **system principal**, tenant-scoped, and gates
+are **evaluated against it** — never skipped.
 
-- **Python** gets ONE identifier funnel (`pythonIdent` / `pythonWireIdent` in
-  `src/util/naming.ts`, `def` → `def_`) at every identifier position, and keeps
-  the two outward names: the DB column via `mapped_column("def", …)`, the wire
-  key via a pydantic `alias` / `Query(alias=…)`. This mirrors Java's M-T6.36
-  (`@JsonProperty` / `@Column`).
-- **.NET, node, python** rename the generated private invariant helper — and
-  only when a member actually takes its name, so every other model's output is
-  byte-identical (the conservative sub-choice: a fixed rename would have moved
-  every generated entity on three backends for a collision that needs a
-  specific member name).
-- The wire, the OpenAPI document and the stored data never differ between
-  backends; the escape is visible only in the generated host source.
+- **The principal.** `{ isSystem: true, tenant: the triggering event's tenant,
+  causedBy: the originating user's id }`. Every declared claim is EMPTY (the
+  zero of its type — never the dev stub's `"admin"`), so no claims gate passes
+  by accident. `causedBy` is for audit and logs only: it is not a language
+  member and no gate can read it.
+- **Language surface.** `currentUser.isSystem` (bool). A gate that admits a
+  reactor says so: `requires currentUser.isSystem || …`. `isSystem` and
+  `causedBy` are reserved claim names (`loom.user-reserved-field`).
+- **Gates.** Evaluated normally. A reactor that reaches a gate the system
+  principal can never satisfy — one that reads `currentUser` and never
+  mentions `currentUser.isSystem` — gets a compile-time **warning**,
+  `loom.reactor-gate-unsatisfiable`.
+- **Tenancy.** Filters and stamps use the event's tenant. In-process, that is
+  the tenant of the request that raised the event (the system principal copies
+  the dispatching principal's tenancy claim and `orgPath`).
+- **Timers.** A tick has no tenant, so a tenant-owned read from a timer-driven
+  reactor must be explicitly cross-tenant: a `find` / inline `Repo.run` with
+  `ignoring tenantOwned` (the language's existing cross-tenant read clause —
+  `crossTenant` itself is an aggregate stance, not a read clause). Otherwise
+  **error** `loom.timer-tenant-read`.
 
-**Consequences.** `test/fixtures/corpus/python-reserved-words.ddd` (row `ALL`)
-is the ratchet on all five compile tiers and the wire-golden differential;
-`test/generator/target-reserved-member-names.test.ts` takes the python keyword
-list from the interpreter itself. The remaining unfunnelled python positions
-(projection read models, the `auth.user` record) and the OTHER helper-state
-collisions (`_events`, `pull_events`, `create`, `inspect` against a member of
-that name) are recorded in `docs/generators.md` § "Names that are Python
-keywords" as follow-ups — they fail loudly (a syntax/compile error), not
-silently.
+**Emission (all five backends).** The request principal is unchanged on the
+wire (`/auth/me` projects the declared claims): node `User.isSystem?` /
+`causedBy?` + `systemPrincipal()` in `auth/middleware.ts`; .NET init-only
+`IsSystem` / `CausedBy` (serializer-skipped at default) +
+`User.SystemPrincipal(origin)`; java trailing record components with a
+claims-only constructor + `User.systemPrincipal(origin)`; python defaulted
+dataclass fields + `system_principal()`; elixir `system_principal/0` in the
+web `Auth` module, reading the origin the auth plug stashes in the process
+dictionary. A reactor binds it only when its body — or an operation it calls,
+hoisted gate included — reads `currentUser`
+(`src/ir/util/system-principal.ts` `reactorNeedsPrincipal`).
 
-**Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
-[`generators.md`](generators.md) § "Names that are Python keywords" and
-§ "Names that are Java reserved words".
+**Not yet (tracked in PR #3103's body).** The channel envelope / outbox row
+does not yet carry the tenant and `causedBy`, so a reactor fed by the outbox
+relay or a broker consumer has no origin and runs tenant-less (fail-closed:
+tenant-scoped reads match nothing) until the envelope slice lands.
+
+**Affects.** `docs/language-reference/17-auth.md` § Reactors; `docs/auth.md`;
+`docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;
+`src/ir/validate/checks/reactor-principal-checks.ts`.
+

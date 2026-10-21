@@ -31,7 +31,7 @@ import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/o
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -49,7 +49,11 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
-import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  findUsesPrincipal,
+  listUsesPrincipal,
+} from "./capability-filter.js";
 import {
   aggregateHasDomainFloorCodes,
   aggregateHasResidualInvariants,
@@ -70,7 +74,7 @@ import {
   renderEsContextBlock,
 } from "./eventsourced-emit.js";
 import { externImplModule, externPersistForceChanges, isExternOp } from "./extern-emit.js";
-import { renderAggregateFunctions } from "./function-emit.js";
+import { collidingFacadeFunctions, renderAggregateFunctions } from "./function-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import {
@@ -300,7 +304,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${snake(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_decimal_param(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -309,9 +313,9 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${snake(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${snake(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
       return null;
   }
@@ -436,6 +440,14 @@ function renderContextModule(
   extraChannels: ChannelIR[] = [],
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
+  // Same-`name/arity` aggregate `function`s across the aggregates whose façade
+  // block renders them (the event-sourced and abstract-base blocks below return
+  // early) — emitted as one grouped definition, see `collidingFacadeFunctions`.
+  const collidingFns = collidingFacadeFunctions(
+    ctx.aggregates
+      .filter((a) => !isEventSourced(a) && !isAbstractBase(a))
+      .map((a) => ({ agg: a, doc: isVanillaDocAgg(a, ctx, sys) })),
+  );
   const blocks = ctx.aggregates.map((agg) => {
     // Event-sourced aggregates expose create/get/list + per-op command
     // runners (emit→append→fold) instead of the CRUD defdelegates.
@@ -468,9 +480,13 @@ function renderContextModule(
     const listRepo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const listAllFind = listRepo?.finds?.find((f) => f.name === "all");
     const listPaged = listAllFind ? !!pagedReturn(listAllFind.returnType) : false;
+    // The list delegate threads the actor whenever the repository `list` does —
+    // a principal capability filter, or a declared `all` predicate reading
+    // `currentUser` (`listUsesPrincipal`, shared with the repo + controller).
+    const listPrincipal = listUsesPrincipal(agg, listAllFind);
     const listDelegateArgs = listPaged
-      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${principal ? ", current_user \\\\ nil" : ""}`
-      : principal
+      ? `page \\\\ ${PAGED_DEFAULT_PAGE}, page_size \\\\ ${PAGED_DEFAULT_PAGE_SIZE}, sort \\\\ "id", dir \\\\ "asc"${listPrincipal ? ", current_user \\\\ nil" : ""}`
+      : listPrincipal
         ? "current_user \\\\ nil"
         : "";
     // A principal-referencing lifecycle stamp threads `current_user` into the
@@ -549,7 +565,7 @@ function renderContextModule(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const findLines = customFindsOf(repo).map((f) => {
       const findSnake = snake(f.name);
-      const baseArgs = f.params.map((p) => snake(p.name));
+      const baseArgs = f.params.map((p) => escapeElixirIdent(snake(p.name)));
       // A `paged` find carries the same `page`/`page_size` + `sort`/`dir` arity
       // (with defaults) the repository fn declares, so the defdelegate matches
       // and the controller's paged call routes through (M-T2.6).
@@ -714,7 +730,7 @@ ${body}
     // op / precondition / derived bodies emitted above.  Each renders as a
     // struct-guarded `def <fn>(%Agg{} = record, …)` so the lowered call site
     // (`<fn>(record, …)`) resolves in THIS module.
-    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc);
+    const fnLines = renderAggregateFunctions(facadeMod, agg, isDoc, collidingFns);
     const functionBlock = fnLines.length > 0 ? `${fnLines.join("\n")}\n` : "";
     // The CRUD `delete_<agg>` defdelegate is emitted only when the aggregate
     // exposes a REST delete surface (a reachable `destroy`).  Without it the
@@ -812,7 +828,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       const retMod = `${facadeMod}.Retrievals.${upperFirst(r.name)}`;
       // `defdelegate` carries the function arity through to the target.
       // `\\\\ []` is the default for the trailing `opts` arg.
-      const args = r.params.map((p) => snake(p.name));
+      const args = r.params.map((p) => escapeElixirIdent(snake(p.name)));
       const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
       return `  defdelegate run_${retSnake}_${aggSnake}(${argList}), to: ${retMod}, as: :run`;
     });
@@ -1220,7 +1236,7 @@ function renderExternOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
@@ -1315,7 +1331,7 @@ function renderNamedOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${snake(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-

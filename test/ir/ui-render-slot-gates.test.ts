@@ -20,6 +20,7 @@ function system(pageBody: string, extra = ""): string {
 system Shop {
   subdomain Catalog {
     context Stock {
+      valueobject Address { city: string }
       aggregate Item with crudish {
         sku: string
         name: string
@@ -27,6 +28,7 @@ system Shop {
         madeAt: datetime
         ref: guid
         weight: decimal
+        address: Address
       }
       repository Items for Item { }
       projection Totals {
@@ -70,7 +72,8 @@ async function diags(pageBody: string, extra = ""): Promise<{ code: string; mess
     .filter(
       (d) =>
         d.code === "loom.markup-primitive-in-collection-lambda" ||
-        d.code === "loom.money-in-text-slot",
+        d.code === "loom.money-in-text-slot" ||
+        d.code === "loom.valueobject-in-text-slot",
     )
     .map((d) => ({ code: d.code!, message: d.message }));
 }
@@ -87,7 +90,8 @@ async function diagsWith(
     .filter(
       (d) =>
         d.code === "loom.markup-primitive-in-collection-lambda" ||
-        d.code === "loom.money-in-text-slot",
+        d.code === "loom.money-in-text-slot" ||
+        d.code === "loom.valueobject-in-text-slot",
     )
     .map((d) => ({ code: d.code ?? "", message: d.message }));
 }
@@ -250,5 +254,23 @@ describe("D4 — a `money` value in a slot that renders it as text", () => {
     // No `of:` the check can resolve to an aggregate — it declines to guess
     // rather than reporting a field it cannot type.
     expect(await diags(`Stack { Text { "not a row read" } }`)).toEqual([]);
+  });
+});
+
+describe("V7 — a value-object field in a slot that renders it as text", () => {
+  it("rejects `Text { <value object> }` and points at a field of it", async () => {
+    const ds = await diags(QV(`For { each: rows, i => Text { i.address } }`));
+    expect(ds.map((d) => d.code)).toEqual(["loom.valueobject-in-text-slot"]);
+    expect(ds[0]!.message).toContain("`Text` renders `i.address` — a `Address` value object");
+    expect(ds[0]!.message).toContain("`i.address.<field>`");
+  });
+
+  it("rejects it in a `Stat` value slot too", async () => {
+    const ds = await diags(QV(`For { each: rows, i => Stat { "Where", i.address } }`));
+    expect(ds.map((d) => d.code)).toEqual(["loom.valueobject-in-text-slot"]);
+  });
+
+  it("accepts a scalar field read off the value object", async () => {
+    expect(await diags(QV(`For { each: rows, i => Text { i.address.city } }`))).toEqual([]);
   });
 });

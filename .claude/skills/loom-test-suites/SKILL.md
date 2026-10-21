@@ -43,7 +43,7 @@ npm run test:react-e2e    # LOOM_REACT_E2E=1 — RUNTIME e2e: vite build + `vite
 npm run test:vue-e2e      # LOOM_VUE_E2E=1 (pack via LOOM_VUE_E2E_PACK)
 npm run test:svelte-e2e   # LOOM_SVELTE_E2E=1
 npm run test:angular-e2e  # LOOM_ANGULAR_E2E=1 (pack via LOOM_ANGULAR_E2E_PACK)
-npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects
+npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects, then builds + runs each emitted xUnit `Tests/` project (fails on zero tests run)
 npm run test:java         # LOOM_JAVA_BUILD=1 — `gradle testClasses bootJar` against generated Spring Boot projects (JDK 25 + Gradle 9.1+)
                           # CI runs it with javac at -Xlint:all -Werror: copy test/e2e/support/java-werror.init.gradle into
                           # ~/.gradle/init.d/ to reproduce (remove it after — init.d applies to every Gradle build), or pass
@@ -54,11 +54,11 @@ npm run test:phoenix      # LOOM_PHOENIX_VANILLA_BUILD=1 — `mix compile --warn
 # Corpus compile gates — every feature fixture in test/fixtures/corpus/*.ddd (feature list from the typed
 # manifest test/fixtures/corpus/manifest.ts, minus each backend's COMPILE_SKIP map) compiled per backend:
 npm run test:tsc-corpus     # LOOM_TS_BUILD=1  (per-feature shard via LOOM_CORPUS_<BACKEND>_CASE)
-npm run test:dotnet-corpus  # LOOM_DOTNET_BUILD=1
+npm run test:dotnet-corpus  # LOOM_DOTNET_BUILD=1 — dotnet build /warnaserror, then the emitted Tests/<Ns>.Tests xUnit project: build /warnaserror + dotnet test (unit only)
 npm run test:dapper-corpus  # LOOM_DOTNET_BUILD=1 — same fixtures with persistence: dapper forced
 npm run test:java-corpus    # LOOM_JAVA_BUILD=1
 npm run test:python-corpus  # LOOM_PYTHON_BUILD=1
-npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile per feature in the hexpm/elixir image (needs LOOM_HEX_MIRROR)
+npm run test:elixir-corpus  # LOOM_ELIXIR_BUILD=1 — mix compile + ecto.migrate + MIX_ENV=test mix test --warnings-as-errors per feature in the hexpm/elixir image (needs LOOM_HEX_MIRROR)
 
 # Tenancy runtime e2e — flat isolation + registry self-scope/signup bootstrap, all five backends
 # (shared harness; docker postgres sidecar, or LOOM_TENANCY_PG_URL to skip it).  CI: the flat cells run
@@ -119,6 +119,11 @@ npm run test:auth-e2e              # LOOM_AUTH_E2E=1 — Hono, native boot
 npm run test:auth-e2e-{dotnet,java,python}         # LOOM_AUTH_E2E_<BACKEND>=1 — native per backend
 npm run test:auth-e2e-compose      # LOOM_AUTH_E2E_COMPOSE=1 — full generated docker-compose stack + bundled dev Keycloak
 npm run test:auth-e2e-phoenix      # LOOM_AUTH_E2E_PHOENIX=1 — the Phoenix compose sibling
+# Identity in a generated stack: `auth { oidc }` (ANY provider, hosted presets included) bundles a dev
+# Keycloak (`demo`/`demo`) and the backends accept only its tokens — `x-loom-dev-claims` is ignored
+# there. The emitted e2e suite mints its own token (E2E_BEARER_TOKEN overrides, E2E_DEV_IDP=off
+# disables). The dev-claims header works only without an auth block, and in the playground preview
+# (which registers the emitted dev stub). docs/auth.md § "Local dev IdP".
 
 npm run test:obs          # LOOM_OBS_E2E=1 — boots generated Hono backend, asserts catalog envelope on stdout
 npm run test:obs-dotnet   # LOOM_OBS_E2E_DOTNET=1 — same for the .NET backend (postgres sidecar via docker)

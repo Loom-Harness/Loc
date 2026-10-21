@@ -448,6 +448,11 @@ export interface FsExprCtx {
    *  action body resolves its destination here (`update-emit.ts`); absent on a
    *  non-routed ui, where the arm degrades to the root path. */
   pageRoutes?: ReadonlyMap<string, string>;
+  /** Component param name -> the rendered F# value it takes — `init` seeding a
+   *  component `state {}` cell whose initializer reads a param, which `init`
+   *  has no props to bind (`component-state-init.ts`).  Absent everywhere
+   *  else. */
+  paramValues?: ReadonlyMap<string, string>;
 }
 
 /** The empty route id — what an `id` read resolves to on a ui with no routing
@@ -546,11 +551,6 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       if (e.refKind === "store-field" && e.storeName) {
         return `${ctx.modelExpr ?? "model"}.${storeModelField(e.storeName, e.name)}`;
       }
-      // Inside a store action body the store's own fields are `let` locals; a
-      // bare ref to one resolves to its namespaced Model field.
-      if (ctx.storeScope?.fields.has(e.name)) {
-        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
-      }
       // An enum VALUE (`Visibility.Public`) is a string on the Feliz wire
       // (`wireFieldType` spells every enum `string`), so it renders as its
       // quoted name — the same answer `auth-gate.ts` gives.  The bare name this
@@ -560,8 +560,19 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // an F#-keyword name needs the double-backtick spelling at every use, the
       // same one `component-emit.ts` gives the binding site.  (`upperFirst` on
       // the state branch is already keyword-safe: every F# keyword is
-      // lowercase.)  F-022.
+      // lowercase.)  F-022.  Checked BEFORE the Model-field scopes below: a
+      // local (an action param, a `let` earlier in the arm) SHADOWS a
+      // same-named state cell or store field, exactly as lowering resolved it.
       if (ctx.locals.has(e.name)) return fsIdent(e.name);
+      if (e.refKind === "param") {
+        const value = ctx.paramValues?.get(e.name);
+        if (value !== undefined) return value;
+      }
+      // Inside a store action body the store's own fields are `let` locals; a
+      // bare ref to one resolves to its namespaced Model field.
+      if (ctx.storeScope?.fields.has(e.name)) {
+        return `${ctx.modelExpr ?? "model"}.${storeModelField(ctx.storeScope.store, e.name)}`;
+      }
       if (ctx.stateNames.has(e.name)) return `${ctx.modelExpr ?? "model"}.${upperFirst(e.name)}`;
       return fsIdent(e.name);
     case "binary": {
@@ -683,22 +694,29 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.lambda(e.param, e.body ? r(e.body) : undefined);
     case "paren":
       return `(${r(e.inner)})`;
-    default:
-      // Fail fast rather than silently substituting `(* unsupported *) ()`.
-      // Three kinds reach here, none of them authored in a page body:
-      // `this` (a domain-body receiver — a page has no aggregate instance),
-      // `action-ref` (a handler reference the view walker binds as a dispatch
-      // wrapper, never a value in an update arm), and `authz-filter` (a
-      // synthesized query-filter sentinel that lives only on an aggregate's
-      // `contextFilters`).  So this is a defensive fail-fast on an IR shape the
-      // frontend pipeline does not produce — NOT a claim that every expression
-      // a user can write is covered.  If it fires on real `.ddd`, the arm is
-      // missing: add it here rather than widening the throw.
+    case "action-ref":
+      // An action named as a VALUE in an update arm (`let f = save`) is its
+      // Elmish `Msg` case — the F# value that stands for "this action" (a
+      // case with a payload is its constructor function).  The view path
+      // binds the same reference as a dispatch wrapper instead.
+      return e.storeName ? storeMsgCase(e.storeName, e.actionName) : upperFirst(e.actionName);
+    case "this":
+      // A page has no aggregate instance: `loom.ui-this-unbound` refuses a
+      // `this` in any ui body on this frontend at phase ⑦.
       throw new Error(
-        `feliz: unsupported expression '${e.kind}' in an F# action/update body — ` +
-          `no arm renders it on the MVU update path. If a valid page body reaches ` +
-          `this, implement the '${e.kind}' arm in fs-expr.ts (the view path's ` +
-          `treatment of the same kind is in _walker/walker-core.ts).`,
+        "internal: `this` reached the F# update renderer; loom.ui-this-unbound refuses it " +
+          "at validation. Please file a bug.",
       );
+    case "authz-filter":
+      // A read-path policy sentinel planted only on an aggregate's
+      // `contextFilters` — never in a ui body.
+      throw new Error(
+        `internal: an authorization filter for '${e.aggregate}' reached the F# update renderer. ` +
+          "Please file a bug.",
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }

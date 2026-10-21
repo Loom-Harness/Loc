@@ -5,6 +5,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { nearestName } from "../../util/edit-distance.js";
 import type {
   ActionDecl,
   Aggregate,
@@ -859,11 +860,19 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
     seen.add(f.name);
     const expected = declared.get(f.name);
     if (!expected) {
-      accept("error", diagMessage("loom.emit-unknown-field", { evName: ev.name, f: f.name }), {
-        node: f,
-        property: "name",
-        code: "loom.emit-unknown-field",
-      });
+      accept(
+        "error",
+        diagMessage("loom.emit-unknown-field", {
+          evName: ev.name,
+          f: f.name,
+          suggestion: nearestName(f.name, declared.keys()),
+        }),
+        {
+          node: f,
+          property: "name",
+          code: "loom.emit-unknown-field",
+        },
+      );
       continue;
     }
     const actual = typeOf(f.value, env);
@@ -1087,7 +1096,9 @@ export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
   // `this`, then the type after each segment.  The head resolves lexically
   // (param, let, …) before the enclosing record's members — except under an
   // EXPLICIT `this.`, the whole point of which is to skip a same-named
-  // parameter (`operation rename(name: string) { this.name := name }`).
+  // parameter (`operation rename(name: string) { this.name := name }`) — and
+  // except a bare head naming a member of the enclosing aggregate, which the
+  // pass types as that member (M-T5.42 V4, `lvalueSteps`).
   const steps = typingFor(lv).lvalueStepsAt(lv) ?? [];
   const segs = [lv.head, ...lv.tail];
   for (let i = 0; i < segs.length; i++) {

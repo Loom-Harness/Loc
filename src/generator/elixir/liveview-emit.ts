@@ -1580,7 +1580,10 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
     // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
     // carries its own argument, and reaching for the route id instead both
     // dropped the filter and read an assign such a page never binds.
-    const singleArgs = qb.listArgs?.length ? qb.listArgs.join(", ") : "socket.assigns.id";
+    const singleArgs = [
+      ...(qb.listArgs?.length ? qb.listArgs : ["socket.assigns.id"]),
+      ...(qb.actorArgs ?? []),
+    ].join(", ");
     // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
     // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
     // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
@@ -1605,7 +1608,7 @@ ${nilArm}${okArm}
   // query instead of silently falling back to the repository defaults.  The
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
-  const listArgs = (qb.listArgs ?? []).join(", ");
+  const listArgs = [...(qb.listArgs ?? []), ...(qb.actorArgs ?? [])].join(", ");
   const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
@@ -2132,7 +2135,8 @@ function renderWorkflowEventClauses(
           )
           .join(",\n")}\n    }`
       : "%{}";
-  const coercer = params.length > 0 ? WF_PARAM_COERCER : "";
+  const coercer =
+    params.length > 0 ? wfParamCoercer(new Set(params.map((pp) => wfParamKind(pp.type)))) : "";
   return `\n  @impl true
   def handle_event("run_${wfSnake}", %{"${wfSnake}" => ${rawVar}}, socket) do
     params = ${built}
@@ -2173,8 +2177,42 @@ function wfParamKind(t: TypeIR): "int" | "decimal" | "bool" | "string" {
 }
 
 /** Narrow one submitted form value to its declared kind.  Emitted once beside
- *  the `run_<wf>` clause when the workflow takes at least one param. */
-const WF_PARAM_COERCER = `
+ *  the `run_<wf>` clause when the workflow takes at least one param.
+ *
+ *  Only the per-kind clauses some param actually NEEDS are emitted: every call
+ *  site passes a literal kind atom, so Elixir's type checker proves a clause
+ *  for an unused kind (`:decimal` on a workflow of int + string params) can
+ *  never match and warns "this clause of defp __wf_param/2 is never used" —
+ *  fatal under `--warnings-as-errors`. */
+function wfParamCoercer(kinds: ReadonlySet<"int" | "decimal" | "bool" | "string">): string {
+  // Blank-line-separated groups after the `nil`/`""` pair, in the historical
+  // order — an all-kinds coercer is byte-identical to the former constant.
+  const groups: string[] = [];
+  if (kinds.has("int")) {
+    groups.push(`  defp __wf_param(v, :int) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end`);
+  }
+  if (kinds.has("decimal")) {
+    groups.push(`  defp __wf_param(v, :decimal) when is_binary(v) do
+    case Decimal.parse(v) do
+      {d, ""} -> d
+      _ -> nil
+    end
+  end`);
+  }
+  groups.push(
+    [
+      ...(kinds.has("bool")
+        ? ['  defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]']
+        : []),
+      "  defp __wf_param(v, _kind), do: v",
+    ].join("\n"),
+  );
+  return `
   # A browser form submits strings; the HTTP route feeds this same \`run/1\`
   # typed JSON.  An aggregate create hides the difference behind Ecto's
   # \`cast\`, but a workflow body uses its params directly — so narrow here,
@@ -2185,23 +2223,9 @@ const WF_PARAM_COERCER = `
   defp __wf_param(nil, _kind), do: nil
   defp __wf_param("", _kind), do: nil
 
-  defp __wf_param(v, :int) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end
-
-  defp __wf_param(v, :decimal) when is_binary(v) do
-    case Decimal.parse(v) do
-      {d, ""} -> d
-      _ -> nil
-    end
-  end
-
-  defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]
-  defp __wf_param(v, _kind), do: v
+${groups.join("\n\n")}
 `;
+}
 
 /** One `handle_<field>_progress/3` per `FileUpload` binding.  Referenced by the
  *  mount `allow_upload(..., progress: &…/3)` seam.  On a completed entry it

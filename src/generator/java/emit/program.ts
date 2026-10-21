@@ -330,10 +330,12 @@ export function renderApplication(basePkg: string): string {
   );
 }
 
-export function renderApplicationYml(slug: string): string {
+/** `nativePort` is the deployable's declared port: what `gradle bootRun` and
+ *  a bare `java -jar` listen on.  The image overrides it with SERVER_PORT. */
+export function renderApplicationYml(slug: string, nativePort = 8080): string {
   return lines(
     `server:`,
-    `  port: 8080`,
+    `  port: ${nativePort}`,
     `spring:`,
     `  application:`,
     `    name: ${slug}`,
@@ -671,6 +673,7 @@ export function renderDockerfile(
     options.embeddedSpa
       ? `COPY --from=spa-build /spa/${options.spaOutDir ?? "dist"} /app/ui`
       : null,
+    `ENV SERVER_PORT=8080`,
     `EXPOSE 8080`,
     `ENTRYPOINT ["java", "-jar", "app.jar"]`,
     ``,
