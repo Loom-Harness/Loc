@@ -51,6 +51,8 @@
 // templates keep working unchanged.
 // ---------------------------------------------------------------------------
 
+import type { WorkflowIR } from "../../ir/types/loom-ir.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { upperFirst } from "../../util/naming.js";
 
 /** The declarations this module needs off an aggregate: its name and its
@@ -97,7 +99,7 @@ function alternateBase(wf: string): string {
  *  it. */
 export function frontendRequestNames(
   aggregates: Iterable<RequestNameAggregate>,
-  workflows: Iterable<{ readonly name: string }>,
+  workflows: Iterable<WorkflowIR>,
 ): FrontendRequestNames {
   // Everything the aggregate modules already export under `<base>Request`.
   const claimed = new Set<string>();
@@ -108,7 +110,13 @@ export function frontendRequestNames(
     }
   }
 
-  const names = [...workflows].map((w) => w.name).sort((a, b) => a.localeCompare(b));
+  // Only a command-startable workflow publishes a `<Wf>Request` (the shared
+  // `emitsCommandRoute` rule — the OpenAPI request owners filter the same way),
+  // so an event-only saga never claims a spelling it does not emit.
+  const names = [...workflows]
+    .filter(emitsCommandRoute)
+    .map((w) => w.name)
+    .sort((a, b) => a.localeCompare(b));
   // Every base a workflow would rather have.  A fallback avoids these so it can
   // never displace a workflow that has not claimed its own yet.
   const preferredAll = new Set(names.map(preferredBase));
@@ -141,11 +149,11 @@ export function frontendRequestNames(
 export function requestNamesForContexts(
   contexts: Iterable<{
     readonly aggregates: readonly RequestNameAggregate[];
-    readonly workflows: readonly { readonly name: string }[];
+    readonly workflows: readonly WorkflowIR[];
   }>,
 ): FrontendRequestNames {
   const aggregates: RequestNameAggregate[] = [];
-  const workflows: { readonly name: string }[] = [];
+  const workflows: WorkflowIR[] = [];
   for (const ctx of contexts) {
     aggregates.push(...ctx.aggregates);
     workflows.push(...ctx.workflows);

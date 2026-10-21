@@ -26,6 +26,7 @@ import {
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst, workflowFnCamel } from "../../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../../_i18n/domain-floor.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import {
@@ -314,7 +315,7 @@ export function javaWorkflowStmtTarget(
     precondition: (s, indent) => {
       collectJavaExprImports(s.expr, imports);
       return [
-        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${JSON.stringify(s.message ? s.message.text : `Precondition failed: ${s.source}`)});`,
+        `${indent}if (!(${renderJavaExpr(s.expr, renderCtx)})) throw new DomainException(${workflowPreconditionThrowArgs(s)});`,
       ];
     },
     requires: (s, indent) => {
