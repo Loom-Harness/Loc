@@ -103,7 +103,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { stateDefault } from "../state-default.js";
+import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -1575,7 +1575,9 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx)}`),
+          .map(
+            (f) => `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : {})}`,
+          ),
       ]
     : [];
   const statePrelude = corrParam
