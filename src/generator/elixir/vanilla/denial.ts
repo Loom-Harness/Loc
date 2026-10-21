@@ -488,6 +488,17 @@ export function respondErrorTail(
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
    *  the term carries no arm for it. */
   notFoundDetail = false,
+  /** True when some aggregate this dispatcher can reach is `versioned` or
+   *  event-sourced (`aggregatesNeedConcurrency`) — the same predicate that
+   *  emits `ProblemDetails.conflict_response/1`.  A stale save inside a
+   *  workflow / handler body (`persist_change/1` / the document `update` rescue
+   *  `Ecto.StaleEntryError`, the event-log append rescues the
+   *  `(stream_id, version)` unique_violation, all to `{:error, :conflict}`)
+   *  rolls the transaction back and threads that term here; without the arm it
+   *  fell to the sanitized 500 catch-all where the single-aggregate route and
+   *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
+   *  project without concurrency never references a responder it didn't emit. */
+  conflict = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -517,6 +528,14 @@ export function respondErrorTail(
           clause(
             `def ${fnName}(conn, {:error, {:validation_failed, errors}})`,
             wireValidationResponse(),
+          ),
+        ]
+      : []),
+    ...(conflict
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, :conflict})`,
+            "ProblemDetails.conflict_response(conn)",
           ),
         ]
       : []),
