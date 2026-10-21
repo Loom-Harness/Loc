@@ -107,7 +107,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     ["dotnet", "dapper"],
     ["Id", "Permissions", "Role", "id", "orgId", "permissions", "role", "tenantId"],
   ),
-  ...actorKeyWaivers(["java"], ["orgId", "tenantId"]),
+  ...actorKeyWaivers(["java"], ["causedBy", "isSystem", "orgId", "tenantId"]),
   // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
   // Dapper and python legs, the first golden to record an optimistic-concurrency
   // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
