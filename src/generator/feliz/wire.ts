@@ -51,6 +51,7 @@ import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
@@ -2519,7 +2520,8 @@ export function collectPageWorkflowForms(
   const seen = new Set<string>();
   for (const wfName of workflowFormRuns(page.body, nameSet)) {
     const wf = workflowsByName.get(wfName);
-    if (!wf) continue;
+    // An event-only saga has no command route (`emitsCommandRoute`) — no api fn.
+    if (!wf || !emitsCommandRoute(wf)) continue;
     const form = felizWorkflowForm(wf, enumsByName, idLabels, vosByName);
     if (seen.has(form.formType)) continue;
     seen.add(form.formType);

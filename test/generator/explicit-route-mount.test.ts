@@ -25,16 +25,13 @@
 // document) stays at the root.  So `/api` + the declared path is the contract,
 // and the bare value is the body.
 //
-// The second describe is the REGRESSION half, and it is why
-// `src/generator/_api/explicit-route-mount.ts` exists at all.  `with
-// scaffoldHandlers` + `with scaffoldApi` synthesises one explicit handler per
-// create / operation / find / get-by-id / destroy, so the explicit route list
-// becomes a 1:1 duplicate of the always-on auto-derived REST surface.  Moving
-// THOSE under `/api` puts two handlers on one slot, which elixir reports as a
-// `mix compile --warnings-as-errors` failure (an unreachable `do_match` clause),
-// .NET as `AmbiguousMatchException`, and java as `Ambiguous handler methods
-// mapped` — all at the price of a route that already works.  A colliding route
-// therefore keeps its historical root-absolute mounting.
+// The second describe pins D-EXPLICIT-ROUTE-WINS.  `with scaffoldHandlers` +
+// `with scaffoldApi` synthesises one explicit route per create / operation /
+// find / get-by-id / destroy — the same slots the always-on auto-derived REST
+// surface occupies.  The explicit route owns each such slot: the derived
+// surface yields it, so the two never register on one slot (elixir would fail
+// `mix compile --warnings-as-errors`, .NET and java would throw ambiguity
+// errors at request time, node and python would serve whichever mounted first).
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -67,19 +64,23 @@ system Echoes {
 }
 `;
 
-/** `scaffoldHandlers` + `scaffoldApi`: every explicit route duplicates an
- *  auto-derived one, so every one of them must stay where it was. */
+/** `scaffoldHandlers` + `scaffoldApi`: every explicit route lands on a slot of
+ *  the auto-derived surface.  `cancel` is `when`-gated so its `can_cancel`
+ *  probe — which scaffoldApi does NOT route — must stay on the derived side. */
 const SCAFFOLD_SRC = (platform: string) => `
 system Shop {
   subdomain Sales {
     context Ordering with scaffoldHandlers {
       aggregate Order {
         code: string
-        status: string
-        operation cancel() { status := "cancelled" }
+        status: string = "new"
+        create(code: string) { code := code }
+        operation cancel() when status == "new" { status := "cancelled" }
         destroy { }
       }
-      repository Orders for Order { }
+      repository Orders for Order {
+        find byStatus(status: string): Order[] where this.status == status
+      }
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -189,45 +190,135 @@ describe("M-T6.73 — an explicit route serves under API_BASE_PATH on every back
   });
 });
 
-describe("M-T6.73 — a route that DUPLICATES an auto-derived one keeps its root mounting", () => {
-  it("elixir leaves the scaffold-duplicate routes in the root scope", async () => {
+describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived surface yields it", () => {
+  it('elixir serves every scaffolded route from `scope "/api"`, after the derived routes', async () => {
     const router = await fileEndingWith(SCAFFOLD_SRC("elixir"), "lib/api_web/router.ex");
     const rootBlock = router.slice(router.indexOf('scope "/" do'), router.indexOf('scope "/api"'));
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
-    // `GET /orders/:order_id` would collide with the auto-CRUD `GET
-    // /api/orders/:id` — Phoenix ignores param names, so the second clause is
-    // unreachable and `mix compile --warnings-as-errors` fails.
-    expect(rootBlock).toContain(
-      'get "/orders/:order_id", ApiWeb.SalesApiRoutesController, :get_order',
+    expect(rootBlock).not.toContain("SalesApiRoutesController");
+    for (const line of [
+      'get "/orders/by_status", SalesApiRoutesController, :by_status_order',
+      'get "/orders/:order_id", SalesApiRoutesController, :get_order',
+      'post "/orders", SalesApiRoutesController, :create_order',
+      'post "/orders/:order_id/cancel", SalesApiRoutesController, :cancel_order',
+      'delete "/orders/:order_id", SalesApiRoutesController, :destroy_order',
+    ])
+      expect(apiBlock).toContain(line);
+    // The derived routes for those slots are gone — two clauses on one slot is
+    // an unreachable `do_match` and a `--warnings-as-errors` build failure.
+    for (const action of [":show", ":create", ":delete", ":cancel", ":by_status"])
+      expect(apiBlock).not.toContain(`OrderController, ${action}\n`);
+    // Slots no explicit route claims stay derived: the list read and the probe.
+    expect(apiBlock).toContain('get "/orders", OrderController, :index');
+    expect(apiBlock).toContain('get "/orders/:id/can_cancel", OrderController, :can_cancel');
+    // Phoenix matches in order: the static find precedes the `:order_id` read
+    // that would otherwise swallow `/orders/by_status`.
+    expect(apiBlock.indexOf('"/orders/by_status"')).toBeLessThan(
+      apiBlock.indexOf('get "/orders/:order_id"'),
     );
-    expect(rootBlock).toContain(
-      'delete "/orders/:order_id", ApiWeb.SalesApiRoutesController, :destroy_order',
+  });
+
+  it("dotnet mounts the explicit templates under /api and drops the derived actions", async () => {
+    const files = await generateSystemFiles(SCAFFOLD_SRC("dotnet"));
+    const explicit = [...files].find(([k]) => k.endsWith("Api/SalesApiRoutesController.cs"))![1];
+    const derived = [...files].find(([k]) => k.endsWith("Api/OrdersController.cs"))![1];
+    expect(explicit).toContain('[HttpGet("/api/orders/{orderId}")]');
+    expect(explicit).toContain('[HttpDelete("/api/orders/{orderId}")]');
+    expect(derived).not.toContain('[HttpGet("{id}")]');
+    expect(derived).not.toContain("[HttpDelete");
+    expect(derived).not.toContain("[HttpPost");
+    // The unclaimed probe and list read stay on the derived controller.
+    expect(derived).toContain('[HttpGet("{id}/can_cancel")]');
+    expect(derived).toContain("[HttpGet]");
+  });
+
+  it("java maps the explicit routes under /api and drops the derived mappings", async () => {
+    const files = await generateSystemFiles(SCAFFOLD_SRC("java"));
+    const explicit = [...files].find(([k]) => k.endsWith("api/SalesApiRoutesController.java"))![1];
+    const derived = [...files].find(([k]) => /\/Orders?Controller\.java$/.test(k))![1];
+    expect(explicit).toContain('@GetMapping("/api/orders/{orderId}")');
+    expect(explicit).toContain('@DeleteMapping("/api/orders/{orderId}")');
+    expect(derived).not.toContain("getOrderById(");
+    expect(derived).not.toContain("@DeleteMapping");
+    expect(derived).not.toContain("@PostMapping");
+    expect(derived).toContain('@GetMapping("/{id}/can_cancel")');
+  });
+
+  it("node and python register each slot once, on the explicit router", async () => {
+    const node = await generateSystemFiles(SCAFFOLD_SRC("node"));
+    const nodeDerived = [...node].find(([k]) => k.endsWith("http/order.routes.ts"))![1];
+    for (const id of [
+      "getOrderById",
+      "createOrder",
+      "destroyOrder",
+      "cancelOrder",
+      "byStatusOrder",
+    ])
+      expect(nodeDerived).not.toContain(`operationId: "${id}"`);
+    expect(nodeDerived).toContain('operationId: "can_cancelOrder"');
+    expect(nodeDerived).toContain('operationId: "allOrder"');
+
+    const py = await generateSystemFiles(SCAFFOLD_SRC("python"));
+    const pyDerived = [...py].find(([k]) => k.endsWith("http/order_routes.py"))![1];
+    expect(pyDerived).not.toContain('@router.get("/{id}"');
+    expect(pyDerived).not.toContain("@router.post(");
+    expect(pyDerived).not.toContain("@router.delete(");
+    expect(pyDerived).toContain('@router.get("/{id}/can_cancel"');
+  });
+
+  it("a hand-written route claiming only get-by-id: .NET's create still answers a Location", async () => {
+    // The derived create action normally names the derived read in
+    // `CreatedAtAction(nameof(GetOrderById), …)`.  With that action yielded to
+    // the explicit route there is nothing to name, so the path is spelled.
+    const src = CLEAN_SRC("dotnet")
+      .replace(
+        "commandHandler Echo(text: string): string { return text }",
+        "queryHandler Fetch(orderId: string): string { return orderId }",
+      )
+      .replace(
+        "status: string\n",
+        "status: string\n        create(code: string) { code := code }\n",
+      )
+      .replace(
+        'route POST "/echo/{text}" -> Sales.Echo',
+        'route GET "/orders/{orderId}" -> Sales.Fetch',
+      );
+    const derived = await fileEndingWith(src, "Api/OrdersController.cs");
+    expect(derived).not.toContain("CreatedAtAction(");
+    expect(derived).toContain('return Created($"/api/orders/{id.Value}", ');
+    expect(derived).toContain("[HttpPost]");
+  });
+
+  it("elixir: a hand-written route taking over get-by-id registers AFTER the derived static find", async () => {
+    // Only `GET /orders/{orderId}` is claimed; `find byStatus` stays derived.
+    // Spliced `first`, the explicit `:order_id` clause would match
+    // `/orders/by_status` before the derived find route ever saw it.
+    const src = CLEAN_SRC("elixir")
+      .replace(
+        "commandHandler Echo(text: string): string { return text }",
+        "queryHandler Fetch(orderId: string): string { return orderId }",
+      )
+      .replace(
+        "repository Orders for Order { }",
+        "repository Orders for Order { find byStatus(status: string): Order[] where this.status == status }",
+      )
+      .replace(
+        'route POST "/echo/{text}" -> Sales.Echo',
+        'route GET "/orders/{orderId}" -> Sales.Fetch',
+      );
+    const router = await fileEndingWith(src, "lib/d_web/router.ex");
+    const apiBlock = router.slice(router.indexOf('scope "/api"'));
+    expect(apiBlock).toContain('get "/orders/by_status", OrderController, :by_status');
+    expect(apiBlock).not.toContain("OrderController, :show");
+    expect(apiBlock.indexOf('get "/orders/by_status"')).toBeLessThan(
+      apiBlock.indexOf('get "/orders/:order_id", ARoutesController'),
     );
-    // The derived routes own the `/api` slots, alone.
-    expect(apiBlock).toContain('get "/orders/:id", OrderController, :show');
-    expect(apiBlock).not.toContain("SalesApiRoutesController");
   });
 
-  it("dotnet leaves the scaffold-duplicate templates root-absolute", async () => {
-    const ctrl = await fileEndingWith(SCAFFOLD_SRC("dotnet"), "Api/SalesApiRoutesController.cs");
-    expect(ctrl).toContain('[HttpGet("/orders/{orderId}")]');
-    expect(ctrl).toContain('[HttpDelete("/orders/{orderId}")]');
-    // Nothing moved under /api, where AmbiguousMatchException would fire.
-    expect(ctrl).not.toContain('("/api/orders/{orderId}")');
-  });
-
-  it("java leaves the scaffold-duplicate mappings un-prefixed", async () => {
-    const ctrl = await fileEndingWith(SCAFFOLD_SRC("java"), "api/SalesApiRoutesController.java");
-    expect(ctrl).toContain('@GetMapping("/orders/{orderId}")');
-    expect(ctrl).toContain('@DeleteMapping("/orders/{orderId}")');
-    expect(ctrl).not.toContain('@GetMapping("/api/orders/{orderId}")');
-  });
-
-  it("a NON-duplicate route in the same api still moves (the rule is per-route)", async () => {
-    // `POST /orders` on an aggregate with NO canonical `create` is not a
-    // duplicate — the auto-derived surface exposes no POST there (the REST
-    // create gates on an explicit `create`) — so it moves, while `/quotes/{sku}`
-    // obviously does.  Proves the collision test is per-route, not per-api.
+  it("a route on a slot the derived surface does not occupy goes `first` (the rule is per-route)", async () => {
+    // `POST /orders` on an aggregate with NO canonical `create` claims nothing —
+    // the auto-derived surface exposes no POST there (the REST create gates on
+    // an explicit `create`) — and neither does `/quotes/{sku}`.
     const src = `
 system ExternHandlerSys {
   subdomain Sales {

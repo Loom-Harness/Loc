@@ -5,6 +5,7 @@ import {
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
@@ -26,9 +27,18 @@ import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-s
 // orchestrator and the templating preparers share.
 // ---------------------------------------------------------------------------
 
-/** Whether any workflow exists across the deployable's contexts. */
+/** Whether a workflow contributes anything to the frontend's workflows API
+ *  module: a command call (its facade is command-triggered — the shared
+ *  `emitsCommandRoute` rule every backend gates its `POST /workflows/<wf>`
+ *  route on) and/or the read-only instance hooks of an observable workflow.
+ *  An event-only saga with no instance read model contributes nothing. */
+export function workflowHasApiSurface(wf: WorkflowIR): boolean {
+  return emitsCommandRoute(wf) || !!wf.instanceWireShape;
+}
+
+/** Whether the deployable's workflows API module has anything to emit. */
 export function hasAnyWorkflow(contexts: BoundedContextIR[]): boolean {
-  return contexts.some((c) => c.workflows.length > 0);
+  return contexts.some((c) => c.workflows.some(workflowHasApiSurface));
 }
 
 /** Gather every workflow with its owning context, sorted by name for
@@ -64,12 +74,14 @@ export function buildWorkflowsApiModule(
   // only imported when at least one exists, so a saga-less project's module
   // stays byte-identical.
   const anyInstances = workflows.some(({ wf }) => wf.instanceWireShape);
+  // Only a command-startable workflow gets a request schema + mutation hook —
+  // an event-only saga has no `POST /workflows/<wf>` route on any backend.
+  const anyCommands = workflows.some(({ wf }) => emitsCommandRoute(wf));
+  const hooks = [anyCommands ? "useMutation" : "", anyInstances ? "useQuery" : ""].filter(Boolean);
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
-  lines.push(
-    `import { ${anyInstances ? "useMutation, useQuery" : "useMutation"} } from "${queryPackage}";`,
-  );
+  lines.push(`import { ${hooks.join(", ")} } from "${queryPackage}";`);
   lines.push(`import { api, seg } from "./client";`);
   if (contexts.some(contextUsesMoney)) {
     lines.push(`import { moneySchema } from "../lib/schemas";`);
@@ -83,6 +95,10 @@ export function buildWorkflowsApiModule(
   }
 
   for (const { wf, ctx } of workflows) {
+    if (!emitsCommandRoute(wf)) {
+      if (wf.instanceWireShape) lines.push(...emitInstanceHooks(wf));
+      continue;
+    }
     const base = names.workflow(wf.name);
     lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {
@@ -166,7 +182,8 @@ function emitInstanceHooks(wf: WorkflowIR): string[] {
  *  for an observable workflow — its instance wire-shape fields (whose response
  *  schema may name enum / value-object schemas that must be in scope). */
 function apiSurfaceTypes(wf: WorkflowIR): TypeIR[] {
-  return [...wf.params.map((p) => p.type), ...(wf.instanceWireShape ?? []).map((f) => f.type)];
+  const params = emitsCommandRoute(wf) ? wf.params.map((p) => p.type) : [];
+  return [...params, ...(wf.instanceWireShape ?? []).map((f) => f.type)];
 }
 
 /** The aggregate module that actually EXPORTS `<name>Schema`, or `undefined`

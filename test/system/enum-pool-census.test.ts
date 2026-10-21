@@ -209,7 +209,7 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/typescript/repository-imports-builder.ts#collectEnums": p1(
     "repository import candidates",
   ),
-  "src/generator/typescript/emit/tests.ts#renderTestsCore": p1("unit-test import candidates"),
+  "src/generator/typescript/emit/tests.ts#testBodyValueImports": p1("unit-test import candidates"),
   "src/generator/typescript/emit/seed.ts#emitSeeds": p1("seed import candidates"),
   "src/generator/typescript/emit/domain-service.ts#renderDomainServices": p1(
     "domain-service import candidates",
