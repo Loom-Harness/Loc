@@ -52,6 +52,26 @@ import type { WireWaiver } from "./wire-record.js";
 // `validation-messages` (seq 14 `ship`, seq 15 `retag`) and fixed python; the
 // other three backends still send their framework's default text, measured on
 // booted legs.  Mission M-T6.86 closes them and deletes these four entries.
+// 2026-10-18 — `audit-history-guarded` is the first golden that records a
+// history read under `auth: required`, and the trail's `actor` (the principal
+// recorded at command time) is a different JSON shape on every backend —
+// mission M-T6.99, which needs a ruling on the canonical shape first.  Scoped
+// to that case's history reads and to the `actor` key alone, so every
+// `changes` divergence (the mask drop, the stamps) still gates.
+const ACTOR =
+  "M-T6.99 — the audit trail's recorded `actor` has no cross-backend shape yet (node: the raw claim bag; .NET: the declared shape, PascalCase; java: declared, camelCase; python: null; elixir: the id alone)";
+const actorKeyWaivers = (backends: readonly string[], keys: readonly string[]): WireWaiver[] =>
+  keys.map(
+    (k): WireWaiver => ({
+      backends,
+      cases: ["audit-history-guarded"],
+      request: "GET /api/*/*/history",
+      path: `$[*].actor.${k}`,
+      kinds: ["key-set"],
+      reason: ACTOR,
+    }),
+  );
+
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...(["ship", "retag"] as const).map(
     (op): WireWaiver => ({
@@ -74,6 +94,20 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
         "M-T6.86 — a message-less precondition answers the domain-floor 422 (no errors[]) instead of the wire-validation shape",
     }),
   ),
+  {
+    backends: ["python"],
+    cases: ["audit-history-guarded"],
+    request: "GET /api/*/*/history",
+    path: "$[*].actor",
+    kinds: ["type-mismatch"],
+    reason: ACTOR,
+  },
+  ...actorKeyWaivers(["elixir"], ["orgId", "permissions", "role", "tenantId"]),
+  ...actorKeyWaivers(
+    ["dotnet", "dapper"],
+    ["Id", "Permissions", "Role", "id", "orgId", "permissions", "role", "tenantId"],
+  ),
+  ...actorKeyWaivers(["java"], ["causedBy", "isSystem", "orgId", "tenantId"]),
   // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
   // Dapper and python legs, the first golden to record an optimistic-concurrency
   // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
