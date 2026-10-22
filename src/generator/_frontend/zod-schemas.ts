@@ -239,6 +239,7 @@ const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   // A `File` REQUEST field is `.nullable()` — a form starts with no file (a
@@ -255,6 +256,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",

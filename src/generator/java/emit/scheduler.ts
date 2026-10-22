@@ -70,6 +70,8 @@ function tickFieldValue(field: FieldIR): string {
     switch (t.name) {
       case "datetime":
         return "Instant.now()";
+      case "date":
+        return "java.time.LocalDate.now(java.time.ZoneOffset.UTC)";
       case "int":
         return "0";
       case "long":

@@ -50,6 +50,7 @@ import {
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
+import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
@@ -181,6 +182,8 @@ function primTypes(name: string): { sql: string; cs: string } {
       return { sql: "boolean", cs: "bool" };
     case "datetime":
       return { sql: "timestamptz", cs: "DateTime" };
+    case "date":
+      return { sql: "date", cs: "DateOnly" };
     case "guid":
       return { sql: "uuid", cs: "Guid" };
     case "json":
@@ -2768,4 +2771,53 @@ export function renderDapperConnectionSetup(searchPath: readonly string[] = []):
     `        SearchPath = ${JSON.stringify(searchPath.join(","))},`,
     `    }.ConnectionString));`,
   ];
+}
+
+const DATE_ONLY_HANDLER_PATH = "Infrastructure/Persistence/DateOnlyTypeHandler.cs";
+
+/** Wire the `DateOnly` type handler into a finished Dapper project iff some
+ *  emitted C# names `DateOnly` — derived from use over the file map, so a
+ *  project with no `date` field is byte-identical.  Registered right after the
+ *  data source in `Program.cs`, before any repository can run a query. */
+export function wireDapperDateOnlyHandler(out: Map<string, string>, ns: string): void {
+  const program = out.get("Program.cs");
+  if (program === undefined) return;
+  const uses = [...out].some(([p, c]) => p.endsWith(".cs") && /\bDateOnly\b/.test(c));
+  if (!uses) return;
+  const anchor = `    builder.Configuration.GetConnectionString("Default")!));`;
+  if (!program.includes(anchor)) return;
+  out.set(DATE_ONLY_HANDLER_PATH, renderDapperDateOnlyHandler(ns));
+  rewrite(
+    out,
+    "Program.cs",
+    program.replace(
+      anchor,
+      `${anchor}\nDapper.SqlMapper.AddTypeHandler(new ${ns}.Infrastructure.Persistence.DateOnlyTypeHandler());`,
+    ),
+  );
+}
+
+/** `Infrastructure/Persistence/DateOnlyTypeHandler.cs` — teaches Dapper the
+ *  Loom `date` scalar (`DateOnly`), which it cannot bind as a parameter on its
+ *  own ("type System.DateOnly cannot be used as a parameter value").  Npgsql
+ *  binds a `DateOnly` to `date` natively; a `date` column READS back as a
+ *  `DateTime` at midnight through Dapper's untyped `GetValue`, whose calendar
+ *  day is the stored one — no zone is applied to a `date`. */
+function renderDapperDateOnlyHandler(ns: string): string {
+  return lines(
+    `namespace ${ns}.Infrastructure.Persistence;`,
+    "",
+    '/// <summary>Binds and reads the Loom <c>date</c> scalar (<see cref="DateOnly"/>).</summary>',
+    "public sealed class DateOnlyTypeHandler : Dapper.SqlMapper.TypeHandler<DateOnly>",
+    "{",
+    "    public override void SetValue(System.Data.IDbDataParameter parameter, DateOnly value)",
+    "    {",
+    "        parameter.DbType = System.Data.DbType.Date;",
+    "        parameter.Value = value;",
+    "    }",
+    "",
+    "    public override DateOnly Parse(object value) =>",
+    "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
+    "}",
+  );
 }

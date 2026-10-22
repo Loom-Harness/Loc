@@ -423,6 +423,16 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   // take rather than trusting the wire's Kind.
   "datetime.startOfDay": (recv) =>
     `(DateTime.utc((${recv}).toUtc().year, (${recv}).toUtc().month, (${recv}).toUtc().day))`,
+  "datetime.toDate": (recv) => `((${recv}).toUtc().toIso8601String().substring(0, 10))`,
+  // ---- date -----------------------------------------------------------------
+  // A `date` is its ISO `YYYY-MM-DD` String on this frontend (the wire form).
+  // The day distance parses both ends as UTC midnight, so no local DST change
+  // can shorten a day to 23 hours and truncate `inDays`.
+  "date.year": (recv) => `int.parse((${recv}).substring(0, 4))`,
+  "date.month": (recv) => `int.parse((${recv}).substring(5, 7))`,
+  "date.day": (recv) => `int.parse((${recv}).substring(8, 10))`,
+  "date.daysUntil": (recv, args) =>
+    `DateTime.parse('\${${args[0]}}T00:00:00Z').difference(DateTime.parse('\${${recv}}T00:00:00Z')).inDays`,
 };
 
 /**

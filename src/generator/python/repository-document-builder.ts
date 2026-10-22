@@ -22,6 +22,7 @@ import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import {
   aggUsesPrincipalContextFilter,
   documentCapabilityBody,
@@ -608,7 +609,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
   }
   if (t.kind === "primitive") {
     if (t.name === "money") return `str(${acc})`;
-    if (t.name === "datetime") return `${acc}.isoformat()`;
+    if (t.name === "datetime" || t.name === "date") return `${acc}.isoformat()`;
     return acc;
   }
   if (t.kind === "id") return `str(${acc})`;
@@ -637,6 +638,7 @@ function deserialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): str
   if (t.kind === "primitive") {
     if (t.name === "money") return numericEncode(PY_NUMERIC, "money", "repo-read", acc);
     if (t.name === "datetime") return `datetime.fromisoformat(cast(str, ${acc}))`;
+    if (t.name === "date") return `${PY_CALENDAR_DATE}.fromisoformat(cast(str, ${acc}))`;
     if (t.name === "decimal") return pyDocumentDecimalDecode(acc);
     return `cast(${primitivePy(t.name)}, ${acc})`;
   }

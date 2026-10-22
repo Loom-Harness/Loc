@@ -240,6 +240,7 @@ function javaTestLiteral(imports: Set<string>): TestLiteralTarget {
       imports.add("java.time.Instant");
       return `Instant.parse(${rendered})`;
     },
+    date: (rendered) => `java.time.LocalDate.parse(${rendered})`,
   };
 }
 

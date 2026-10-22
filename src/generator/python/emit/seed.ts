@@ -16,6 +16,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { renderPyExpr } from "../render-expr.js";
+import { PY_CALENDAR_DATE } from "./calendar-date.js";
 
 // ---------------------------------------------------------------------------
 // First-boot database seeding (database-seeding.md) — `app/db/seed.py`
@@ -210,6 +211,9 @@ function coerceSeedValue(type: TypeIR | undefined, rendered: string): string {
   const leaf = type?.kind === "optional" ? type.inner : type;
   if (leaf?.kind === "primitive" && leaf.name === "datetime") {
     return `datetime.fromisoformat(${rendered})`;
+  }
+  if (leaf?.kind === "primitive" && leaf.name === "date") {
+    return `${PY_CALENDAR_DATE}.fromisoformat(${rendered})`;
   }
   return rendered;
 }

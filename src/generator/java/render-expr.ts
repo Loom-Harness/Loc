@@ -349,6 +349,7 @@ function needsObjectsEquals(t: TypeIR | undefined, e: BinaryExpr): boolean {
     return (
       t.name === "string" ||
       t.name === "datetime" ||
+      t.name === "date" ||
       t.name === "guid" ||
       t.name === "json" ||
       // A5 temporal — a duration is a java.time.Duration reference
@@ -640,6 +641,14 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   // exactly the catalogue's midnight-UTC contract.  Fully-qualified
   // ChronoUnit avoids import wiring (same trick as string.split above).
   "datetime.startOfDay": (recv) => `${recv}.truncatedTo(java.time.temporal.ChronoUnit.DAYS)`,
+  "datetime.toDate": (recv) => `java.time.LocalDate.ofInstant(${recv}, java.time.ZoneOffset.UTC)`,
+  // ---- date — `java.time.LocalDate`; `ChronoUnit.DAYS.between` counts whole
+  // calendar days, signed, with no zone in play.
+  "date.year": (recv) => `${recv}.getYear()`,
+  "date.month": (recv) => `${recv}.getMonthValue()`,
+  "date.day": (recv) => `${recv}.getDayOfMonth()`,
+  "date.daysUntil": (recv, args) =>
+    `((int) java.time.temporal.ChronoUnit.DAYS.between(${recv}, ${args[0]}))`,
 };
 
 function renderMethodCall(
@@ -945,8 +954,8 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
     }
     return `${l} ${e.op} ${r}`;
   }
-  // Instant ordering goes through isBefore / isAfter.
-  if (lt?.kind === "primitive" && lt.name === "datetime") {
+  // Instant / LocalDate ordering goes through isBefore / isAfter.
+  if (lt?.kind === "primitive" && (lt.name === "datetime" || lt.name === "date")) {
     if (e.op === "<") return `${l}.isBefore(${r})`;
     if (e.op === ">") return `${l}.isAfter(${r})`;
     if (e.op === "<=") return `!${l}.isAfter(${r})`;
@@ -1054,6 +1063,8 @@ function renderJavaConvert(target: string, from: string | undefined, v: string):
   if (target === "string") {
     if (from === "decimal" || from === "money") return `${v}.toPlainString()`;
     if (from === "datetime") return `${v}.toString()`;
+    // `LocalDate.toString()` is ISO `yyyy-MM-dd`.
+    if (from === "date") return `${v}.toString()`;
     if (from === "int" || from === "long" || from === "bool") return `String.valueOf(${v})`;
     return `String.valueOf(${v})`;
   }
@@ -1095,6 +1106,9 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         return mode === "reference" ? "Boolean" : "boolean";
       case "datetime":
         return "Instant";
+      case "date":
+        // Fully qualified: no import has to follow the type into each emitter.
+        return "java.time.LocalDate";
       case "guid":
         return "UUID";
       case "json":

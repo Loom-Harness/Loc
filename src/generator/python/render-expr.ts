@@ -22,6 +22,7 @@ import {
   renderExprWith,
 } from "../_expr/target.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Python backend.
@@ -326,6 +327,8 @@ export function addPyExprImport(x: ExprIR, into: Set<string>): void {
 function renderPyConvert(target: string, from: string | undefined, v: string): string {
   if (target === "string") {
     if (from === "datetime") return `${v}.isoformat()`;
+    // `date.isoformat()` is `YYYY-MM-DD` — the calendar-date wire form.
+    if (from === "date") return `${v}.isoformat()`;
     return `str(${v})`;
   }
   if (target === "long") {
@@ -533,6 +536,14 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // (PY_INTRINSIC_IMPORTS mirrors).
   "datetime.startOfDay": (recv) =>
     `${recv}.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)`,
+  // The UTC calendar date of the (tz-aware) instant.
+  "datetime.toDate": (recv) => `${recv}.astimezone(UTC).date()`,
+  // ---- date — `datetime.date`; subtracting two dates is a `timedelta` whose
+  // `.days` is the exact signed whole-day distance.
+  "date.year": (recv) => `${recv}.year`,
+  "date.month": (recv) => `${recv}.month`,
+  "date.day": (recv) => `${recv}.day`,
+  "date.daysUntil": (recv, args) => `((${args[0]}) - (${recv})).days`,
 };
 
 // Intrinsic snippets above whose emitted Python reaches for an import —
@@ -547,6 +558,7 @@ const PY_INTRINSIC_IMPORTS: Record<string, "math" | "decimal" | "datetime"> = {
   "money.round": "decimal",
   // `astimezone(UTC)` names the UTC constant (`from datetime import UTC, …`).
   "datetime.startOfDay": "datetime",
+  "datetime.toDate": "datetime",
 };
 
 function renderMethodCall(
@@ -1020,6 +1032,10 @@ const PY_TYPE_TARGET: TypeTarget = {
         return "bool";
       case "datetime":
         return "datetime";
+      case "date":
+        // `datetime.date`, imported under an alias (`calendar-date.ts`) so a
+        // field or parameter NAMED `date` cannot shadow its own annotation.
+        return PY_CALENDAR_DATE;
       case "json":
         return "object";
       case "File":

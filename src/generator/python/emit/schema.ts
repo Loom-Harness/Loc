@@ -247,6 +247,7 @@ export function renderPySchema(
   const saNames = [
     "BigInteger",
     "Boolean",
+    "Date",
     "DateTime",
     "Identity",
     "Index",

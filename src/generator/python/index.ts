@@ -91,6 +91,7 @@ import { buildPyChannelsFile } from "./channels-builder.js";
 import { buildPyDispatchFile, dispatchSubscriptionsOf } from "./dispatch-builder.js";
 import { type OpFragment, renderPyAggregate } from "./emit/aggregate.js";
 import { emitPyAudit } from "./emit/audit.js";
+import { wireCalendarDateImport } from "./emit/calendar-date.js";
 import { renderPyDomainServices } from "./emit/domain-service.js";
 import { errorsPy } from "./emit/errors.js";
 import { renderPyEvents } from "./emit/events.js";
@@ -899,6 +900,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // finished map so every module that rendered a `trunc_mod(` call gets the
   // import, whichever emitter produced it.
   wireNumericHelpers(out);
+  // LAST too — every module that names the `date` scalar's `CalendarDate`
+  // alias gets its import, whichever emitter rendered the type.
+  wireCalendarDateImport(out);
   return out;
 }
 

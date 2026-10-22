@@ -1045,6 +1045,8 @@ function shellSeed(f: FieldIR): string {
         return '""';
       case "datetime":
         return "datetime.now(UTC)";
+      case "date":
+        return "datetime.now(UTC).date()";
       default:
         return "None";
     }

@@ -10,6 +10,7 @@ import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-cla
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The branded id NewTypes an auth module must import from `app.domain.ids`
@@ -123,6 +124,8 @@ function stubValueForType(t: TypeIR): string {
           return "False";
         case "datetime":
           return "datetime.fromtimestamp(0, tz=UTC)";
+        case "date":
+          return `${PY_CALENDAR_DATE}(1970, 1, 1)`;
         case "guid":
           return '"00000000-0000-0000-0000-000000000000"';
         default:

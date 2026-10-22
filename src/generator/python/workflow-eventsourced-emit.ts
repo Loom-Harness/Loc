@@ -8,6 +8,7 @@ import type {
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, pythonWireIdent, snake, upperFirst } from "../../util/naming.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { renderPyExpr } from "./render-expr.js";
 import { fromData, toData } from "./repository-eventsourced-builder.js";
@@ -102,6 +103,8 @@ function pyStateType(t: TypeIR): string {
         return "bool";
       case "datetime":
         return "datetime";
+      case "date":
+        return PY_CALENDAR_DATE;
       default:
         return "str";
     }
@@ -127,6 +130,8 @@ function esZero(t: TypeIR): string {
         return "False";
       case "datetime":
         return "datetime.now(UTC)";
+      case "date":
+        return "datetime.now(UTC).date()";
       default:
         return '""';
     }
