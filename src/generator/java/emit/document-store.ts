@@ -243,9 +243,13 @@ export function renderJavaDocumentRepositoryImpl(
   const methodLines = [...findLines, ...retrievalLines];
   while (methodLines.length > 0 && methodLines[methodLines.length - 1] === "") methodLines.pop();
 
+  // A `money`/`decimal` find parameter (`over(BigDecimal min)`) or a
+  // `new BigDecimal("…")` literal in a predicate names the simple type.
+  const usesBigDecimal = methodLines.some((l) => /(?<!\.)\bBigDecimal\b/.test(l));
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
+    usesBigDecimal ? `import java.math.BigDecimal;` : null,
     `import java.util.ArrayList;`,
     exprImports.has("java.util.Comparator") ? `import java.util.Comparator;` : null,
     `import java.util.List;`,
@@ -290,6 +294,11 @@ export function renderJavaDocumentRepositoryImpl(
     `            .withVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)`,
     `            .withVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE)`,
+    // SETTER detection off too: a domain operation named `setX(…)` (`setLimit`)
+    // is a Jackson setter by name, so rehydrating the document RAN the
+    // operation — its preconditions threw out of the deserializer (a 500 on
+    // every read of the row).  Fields are the only property source.
+    `            .withVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY))`,
     `        .build();`,
     ``,

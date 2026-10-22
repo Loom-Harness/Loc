@@ -86,6 +86,7 @@ import { ectoValidator } from "./changeset-validators.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
+import { paramGuardClause } from "./op-param-guards.js";
 import {
   collectOpGuardClauses,
   type OpFragment,
@@ -958,10 +959,24 @@ function docOpStructBody(
   // Bind only the params the body references (an unused binding trips
   // `--warnings-as-errors`); `params` itself is always read by the `is_map` guard.
   const usedParams = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
-  const params = usedParams.map(
-    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
-  );
-  const guardClauses = collectOpGuardClauses(agg.name, op, rc);
+  // A `money`/`decimal` param binds through its wire-format `with`-clause
+  // (`__loom_decimal_param`, shared with the relational op path): the body
+  // computes on `%Decimal{}` structs (the embed's `:decimal` fields), so the
+  // raw JSON string/number must become one — and a malformed value answers
+  // 422 rather than raising.  The clause leads the guard chain, so a
+  // precondition reading the param sees the coerced value.
+  const isDecimalParam = (t: TypeIR | undefined): boolean => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    return inner?.kind === "primitive" && (inner.name === "money" || inner.name === "decimal");
+  };
+  const paramGuards = usedParams
+    .filter((p) => isDecimalParam(p.type))
+    .map((p) => paramGuardClause(p.name, p.type))
+    .filter((c): c is string => c != null);
+  const params = usedParams
+    .filter((p) => !isDecimalParam(p.type))
+    .map((p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`);
+  const guardClauses = [...paramGuards, ...collectOpGuardClauses(agg.name, op, rc)];
   const lastIdx = op.statements.length - 1;
   const bodyStmts = op.statements.filter(
     (s, i) =>

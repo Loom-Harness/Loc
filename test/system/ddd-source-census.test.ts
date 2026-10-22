@@ -53,9 +53,13 @@ function trackedDddFiles(): string[] {
 }
 
 /** `__PLATFORM__`-tokenized corpus fixtures are templates, not sources — the
- *  runners substitute a backend before parsing, and so does this census. */
+ *  runners substitute a backend before parsing, and so does this census.
+ *  `__FRONTEND__` is the frontend twin (`test/behavioral/money-compare-ui.ddd`,
+ *  swapped per `corpus.json` case by the UI runners). */
 function sourceOf(file: string): string {
-  return readFileSync(resolve(REPO, file), "utf8").replaceAll("__PLATFORM__", "node");
+  return readFileSync(resolve(REPO, file), "utf8")
+    .replaceAll("__PLATFORM__", "node")
+    .replaceAll("__FRONTEND__", "react");
 }
 
 /** Every participant in a multi-file project — BOTH directions of the import

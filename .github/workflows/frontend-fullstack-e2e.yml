@@ -32,6 +32,11 @@ name: Frontend full-stack e2e (nightly, no docker)
 # → the app's own read must reach the real backend, decode, and render the seeded
 # value). It is the only runtime tier flutter has: `generated-flutter-build.yml`
 # is compile-only. Its cell is flagged `uiFlutter: true` in corpus.json.
+#
+# Each cell also runs its frontend's `money-compare-ui-<frontend>` case (#3263):
+# `test/behavioral/money-compare-ui.ddd` built for that frontend and probed for
+# money compared by VALUE and an absent `money?` ordering as false
+# (`money-compare-ui.mjs`).  The React twin runs per-PR in behavioral-ui-e2e.
 
 on:
   schedule:
@@ -61,11 +66,11 @@ jobs:
       matrix:
         include:
           - frontend: vue
-            case: sales-system-vue
+            case: sales-system-vue money-compare-ui-vue
             runner: run-ui.mjs
             experimental: false
           - frontend: svelte
-            case: sales-system-svelte
+            case: sales-system-svelte money-compare-ui-svelte
             runner: run-ui.mjs
             experimental: false
           # Angular: BLOCKING. The Angular-codegen cascade this gate first
@@ -80,7 +85,7 @@ jobs:
           # single flat input); (5) op REST paths are snake-cased (`add_line`,
           # matching the Hono route — was camelCase → 404).
           - frontend: angular
-            case: sales-system-angular
+            case: sales-system-angular money-compare-ui-angular
             runner: run-ui.mjs
             experimental: false
           # Feliz (F#/Fable/Elmish): BLOCKING.  The frontend emits the full
@@ -95,7 +100,7 @@ jobs:
           # create decode, param-less op forms (`confirm()`), and the detail-field
           # testid on the value cell.
           - frontend: feliz
-            case: sales-system-feliz
+            case: sales-system-feliz money-compare-ui-feliz
             runner: run-ui.mjs
             experimental: false
           # Flutter (Dart/Riverpod): BLOCKING.  The ONLY runtime tier flutter has
@@ -109,7 +114,7 @@ jobs:
           # Flutter 3.47.1: all three route round-trips green, and red on a
           # seeded `FileRef??` emitter mutation.
           - frontend: flutter
-            case: sales-system-flutter
+            case: sales-system-flutter money-compare-ui-flutter
             runner: run-ui-flutter.mjs
             experimental: false
           # The runtime auth-UI leg: the session gate, `requires` page guards,

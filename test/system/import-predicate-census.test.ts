@@ -56,10 +56,10 @@ const IMPORT_LITERAL: Record<Backend, RegExp> = {
 
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
-  python: 296, // main's 293 (SYSTEM-principal import, dispatch-builder `ids` / `voEnum` lines, +2 slice lines) + 3 train sites
+  python: 297, // main's 296 + 1 from #3263 (money-compare ordering helper import) — body-scan keyed
   typescript: 237,
   dotnet: 26,
-  java: 52, // +1: workflow route `PostCommitDispatcher` import (#3262) — keyed off the rendered body
+  java: 53, // +1: workflow route `PostCommitDispatcher` import (#3262) +1 money-compare (#3263) nullable-int boxing import — keyed off the rendered body
   elixir: 2,
 };
 

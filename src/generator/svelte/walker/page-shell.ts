@@ -1231,7 +1231,9 @@ function stateTypeAsTsString(type: TypeIR): string {
   }
   if (type.kind === "id" || type.kind === "enum") return "string";
   if (type.kind === "optional") {
-    return `${stateTypeAsTsString(type.inner)} | undefined`;
+    // `| null` too: an optional cell initialised `= null` (the absent value a
+    // `.ddd` author writes) holds `null`, not `undefined`.
+    return `${stateTypeAsTsString(type.inner)} | null | undefined`;
   }
   // `string[]` / `int[]` state — see the React page-shell twin.  `any` here
   // also defeats `svelte-check --fail-on-warnings`, the generated-svelte-build
