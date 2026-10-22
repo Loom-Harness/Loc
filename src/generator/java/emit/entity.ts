@@ -936,8 +936,23 @@ export function renderJavaEntity(
           `        e.id = ${idClass}.newId();`,
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
+            const t = f.type.kind === "optional" ? f.type.inner : f.type;
+            // A collection the CALLER passes is copied into a mutable list: an
+            // immutable `List.of()` (what a domain `test` body's `[]` renders to)
+            // stored as-is made the first `charges += c` after create throw
+            // UnsupportedOperationException — the same pitfall the defaults below
+            // avoid, reached through the argument instead (found by M-T6.94's
+            // corpus case).
+            const given = t.kind === "array" ? `new ArrayList<>(${jid(f.name)})` : jid(f.name);
+            if (t.kind === "array") javaImports.add("java.util.ArrayList");
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        e.${jid(f.name)} = ${dflt === undefined ? jid(f.name) : `${jid(f.name)} != null ? ${jid(f.name)} : ${dflt}`};`;
+            return `        e.${jid(f.name)} = ${
+              dflt === undefined
+                ? t.kind === "array"
+                  ? `${jid(f.name)} != null ? ${given} : null`
+                  : jid(f.name)
+                : `${jid(f.name)} != null ? ${given} : ${dflt}`
+            };`;
           }),
           // Server-seeded literal defaults (RS-11): fields outside the create-
           // input set (`token`/`managed`/`internal`) whose default is a

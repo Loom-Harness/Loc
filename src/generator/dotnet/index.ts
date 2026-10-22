@@ -1810,7 +1810,7 @@ function emitAggregate(
           place(
             `${cls}Configuration.cs`,
             "join-entity-configuration",
-            renderJoinEntityConfiguration(assoc, ns),
+            renderJoinEntityConfiguration(assoc, ns, ds?.schema),
             agg.origin,
           );
         }

@@ -25,6 +25,7 @@ import type {
   StmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
+import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
@@ -66,6 +67,7 @@ import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
+import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderReturningOpFunction` (and the sibling
@@ -228,6 +230,7 @@ export function persistPutBodies(
   /** The owner context's aggregates — a reference collection whose target is
    *  not among them persists through its join-row schema (`isForeignRefColl`). */
   pool: readonly { name: string }[] = [agg],
+  valueRowFields: ReadonlySet<string> = new Set(),
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields: string[] = [];
@@ -279,6 +282,13 @@ export function persistPutBodies(
           ? `Ecto.Changeset.put_assoc(:${f}, __put_assoc_parts(record.${f}))`
           : `Ecto.Changeset.put_embed(:${f}, record.${f})`;
       }
+      // A value-object collection (`charges: Charge[]`) is a `has_many` child
+      // table, not a column: `force_change` on it raises ("changing assocs with
+      // force_change/3 is not supported" — a 500 on every such op).  Rebuild its
+      // rows and `put_assoc` them over the loaded struct (M-T6.94).
+      if (valueRowFields.has(f)) {
+        return `Ecto.Changeset.put_assoc(:${f}, __put_value_rows(record.${f}))`;
+      }
       const refValue = refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
       if (refValue) {
         // The body bound a local `<field>` holding the new id list (it left
@@ -312,6 +322,34 @@ export function persistPutBodies(
     }),
     ...provColumns.map((c) => `Ecto.Changeset.force_change(:${c}, record.${c})`),
   ];
+}
+
+/** Does this op (or a private op it calls) rewrite a RELATION-backed field — a
+ *  containment (`has_many`/`has_one` child table, or `embeds_*`) or a value-object
+ *  collection (`charges: Money[]` → a `has_many` child table)?
+ *
+ *  Such a field persists through `put_assoc` / `put_embed` / `force_change`, and
+ *  all three DIFF the new value against the changeset's DATA.  The op body
+ *  rebinds `record = %{record | lines: …}` before the persist tail builds its
+ *  changeset, so when the changeset is built over that mutated `record` the
+ *  data already lacks the removed child: Ecto diffs the list against itself,
+ *  finds nothing missing, and issues no DELETE — `lines -= l` answered 2xx and
+ *  left the row (M-T6.94).  (An ADD survived only because the new element has
+ *  no PK, so it reads as an insert either way.)  When this holds, the persist
+ *  tail builds its changeset over `record_before` — the struct as loaded — so
+ *  the relation diff sees the real before/after.  A reference collection
+ *  (`X id[]`) is NOT listed: its body binds a separate id-list local and leaves
+ *  `record.<field>` as loaded, so it already diffs correctly. */
+export function opRewritesRelation(op: OperationIR, agg: AggregateIR): boolean {
+  const relationFields = new Set([
+    ...agg.contains.map((c) => snake(c.name)),
+    ...valueCollectionsFor(agg).map((vc) => snake(vc.fieldName)),
+  ]);
+  if (relationFields.size === 0) return false;
+  return [...opBodyStmtsDeep(op.statements), ...calleeStatements(op, agg)].some((s) => {
+    if (s.kind !== "assign" && s.kind !== "add" && s.kind !== "remove") return false;
+    return relationFields.has(snake(s.target.segments[0] ?? ""));
+  });
 }
 
 /** An operation that declares an `or`-union return type (exception-less). */
@@ -857,6 +895,7 @@ export function renderReturningOpFunction(
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
     ctx.aggregates,
+    valueRowFieldsOf(agg, ctx),
   );
   const putBlock = putBodies.map((b) => `\n      |> ${b}`).join("");
 
@@ -909,6 +948,13 @@ export function renderReturningOpFunction(
     );
   }
 
+  // A relation-backed rewrite (`lines -= l`, `charges += c`, …) persists off the
+  // struct AS LOADED, so `put_assoc`/`put_embed` diff the real before/after and a
+  // removed child is DELETEd (M-T6.94) — see `opRewritesRelation`.  Bound only
+  // when the op persists, so a pure read never carries an unused binding.
+  const rewritesRelation = persists && opRewritesRelation(op, agg);
+  const persistBase = rewritesRelation ? "record_before" : "record";
+  const captureBase = rewritesRelation ? ["    record_before = record"] : [];
   let tailLines: string[];
   if (!persists) {
     // Non-committing: a pure read/return (or one ending in an unconditional ERROR
@@ -950,7 +996,7 @@ export function renderReturningOpFunction(
       ...durableEmit.bind,
       ...(durableEmit.bind.length > 0 ? [``] : []),
       `    changeset =`,
-      `      record`,
+      `      ${persistBase}`,
       `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
       ``,
       ...txBody,
@@ -978,7 +1024,7 @@ export function renderReturningOpFunction(
             // rows), then the events are dispatched AFTER commit (outside the tx fn),
             // so a rollback drops them too.
             `    changeset =`,
-            `      record`,
+            `      ${persistBase}`,
             `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
             ``,
             `    tx_result =`,
@@ -1004,7 +1050,7 @@ export function renderReturningOpFunction(
           ]
         : [
             `    changeset =`,
-            `      record`,
+            `      ${persistBase}`,
             `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
             ``,
             `    ${appModule}.Repo.transaction(fn ->`,
@@ -1024,7 +1070,7 @@ export function renderReturningOpFunction(
         // wrapped by `Repo.transaction` (which would double-tag it).
         [
           `    changeset =`,
-          `      record`,
+          `      ${persistBase}`,
           `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
           ``,
           `    tx_result =`,
@@ -1058,7 +1104,7 @@ export function renderReturningOpFunction(
     tailLines = hoistEmits
       ? [
           `    changeset =`,
-          `      record`,
+          `      ${persistBase}`,
           `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
@@ -1072,7 +1118,7 @@ export function renderReturningOpFunction(
         ]
       : [
           `    changeset =`,
-          `      record`,
+          `      ${persistBase}`,
           `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
           ``,
           `    case ${repoMod}.persist_change(changeset) do`,
@@ -1088,7 +1134,7 @@ export function renderReturningOpFunction(
     // controller gains the matching clause via `returningOpPersistsChangeset`).
     tailLines = [
       `    changeset =`,
-      `      record`,
+      `      ${persistBase}`,
       `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
@@ -1106,7 +1152,7 @@ export function renderReturningOpFunction(
     // render the return over the persisted struct so it references saved values.
     tailLines = [
       `    changeset =`,
-      `      record`,
+      `      ${persistBase}`,
       `      |> Ecto.Changeset.change(%{})${putBlock}${versionLock}`,
       ``,
       `    case ${repoMod}.persist_change(changeset) do`,
@@ -1126,8 +1172,13 @@ export function renderReturningOpFunction(
   const innerLines = [...bodyLines, ...tailLines];
   const body = (
     guardClauses.length > 0
-      ? [...beforeBind, ...paramReads, ...wrapOpBodyWithGuards(guardClauses, innerLines)]
-      : [...beforeBind, ...paramReads, ...innerLines]
+      ? [
+          ...beforeBind,
+          ...captureBase,
+          ...paramReads,
+          ...wrapOpBodyWithGuards(guardClauses, innerLines),
+        ]
+      : [...beforeBind, ...captureBase, ...paramReads, ...innerLines]
   ).join("\n");
   // The guard denial adds a TYPED-DENIAL outcome to the result union; the
   // controller's `<op>_<agg>_result/2` gains the matching 403/409/422 clauses.

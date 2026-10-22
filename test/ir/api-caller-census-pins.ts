@@ -573,6 +573,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // read model is read through `GET /api/projections/order_board/{key}`, which
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
+  // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
+  // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
+  "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
