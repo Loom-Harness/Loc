@@ -583,6 +583,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.90) — not a lifted route class, same as above.
+  "corpus/workflow-two-handles-containment": [
+    "api.addTwice.run (no such aggregate)",
+    "api.addViaSecond.run (no such aggregate)",
+    "api.dropViaSecond.run (no such aggregate)",
+  ],
   // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
   // precondition after an `if let` branch saved.
   "corpus/transactional-workflow-post-commit-dispatch": [
