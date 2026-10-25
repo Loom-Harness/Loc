@@ -46,9 +46,11 @@ import {
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
+  ownUniqueKeysOf,
   rootBaseOf,
   tableOwnerName,
   tphConcretesOf,
+  uniqueKeyIndex,
 } from "../ir/util/inheritance.js";
 import { contextsHaveProvenancedField } from "../ir/util/prov-id.js";
 import { enumPool, valueObjectPool } from "../ir/util/reachable-types.js";
@@ -64,7 +66,6 @@ import {
   type ValueCollectionIR,
   valueCollectionsFor,
 } from "../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../ir/util/versioned-capability.js";
 import {
   AUDIT_RECORD_COLUMNS,
   AUDIT_RECORD_INDEXES,
@@ -75,6 +76,7 @@ import {
   legacyWorkflowStateTableName,
   plural,
   snake,
+  uniqueIndexName,
   upperFirst,
   workflowStateTableName,
 } from "../util/naming.js";
@@ -1117,6 +1119,27 @@ function diffTable(
   for (const i of addedIdx) {
     if (!claimedAdd.has(i)) buckets.addIndex.push({ op: "addIndex", index: i, schema });
   }
+  // A SAME-NAMED index whose shape changed is a rebuild, not a no-op.  The
+  // derived name (`<table>_<cols>_uq`) is a function of the table and columns
+  // only, so flipping `softDeletable` on an aggregate with a `unique (…)` key
+  // keeps the name and changes just the partial-index predicate
+  // (`WHERE is_deleted = false` appears or disappears).  Matching by name alone
+  // silently kept the OLD index: the full unique still blocked re-using a
+  // soft-deleted row's key, and the partial one stopped enforcing the key for
+  // live rows once the capability was dropped.  Postgres cannot ALTER an
+  // index's predicate, so the rebuild is a DROP + CREATE: the drop rides the
+  // leading `dropIndex` bucket and the create the trailing `addIndex` one, so a
+  // predicate naming a column added this generation (`is_deleted`) runs after
+  // its `addColumn`, and one naming a column dropped this generation is gone
+  // before its `dropColumn`.  Not destructive (no row is touched); a rebuild
+  // that TIGHTENS (partial → full) is flagged by
+  // `uniqueOnExistingTableWarnings` instead.
+  for (const ni of next.indexes) {
+    const pi = prevIdx.get(ni.name);
+    if (!pi || indexRenamed(pi, ni, colRenameMap)) continue;
+    buckets.dropIndex.push({ op: "dropIndex", table: next.name, schema, name: pi.name });
+    buckets.addIndex.push({ op: "addIndex", index: ni, schema });
+  }
 
   // CHECK diff — matched by name like the index diff (the name is a pure
   // function of the table + the value-object group, so a check that "moved"
@@ -1379,12 +1402,34 @@ function describeDestructive(s: MigrationStep): string {
       return `DROP TABLE ${qualifiedName(s.schema, s.name)}`;
     case "dropColumn":
       return `DROP COLUMN ${qualifiedName(s.schema, s.table)}.${s.name}`;
-    case "addColumn":
-      return `ADD COLUMN ${qualifiedName(s.schema, s.table)}.${s.column.name} NOT NULL (no default)`;
+    case "addColumn": {
+      const column = `${qualifiedName(s.schema, s.table)}.${s.column.name}`;
+      const why = capabilityBackfillRefusal(s.column.capability);
+      return why === undefined
+        ? `ADD COLUMN ${column} NOT NULL (no default)`
+        : diagMessage("loom.migration-destructive#capability-column", {
+            column,
+            capability: s.column.capability,
+            why,
+          });
+    }
     case "alterColumnNullable":
       return `SET NOT NULL on ${qualifiedName(s.schema, s.table)}.${s.name} (fails on rows holding NULL)`;
     default:
       return s.op;
+  }
+}
+
+/** Why a capability column has no automatic backfill (see
+ *  `CAPABILITY_BACKFILL`), or undefined for a column no capability owns. */
+function capabilityBackfillRefusal(capability: string | undefined): string | undefined {
+  switch (capability) {
+    case "tenantOwned":
+      return diagMessage("loom.migration-destructive#capability-tenant-owned");
+    case "auditable":
+      return diagMessage("loom.migration-destructive#capability-auditable");
+    default:
+      return undefined;
   }
 }
 
@@ -2692,12 +2737,12 @@ function collectAggregatePairs(module: EnrichedSubdomainIR): AggCtxPair[] {
 }
 
 /** Deterministic constraint name for a `unique (...)` index:
- *  `<table>_<col1>_<col2>_uq`.  The name is the join key the backends'
+ *  `<table>_<col1>_<col2>_uq` (a TPH concrete's own key adds its discriminator:
+ *  `<table>_<kind>_<cols>_uq`).  The name is the join key the backends'
  *  23505 → 409 conflict mapping resolves back to a field, so it must be a
- *  pure function of the table + columns (uniqueness-and-indexes.md §4). */
-export function uniqueIndexName(tableName: string, columns: readonly string[]): string {
-  return `${tableName}_${columns.join("_")}_uq`;
-}
+ *  pure function of the table + columns (uniqueness-and-indexes.md §4).  Lives
+ *  in `util/naming.ts` so the Ecto changeset shares it; re-exported here. */
+export { uniqueIndexName };
 
 /** Attach each manual `index: [...]` spec to its EXPLICITLY-named entity's
  *  table (uniqueness-and-indexes.md §3.2) — the entity resolves to
@@ -2763,9 +2808,76 @@ function withTenantIndex(agg: AggregateIR, tables: TableShape[]): TableShape[] {
  *  `softDeletable` aggregate gets a PARTIAL index (`WHERE is_deleted =
  *  false`) so re-creating a row whose predecessor was soft-deleted is
  *  allowed.  Empty when the aggregate declares no `unique` keys. */
+/** The columns each built-in capability contributes (prelude.ts), by physical
+ *  name — what `stampCapabilityColumns` recognises on an aggregate's table. */
+const CAPABILITY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  softDeletable: ["is_deleted", "deleted_at"],
+  tenantOwned: ["tenant_id", "data_key"],
+  auditable: ["created_at", "updated_at", "created_by", "updated_by"],
+  versioned: ["version"],
+};
+
+/** The value an EXISTING row unambiguously holds for a capability column the
+ *  capability adds to a populated table, as a Postgres literal.  Only
+ *  `softDeletable`'s flag qualifies: a row that existed before the capability
+ *  was never soft-deleted, so it is `false` and nothing else.  Every other
+ *  capability column is deliberately absent:
+ *    - `tenantOwned.tenant_id` — which tenant owns a pre-tenancy row is a
+ *      business fact Loom cannot know (a wrong guess leaks the row to another
+ *      tenant), so the gate keeps refusing and says so;
+ *    - `auditable`'s stamps — the true creation time and author of an old row
+ *      are unknown, and `created_by` has no defensible placeholder;
+ *    - `versioned.version` — a real `DEFAULT 1` column (`CAPABILITY_DB_DEFAULT`), so the
+ *      add is never blocking;
+ *    - the nullable ones (`deleted_at`, `data_key`) — a nullable add needs none.
+ *  Rides `addColumnDefault`, the M-T2.16 path: added WITH the default, which
+ *  fills every existing row, then the default is dropped in the same migration,
+ *  so the column ends up exactly as a fresh `CREATE TABLE` lays it down. */
+const CAPABILITY_BACKFILL: Readonly<Record<string, string>> = {
+  "softDeletable.is_deleted": "false",
+};
+
+/** A REAL column DEFAULT a capability column carries in every `CREATE` (not
+ *  just the add-time backfill above).  `versioned`'s counter seeds new rows at
+ *  1, so `version INTEGER NOT NULL DEFAULT 1` — which also keeps adding the
+ *  capability to a populated table non-destructive (a NOT NULL add WITH a
+ *  default never trips `isBlockingNotNullAdd`).  sql-pg renders it; the Ecto
+ *  emitter reads the same `default` off MigrationsIR. */
+const CAPABILITY_DB_DEFAULT: Readonly<Record<string, string>> = {
+  "versioned.version": "1",
+};
+
+/** Stamp the columns a built-in capability contributed to `columns` (see
+ *  `ColumnShape.capability`), give them their DB default, and lend the
+ *  unambiguous ones their backfill.  An author-declared field default
+ *  (`addColumnDefault` already set) wins.  Called for a plain / TPC table AND
+ *  for the TPH shared table (with the base's capabilities), so every table
+ *  layout gets the same treatment — the TPH table used to miss `versioned`'s
+ *  `DEFAULT 1`, which made adding `versioned` to a populated TPH table
+ *  destructive. */
+function stampCapabilityColumns(agg: AggregateIR, columns: ColumnShape[]): void {
+  for (const cap of agg.capabilities ?? []) {
+    for (const name of CAPABILITY_COLUMNS[cap] ?? []) {
+      const col = columns.find((c) => c.name === name);
+      if (!col) continue;
+      col.capability = cap;
+      const dbDefault = CAPABILITY_DB_DEFAULT[`${cap}.${name}`];
+      if (dbDefault !== undefined) col.default = dbDefault;
+      const fill = CAPABILITY_BACKFILL[`${cap}.${name}`];
+      if (fill !== undefined && col.addColumnDefault === undefined && !col.nullable) {
+        col.addColumnDefault = fill;
+      }
+    }
+  }
+}
+
+function isSoftDeletable(agg: AggregateIR): boolean {
+  return agg.capabilities?.includes("softDeletable") ?? false;
+}
+
 function uniqueIndexesFor(agg: AggregateIR, tableName: string): IndexShape[] {
   if (!agg.uniqueKeys || agg.uniqueKeys.length === 0) return [];
-  const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
+  const softDeletable = isSoftDeletable(agg);
   return agg.uniqueKeys.map((uk) => {
     const columns = uk.columns.map((c) => snake(c));
     return {
@@ -2850,18 +2962,10 @@ function tableForAggregate(
     }
   }
 
-  // Optimistic concurrency (`with versioned`): the capability contributes a
-  // `version: int token` field, which the field loop above already emitted as
-  // a `version` column (int, NOT NULL, no default).  Stamp it `DEFAULT 1` so
-  // new rows seed at version 1 and — as an ADD COLUMN on an existing table —
-  // the change stays non-destructive (a NOT NULL add WITH a default doesn't
-  // trip `isBlockingNotNullAdd`).  sql-pg renders it `... NOT NULL DEFAULT 1`;
-  // the Ecto emitter reads the same `default` off MigrationsIR.  Gated so
-  // non-versioned aggregates are byte-identical.
-  if (aggregateIsVersioned(agg)) {
-    const versionCol = columns.find((c) => c.name === "version");
-    if (versionCol) versionCol.default = "1";
-  }
+  // Capability columns: `versioned`'s `DEFAULT 1`, `softDeletable`'s add-time
+  // backfill, and the stamp the destructive gate explains (see
+  // `stampCapabilityColumns` — shared with the TPH shared table).
+  stampCapabilityColumns(agg, columns);
 
   return {
     name: tableName,
@@ -2931,6 +3035,7 @@ function tphTableForAggregate(
 
   const derivedChecks: DerivedCheck[] = [];
   for (const f of base.fields) pushField(f, false);
+  stampCapabilityColumns(base, columns);
   derivedChecks.push(...checksForFields(tableName, base.fields, voLookup));
   derivedChecks.push(...enumChecksForFields(tableName, base.fields, voLookup, enumLookup));
   for (const concrete of tphConcretesOf(base, pool)) {
@@ -2949,6 +3054,26 @@ function tphTableForAggregate(
     // sake, so the check gains its `IS NULL OR …` arm in `finalizeChecks` —
     // which is right: a row of another `kind` leaves the column null.
     derivedChecks.push(...enumChecksForFields(tableName, own, voLookup, enumLookup));
+    // A `unique (…)` the CONCRETE declares itself (not one inherited from the
+    // base, which `uniqueIndexesFor(base, …)` above already emitted as one
+    // hierarchy-wide index) lands on the shared table too — partial on the
+    // concrete's `kind`, so it constrains exactly this concrete's rows (see
+    // `uniqueKeyIndex` for why a full index would over-constrain siblings).
+    const concreteSoftDeletable = isSoftDeletable(concrete) || isSoftDeletable(base);
+    for (const uk of ownUniqueKeysOf(concrete, pool)) {
+      const ix = uniqueKeyIndex(concrete, uk, pool);
+      if (indexes.some((i) => i.name === ix.name)) continue;
+      const kindPredicate = `kind = '${ix.discriminator ?? concrete.name}'`;
+      indexes.push({
+        name: ix.name,
+        table: tableName,
+        columns: ix.columns,
+        unique: true,
+        predicate: concreteSoftDeletable
+          ? `${kindPredicate} AND is_deleted = false`
+          : kindPredicate,
+      });
+    }
   }
 
   return {
@@ -3574,6 +3699,10 @@ function primitiveColumnType(name: string): ColumnType {
       return { kind: "text" };
     case "bool":
       return { kind: "bool" };
+    case "date":
+      // A calendar date — Postgres `date`, which round-trips the wire's
+      // `YYYY-MM-DD` exactly (no zone, no time-of-day).
+      return { kind: "date" };
     case "datetime":
       return { kind: "datetime" };
     case "guid":

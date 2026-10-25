@@ -491,7 +491,84 @@ ${opts.e2eTest}
 }`;
 }
 
+/** A bank context whose `workflow` members are the defect under test — the
+ *  `create(…): T { … return x }` pairing rules (`loom.workflow-return-*`). */
+const workflowResult = (members: string, header = "") => `
+system S {
+  subdomain D { context Bank {
+    aggregate Account with crudish { number: string  balance: int }
+    repository Accounts for Account { }
+    event Opened { account: Account id }
+    workflow w${header} {
+      ${members}
+    }
+  } }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
+  // `create(…): T` — a result needs a caller.  An event-triggered starter has
+  // none (the in-process dispatcher drops whatever it would return).
+  "loom.workflow-return-no-caller": workflowResult(`
+      create(e: Opened): int by e.account {
+        let a = Accounts.getById(e.account)
+        return a.balance
+      }`),
+  // A `return` before the last statement would be lowered apart from the body
+  // and silently answered AFTER the steps that follow it.
+  "loom.workflow-return-not-last": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+        let b = Account.create({ number: n, balance: 1 })
+      }`),
+  // A `return` with no `: T` — the route would answer a body its contract
+  // never published.
+  "loom.workflow-return-untyped": workflowResult(`
+      create(n: string) {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+      }`),
+  // A `: T` with no `return` — nothing to answer the declared 200 with.
+  "loom.workflow-return-missing": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+      }`),
+  // The returned value disagrees with the declared type.
+  "loom.workflow-return-type-mismatch": workflowResult(`
+      create(n: string): int {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.number
+      }`),
+  // An `eventSourced` workflow's create may only `emit` — no state for a
+  // result to read, and the event-sourced route has no result path.
+  "loom.workflow-return-event-sourced": workflowResult(
+    `
+      apply(e: Opened) { }
+      create(n: string): string {
+        emit Opened { account: n }
+        return n
+      }`,
+    " eventSourced",
+  ),
+  // An aggregate result has no workflow-route wire projection yet.
+  "loom.workflow-return-type-unsupported": workflowResult(`
+      create(n: string): Account {
+        let a = Account.create({ number: n, balance: 0 })
+        return a
+      }`),
   // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
   // disjunct: the system principal it runs as can never pass it.
   "loom.reactor-gate-unsatisfiable": `
@@ -809,6 +886,19 @@ system UpdateGate {
   storage pg { type: postgres }
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account { }
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
 }`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -2555,6 +2645,25 @@ system S {
   }
 }`,
 
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
+  }
+}`,
+
   // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
   // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
   // because a routed handler's arguments bind POSITIONALLY, the miscount does
@@ -3783,6 +3892,11 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
+  // catalog entries are the capability-column lines (a `tenantOwned` /
+  // `auditable` column added to a populated table); the pointed-at file drives
+  // both refusals and asserts the code and the wording.
+  "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",

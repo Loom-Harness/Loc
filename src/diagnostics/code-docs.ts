@@ -80,6 +80,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.entity-field-modifier": "03-domain-modeling.md#entity-parts--contains",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
+  "loom.crudish-hard-delete":
+    "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
@@ -229,6 +231,13 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
+  "loom.workflow-return-no-caller": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-not-last": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-untyped": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-missing": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
@@ -420,6 +429,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unsupported-statement":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
+  "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-arity":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-bodyless-method":
@@ -462,11 +472,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.seed-raw-document-shape": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   "loom.seed-tenant-owned-needs-raw": "23-domain-services-and-seeds.md#what-a-seed-row-may-not-be",
   // --- docs-root-relative (no language-reference chapter covers migrations) ---
+  "loom.migration-destructive":
+    "../migrations.md#destructive-changes--the---allow-destructive-gate",
   "loom.migration-rename-inferred":
     "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.unique-tpc-not-hierarchy-wide":
+    "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

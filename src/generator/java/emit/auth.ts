@@ -1737,6 +1737,8 @@ function stubValue(t: TypeIR): string {
         return "false";
       case "datetime":
         return `${J.Instant}.EPOCH`;
+      case "date":
+        return `${J.LocalDate}.EPOCH`;
       case "decimal":
       case "money":
         return "java.math.BigDecimal.ZERO";

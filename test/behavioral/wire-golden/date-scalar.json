@@ -1,0 +1,280 @@
+{
+  "case": "date-scalar",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/patients",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/patients",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/patients/{id}",
+      "status": 200,
+      "body": {
+        "birthDate": "2026-01-01",
+        "birthDay": 1,
+        "birthMonth": 1,
+        "birthYear": 2026,
+        "daysToVisit": 0,
+        "id": "<volatile:key>",
+        "label": "Ada (2026-01-01)",
+        "name": "Ada",
+        "nextVisit": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/patients/{id}",
+      "status": 200,
+      "body": {
+        "birthDate": "1999-12-31",
+        "birthDay": 31,
+        "birthMonth": 12,
+        "birthYear": 1999,
+        "daysToVisit": 9571,
+        "id": "<volatile:key>",
+        "label": "Bob (1999-12-31)",
+        "name": "Bob",
+        "nextVisit": "2026-03-15",
+        "version": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/patients/{id}/book",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/patients/{id}",
+      "status": 200,
+      "body": {
+        "birthDate": "2026-01-01",
+        "birthDay": 1,
+        "birthMonth": 1,
+        "birthYear": 2026,
+        "daysToVisit": 58,
+        "id": "<volatile:key>",
+        "label": "Ada (2026-01-01)",
+        "name": "Ada",
+        "nextVisit": "2026-02-28",
+        "version": 2
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/patients/born_before?cutoff=2000-01-01",
+      "status": 200,
+      "body": [
+        {
+          "birthDate": "1999-12-31",
+          "birthDay": 31,
+          "birthMonth": 12,
+          "birthYear": 1999,
+          "daysToVisit": 9571,
+          "id": "<volatile:key>",
+          "label": "Bob (1999-12-31)",
+          "name": "Bob",
+          "nextVisit": "2026-03-15",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/patients/born_before?cutoff=2026-01-01",
+      "status": 200,
+      "body": [
+        {
+          "birthDate": "1999-12-31",
+          "birthDay": 31,
+          "birthMonth": 12,
+          "birthYear": 1999,
+          "daysToVisit": 9571,
+          "id": "<volatile:key>",
+          "label": "Bob (1999-12-31)",
+          "name": "Bob",
+          "nextVisit": "2026-03-15",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/patients/born_before?cutoff=1999-12-31",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/patients/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/patients/{id}",
+      "status": 200,
+      "body": {
+        "birthDate": "2000-02-29",
+        "birthDay": 29,
+        "birthMonth": 2,
+        "birthYear": 2000,
+        "daysToVisit": 0,
+        "id": "<volatile:key>",
+        "label": "Bob (2000-02-29)",
+        "name": "Bob",
+        "nextVisit": null,
+        "version": 2
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/patients",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "birthDate": "2026-01-01",
+            "birthDay": 1,
+            "birthMonth": 1,
+            "birthYear": 2026,
+            "daysToVisit": 58,
+            "id": "<volatile:key>",
+            "label": "Ada (2026-01-01)",
+            "name": "Ada",
+            "nextVisit": "2026-02-28",
+            "version": 2
+          },
+          {
+            "birthDate": "2000-02-29",
+            "birthDay": 29,
+            "birthMonth": 2,
+            "birthYear": 2000,
+            "daysToVisit": 0,
+            "id": "<volatile:key>",
+            "label": "Bob (2000-02-29)",
+            "name": "Bob",
+            "nextVisit": null,
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/patients/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "DELETE",
+      "path": "/api/patients/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/patients/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Patient {id} not found",
+        "instance": "/api/patients/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "PATCH",
+      "path": "/api/patients",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/patients",
+        "instance": "/api/patients",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/patients",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/patients",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/patients/{id}/book",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/visit"
+          }
+        ],
+        "instance": "/api/patients/{id}/book",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

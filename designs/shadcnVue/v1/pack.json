@@ -63,6 +63,7 @@
     "ui-index": "ui-index.hbs",
     "field-input-array": "field-input-array.hbs",
     "field-input-bool": "field-input-bool.hbs",
+    "field-input-date": "field-input-date.hbs",
     "field-input-datetime": "field-input-datetime.hbs",
     "field-input-decimal": "field-input-decimal.hbs",
     "field-input-enum-select": "field-input-enum-select.hbs",
@@ -256,6 +257,12 @@
       {
         "from": "@/components/ui",
         "named": ["Switch", "Label"]
+      }
+    ],
+    "field-input-date": [
+      {
+        "from": "@/components/ui",
+        "named": ["Input", "Label"]
       }
     ],
     "field-input-datetime": [

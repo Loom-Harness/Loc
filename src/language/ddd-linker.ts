@@ -105,6 +105,16 @@ function unknownTypeMessage(name: string, container: AstNode): string {
     }
   }
   const primitives = primitiveTypeNames();
+  // `time` (a time-of-day with no date) is DECLINED, not missing: without a
+  // date it has no defined ordering across a DST change, so the message says
+  // so instead of offering a near miss.
+  if (name === "time" && !declared.has(name)) {
+    return (
+      `Unknown type 'time'.  Loom has no time-of-day type: a time without a date has no ` +
+      `defined ordering across a daylight-saving change.  Use 'datetime' for an instant, or ` +
+      `'date' for a calendar day.`
+    );
+  }
   // A near miss first (`strng`); failing that, a spelling borrowed from another
   // language (`boolean`, `integer`, `uuid`) that no edit distance would bridge.
   const near = nearestType(name, [...primitives, ...declared]);

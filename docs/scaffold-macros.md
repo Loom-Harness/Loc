@@ -303,6 +303,34 @@ canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),
 softDeletable` leaves the soft-delete terminator uncontested.
 
+### `crudish` delete under `softDeletable` — `loom.crudish-hard-delete`
+
+`softDeletable` is a pure mixin: it adds `isDeleted`/`deletedAt` and the
+`!this.isDeleted` read filter, and **no operation**. It does not change what
+`crudish`'s `destroy` does, so on a `with softDeletable, crudish` aggregate
+`DELETE /{id}` is still a **hard delete** on every backend: the row is gone,
+not flagged. This is deliberate. A capability never rewrites another macro's
+operation, and a physical delete (an admin purge, an erasure request) is a
+legitimate thing to keep. Loom raises the advisory `loom.crudish-hard-delete`
+(a `Suggestions:` hint, never an error) so the shape is not a surprise:
+
+```ddd
+aggregate Account with softDeletable, crudish { number: string }
+// DELETE /accounts/{id}  →  DELETE FROM accounts WHERE id = $1   (row removed)
+```
+
+To make soft delete the only way out, drop the canonical destroy and add the
+operations:
+
+```ddd
+aggregate Account with crudish(updateOnly: true), softDeletable, softDelete {
+  number: string
+  create(number: string) { number := number }
+}
+// POST /accounts/{id}/soft_delete  →  UPDATE accounts SET is_deleted = true, deleted_at = now() …
+// no DELETE /accounts/{id} route (no destroy)
+```
+
 ### `requires:` — gating the emitted members
 
 An aggregate `create` / `destroy` has **no header `requires` clause**:

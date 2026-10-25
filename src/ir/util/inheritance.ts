@@ -10,7 +10,8 @@
 // without importing across platform folders (the one-directional layering
 // rule: `generator/<platform>` knows nothing about other platforms).
 
-import type { AggregateIR, ExprIR, FieldIR } from "../types/loom-ir.js";
+import { plural, snake, uniqueIndexName } from "../../util/naming.js";
+import type { AggregateIR, ExprIR, FieldIR, UniqueKeyIR } from "../types/loom-ir.js";
 import { walkExprDeep } from "./walk.js";
 
 /** The aggregate pool a base is resolved within — a context's aggregate
@@ -233,4 +234,61 @@ export function projectionSourceTable(
   return kind
     ? { tableOwner: tableOwnerName(agg, pool), kind }
     : { tableOwner: tableOwnerName(agg, pool) };
+}
+
+// ---------------------------------------------------------------------------
+// `unique (…)` keys across inheritance.  Enrichment copies every abstract
+// ancestor's keys onto each TPC / TPH concrete, so the concrete's write surface
+// maps the 23505 its rows can raise.  These helpers tell those copies apart
+// from the keys a concrete declares itself, and say which index enforces each.
+// ---------------------------------------------------------------------------
+
+/** The column lists (`"a,b"`) of every `unique (…)` key `agg`'s abstract
+ *  ancestors declare, when `agg` is a TPC or TPH concrete — the keys
+ *  enrichment copies onto it.  Empty otherwise. */
+export function ancestorUniqueKeySet(agg: AggregateIR, pool: AggPool): Set<string> {
+  const out = new Set<string>();
+  if (!isTpcConcrete(agg, pool) && !isTphConcrete(agg, pool)) return out;
+  const seen = new Set<string>();
+  for (let b = baseOf(agg, pool); b && !seen.has(b.name); b = baseOf(b, pool)) {
+    seen.add(b.name);
+    for (const uk of b.uniqueKeys ?? []) out.add(uk.columns.join(","));
+  }
+  return out;
+}
+
+/** The `unique (…)` keys `agg` declares ITSELF — its `uniqueKeys` minus the
+ *  copies enrichment merged in from its abstract ancestors. */
+export function ownUniqueKeysOf(agg: AggregateIR, pool: AggPool): UniqueKeyIR[] {
+  const inherited = ancestorUniqueKeySet(agg, pool);
+  return (agg.uniqueKeys ?? []).filter((uk) => !inherited.has(uk.columns.join(",")));
+}
+
+/** The index that enforces one of `agg`'s `unique (…)` keys: the physical
+ *  table it lives on, its deterministic name, its columns and — for a TPH
+ *  concrete's OWN key — the `kind` discriminator value it is partial on.
+ *
+ *  Why partial: the TPH table is shared by every concrete, and so is a column
+ *  two concretes both declare (`tphTableForAggregate` de-duplicates columns by
+ *  name).  A key declared on `Lathe` constrains Lathes; a FULL index on the
+ *  shared column would also refuse a `Press` whose value matches a Lathe's —
+ *  a constraint nobody declared.  `WHERE kind = 'Lathe'` scopes the index to
+ *  exactly the rows the declaration is about.  A key inherited from the base
+ *  stays a full index: the base declared it for the whole hierarchy. */
+export function uniqueKeyIndex(
+  agg: AggregateIR,
+  uk: UniqueKeyIR,
+  pool: AggPool,
+): { table: string; name: string; columns: string[]; discriminator?: string } {
+  const table = plural(snake(tableOwnerName(agg, pool)));
+  const columns = uk.columns.map((c) => snake(c));
+  const own =
+    isTphConcrete(agg, pool) && !ancestorUniqueKeySet(agg, pool).has(uk.columns.join(","));
+  if (!own) return { table, name: uniqueIndexName(table, columns), columns };
+  return {
+    table,
+    name: uniqueIndexName(table, columns, agg.name),
+    columns,
+    discriminator: agg.name,
+  };
 }

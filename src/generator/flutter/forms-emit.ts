@@ -130,6 +130,10 @@ export interface FlutterFormField {
    *  (`money-scale.ts`, RS-12), not a bare JSON number the backend's
    *  `z.string()` request schema rejects. */
   money?: boolean;
+  /** A calendar `date` — the same date picker a `datetime` renders, but the
+   *  SUBMIT value is the picked day's `YYYY-MM-DD` (the wire form), never an
+   *  instant a zone could move. */
+  dateOnly?: boolean;
   /** When flattened OUT of value objects, the chain of JSON object keys it
    *  nests under, outermost first — `["cost"]` for a `cost: Money` expanded to
    *  `costAmount`/`costCurrency`, `["addr", "geo"]` for a `Geo` nested inside an
@@ -167,6 +171,8 @@ export interface FlutterFormField {
     kind: "text" | "number-int" | "number-double" | "bool" | "enum" | "datetime";
     /** `money` sub-field — submits as a fixed-scale decimal string. */
     money?: boolean;
+    /** `date` sub-field — submits the picked day's `YYYY-MM-DD`. */
+    dateOnly?: boolean;
     /** For an `enum` cell, the allowed values (the dropdown's items). */
     enumValues?: string[];
     /** Whether the sub-field is required (an enum cell then seeds row 0's
@@ -251,6 +257,19 @@ function isMoney(t: TypeIR): boolean {
   return b.kind === "primitive" && b.name === "money";
 }
 
+/** `date` — the date picker's value submits as its `YYYY-MM-DD` day. */
+function isDateOnly(t: TypeIR): boolean {
+  const b = peel(t);
+  return b.kind === "primitive" && b.name === "date";
+}
+
+/** The picked `DateTime?` in its wire form: a `datetime` as the ISO instant, a
+ *  `date` as the calendar day the picker chose (the picker returns that day at
+ *  local midnight, so its first ten ISO characters ARE the day). */
+function pickedWire(expr: string, dateOnly: boolean | undefined): string {
+  return dateOnly ? `${expr}?.toIso8601String().substring(0, 10)` : `${expr}?.toIso8601String()`;
+}
+
 /** The Flutter input kind for a scalar wire type, or `undefined` when the type
  *  isn't a flat scalar the string/number/bool/enum/datetime form renders. */
 function scalarInputKind(
@@ -275,6 +294,8 @@ function scalarInputKind(
         return "number-double";
       case "bool":
         return "bool";
+      // A calendar date rides the same picker; `dateOnly` changes what it submits.
+      case "date":
       case "datetime":
         return "datetime";
       case "File":
@@ -319,6 +340,7 @@ function buildField(
     required: !optional,
     enumValues,
     money: isMoney(type) || undefined,
+    dateOnly: isDateOnly(type) || undefined,
     objectPath,
     fkCollection,
   };
@@ -415,6 +437,7 @@ function prepareFields(
               label: humanize(sub.name),
               kind: k,
               money: isMoney(sub.type) || undefined,
+              dateOnly: isDateOnly(sub.type) || undefined,
               enumValues:
                 k === "enum" && subBase.kind === "enum" ? enumsByName.get(subBase.name) : undefined,
               required: !(sub.optional === true || sub.type.kind === "optional") || undefined,
@@ -1106,7 +1129,7 @@ function fieldValueExpr(f: FlutterFormField): string {
     case "fk-select":
       return stateId(f.wireName);
     case "datetime":
-      return `${stateId(f.wireName)}?.toIso8601String()`;
+      return pickedWire(stateId(f.wireName), f.dateOnly);
     case "file":
       // The `{url,key,contentType,size}` object the backend's File column wants.
       return `${stateId(f.wireName)}?.toJson()`;
@@ -1160,7 +1183,7 @@ function objectCellValueExpr(
     case "enum":
       return `row[${i}] as String?`;
     case "datetime":
-      return `(row[${i}] as DateTime?)?.toIso8601String()`;
+      return pickedWire(`(row[${i}] as DateTime?)`, sf.dateOnly);
     default:
       return `(row[${i}] as TextEditingController).text`;
   }
@@ -1309,7 +1332,7 @@ function fieldWidget(f: FlutterFormField): string {
         `]))`
       );
     case "datetime":
-      return `InkWell(onTap: () async { final picked = await showDatePicker(context: context, initialDate: ${stateId(f.wireName)} ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100)); if (picked != null) setState(() => ${stateId(f.wireName)} = picked); }, child: InputDecorator(decoration: ${decoration}, child: Text(${stateId(f.wireName)}?.toIso8601String() ?? 'Select date')))`;
+      return `InkWell(onTap: () async { final picked = await showDatePicker(context: context, initialDate: ${stateId(f.wireName)} ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100)); if (picked != null) setState(() => ${stateId(f.wireName)} = picked); }, child: InputDecorator(decoration: ${decoration}, child: Text(${pickedWire(stateId(f.wireName), f.dateOnly)} ?? 'Select date')))`;
     case "scalar-array": {
       const ctrls = arrayCtrlsId(f.wireName);
       const kbd =
@@ -1427,7 +1450,7 @@ function objectCellWidget(
       return (
         `Expanded(child: Padding(padding: const EdgeInsets.only(right: 4), child: ` +
         `InkWell(onTap: () async { final picked = await showDatePicker(context: context, initialDate: ${slot} as DateTime? ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100)); if (picked != null) setState(() => ${slot} = picked); }, ` +
-        `child: InputDecorator(decoration: InputDecoration(isDense: true, labelText: ${lbl}), child: Text((${slot} as DateTime?)?.toIso8601String() ?? 'Select date', overflow: TextOverflow.ellipsis)))))`
+        `child: InputDecorator(decoration: InputDecoration(isDense: true, labelText: ${lbl}), child: Text(${pickedWire(`(${slot} as DateTime?)`, sf.dateOnly)} ?? 'Select date', overflow: TextOverflow.ellipsis)))))`
       );
     default: {
       const kbd =

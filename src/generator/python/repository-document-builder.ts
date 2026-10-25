@@ -11,6 +11,7 @@ import type {
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -18,6 +19,7 @@ import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import {
   aggUsesPrincipalContextFilter,
   documentCapabilityBody,
@@ -216,7 +218,7 @@ export function buildPyDocumentRepositoryFile(
           `            .returning(${row}.id)`,
           "        )",
           "        if _guarded.first() is None:",
-          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} was modified concurrently")`,
+          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,
@@ -508,7 +510,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
   }
   if (t.kind === "primitive") {
     if (t.name === "money") return `str(${acc})`;
-    if (t.name === "datetime") return `${acc}.isoformat()`;
+    if (t.name === "datetime" || t.name === "date") return `${acc}.isoformat()`;
     return acc;
   }
   if (t.kind === "id") return `str(${acc})`;
@@ -537,6 +539,7 @@ function deserialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): str
   if (t.kind === "primitive") {
     if (t.name === "money") return numericEncode(PY_NUMERIC, "money", "repo-read", acc);
     if (t.name === "datetime") return `${PY.datetime}.fromisoformat(${PY.cast}(str, ${acc}))`;
+    if (t.name === "date") return `${PY_CALENDAR_DATE}.fromisoformat(${PY.cast}(str, ${acc}))`;
     if (t.name === "decimal") return pyDocumentDecimalDecode(acc);
     return `${PY.cast}(${primitivePy(t.name)}, ${acc})`;
   }
