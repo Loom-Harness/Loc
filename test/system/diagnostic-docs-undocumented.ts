@@ -140,7 +140,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.handler-load-nullable-unsupported",
   "loom.handler-missing-body",
   "loom.handler-param-reserved-id",
-  "loom.heex-component-host-state-unsupported",
   "loom.if-stmt-page-body-unsupported",
   "loom.iflet-bad-source",
   "loom.index-suggestion",

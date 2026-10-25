@@ -37,6 +37,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../ir/util/op-gates.js";
 import {
   classifyPage,
@@ -2359,8 +2360,11 @@ function renderUiComponents(args: {
     authEnabled,
   } = args;
   const webModule = `${appModule}Web`;
+  // A component that needs host-LiveView state is inlined into every caller by
+  // the walker (`renderInlinedComponent`), so no function component exists for it.
+  const inlined = hostStatefulComponents(ui);
   const defs = ui.components
-    .filter((c) => !c.extern)
+    .filter((c) => !c.extern && !inlined.has(c.name))
     .map((c) => {
       const synthPage = {
         name: c.name,

@@ -1,49 +1,69 @@
 import { describe, expect, it } from "vitest";
-import { HEEX_HOST_STATE_PRIMITIVES } from "../../../src/ir/util/heex-component-host-state.js";
+import {
+  HEEX_HOST_STATE_PRIMITIVES,
+  hostStatefulComponents,
+} from "../../../src/ir/util/heex-component-host-state.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// `G2646-open-heex-in-component-degradation` — the ledger calls it a silent
-// DEGRADATION; measured on generated output it is a CRASH the compile gate
-// cannot see.
-//
 // A HEEx function component is a pure render function with no process of its
-// own.  #2646 lifted a component's `state { … }` and named `action`s into the
-// host page's LiveView (`ComponentActionInfo.state` / `.handlers`) and stopped
-// there — the walker's `formBindings` / `queryBindings` / `uploadBindings` /
-// `tableControls` accumulators were never extended.  So the component emits its
-// markup and the host LiveView gets nothing:
+// own, so a form / QueryView / Table / FileUpload / Chart written inside one
+// needs the HOST LiveView to supply its assign, its `allow_upload/3` and its
+// `handle_event/3` clause.  A component that (transitively) renders one is
+// therefore INLINED into its caller by the walker: its bindings register on the
+// host page, and no function component is emitted for it.
 //
-//   defmodule DemoWeb.Components.UiComponents do
-//     def new_customer(assigns) do
-//       ~H"""
-//       <.simple_form for={@form} phx-submit="save_customer">
-//       ...
-//   defmodule DemoWeb.HomeLive do
-//     def mount(_params, _session, socket), do: {:ok, socket}   # no @form
-//     # ...and no handle_event("save_customer", …)
-//
-// That passes `mix compile --warnings-as-errors` and then raises on page load
-// for the assign that was never made.  Until the four accumulators hoist the way
-// state and actions already do, the gate refuses it at compile time — a message
-// the author reads beats a failure they meet in the running app.
-//
-// The set is EMPIRICAL, one generated case per primitive (see the module
-// header); this suite is what keeps it that way.
+// Before the inlining, the markup was emitted inside the component and the host
+// got nothing — output that passed `mix compile --warnings-as-errors` and then
+// raised on page load for the assign that was never made.  Each case below
+// asserts the binding that used to be missing is now on the host.
 // ---------------------------------------------------------------------------
 
-const CASES: Record<string, string> = {
-  CreateForm: "CreateForm { of: Customer }",
-  OperationForm: "OperationForm { of: Customer, op: rename }",
-  WorkflowForm: "WorkflowForm { runs: Signup }",
-  DestroyForm: "DestroyForm { of: Customer, id: cid }",
-  QueryView: "QueryView { of: Customer }",
-  Table: "Table { of: Customer, sortable: true }",
-  FileUpload: "FileUpload { bind: pic }",
-  Chart: 'Chart { kind: "bar", of: C.ByName, x: r => r.name, y: r => r.n }',
+/** component body → a marker that must appear in the host LiveView. */
+const CASES: Record<string, { body: string; host: string[] }> = {
+  CreateForm: {
+    body: "CreateForm { of: Customer }",
+    host: ['handle_event("save_customer"', "assign(:form,"],
+  },
+  OperationForm: {
+    body: "OperationForm { of: Customer, op: rename }",
+    // `of:` + `op:` outside a Modal renders the aggregate-bound form shape.
+    host: ['handle_event("save_customer"', "assign(:form,"],
+  },
+  WorkflowForm: {
+    body: "WorkflowForm { runs: Signup }",
+    host: ['handle_event("run_signup"'],
+  },
+  DestroyForm: {
+    body: "DestroyForm { of: Customer }",
+    host: ['handle_event("destroy_customer"'],
+  },
+  QueryView: {
+    body: 'QueryView { of: Customer.all, data: rows => Text { "rows" } }',
+    host: ["PhoenixApp.C.list_customers()", "assign(socket, :items, items)"],
+  },
+  Table: {
+    body: 'QueryView { of: Customer.all, data: rows => Table { rows: rows, page: pg, Column { "Name", c => Text { c.name } } } }',
+    // The page cursor is the component's own state: lifted under its namespaced assign.
+    host: ['handle_event("loom-page"', "assign(socket, :inner_pg, page_num)"],
+  },
+  FileUpload: {
+    body: "FileUpload { bind: pic }",
+    // The upload key, the progress consumer and the FileRef write-back all use
+    // the component's namespaced state assign.
+    host: [
+      "allow_upload(:inner_pic,",
+      "defp handle_inner_pic_progress(:inner_pic,",
+      "assign(socket, :inner_pic, file_ref)",
+    ],
+  },
+  Chart: {
+    body: 'Chart { kind: "bar", of: C.ByName, x: r => r.name, y: r => r.n }',
+    host: ["assign(socket, :by_name, load_by_name(socket))"],
+  },
 };
 
-const src = (componentBody: string, framework = "elixir"): string => `
+const src = (componentBody: string, pageBody = "Inner()", stateful = true): string => `
 system Demo {
   subdomain S {
     context C {
@@ -67,58 +87,81 @@ system Demo {
   ui Web {
     api C: CApi
     component Inner() {
-      state { shown: bool = false  cid: Customer id?  pic: File }
+      ${stateful ? "state { shown: bool = false  pg: int = 1  pic: File }" : ""}
       body: ${componentBody}
     }
-    page Home { route: "/" body: Inner() }
+    page Home { route: "/customers/new" body: ${pageBody} }
+    page Detail(id: Customer id) { route: "/customers/:id" body: Text { "d" } }
   }
   storage primary { type: postgres }
   storage blobs { type: localDisk }
   resource cState { for: C, kind: state, use: primary }
   resource cBlobs { for: C, kind: objectStore, use: blobs }
   deployable phoenixApp {
-    platform: ${framework} contexts: [C] dataSources: [cState, cBlobs] serves: CApi
+    platform: elixir contexts: [C] dataSources: [cState, cBlobs] serves: CApi
     ui: Web { C: phoenixApp } port: 4000
   }
 }
 `;
 
-async function errorsFor(body: string, framework?: string): Promise<string> {
-  try {
-    await generateSystemFiles(src(body, framework));
-    return "";
-  } catch (e) {
-    return String((e as Error).message ?? e);
-  }
+async function gen(
+  componentBody: string,
+  pageBody?: string,
+  stateful?: boolean,
+): Promise<{ host: string; components: string; all: Map<string, string> }> {
+  const all = await generateSystemFiles(src(componentBody, pageBody, stateful));
+  const find = (suffix: string): string => {
+    for (const [p, c] of all) if (p.endsWith(suffix)) return c;
+    throw new Error(`${suffix} not generated`);
+  };
+  return { host: find("/home_live.ex"), components: find("/ui_components.ex"), all };
 }
 
-describe("a host-state primitive inside a HEEx component is refused, not silently broken", () => {
-  for (const [primitive, body] of Object.entries(CASES)) {
-    it(`${primitive} in a component raises loom.heex-component-host-state-unsupported`, async () => {
-      const msg = await errorsFor(body);
-      expect(msg).toContain("loom.heex-component-host-state-unsupported");
-      expect(msg).toContain(`component 'Inner' uses '${primitive}'`);
-      // The message must name the escape hatch, not just the refusal.
-      expect(msg).toContain(`Move '${primitive}' into the page body`);
+describe("a host-state primitive inside a HEEx component is hoisted to the host LiveView", () => {
+  for (const [primitive, { body, host }] of Object.entries(CASES)) {
+    it(`${primitive} in a component registers its binding on the host page`, async () => {
+      const out = await gen(body);
+      for (const marker of host) expect(out.host).toContain(marker);
+      // The component is inlined, not invoked: no function component exists for
+      // it, and the page renders its markup directly.
+      expect(out.components).not.toContain("def inner(");
+      expect(out.host).not.toContain("UiComponents.inner");
     });
   }
 
-  it("the gate's set is exactly the documented one — a new member needs its own case", () => {
-    // Keeps the empirical set and the suite that proves it in lockstep: adding a
-    // primitive to the set without a generated case here (or vice versa) fails.
+  it("the inlined set is exactly the documented primitive set — a new member needs its own case", () => {
     expect([...HEEX_HOST_STATE_PRIMITIVES].sort()).toEqual(Object.keys(CASES).sort());
   });
 
-  it("leaves a display-only component alone", async () => {
-    // The gate must not refuse what already works: layout, display, `state`
-    // and `action`s inside a component all hoist correctly (#2646).
-    expect(await errorsFor('Stack { Text { "hi" }, Text { shown } }')).toBe("");
+  it("leaves a display-only component a function component", async () => {
+    const out = await gen('Stack { Text { "hi" }, Text { shown } }');
+    expect(out.components).toContain("def inner(");
+    expect(out.host).toContain("UiComponents.inner");
+  });
+
+  it("inlines a component that merely renders a host-stateful one", () => {
+    const body = (n: string) => `Stack { ${n} }`;
+    void body;
+    // Pure IR predicate: Outer calls Inner (stateful), Plain calls nothing.
+    const ui = {
+      components: [
+        { name: "Inner", extern: false, body: { kind: "call", name: "CreateForm", args: [] } },
+        { name: "Outer", extern: false, body: { kind: "call", name: "Inner", args: [] } },
+        { name: "Plain", extern: false, body: { kind: "call", name: "Text", args: [] } },
+      ],
+    } as never;
+    expect([...hostStatefulComponents(ui)].sort()).toEqual(["Inner", "Outer"]);
+  });
+
+  it("registers a component rendered twice once — one load, one submit clause", async () => {
+    const out = await gen("CreateForm { of: Customer }", "Stack { Inner(), Inner() }", false);
+    expect(out.host.match(/def handle_event\("save_customer"/g)).toHaveLength(1);
+    expect(out.host.match(/assign\(:form,/g)).toHaveLength(1);
+    // …while the markup is rendered at both call sites.
+    expect(out.host.match(/phx-submit="save_customer"/g)).toHaveLength(2);
   });
 
   it("does not fire on a non-LiveView frontend, where the same body renders", async () => {
-    // The hoisting gap is LiveView's, not the DSL's — the same component is
-    // perfectly renderable on a JSX target, so the gate is scoped to the
-    // framework that cannot render it.
     const files = await generateSystemFiles(`
       system Demo2 {
         subdomain S { context C { aggregate Customer with crudish { name: string } repository Customers for Customer { } } }
