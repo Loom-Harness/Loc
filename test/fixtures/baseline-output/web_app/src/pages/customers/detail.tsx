@@ -96,6 +96,7 @@ export default function CustomerDetail() {
                 <KeyValueRow label={t("page.Detail.keyValue.7s11ax", "Username")} data-testid="customers-detail-username"><Text>{customerById.data.username}</Text></KeyValueRow>
                 <KeyValueRow label={t("page.Detail.keyValue.inbfc7", "Email")} data-testid="customers-detail-email"><Text>{customerById.data.email}</Text></KeyValueRow>
                 <KeyValueRow label={t("page.Detail.keyValue.3mcq4c", "Age")} data-testid="customers-detail-age"><Text>{customerById.data.age}</Text></KeyValueRow>
+                <KeyValueRow label={t("page.Detail.keyValue.oz7oad", "Display")} data-testid="customers-detail-display"><Text>{customerById.data.display}</Text></KeyValueRow>
               </Stack>
             </Card>
             <Group gap="xs">

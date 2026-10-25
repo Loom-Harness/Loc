@@ -373,7 +373,7 @@ export function opHasWhenGate(op: OperationIR): boolean {
  *  (RS-17).  Rendered FIRST in the guard chain so the state gate precedes any
  *  `precondition`. */
 function renderWhenGateClause(aggName: string, op: OperationIR, rc: RenderCtx): string {
-  return `:ok <- ensure(${renderExpr(op.when as ExprIR, rc)}, ${disallowedTerm(aggName, op.name)})`;
+  return `:ok <- ensure(${renderExpr(op.when as ExprIR, rc)}, ${disallowedTerm(aggName, op)})`;
 }
 
 /** All hoisted guard with-clauses for an op, in evaluation order: the `when`
@@ -1566,7 +1566,7 @@ export function renderReturningOpControllerAction(
     ...(persists && aggregateIsVersioned(agg)
       ? [
           `  def ${resultFn}(conn, {:error, :conflict}),
-    do: ProblemDetails.conflict_response(conn)`,
+    do: ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])`,
         ]
       : []),
   ].join("\n\n");

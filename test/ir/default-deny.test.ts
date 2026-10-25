@@ -201,7 +201,7 @@ system Helpdesk {
     ).toEqual(["loom.default-deny-by-id-ungated", "loom.default-deny-list-ungated"]);
     const list = warnings.find((d) => d.code === "loom.default-deny-list-ungated")!;
     expect(list.message).toContain("/api/tickets");
-    expect(list.message).toContain("find all(): Ticket[] requires <expr>");
+    expect(list.message).toContain("find all(): Ticket paged requires <expr>");
     const byId = warnings.find((d) => d.code === "loom.default-deny-by-id-ungated")!;
     expect(byId.message).toContain("/api/tickets/{id}");
     expect(byId.message).toContain("find byId(id: Ticket id): Ticket? requires <expr>");
