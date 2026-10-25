@@ -261,7 +261,7 @@ export function renderJavaDocumentRepositoryImpl(
     `            (rs, i) -> rs.getInt(1),`,
     `            aggregate.id().value(), __data, __expectedVersion);`,
     `        if (__written.isEmpty()) {`,
-    `            throw new ObjectOptimisticLockingFailureException(${agg.name}.class, aggregate.id().value());`,
+    `            throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, aggregate.id().value());`,
     `        }`,
     `        aggregate._applyVersion(__written.get(0));`,
   ];
@@ -279,9 +279,6 @@ export function renderJavaDocumentRepositoryImpl(
     `import tools.jackson.databind.ObjectMapper;`,
     `import tools.jackson.databind.json.JsonMapper;`,
     `import org.springframework.jdbc.core.JdbcTemplate;`,
-    aggregateIsVersioned(agg)
-      ? `import org.springframework.orm.ObjectOptimisticLockingFailureException;`
-      : null,
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
