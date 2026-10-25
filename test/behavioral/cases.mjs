@@ -306,9 +306,9 @@ export const AUTHZ_LADDERS = {
    *  which shipped ungated on some subset of backends while every compile tier
    *  stayed green — the exact #2446 shape, on reads instead of writes:
    *
-   *    1. `find all(): T[] requires` — java/python/elixir each special-case
-   *       `all` out of the per-find route loop and emitted the bespoke list
-   *       route without reading its `requires`.
+   *    1. the list read's gate (`policy { read X requires … }`) —
+   *       java/python/elixir each special-case `all` out of the per-find route
+   *       loop, so the bespoke list route must read the gate itself.
    *    2. a FOLDED projection's gate — it had no surface to be spelled on at
    *       all until the gate moved to the projection declaration header.
    *    3. a QUERY-TIME projection's gate.
@@ -333,8 +333,8 @@ export const AUTHZ_LADDERS = {
       { label: "folded projection", method: "GET", path: "/api/projections/order_book" },
       { label: "folded projection by key", method: "GET", path: "/api/projections/order_book/{id}" },
       { label: "query-time projection", method: "GET", path: "/api/projections/open_orders" },
-      // M-T3.19 — the compiler-derived by-id read, gated by the fixture's
-      // `find byId(id: Order id): Order? requires …`.
+      // The compiler-derived by-id read, gated by the fixture's
+      // `policy { read Order requires … }`.
       { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
       // …and the same declared find's own route, under the same gate.
       { label: "gated byId find route", method: "GET", path: "/api/orders/by_id?id={id}" },
@@ -420,6 +420,79 @@ export const AUTHZ_LADDERS = {
       },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 204 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** Entity history behind its guards (audit-history-guarded.ddd) — the half
+   *  of each guard the fixture's `test e2e` cannot pose, because the e2e has
+   *  one principal and it passes every gate and the mask.
+   *
+   *  1. THE MASK, unprivileged side.  Employee's reads are ungated, so the
+   *     unauthorized principal (`permissions: ["ops.none"]`) reads the SAME
+   *     trail as the authorized one (`ops.manage`) and both bodies are
+   *     recorded.  The seed creates a row and raises its salary, so the trail is
+   *     `create` + `raise`: the authorized body carries `salary` in both
+   *     entries, the unauthorized body has `salary` DROPPED from the create and
+   *     the raise entry's `changes` EMPTY.  A backend that redacted (`before:
+   *     null, after: null`) instead of dropping, or that keyed the mask on "is
+   *     there a principal" rather than the permission, differs here.
+   *  2. THE GATED OPERATION — 403 / 204.
+   *  3. THE INHERITED GATE.  `Payslip`'s history read has no `requires` of its
+   *     own; it inherits the list read's.  A backend that served history
+   *     through a path that skipped the inherited gate answers 200 where the
+   *     list answers 403.  The ABSENT-id arm is the ordering witness: the gate
+   *     runs before the row lookup, so the unauthorized caller gets 403 — not a
+   *     404 that would confirm the row does not exist — while the authorized
+   *     caller gets the 404.
+   *  4. NO ROUTE.  `Desk` is not audited, so its `/{id}/history` is the
+   *     framework's route-miss 404 for both principals — a backend that emitted
+   *     the route for every aggregate (an empty `[]`) differs here. */
+  "audit-history-guarded": {
+    seed: [
+      { path: "/api/employees", body: { name: "Ladder", salary: 10 } },
+      { path: "/api/employees/{id}/raise", body: { amount: 5 } },
+    ],
+    gated: [
+      {
+        label: "masked field — ungated history, both principals read it",
+        method: "GET",
+        path: "/api/employees/{id}/history",
+        arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+      },
+      {
+        label: "gated operation",
+        method: "POST",
+        path: "/api/employees/{id}/raise",
+        body: { amount: 5 },
+        arms: { anonymous: null, unauthorized: 403, authorized: 204 },
+      },
+      {
+        label: "inherited gate — the gated list read",
+        method: "GET",
+        path: "/api/payslips",
+      },
+      {
+        label: "inherited gate — the history read",
+        seed: { path: "/api/payslips", body: { period: "ladder", amount: 1 } },
+        method: "GET",
+        path: "/api/payslips/{id}/history",
+      },
+      {
+        label: "inherited gate — an ABSENT row's history: the gate runs first",
+        method: "GET",
+        path: "/api/payslips/00000000-0000-0000-0000-000000000000/history",
+        arms: { anonymous: null, unauthorized: 403, authorized: 404 },
+      },
+      {
+        label: "unaudited sibling — no history route",
+        seed: { path: "/api/desks", body: { label: "ladder desk" } },
+        method: "GET",
+        path: "/api/desks/{id}/history",
+        absentRoute: true,
+        arms: { anonymous: null, unauthorized: 404, authorized: 404 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 403, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
   },
 

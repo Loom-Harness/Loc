@@ -1,11 +1,11 @@
 // Entity history on Java/Spring Boot — the read side of the `audited` trail
 // (docs/audit.md).  The RUNTIME contract is proven by the behavioral leg
-// (`node run-java.mjs audit-history` diffs the booted app's responses against
-// the node-minted wire golden) and `gradle testClasses bootJar` proves the
-// emitted project compiles.  This suite is the fast per-PR net over the
-// emission SHAPE, and specifically over the three guards — a masking or
-// scoping regression should fail here in seconds rather than waiting for a
-// backend boot.
+// (`node run-java.mjs audit-history audit-history-guarded` diffs the booted
+// app's responses against the node-minted wire goldens) and
+// `gradle testClasses bootJar` proves the emitted project compiles.  The
+// guards' runtime claims — mask drop, the inherited gate's 403 ahead of the row
+// lookup, stamps out of the diff, no route when unaudited — are on that wire
+// (`audit-history-guarded`); this suite keeps what it cannot see.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
@@ -79,24 +79,6 @@ describe("entity history — java route surface", () => {
 });
 
 describe("entity history — java negative authz", () => {
-  it("DROPS a masked field's change entry rather than redacting it", async () => {
-    const service = fileEndingWith(await emit(MASKED), "EmployeeService.java");
-    // The unmasked fields run through the unconditional loop...
-    expect(service).toContain('for (var key : List.of("name")) {');
-    // ...and `salary` is NOT among them.  A masked field must never reach the
-    // always-emitted path.
-    expect(service).not.toContain('for (var key : List.of("name", "salary")) {');
-    // Its entry is added only inside the predicate guard, so a caller who fails
-    // the predicate sees no entry at all.  "the admin changed `salary` on the
-    // 3rd" is itself the disclosure the mask exists to prevent; a redacted
-    // placeholder would still make it.
-    expect(service).toMatch(
-      /if \(__maskUser != null && \([^\n]*\)\) \{[\s\S]*?new AuditFieldChange\("salary"[\s\S]*?\n {8}\}/,
-    );
-    // No redaction-style null placeholder anywhere.
-    expect(service).not.toContain('new AuditFieldChange("salary", null, null)');
-  });
-
   it("is fail-closed on an unauthenticated caller", async () => {
     const service = fileEndingWith(await emit(MASKED), "EmployeeService.java");
     // The STATIC, non-throwing accessor — an unauthenticated request yields
@@ -104,39 +86,13 @@ describe("entity history — java negative authz", () => {
     expect(service).toContain("User __maskUser = CurrentUserAccessor.currentOrNull();");
     expect(service).toContain("__maskUser != null &&");
   });
-
-  it("inherits the list read's gate — 403 before any query runs", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "EmployeesController.java");
-    const handler = controller.slice(controller.indexOf('@GetMapping("/{id}/history")'));
-    expect(handler).toContain('throw new ForbiddenException("Forbidden: find history")');
-    // The gate runs BEFORE the service (and therefore the audit table) is
-    // touched.
-    expect(handler.indexOf("ForbiddenException")).toBeLessThan(
-      handler.indexOf("service.historyEmployee"),
-    );
-  });
-
-  it("never lets a stamp, the version counter, or the id into the diff", async () => {
-    const service = fileEndingWith(await emit(MASKED), "EmployeeService.java");
-    const mapper = service.slice(service.indexOf("private static AuditEntry employeeAuditEntry"));
-    const keyLoop = mapper.slice(0, mapper.indexOf("return new AuditEntry("));
-    // `auditable` stamps these post-save and `versioned` bumps `version` on
-    // every command — left in, they would be most of the timeline.
-    expect(keyLoop).not.toContain("updatedAt");
-    expect(keyLoop).not.toContain("createdAt");
-    expect(keyLoop).not.toContain('"version"');
-    expect(keyLoop).not.toContain('"id"');
-  });
 });
 
 describe("entity history — aggregates that serve none", () => {
-  it("emits no history route, mapper or shared classes when nothing is audited", async () => {
+  it("emits no mapper or shared classes when nothing is audited", async () => {
     const files = await emit(MASKED.replace("aggregate Employee audited", "aggregate Employee"));
     expect([...files.keys()].some((p) => p.endsWith("AuditEntry.java"))).toBe(false);
     expect([...files.keys()].some((p) => p.endsWith("AuditHistory.java"))).toBe(false);
-    expect(fileEndingWith(files, "EmployeesController.java")).not.toContain(
-      '@GetMapping("/{id}/history")',
-    );
     expect(fileEndingWith(files, "EmployeeService.java")).not.toContain("employeeAuditEntry");
   });
 });

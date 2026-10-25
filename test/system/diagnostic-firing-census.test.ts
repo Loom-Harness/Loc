@@ -1427,11 +1427,9 @@ system S {
   deployable d { platform: dotnet contexts: [Vehicles] dataSources: [st] serves: Api port: 8080 }
 }`,
 
-  // A subtype taking the OPPOSITE tenancy stance from the base it inherits its
-  // columns from.  The base capability still contributes `tenant_id NOT NULL`
-  // to the row; `crossTenant` means nothing stamps or filters it.  This parsed
-  // 0 errors on all five backends, and it is the exact spelling the old
-  // `loom.tenancy-stance-unmarked` message recommended.
+  // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
+  // The base's `tenantOwned` reaches the subtype, so it would be both tenant
+  // data and shared data.
   "loom.tenancy-inherited-stance-conflict": `
 system S {
   user { id: guid  tenantId: string }

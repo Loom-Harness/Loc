@@ -1,10 +1,11 @@
 // Entity history on .NET / ASP.NET + Mediator — the read side of the `audited`
 // trail (docs/audit.md).  The RUNTIME contract is proven by the behavioral leg
-// (`node run-dotnet.mjs audit-history` diffs the booted app's responses against
-// the node-minted wire golden), and `dotnet build /warnaserror` proves the
-// emitted project is sound.  This suite is the fast per-PR net over the
-// emission SHAPE, and specifically over the guards — a masking or scoping
-// regression should fail here in seconds rather than waiting for a boot.
+// (`node run-dotnet.mjs audit-history audit-history-guarded` diffs the booted
+// app's responses against the node-minted wire goldens), and
+// `dotnet build /warnaserror` proves the emitted project is sound.  The guards'
+// runtime claims — mask drop, the inherited gate's 403 ahead of the row lookup,
+// stamps out of the diff, no route when unaudited — are on that wire
+// (`audit-history-guarded`); this suite keeps what it cannot see.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
@@ -100,21 +101,6 @@ describe("entity history — .NET route surface", () => {
 });
 
 describe("entity history — .NET negative authz", () => {
-  it("DROPS a masked field's change entry rather than redacting it", async () => {
-    const handler = fileEndingWith(await emit(MASKED), "Queries/GetEmployeeHistoryHandler.cs");
-    // Unmasked fields go through the unconditional loop; `salary` must not.
-    expect(handler).toContain('new[] { ("name", "Name") }');
-    expect(handler).not.toContain('("salary", "Salary") }');
-    // Its entry is added only inside the predicate guard, so a caller who fails
-    // the predicate sees no entry at all — a redacted-but-present entry would
-    // still disclose that it changed, when, and by whom.
-    expect(handler).toMatch(
-      /if \(RequestContext\.Current\?\.CurrentUser is \{ \} __maskUser0 &&[^\n]*\)\n(?:.*\n)*?\s+__changes\.Add\(new AuditFieldChange\("salary"/,
-    );
-    // No redaction-style null placeholder anywhere.
-    expect(handler).not.toContain('new AuditFieldChange("salary", null, null)');
-  });
-
   it("is fail-closed on an unauthenticated caller", async () => {
     const handler = fileEndingWith(await emit(MASKED), "Queries/GetEmployeeHistoryHandler.cs");
     // The ambient NULLABLE accessor: no principal → the `is { }` pattern fails →
@@ -123,44 +109,21 @@ describe("entity history — .NET negative authz", () => {
     expect(handler).toContain("RequestContext.Current?.CurrentUser is { } __maskUser0");
   });
 
-  it("inherits the list read's gate — 403 before any query runs", async () => {
+  it("declares the 403 and 404 the history action can answer with", async () => {
     const files = await emit(MASKED);
-    const handler = fileEndingWith(files, "Queries/GetEmployeeHistoryHandler.cs");
-    expect(handler).toContain('throw new ForbiddenException("Forbidden: find history")');
-    // The gate runs BEFORE the entity load and before the audit table is read.
-    expect(handler.indexOf("ForbiddenException")).toBeLessThan(handler.indexOf("GetByIdAsync"));
-    expect(handler.indexOf("ForbiddenException")).toBeLessThan(
-      handler.indexOf("_history.ReadAsync"),
-    );
-    // …and the action declares the 403 it can actually answer with.
     const ctrl = fileEndingWith(files, "Api/EmployeesController.cs");
     const action = ctrl.slice(ctrl.indexOf('[HttpGet("{id}/history")]'));
     expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 403)]");
     expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
   });
-
-  it("never lets a stamp, the version counter, or the id into the diff", async () => {
-    const handler = fileEndingWith(await emit(MASKED), "Queries/GetEmployeeHistoryHandler.cs");
-    const mapper = handler.slice(handler.indexOf("var __changes"));
-    const keyLoop = mapper.slice(0, mapper.indexOf("__entries.Add"));
-    // `auditable` stamps these post-save and `versioned` bumps `version` on
-    // every command — left in, they would be most of the timeline.
-    expect(keyLoop).not.toContain("updatedAt");
-    expect(keyLoop).not.toContain("createdAt");
-    expect(keyLoop).not.toContain('"version"');
-    expect(keyLoop).not.toContain('"id"');
-  });
 });
 
 describe("entity history — aggregates that serve none", () => {
-  it("emits no history action, query or shared module when nothing is audited", async () => {
+  it("emits no shared history module or reader when nothing is audited", async () => {
     const files = await emit(MASKED.replace("audited {\n", "{\n"));
     expect([...files.keys()].some((p) => p.endsWith("Application/Common/AuditHistory.cs"))).toBe(
       false,
     );
     expect([...files.keys()].some((p) => p.endsWith("AuditHistoryReader.cs"))).toBe(false);
-    expect(fileEndingWith(files, "Api/EmployeesController.cs")).not.toContain(
-      '[HttpGet("{id}/history")]',
-    );
   });
 });

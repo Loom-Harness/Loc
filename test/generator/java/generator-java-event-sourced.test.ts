@@ -67,13 +67,15 @@ describe("java generator — event sourcing", () => {
     expect(impl).toContain(
       '"select stream_id, type, data from accounts.accounts_events where stream_type = ? order by stream_id, version", "Account"',
     );
-    // load / delete / max(version) all filter the aggregate's own stream_type.
+    // load / delete filter the aggregate's own stream_type.
     expect(impl).toContain(
       '"select type, data from accounts.accounts_events where stream_type = ? and stream_id = ? order by version", "Account", sid',
     );
-    expect(impl).toContain(
-      '"select max(version) from accounts.accounts_events where stream_type = ? and stream_id = ?", Integer.class, "Account", sid',
-    );
+    // Expected-version append (M-T6.98): the save continues from the version
+    // the handle was folded to — no `max(version)` re-read at append time.
+    expect(impl).toContain("int version = aggregate._streamVersion();");
+    expect(impl).toContain("aggregate._streamVersion(version);");
+    expect(impl).not.toContain("select max(version)");
     expect(impl).toContain(
       '"delete from accounts.accounts_events where stream_type = ? and stream_id = ?", "Account"',
     );
