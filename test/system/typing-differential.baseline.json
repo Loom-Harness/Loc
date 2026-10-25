@@ -17,10 +17,10 @@
     "unreached": 0
   },
   "unknownCauses": {
-    "not-a-value": 60524,
+    "not-a-value": 60583,
     "no-rule": 2702,
-    "unresolved-member": 803,
-    "unresolved-name": 497,
+    "unresolved-member": 813,
+    "unresolved-name": 499,
     "contextual-lambda": 166,
     "unresolved-type": 89,
     "ill-typed-operands": 2,

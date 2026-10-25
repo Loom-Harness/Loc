@@ -545,6 +545,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   // the aggregate's two collection reads.  These two are what is left: `Order`
   // declares no `crudish` and no author-declared create, so there is no
   // `POST /api/orders` and no row to address.  See `R.noCreateRoute`.
+  // The #3954 fixture's tenant registry exists only so `tenancy … of
+  // Organization` resolves; it declares no create, so its collection read is
+  // driven (empty) and the id-taking read has no row to address.
+  "corpus/inheritance-read-restrictions": {
+    getOrganizationById: R.noCreateRoute,
+  },
   "corpus/handler-triad": {
     getOrderById: R.noCreateRoute,
     cancelOrder: R.noCreateRoute,
@@ -665,6 +671,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/datetime-wire": ["api.slotBoard.list (no such aggregate)"],
   // Eval items 10 + 14b: the direct-table arms over a TPH concrete and over a
   // value-object leaf.  All three are projection READS — the `notLifted` class.
+  // The polymorphic base reads of #3954 / #3959: a TPH base's by-id read has
+  // no derived operation (the base owns no repository — nothing routes it on
+  // node yet), and the projection read is the not-yet-lifted route class.
+  "corpus/inheritance-base-reads": [
+    "api.equipment.getById (no derived operation)",
+    "api.equipmentCount.list (no such aggregate)",
+  ],
   "corpus/projection-tph-source": [
     "api.autoClaimVolume.list (no such aggregate)",
     "api.autoClaimsByStatus.list (no such aggregate)",
@@ -1288,5 +1301,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   // routes with it.  A pin count that goes UP is not a regression when the
   // POPULATION grows (the header's own rule); the fixture went from zero
   // censused routes to seven driven and two pinned.
-  noCreateRoute: 2,
+  noCreateRoute: 3,
 };

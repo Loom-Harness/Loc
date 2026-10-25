@@ -55,6 +55,20 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  key returns the day that gate closes. */
 const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
+/** `inheritance-read-restrictions` — the #3954 answer key — minus the two
+ *  backends that cannot even build it today.  Each still boots the case on its
+ *  behavioural leg as a tracked expected failure, so its key returns here with
+ *  the fix that turns that leg red:
+ *
+ *  - `dotnet` (EF): refused at validation by `loom.tph-filter-unsupported`
+ *    (the `TPH_CAPABILITY_FILTER` exclusion); #3960 lifts it.  The Dapper
+ *    adapter passes the case and is armed by `ADAPTER_ONLY_CASES`.
+ *  - `vanilla` (elixir): `mix compile --warnings-as-errors` fails — the TPH
+ *    base controller calls `Fleet.list_vehicles(current_user)` against a
+ *    `list_vehicles/0` delegate, the arity half of #3955 (which is also the
+ *    only thing keeping that unfiltered base read from shipping). */
+const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER.filter((b) => b !== "vanilla");
+
 /** The backends whose transactional workflow dispatches an aggregate event only
  *  AFTER its transaction commits — the one runtime-distinguishable half of
  *  banking-eval B-04 (docs/new-plan/T4-eventing-temporal.md, M-T4.3 item 6).
@@ -138,36 +152,26 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  so a read model has to bridge the two halves: the fold writes the leaves, the
  *  read route rebuilds the nest.
  *
- *  **node** does, as of the PR that mints this fixture.  The other four are
- *  excluded — an honest, named exclusion rather than a red gate, and each key
- *  returns with its own fix:
+ *  **node**, **java** and **elixir** do.  The other two are excluded, and
+ *  each key returns with its own fix:
  *
- *  - **java** almost certainly belongs here already: it is the one backend whose
- *    emission bridges both halves — `@Embedded` + `@AttributeOverride` onto
- *    exactly the migration's flat columns (`emit/projection-state.ts`), then
- *    `new OrderBoardResponse(…, StampResponse.from(x.stamp()), x.seen() == null ?
- *    null : StampResponse.from(x.seen()), AuditResponse.from(x.audit()))` with
- *    both response records emitted (`emit/projection-reads.ts`).  It is held out
- *    only because it was not COMPILED: `gradle testClasses bootJar` in
- *    `gradle:9-jdk25` could not resolve its dependencies (Maven Central answered
- *    429 through the sandbox proxy, twice).  Adding `"java"` here is a one-line
- *    change for whoever can run that gate.  One behavioural caveat to check when
- *    they do: JPA hands back a non-null `@Embedded` instance with null fields
- *    when every column is null, so java's `x.seen() == null` arm may answer an
- *    object of nulls where node answers `null`.
- *
+ *  - **java** is IN the row: booted on its behavioural leg it matches the
+ *    golden — `@Embedded` + `@AttributeOverride` onto exactly the
+ *    migration's flat columns, rebuilt into the nested response records.
  *  - **dotnet**: `OrderBoardRowConfiguration` maps the value object as a SCALAR
  *    property to one column (`builder.Property(x => x.St).HasColumnName("st")`)
- *    that the migration never creates, so EF fails at model build.  The
- *    controller half is already right (it projects a nested `StampResponse`).
+ *    that the migration never creates; booted on its behavioural leg the
+ *    emitted project does not even pass `dotnet build /warnaserror`.
  *  - **python**: the route returns `{"st": row.st}` against a SQLAlchemy model
  *    whose only attributes are `st_at_time` / `st_who` — `AttributeError`.
- *  - **elixir** (`vanilla`): the row schema types the field `field :st, :map`
- *    over a table with no `st` column.  Its fix is entangled with #3082, which
- *    makes elixir's state-table migration COLLAPSE value-object leaves into one
- *    `:map` column — i.e. elixir is moving to a different column shape than the
- *    other four read.  That fork wants settling before a key is minted here. */
-const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
+ *  - **elixir** (`vanilla`) is IN the row: booted on its behavioural leg it
+ *    builds, folds and round-trips the read model.  Its one divergence is the
+ *    nested value object's KEY spelling (`at_time` where the golden has
+ *    `atTime`, RS-1), a path-scoped wire waiver (#4023).
+ *
+ *  The excluded keys are booted as tracked expected failures on their legs
+ *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
+const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -268,6 +272,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "inheritance",
     backends: TPH_CAPABILITY_FILTER,
     note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) is deliberately NOT here, as the fixture's header says: under D-EMBEDDED-TPH an `embedded` concrete of a `sharedTable` base is refused at phase ④ (`loom.es-tph-forced-own-table`, src/language/validators/inheritance.ts), so the crossing no longer validates and has nothing to compile.",
+  },
+  {
+    id: "inheritance-read-restrictions",
+    title:
+      "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
+    doc: "inheritance",
+    backends: INHERITANCE_READ_RESTRICTIONS,
+    note: "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Two backends are absent from the row, and both still BOOT the case on their behavioural legs as tracked expected failures (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) — see `INHERITANCE_READ_RESTRICTIONS`.",
+  },
+  {
+    id: "inheritance-base-reads",
+    title:
+      "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
+    doc: "inheritance",
+    backends: ALL,
+    note: "The half of epic #3954's behavioural fixture that no backend passes yet (#3956 base capabilities are not inherited; #3959 polymorphic base reads).  Every leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs); it has no wire golden because the node oracle fails it too, and its assertions move into `inheritance-read-restrictions` once node passes.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },

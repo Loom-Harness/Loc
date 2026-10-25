@@ -105,6 +105,21 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
+  // capability on the abstract base (whose fields the record walk also misses).
+  "inheritance-base-reads.ddd Fleet.Vehicle": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Equipment": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crew": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
   // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
   // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
   // `label`, so enrichment merges it into the concrete's wire shape and the
