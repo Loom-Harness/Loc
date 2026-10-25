@@ -186,7 +186,7 @@ system S {
     expect(svc).toContain(
       'var placedAt = WireFormatException.instant(request.placedAt(), "/placedAt");',
     );
-    expect(svc).toContain("var shipTo = toAddress(request.shipTo());");
+    expect(svc).toContain('var shipTo = toAddress(request.shipTo(), "/shipTo");');
   });
 });
 
@@ -264,7 +264,7 @@ describe("java generator — wire validators + advice (S5)", () => {
     expect(v).toContain(
       // `code == null ||` skips a NULL rather than dereferencing it (F23): this
       // Validator runs ALONGSIDE the record's @NotNull, not after it.
-      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Invariant violated: code.length > 0");',
+      'if (!(code == null || ((int) code.codePoints().count()) >= 1)) errors.rejectValue("code", "loom.invariant", "Code must be at least 1 character");',
     );
     const ctrl = files_.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain("@Valid @RequestBody CreateOrderRequest request");
@@ -306,7 +306,7 @@ system Demo {
 `;
     const out = await generateSystemFiles(src);
     const check =
-      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Invariant violated: handle.length > 0");';
+      'if (!(handle == null || ((int) handle.codePoints().count()) >= 1)) errors.rejectValue("handle", "loom.invariant", "Handle must be at least 1 character");';
     const create = [...out.entries()].find(([k]) => /CreateAccountValidator\.java$/.test(k))?.[1];
     const update = [...out.entries()].find(([k]) => /UpdateAccountValidator\.java$/.test(k))?.[1];
     expect(create).toContain(check);

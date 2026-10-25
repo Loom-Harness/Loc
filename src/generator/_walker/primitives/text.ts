@@ -255,6 +255,10 @@ export function emitAvatar(
     alt,
     hasSrc: src !== undefined,
     hasAlt: alt !== undefined,
+    // A NAMING alt (not the decorative `""`).  With no `src:` there is no
+    // `<img>` to carry it, so the fallback element itself takes it as its
+    // accessible name (`role="img"` + `aria-label`).
+    hasAltLabel: alt !== undefined && alt !== '""',
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
   });

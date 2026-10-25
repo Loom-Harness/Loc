@@ -33,6 +33,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
@@ -1168,9 +1169,43 @@ export function renderApiExceptionAdvice(
     `        return respond(problem(${notFoundStatus}, "${notFoundTitle}", e.getMessage(), request), ${notFoundStatus});`,
     `    }`,
     ``,
+    // An integral body field past its Java type's range (`{"n": 3000000000}`
+    // for an `int`) is not a malformed body: the JSON parsed, one FIELD's value
+    // does not fit.  Jackson refuses it while binding, as an
+    // InputCoercionException carrying the field's path, so it surfaces here
+    // rather than at Bean Validation — and the answer is the wire-validation
+    // 422 at that field with the cross-backend range sentence (RS-42), the
+    // same body node, python, .NET and elixir send.  Every other unreadable
+    // body stays the 400.
     `    @ExceptionHandler(HttpMessageNotReadableException.class)`,
     `    public ResponseEntity<ProblemDetail> onUnreadable(HttpMessageNotReadableException e, WebRequest request) {`,
+    `        var overflow = integerOverflowPointer(e);`,
+    `        if (overflow != null) {`,
+    `            return onWireFormat(new WireFormatException(overflow, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}), request);`,
+    `        }`,
     `        return respond(problem(400, "Bad Request", "Malformed JSON in request body", request), 400);`,
+    `    }`,
+    ``,
+    `    /** The RFC 6901 pointer of the integral field Jackson refused as out of`,
+    `     *  range, or null when the failure is anything else.  The path is read`,
+    `     *  off whichever exception in the cause chain carries the longest one —`,
+    `     *  Jackson prepends each enclosing property to the exception it throws. */`,
+    `    private static String integerOverflowPointer(Throwable e) {`,
+    `        boolean coercion = false;`,
+    `        java.util.List<tools.jackson.core.JacksonException.Reference> path = java.util.List.of();`,
+    `        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {`,
+    `            if (t instanceof tools.jackson.core.exc.InputCoercionException) coercion = true;`,
+    `            if (t instanceof tools.jackson.core.JacksonException je && je.getPath().size() > path.size()) {`,
+    `                path = je.getPath();`,
+    `            }`,
+    `        }`,
+    `        if (!coercion || path.isEmpty()) return null;`,
+    `        var out = new StringBuilder();`,
+    `        for (var ref : path) {`,
+    `            var seg = ref.getPropertyName() != null ? ref.getPropertyName() : String.valueOf(ref.getIndex());`,
+    `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
+    `        }`,
+    `        return out.toString();`,
     `    }`,
     ``,
     // A path `{id}` / typed query param that will not CONVERT — `GET

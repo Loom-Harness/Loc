@@ -628,7 +628,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // aggregate declares an `audited` op, so non-audit projects stay
   // byte-identical.  The per-op capture + the record_audit helper are wired by
   // routes-builder.ts / repository-builder.ts.
-  emitPyAudit(args.contexts, out);
+  emitPyAudit(
+    args.contexts,
+    out,
+    args.deployable.auth?.required && args.sys.user ? args.sys.user : undefined,
+  );
   if (seedFile != null) out.set("app/db/seed.py", seedFile);
 
   // In-process event dispatch (channels.md): only when a channel routes

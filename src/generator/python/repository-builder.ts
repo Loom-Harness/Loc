@@ -104,6 +104,7 @@ export const R = {
   current_user: authUser("current_user"),
   require_current_user: authUser("require_current_user"),
   AuditRecordRow: pyRef("app.db.audit", "AuditRecordRow"),
+  audit_actor: pyRef("app.db.audit", "audit_actor"),
   ProvenanceRecord: pyRef("app.db.provenance", "ProvenanceRecord"),
   iso: wire("iso"),
   money_str: wire("money_str"),
@@ -1741,9 +1742,11 @@ export function recordAuditMethod(): string {
     // the NOT NULL jsonb column (parity with the Hono route's `before: null`).
     "        before: object,",
     "        after: object,",
-    "        actor: object | None = None,",
     '        status: str = "ok",',
     "    ) -> None:",
+    // The actor is the ambient principal's declared shape, read here rather
+    // than threaded through every call site (RS-45).
+    `        actor = ${R.audit_actor}()`,
     "        self._session.add(",
     `            ${R.AuditRecordRow}(`,
     `                audit_id=${R.uuid4}().hex,`,

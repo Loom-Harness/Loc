@@ -121,7 +121,7 @@ describe("feliz create forms", () => {
     // full aggregate — the Api fn returns the id `string` so the success handler
     // can route to the new record's detail page.
     expect(app).toContain(
-      "let createProduct (form: ProductCreateForm) : Async<Result<string, string>> =",
+      "let createProduct (form: ProductCreateForm) : Async<Result<string, ServerErrors>> =",
     );
     expect(app).toContain("let body = Encode.toString 0 (Encoders.productCreateForm form)");
     expect(app).toContain("|> Http.method POST");
@@ -139,7 +139,7 @@ describe("feliz create forms", () => {
     expect(app).toContain("| SetProductCreateFormPrice of string");
     expect(app).toContain("| SubmitProductCreateForm");
     // Created carries the new record's id (from the `{ id }` response).
-    expect(app).toContain("| ProductCreated of Result<string, string>");
+    expect(app).toContain("| ProductCreated of Result<string, ServerErrors>");
   });
 
   it("wires the update arms (setters, submit Cmd, created → detail navigate)", async () => {
@@ -148,14 +148,17 @@ describe("feliz create forms", () => {
       "  | SetProductCreateFormName v -> { model with ProductCreateForm = { model.ProductCreateForm with name = v } }, Cmd.none",
     );
     expect(app).toContain(
-      "  | SubmitProductCreateForm -> model, Cmd.OfAsync.perform Api.createProduct model.ProductCreateForm ProductCreated",
+      "  | SubmitProductCreateForm -> { model with ProductCreateFormServer = ServerErrors.empty }, Cmd.OfAsync.perform Api.createProduct model.ProductCreateForm ProductCreated",
     );
     // On success, reset the form and route to the NEW record's detail page
     // (`/products/<id>`) using the id the create resolved.
     expect(app).toContain(
       '  | ProductCreated (Ok created) -> { model with ProductCreateForm = emptyProductCreateForm }, Cmd.navigatePath("products", created)',
     );
-    expect(app).toContain("  | ProductCreated (Error _) -> model, Cmd.none");
+    // A rejection lands on the Model, where the form renders it.
+    expect(app).toContain(
+      "  | ProductCreated (Error e) -> { model with ProductCreateFormServer = e }, Cmd.none",
+    );
   });
 
   it("the CreateForm renders typed inputs + a validity-guarded submit button", async () => {

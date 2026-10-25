@@ -213,7 +213,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 19,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 404,
@@ -226,7 +226,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 20,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 415,
@@ -239,7 +239,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 21,
       "method": "POST",
       "path": "/api/tickets",
       "status": 201,
@@ -248,7 +248,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 22,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 401,
@@ -261,7 +261,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 23,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -274,14 +274,14 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 401,
@@ -294,7 +294,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 26,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 403,
@@ -307,14 +307,14 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 27,
       "method": "POST",
       "path": "/api/tickets/{id}/take",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 25,
+      "seq": 28,
       "method": "POST",
       "path": "/api/tickets/{id}/assign",
       "status": 401,
@@ -327,7 +327,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 29,
       "method": "POST",
       "path": "/api/tickets/{id}/assign",
       "status": 403,
@@ -340,7 +340,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 30,
       "method": "POST",
       "path": "/api/tickets/{id}/assign",
       "status": 204,

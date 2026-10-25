@@ -85,6 +85,11 @@ const BASELINE: Record<string, Divergence> = {
   // not the record.  Drain with the A1 class fix.
   "audit-history.ddd Ordering.Memo": "missing-in-record",
   "stamps-principal.ddd Desk.Ticket": "missing-in-record",
+  // Two more A1 witnesses from wave C3F F5's fixtures, not regressions:
+  // audit-history's `Order implements timestamped` (`createdAt`/`updatedAt`)
+  // and stamps-principal's `Note with auditable` (the four prelude stamps).
+  "audit-history.ddd Ordering.Order": "missing-in-record",
+  "stamps-principal.ddd Journal.Note": "missing-in-record",
   // audit-history-guarded's `Employee with auditable` — the same A1 class (the
   // mixin's `createdAt`/`createdBy`/`updatedAt`/`updatedBy`), a new-fixture
   // witness rather than a regression.

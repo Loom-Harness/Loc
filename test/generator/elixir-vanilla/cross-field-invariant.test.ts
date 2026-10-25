@@ -51,7 +51,7 @@ describe("vanilla — cross-field invariant enforcement", () => {
     // The predicate renders against the applied struct, byte-for-byte the domain
     // comparison, and attaches the error to the first referenced field.
     expect(cs).toContain(
-      'if data.handle != data.email, do: changeset, else: add_error(changeset, :handle, "must satisfy: handle != email")',
+      'if data.handle != data.email, do: changeset, else: add_error(changeset, :handle, "Invariant violated: handle != email")',
     );
     // Piped onto the create seam.
     expect(cs).toMatch(/def base_changeset[\s\S]*\|> validate_invariants\(\)/);

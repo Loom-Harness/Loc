@@ -452,7 +452,7 @@ Generators emit explicit settings only when the keyword is
 supplied:
 
 - **.NET**: `await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct)` (etc.).
-- **Hono**: `await db.transaction(async (tx) => { ... }, { isolationLevel: "serializable" })` (etc.).
+- **Hono**: `await db.transaction(async (tx) => { ... }, { isolationLevel: "serializable" })` (etc.); under `persistence: mikroorm`, `await db.transactional(async (tx) => { ... }, { isolationLevel: IsolationLevel.SERIALIZABLE })`.
 - **Python**: `await session.connection(execution_options={"isolation_level": "SERIALIZABLE"})` (etc.).
 - **Java**: `@Transactional(isolation = Isolation.SERIALIZABLE)` (etc.).
 

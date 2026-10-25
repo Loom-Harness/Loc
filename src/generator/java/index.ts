@@ -2017,6 +2017,7 @@ function emitAggregate(
       entityPkg: pkgFor("entity", agg.name),
       domainRepoPkg: pkgFor("repository-interface", agg.name),
       authed: authRequired,
+      userFields: authRequired ? (sys?.user?.fields ?? []).map((f) => f.name) : [],
       boundedContext: ctx,
       idClass,
       esCreateParams,

@@ -225,7 +225,7 @@ Schemathesis is an out-of-process HTTP client and cannot reach `app.fetch`)
 and feeds it its own emitted `/openapi.json`:
 
 ```bash
-uv tool install schemathesis          # once (or pipx)
+uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1   # once; the pins schemathesis.yml uses
 npm run test:schemathesis             # from the repo root; ~1 min
 LOOM_SCHEMATHESIS=1 node run-schemathesis.mjs storefront-system   # one case
 ```

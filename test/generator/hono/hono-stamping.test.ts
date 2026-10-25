@@ -105,6 +105,41 @@ const CLAIM_SRC = `system TenantStamp {
 }
 `;
 
+// Two aggregates with DIFFERENT stamp sets in one deployable: a context-wide
+// claim stamp reaches `Ticket` only, and `Note` is the prelude `auditable`.
+const MIXED_SRC = `system MixedStamp {
+  user { id: string  role: string }
+  subdomain D {
+    context Desk {
+      stamp onCreate { ownerRole := currentUser.role }
+      aggregate Ticket with crudish {
+        title: string
+        ownerRole: string managed
+      }
+      repository Tickets for Ticket { }
+    }
+    context Journal {
+      aggregate Note with crudish, auditable {
+        body: string
+      }
+      repository Notes for Note { }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  resource journalState { for: Journal, kind: state, use: primary }
+  deployable api1 {
+    platform: node
+    contexts: [Desk, Journal]
+    dataSources: [deskState, journalState]
+    serves: A
+    port: 8081
+    auth: required
+  }
+}
+`;
+
 async function build(src: string): Promise<Map<string, string>> {
   const { model, errors } = await parseString(src);
   if (errors.length) throw new Error(`fixture has validation errors:\n${errors.join("\n")}`);
@@ -176,6 +211,31 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     // The stamp is the CLAIM, not the actor id.
     expect(helper).toContain("tenantId: currentUser.tenantId");
     expect(helper).not.toContain("tenantId: ctx.actorId");
+  });
+
+  it("each aggregate stamps only its OWN columns and guards only its OWN claims", async () => {
+    const files = await build(MIXED_SRC);
+    const helper = find(files, /db\/audit-stamp\.ts$/);
+    const fn = (name: string): string => {
+      const m = helper.match(new RegExp(`export function ${name}<[\\s\\S]*?\\n}\\n`));
+      expect(m, `${name} is emitted`).not.toBeNull();
+      return m![0];
+    };
+    // A MikroORM insert names every key it is handed, so a foreign column is a
+    // 500; a foreign claim guard refuses a principal the aggregate never reads.
+    const ticketInsert = fn("stampInsertTicket");
+    expect(ticketInsert).toContain("ownerRole: currentUser.role");
+    expect(ticketInsert).not.toContain("updatedAt");
+    expect(ticketInsert).not.toContain("updatedBy");
+    const noteInsert = fn("stampInsertNote");
+    expect(noteInsert).toContain("updatedBy: ctx.actorId");
+    expect(noteInsert).not.toContain("ownerRole");
+    expect(noteInsert).not.toContain('"role"');
+    expect(fn("stampUpdateTicket")).not.toContain("updatedAt");
+    // Each repository binds its own pair.
+    expect(find(files, /repositories\/note-repository\.ts$/)).toContain(
+      'import { stampInsertNote, stampUpdateNote } from "../audit-stamp";',
+    );
   });
 
   it("a BARE currentUser stamp keeps the actor-id shape (no principal binding)", async () => {
