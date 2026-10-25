@@ -19,7 +19,7 @@
 // intersects the result with what its rendered body actually spells, so a wider
 // answer here can only ever add a candidate that the caller's own scan drops.
 
-import type { FieldIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type { TypeIR, ValueObjectIR } from "../types/loom-ir.js";
 
 /** Accumulate every aggregate/entity target name whose strong id `t` reaches.
  *  Mirrors the recursion in `renderTypeWith` (`generator/_type/target.ts`) over
@@ -49,13 +49,6 @@ export function collectIdTargets(t: TypeIR, into: Set<string>): void {
       // columns) wants `valueObjectIdTargets` as well.
       return;
   }
-}
-
-/** Sorted, deduped strong-id targets named by a set of field types. */
-export function fieldIdTargets(fields: readonly FieldIR[]): string[] {
-  const out = new Set<string>();
-  for (const f of fields) collectIdTargets(f.type, out);
-  return [...out].sort();
 }
 
 /**

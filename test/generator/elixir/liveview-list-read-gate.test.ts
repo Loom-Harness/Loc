@@ -35,7 +35,9 @@ system Shop {
   api SalesApi from Sales
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
-  auth { oidc { issuer: "https://issuer.example", clientId: "web" } }
+  // enforcement: opt — the ungated case is the subject below, and under the
+  // denyByDefault default an ungated list read refuses the build (M-T3.19).
+  auth { enforcement: opt oidc { issuer: "https://issuer.example", clientId: "web" } }
   ui WebApp {
     api Sales: SalesApi
     page OrderList {

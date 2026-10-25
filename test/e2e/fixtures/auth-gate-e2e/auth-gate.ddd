@@ -25,7 +25,11 @@ system Gatekeeper {
           status := "approved"
         }
       }
-      repository Jobs for Job { }
+      repository Jobs for Job {
+        // The list + by-id reads, intentionally public (denyByDefault, M-T3.19).
+        find all(): Job paged requires true
+        find byId(id: Job id): Job? requires true
+      }
     }
   }
 
