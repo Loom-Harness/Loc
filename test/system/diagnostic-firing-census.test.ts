@@ -1878,6 +1878,29 @@ system P {
       status: string
       create(oid: Order id) { status := "Pending" }
     }`),
+  // A state write on a workflow with no id-shaped state field: no instance row
+  // is kept, so the write is unaddressable.
+  "loom.workflow-uncorrelated-state-write":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow Tally {
+      total: int
+      create(n: int) { total := n }
+    }`),
+  // An explicit persistence statement in a workflow body: the body persists at
+  // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
+  "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string) { name := n }
+    }
+    repository Orders for Order { }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.getById(oid)
+        o.rename("x")
+        Orders.save(o)
+      }
+    }`),
   // A repository reached INLINE, inside a `precondition` expression, instead of
   // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
   // the same body is the control: only the inline `Others` is flagged, which is

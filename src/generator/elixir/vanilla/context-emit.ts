@@ -92,6 +92,7 @@ import {
   opEmitsEvent,
   opHasGuards,
   opHasWhenGate,
+  opRewritesRelation,
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
@@ -107,6 +108,7 @@ import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 
 // ---------------------------------------------------------------------------
 // The canonical `create` / `destroy` authorization gate — IN THE CONTEXT.
@@ -1057,6 +1059,13 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       ? `\n  # Reading-tier domain services (ambient Repo) — domain-services.md rev. 4\n${readingServiceFns.join("\n\n")}\n`
       : "";
 
+  // Value-object-collection row helper (M-T6.94) — emitted iff a rendered op
+  // block calls it (derive, don't stamp: the same call-site gate as
+  // `__truncate_dt/1` below).
+  const putValueRowsHelper = blocks.join("\n").includes("__put_value_rows(")
+    ? `\n${renderPutValueRowsHelper()}\n`
+    : "";
+
   const truncateDtBody = [
     blocks.join("\n"),
     retrievalBlock,
@@ -1092,7 +1101,7 @@ defmodule ${facadeMod} do
   workflow body).  Plain Elixir context module.
   """${requireLogger}${mutatesRefColl ? "\n  import Ecto.Query" : ""}
 
-${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}${numericParamHelpers}end
+${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${putValueRowsHelper}${truncateDtBody}${numericParamHelpers}end
 `;
 }
 
@@ -1311,10 +1320,50 @@ function renderPutAssocPartsHelper(): string {
     |> Enum.reject(fn {_k, v} ->
       match?(%Ecto.Association.NotLoaded{}, v) or is_nil(v)
     end)
-    |> Map.new()
+    |> Map.new(fn {k, v} -> {k, __put_assoc_nested(v)} end)
   end
 
-  defp __put_assoc_parts(other), do: other`;
+  defp __put_assoc_parts(other), do: other
+
+  # A NESTED part (\`Line.notes\`) is normalised the same way.  Left a loaded
+  # struct, Ecto reads it as an existing row of whatever parent it is cast
+  # under — so a line rebuilt from an old one (carrying the old line's note
+  # structs) answered a stale-entry 409 instead of re-inserting them.
+  defp __put_assoc_nested(list) when is_list(list), do: Enum.map(list, &__put_assoc_nested/1)
+  defp __put_assoc_nested(%{__meta__: %Ecto.Schema.Metadata{}} = part), do: __put_assoc_parts(part)
+  defp __put_assoc_nested(other), do: other`;
+}
+
+/** The private helper a context module emits when a named op rewrites a
+ *  value-object collection (`charges += Charge{…}` / `charges -= c` over a
+ *  `has_many` child table).  The persist tail used to `force_change` the field,
+ *  which Ecto refuses for an association ("changing assocs with force_change/3 is
+ *  not supported") — every such operation answered 500 (M-T6.94).  A value
+ *  object has no identity, so every element becomes a NEW row (no id), stamped
+ *  with its list position the way the create/update `prepare_vc_attrs` does;
+ *  `put_assoc` over the struct AS LOADED (`record_before`) then deletes every
+ *  old row through the schema's `on_replace: :delete` — the dropped element's
+ *  row included. */
+function renderPutValueRowsHelper(): string {
+  return `  # Normalise a value-object collection to \`put_assoc\`-ready rows: a value object
+  # has no identity, so each element is a NEW row stamped with its position, and
+  # \`on_replace: :delete\` drops the rows the loaded struct held.
+  defp __put_value_rows(list) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.map(fn {el, i} -> el |> __value_row_fields() |> Map.put(:ordinal, i) end)
+  end
+
+  defp __put_value_rows(nil), do: []
+
+  defp __value_row_fields(%{__struct__: _} = el) do
+    el
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :id, :ordinal])
+    |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+  end
+
+  defp __value_row_fields(%{} = el), do: el`;
 }
 
 /** The two private helpers a context module emits when a named op mutates a
@@ -1607,30 +1656,25 @@ function renderNamedOpFunction(
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
     ctx.aggregates,
+    valueRowFieldsOf(agg, ctx),
   );
   const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
   const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
 
-  // An op that mutates an EMBEDDED containment (`items += Item{…}` on an
-  // `embeds_many`/`embeds_one` jsonb field) rebinds `record.<field>` in the body,
-  // then persists via `put_embed(:<field>, record.<field>)`.  `put_embed`, like
-  // `put_change`, DROPS the change when the new embed equals the changeset DATA —
-  // and the data is the ALREADY-mutated `record`, so `Repo.update` runs no SQL
-  // and the write is silently lost (the embed analogue of the `force_change`
-  // scalar trap; embeds have no `force_` variant).  B5.  Build the persist
-  // changeset off the ORIGINAL (pre-mutation) struct `record_before` so
-  // `put_embed` sees a real diff; scalar columns still `force_change` regardless
-  // of the base.  Relational containments (`put_assoc`) don't hit this, so the
-  // swap is gated on embedded-containment mutation only (byte-identical
-  // otherwise).
-  const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const mutatesEmbeddedContainment = opBodyStmtsDeep(op.statements).some((s) => {
-    if (s.kind !== "add" && s.kind !== "remove") return false;
-    const f = snake(s.target.segments[0] ?? "");
-    return containNames.has(f) && !relationalContainments.has(f);
-  });
-  const persistBase = mutatesEmbeddedContainment ? "record_before" : "record";
-  const captureBase = mutatesEmbeddedContainment ? "    record_before = record\n" : "";
+  // An op that rewrites a relation-backed field — a containment (embedded
+  // `embeds_*` OR relational `has_*` child table) or a value-object collection —
+  // rebinds `record.<field>` in the body, then persists via `put_embed` /
+  // `put_assoc` / `force_change`.  All three DIFF the new value against the
+  // changeset DATA, and when the data is the ALREADY-mutated `record` the diff
+  // is empty: an embed write is dropped outright (B5), and a relational removal
+  // (`lines -= l`) issues no DELETE — the op answers 2xx and the child row stays
+  // (M-T6.94).  Build the persist changeset off the ORIGINAL (pre-mutation)
+  // struct `record_before` so the relation diff sees the real before/after;
+  // scalar columns still `force_change` regardless of the base.  See
+  // `opRewritesRelation`.  Byte-identical for every other op.
+  const rewritesRelation = opRewritesRelation(op, agg);
+  const persistBase = rewritesRelation ? "record_before" : "record";
+  const captureBase = rewritesRelation ? "    record_before = record\n" : "";
 
   // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
   //

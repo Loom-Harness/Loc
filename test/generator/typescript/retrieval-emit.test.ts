@@ -35,8 +35,10 @@ describe("typescript generator — retrieval", () => {
     expect(repo).toMatch(
       /\.where\(and\(eq\(schema\.customers\.active, true\), eq\(schema\.customers\.region, region\)\)\)/,
     );
-    // sort → orderBy(asc(col)).
-    expect(repo).toMatch(/\.orderBy\(asc\(schema\.customers\.name\)\)/);
+    // sort → orderBy(asc(col)), with the `id` tie-break.
+    expect(repo).toMatch(
+      /\.orderBy\(asc\(schema\.customers\.name\), asc\(schema\.customers\.id\)\)/,
+    );
     // page → conditional limit/offset.
     expect(repo).toMatch(/if \(page\?\.limit !== undefined\) query = query\.limit\(page\.limit\);/);
     expect(repo).toMatch(
@@ -57,7 +59,7 @@ describe("typescript generator — retrieval", () => {
     expect(repo).not.toMatch(/async run/);
   });
 
-  it("emits a paging-only run for a where-only retrieval (no orderBy)", async () => {
+  it("emits a paging-only run for a where-only retrieval, ordered by id", async () => {
     const model = await parseValid(`
       context Sales {
         aggregate Customer { active: bool }
@@ -68,7 +70,9 @@ describe("typescript generator — retrieval", () => {
     `);
     const repo = generateHono(model).get("db/repositories/customer-repository.ts")!;
     expect(repo).toMatch(/async runAllActive\(page\?: /);
-    expect(repo).not.toMatch(/runAllActive[\s\S]*\.orderBy\(/);
+    expect(repo).toMatch(
+      /runAllActive[^\n]*\n[^\n]*\.orderBy\(asc\(schema\.customers\.id\)\)\.\$dynamic\(\)/,
+    );
   });
 });
 

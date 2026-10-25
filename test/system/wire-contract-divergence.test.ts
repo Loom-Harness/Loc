@@ -153,6 +153,12 @@ const BASELINE: Record<string, Divergence> = {
   "embedded.ddd Shop.Order": "containment-response-suffix",
   "field-mask.ddd Staff.Employee": "containment-response-suffix",
   "single-containment.ddd Shop.Order": "containment-response-suffix",
+  // M-T6.94's two removal fixtures: a containment (`lines`) and a NESTED one
+  // (`Line.notes`), so both the root and the part carry the deliberate B1 suffix.
+  "contained-part-removal.ddd Carts.Cart": "containment-response-suffix",
+  "contained-part-removal.ddd Carts.Cart.Line": "containment-response-suffix",
+  "contained-part-rebuild.ddd Carts.Cart": "containment-response-suffix",
+  "contained-part-rebuild.ddd Carts.Cart.Line": "containment-response-suffix",
   // (M-T6.90 two-handles fixture — a containment, the same deliberate B1 shape.)
   "workflow-two-handles-containment.ddd Carts.Cart": "containment-response-suffix",
   // B2. as B1, plus: an OPTIONAL single containment is `optional<MemoResponse>`

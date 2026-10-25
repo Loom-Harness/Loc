@@ -37,6 +37,7 @@ describe("computeWorkflowReturnType — tail bind", () => {
       wf([
         {
           kind: "repo-let",
+          op: "load",
           name: "o",
           repoName: "Orders",
           aggName: "Order",
@@ -94,6 +95,7 @@ describe("computeWorkflowReturnType — conservative fallback", () => {
         wf([
           {
             kind: "repo-run",
+            op: "select-many",
             name: "xs",
             repoName: "Orders",
             aggName: "Order",

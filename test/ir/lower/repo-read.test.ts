@@ -89,14 +89,14 @@ describe("matchRepoRead — the four read shapes", () => {
   it("recognises a NAMED find and carries its args", async () => {
     const { expr, repos } = await exprOf(`Orders.byCode("A1")`);
     const m = matchRepoRead(expr, repos);
-    expect(m?.kind).toBe("named");
+    expect(m?.op).toBe("declared-find");
     expect(m?.method).toBe("byCode");
     expect(m?.args).toHaveLength(1);
   });
 
-  it("recognises `getById` as a named read", async () => {
+  it("recognises `getById` as the by-id `load`", async () => {
     const { expr, repos } = await exprOf(`Orders.getById("id")`);
-    expect(matchRepoRead(expr, repos)?.kind).toBe("named");
+    expect(matchRepoRead(expr, repos)?.op).toBe("load");
   });
 
   it("recognises `find(<Criterion>)` and CARRIES the criterion name", async () => {
@@ -104,21 +104,21 @@ describe("matchRepoRead — the four read shapes", () => {
     // is a read that silently returns every row.
     const { expr, repos } = await exprOf(`Orders.find(Active)`);
     const m = matchRepoRead(expr, repos);
-    expect(m?.kind).toBe("find");
+    expect(m?.op).toBe("select-one");
     expect(m?.criterionName).toBe("Active");
   });
 
   it("recognises `findAll(<Criterion>)` and carries the criterion name", async () => {
     const { expr, repos } = await exprOf(`Orders.findAll(Active)`);
     const m = matchRepoRead(expr, repos);
-    expect(m?.kind).toBe("findAll");
+    expect(m?.op).toBe("select-many");
     expect(m?.criterionName).toBe("Active");
   });
 
   it("recognises `run(<Retrieval>())` and carries the retrieval name", async () => {
     const { expr, repos } = await exprOf(`Orders.run(ActiveOrders())`);
     const m = matchRepoRead(expr, repos);
-    expect(m?.kind).toBe("run");
+    expect(m?.op).toBe("select-many");
     expect(m?.retrievalName).toBe("ActiveOrders");
     expect(m?.criterionName).toBeUndefined();
   });
@@ -175,7 +175,7 @@ describe("runCriterionMatcher — `run` over a criterion vs a retrieval", () => 
   it("re-routes a criterion `run` to the findAllBy<Criterion> shape", async () => {
     const { expr, repos, ctx } = await exprOf(`Orders.run(Active)`);
     const m = matchRepoRead(expr, repos, runCriterionMatcher(ctx));
-    expect(m?.kind).toBe("run");
+    expect(m?.op).toBe("select-many");
     // The criterion rides as `criterionName`, not `retrievalName` — that is
     // what makes the backend synthesise `findAllByActive` instead of looking
     // for a retrieval that does not exist.

@@ -4,11 +4,7 @@ import type {
   FindIR,
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import {
-  aggregateUsesMoneyDeep,
-  aggregateUsesPrincipalContextFilter,
-  findUsesCurrentUser,
-} from "../../ir/types/loom-ir.js";
+import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -31,7 +27,7 @@ import {
   runMethod,
   withKind,
 } from "./repository-find-builder.js";
-import { writeScopeGuardLines } from "./repository-find-predicate.js";
+import { readScopeUsesPrincipal, writeScopeGuardLines } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
@@ -104,7 +100,7 @@ export function buildRepositoryFile(
     // (reified-criteria.md, the anonymous-`filter` row) — the predicate
     // builder calls the same module-level fn (non-principal entries only;
     // principal filters are validator-rejected on Hono).
-    ...nonPrincipalContextFilterEntries(agg).map((e) => e.criterionRef),
+    ...nonPrincipalContextFilterEntries(agg, ctx).map((e) => e.criterionRef),
   ];
   for (const ref of reifyingRefs) {
     const c = reifiableCriterion(ref, ctx, retrievalTable);
@@ -130,7 +126,7 @@ export function buildRepositoryFile(
   // currentUser.tenantId`) reads the ambient principal via `requireCurrentUser()`
   // inside every root read's predicate — so the repo imports that accessor
   // (DEBT-01).  Unlike a per-find `currentUser` use, no method signature changes.
-  const usesPrincipalFilter = aggregateUsesPrincipalContextFilter(agg);
+  const usesPrincipalFilter = readScopeUsesPrincipal(agg, ctx);
   const partNames = agg.parts.map((p) => p.name);
   const domainImports = [agg.name, ...partNames].join(", ");
   const valueObjectsUsed = collectValueObjects(agg, ctx);
