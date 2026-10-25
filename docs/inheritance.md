@@ -81,7 +81,7 @@ as soon as the reader is routed. Both layouts now delegate.
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
-| `phoenix` (Ecto) | the context module gains `list_<bases>/0` = the union of the concrete `list_<concrete>/0` reads; the base emits no Ecto schema |
+| `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
 
