@@ -118,10 +118,10 @@ describe("dotnet — a member spelled like a static receiver shadows it", () => 
       'this.Label.StartsWith("xy", global::System.StringComparison.Ordinal)',
     ],
     [
-      "string.substring",
-      call(strRef("label"), "substring", [lit("int", "1"), lit("int", "2")], "string"),
-      '(1 >= this.Label.Length ? "" : this.Label.Substring(1, Math.Min(2, this.Label.Length - 1)))',
-      '(1 >= this.Label.Length ? "" : this.Label.Substring(1, global::System.Math.Min(2, this.Label.Length - 1)))',
+      "string.toUpper",
+      call(strRef("label"), "toUpper", [], "string"),
+      'this.Label.ToUpperInvariant().Replace("\\u00DF", "SS", StringComparison.Ordinal)',
+      'this.Label.ToUpperInvariant().Replace("\\u00DF", "SS", global::System.StringComparison.Ordinal)',
     ],
     [
       "string.matches",

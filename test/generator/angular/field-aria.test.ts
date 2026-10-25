@@ -136,7 +136,7 @@ describe("Angular form fields announce their validation errors", () => {
     // input.  The old output closed `</mat-form-field>` first and then rendered
     // a `<p>`, which the form field never saw.
     expect(page).toContain(
-      `@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">Sku is invalid</mat-error>}</mat-form-field>`,
+      `@if (productForm.controls.sku.invalid && productForm.controls.sku.touched) {<mat-error id="products-new-error-sku" data-testid="products-new-error-sku">@if (productForm.controls.sku.errors?.['server']; as serverError) { {{ serverError }} } @else { Sku is invalid }</mat-error>}</mat-form-field>`,
     );
     // And NOT a second writer on an attribute `MatInput` host-binds.
     expect(page).not.toContain("[attr.aria-invalid]");
@@ -147,15 +147,17 @@ describe("Angular form fields announce their validation errors", () => {
     );
   });
 
-  // --- both: an unconstrained field is untouched --------------------------
+  // --- both: an unconstrained field shows only the server's message --------
   for (const design of ALL_PACKS) {
-    it(`${design}: an UNconstrained control is untouched (validator-free forms stay byte-identical)`, async () => {
+    it(`${design}: an UNconstrained control's slot carries only the server's message`, async () => {
       const page = pageWith(await pages(design), "products-new-input-name");
-      // `name` carries no invariant, so it gets no validator, no message — and
-      // therefore no aria, which would otherwise point at an id that is never
-      // rendered.
-      expect(page).not.toMatch(/aria-describedby[^"]*products-new-error-name/);
-      expect(page).not.toContain("products-new-error-name");
+      // `name` carries no invariant, so no client validator and no client
+      // sentence — but a server 422 can still name it (`src/lib/server-errors.ts`
+      // sets `errors.server` + touched), so its slot renders that message alone.
+      expect(page).toContain(
+        `data-testid="products-new-error-name">{{ productForm.controls.name.errors?.['server'] }}</`,
+      );
+      expect(page).not.toContain("Name is invalid");
     });
   }
 

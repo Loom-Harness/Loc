@@ -73,6 +73,14 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   backends resolve both reads through one shared derivation
   (`src/ir/util/read-gates.ts`).  `requires true` is the explicit public
   escape; the tenancy filter and `mask unless` still apply on top of the gate.
+  Spell the list return type the way the warning does: the injected read is
+  `T paged` (the `Paged<T>` envelope) on every aggregate whose rows page, and a
+  declared `all` answers exactly the type it names — `T[]` is a bare JSON array,
+  so writing it to add a gate changes the response shape every client parses.
+  Role separation within a tenant can also be written as a row `filter` that
+  tests the principal (`filter currentUser.role == "agent" || this.customer ==
+  currentUser.customerId`); a filtered-out row reads 404 on the by-id route, like
+  a foreign tenant's.  See [capabilities.md § Principal terms](capabilities.md#principal-terms).
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
   for what changes for an existing model.
 - **an event-sourced `create` is the one remaining exception — on the four backends that
@@ -986,6 +994,7 @@ gate field writes with `operation update(…) requires <field> == this.<field> |
 | Diagnostic | When |
 | --- | --- |
 | `loom.field-mask-not-current-user` | the predicate references the row / a param, not just `currentUser` |
+| `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
@@ -1286,6 +1295,26 @@ JSON** — and overlays it on the `User` shape, so you can exercise
 curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+> **The stub exists only without an `auth { oidc … }` block.** Declaring one
+> replaces the stub with the generated OIDC verifier on every backend
+> (D-AUTH-OIDC): there is no `x-loom-dev-claims` path and no env switch that
+> brings it back, so every request needs a real bearer token. Local
+> development with an `oidc` block therefore needs an IdP:
+>
+> - **Self-hosted provider** (`provider: keycloak`, `provider: custom`, or a
+>   bare `oidc { issuer … }`) — `docker compose up` starts the bundled dev
+>   Keycloak (realm import from the emitted `keycloak/realm.json`, demo user
+>   included), and the backends are wired to its issuer. Running a single
+>   deployable outside compose still needs that Keycloak: start it with
+>   `docker compose up -d keycloak` and point `OIDC_ISSUER` / `OIDC_CLIENT_ID`
+>   at it.
+> - **Hosted preset** (`google`, `auth0`, …) — no bundled service; set the
+>   `OIDC_*` variables to your tenant.
+>
+> To exercise gates with hand-written claims instead, generate a copy of the
+> model without the `oidc` block (keep `auth: required` and the `user { … }`
+> block) — that build gets the stub.
 
 > **The encoding is load-bearing.** A header that is **present but does not
 > decode to a JSON object** — raw JSON, broken base64, a JSON array or string —

@@ -53,6 +53,7 @@ function wireTsType(
         case "bool":
           return "boolean";
         case "string":
+        case "date":
         case "datetime":
         case "guid":
           return "string";

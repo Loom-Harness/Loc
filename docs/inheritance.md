@@ -81,7 +81,7 @@ as soon as the reader is routed. Both layouts now delegate.
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
-| `phoenix` (Ecto) | the context module gains `list_<bases>/0` = the union of the concrete `list_<concrete>/0` reads; the base emits no Ecto schema |
+| `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
 
@@ -105,6 +105,85 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 > backend literals are `node` (the JS runtime, ex-`hono`), `dotnet`, and
 > `phoenix` (ex-`phoenixLiveView`). The legacy spellings still parse as aliases.
 
+## Unique keys on a TPC base — `loom.unique-tpc-not-hierarchy-wide`
+
+A `unique (…)` key on an abstract base follows the base's table layout:
+
+- **`sharedTable` (TPH):** the hierarchy has one table, so it gets one index
+  (`parties_email_uq`), and the key is unique across every subtype. The enrich
+  pass still copies the key onto each concrete, because the concrete's write
+  surface has to know a duplicate can happen. The Hono per-router `23505` →
+  409 arm and the Ecto `unique_constraint` gate on it. The Ecto constraint
+  names the shared table's index. Without the copy, a duplicate posted
+  through `/customers` answered 500.
+- **`ownTable` (TPC):** the base owns no table. The enrich pass copies the key
+  onto each concrete, beside the merged fields. Each concrete table then gets
+  its own index, named for that table. Every per-table consumer of the key sees
+  it: the migration on all five backends, the .NET Dapper `DbSchema` bootstrap,
+  the Hono per-router `23505` → 409 arm, and the Ecto `unique_constraint`.
+
+Both layouts are checked at runtime, on every SQL backend, by the
+migration-evolution tier (`runUniqueIndexEvolutionGate`).
+
+```ddd
+abstract aggregate Party inheritanceUsing: ownTable {
+  name: string
+  email: string
+  unique (email)
+}
+aggregate Customer extends Party inheritanceUsing: ownTable with crudish { creditLimit: decimal }
+aggregate Supplier extends Party inheritanceUsing: ownTable with crudish { rating: int }
+```
+```sql
+CREATE UNIQUE INDEX "customers_email_uq" ON "parties"."customers" ("email");
+CREATE UNIQUE INDEX "suppliers_email_uq" ON "parties"."suppliers" ("email");
+```
+
+Each subtype rejects its own duplicates: a second `Customer` with the same
+`email` answers 409. A `Customer` and a `Supplier` can still share an `email`,
+because no index spans the two tables. When a TPC base with two or more
+concretes declares a key, it raises a warning:
+
+```text
+loom.unique-tpc-not-hierarchy-wide warning: `unique (email)` on abstract aggregate 'Party' (inheritanceUsing: ownTable) is enforced per concrete table (customers, suppliers) — each subtype rejects its own duplicates, but the same value can still exist once in EACH sibling table.  If the key must be unique across the whole hierarchy, map it to one shared table: `inheritanceUsing: sharedTable`.
+```
+
+If the key must be unique across the whole hierarchy, use `inheritanceUsing:
+sharedTable`. A concrete's own `unique (…)` keys stay as they are, and a
+concrete that redeclares the same column list does not get a second copy. Before
+this, a TPC base's keys reached no table, so no backend enforced them.
+
+### A key declared on a TPH concrete
+
+A `unique (…)` that a `sharedTable` **concrete** declares itself is an index on
+the shared table, partial on the concrete's `kind` discriminator, and named
+with it (`<table>_<kind>_<cols>_uq`):
+
+```ddd
+abstract aggregate Machine inheritanceUsing: sharedTable { serial: string  unique (serial) }
+aggregate Lathe extends Machine with crudish { model: string  unique (model) }
+aggregate Press extends Machine with crudish { model: string }
+```
+```sql
+CREATE UNIQUE INDEX "machines_serial_uq" ON "floor"."machines" ("serial");
+CREATE UNIQUE INDEX "machines_lathe_model_uq" ON "floor"."machines" ("model") WHERE kind = 'Lathe';
+```
+
+A second Lathe with the same `model` answers 409 on every backend (the Ecto
+changeset names the scoped index). A `Press` may reuse a Lathe's `model`.
+
+The index is partial because the table, and any column two concretes both
+declare, is shared. `Lathe.model` and `Press.model` are the same `model`
+column, so a full index would also refuse a Press whose model matches a
+Lathe's, and nobody declared that constraint. `WHERE kind = 'Lathe'` limits the
+index to the rows the declaration covers. A key declared on the **base** stays a
+full index, because the base declared it for the whole hierarchy. (On a
+`softDeletable` hierarchy the predicate gains `AND is_deleted = false`.)
+
+Before this, only the base's keys were read, so a concrete's own key reached no
+index and a duplicate answered 201. The migration-evolution tier checks both
+the 409 and the cross-concrete 201 on all five SQL backends.
+
 ## Validation rules
 
 | Code | Fires when |
@@ -116,23 +195,44 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 | `loom.abstract-aggregate-contains` | an abstract base declares `contains` — the base owns no repository and concretes do not inherit its parts, so the part's table would have no reader and no writer. Declare the containment on each concrete instead |
 | `loom.abstract-repository` | a `repository` targets an abstract base |
 | `loom.polymorphic-id-ref-unsupported` | a `<Base> id` reference to an `ownTable` (TPC) base |
+| `loom.unique-tpc-not-hierarchy-wide` | **warning** — an `ownTable` (TPC) base with two or more concretes declares `unique (…)`. Each concrete table enforces the key on its own, but nothing spans the sibling tables (see [below](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)) |
 | `loom.es-tph-forced-own-table` | event-sourced / document / embedded opt-out forces `ownTable` on a TPH member (D-EMBEDDED-TPH) |
 | `loom.tph-filter-unsupported` | **.NET only** — a TPH *subtype* carries a capability `filter` whose predicate reads a column the hierarchy ROOT does not declare (see below) |
-| `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits its columns from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
+| `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits it from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
 | (storage gate) | a `sharedTable` (TPH) hierarchy whose context has no node/Hono, .NET, Phoenix, Python, or Java host |
 
-## Capabilities and inheritance — what propagates and what does not
+## Capabilities and inheritance — a base's capabilities apply to every subtype
 
-Only the base's **fields** are merged onto a subtype (by the enrich pass). Its
-capability *identity* is not: a stance, a stamp and a capability `filter` all
-stay on the aggregate that declared them. Two consequences worth stating,
-because both used to be silent:
+A `Car` is a `Vehicle`. When the abstract base applies a capability, every
+concrete subtype gets all of it, not just its columns: the enrich pass merges
+the base's fields, capability `filter`s and bare `filter` declarations, stamps,
+capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES). Under `ownTable`, its `unique (…)` keys are merged too
+([above](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)).
 
-- **Declare the tenancy stance on every concrete.** `abstract aggregate Vehicle
-  with tenantOwned` gives every subtype the `tenant_id` column, but nothing
-  stamps or filters it until the subtype says `with tenantOwned` too. A subtype
-  with no stance is `loom.tenancy-stance-unmarked`; one that says `crossTenant`
-  against a `tenantOwned` base is `loom.tenancy-inherited-stance-conflict`.
+```ddd
+abstract aggregate Vehicle with softDeletable { name: string  plate: string }
+aggregate Car   extends Vehicle { seats: int }
+aggregate Truck extends Vehicle { payload: int }
+repository Trucks for Truck {
+  find byPlateAll(plate: string): Truck[] where this.plate == plate ignoring softDeletable
+}
+```
+
+```ts
+// node — truck-repository.ts: every Truck read hides soft-deleted rows…
+.where(and(eq(schema.vehicles.kind, "Truck"), not(eq(schema.vehicles.isDeleted, true))))
+// …and `ignoring softDeletable` lifts exactly that filter
+.where(and(eq(schema.vehicles.plate, plate), eq(schema.vehicles.kind, "Truck")))
+```
+
+- **`ignoring <baseCap>` works on a subtype.** The capability is the subtype's
+  own as far as the bypass validator is concerned.
+- **The tenancy stance is inherited too.** `abstract aggregate Vehicle with
+  tenantOwned` makes every subtype tenant-owned (filter, stamp and stance); an
+  unmarked subtype is fine. A subtype declaring the opposite stance (`crossTenant`
+  under a `tenantOwned` base) is `loom.tenancy-inherited-stance-conflict`.
+- **Repeating the base's capability on a subtype is harmless.** The inherited
+  filter is applied once, not twice.
 - **A subtype's `filter` reads through the hierarchy.** `criterion Live of Car =
   !this.retired` works when `retired` lives on the abstract base — the predicate
   is typed and lowered against the merged field set on every backend.
@@ -140,14 +240,19 @@ because both used to be silent:
 ### The one .NET restriction
 
 EF Core registers a query filter on the **root** entity type of a hierarchy
-only. Loom therefore hosts every TPH filter on the root config, guarding a
-subtype's filter with the discriminator so it constrains that subtype's rows
-alone and prefixing its name (`Car_LiveFilter`) so two subtypes carrying the
-same capability cannot overwrite each other's key:
+only. Loom therefore hosts every TPH filter on the root config. A filter the
+root declares (and every subtype inherits) is registered once, unguarded, and
+an `ignoring` on any subtype names that root filter. A subtype's own filter is
+guarded with the discriminator so it constrains that subtype's rows alone, and
+prefixed (`Car_LiveFilter`) so two subtypes carrying the same capability cannot
+overwrite each other's key:
 
 ```csharp
-// VehicleConfiguration.cs — `criterion Live of Car = !this.retired`
+// VehicleConfiguration.cs — `abstract … with softDeletable` + `criterion Live of Car = !this.retired`
+builder.HasQueryFilter("IsDeletedFilter", x => !x.IsDeleted);
 builder.HasQueryFilter("Car_LiveFilter", x => EF.Property<string>(x, "kind") != "Car" || (!x.Retired));
+// TruckRepository.cs — `ignoring softDeletable`
+_db.Trucks.IgnoreQueryFilters(["IsDeletedFilter"])
 ```
 
 A predicate reading a **subtype-only** column cannot be hosted that way at all

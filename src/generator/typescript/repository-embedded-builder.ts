@@ -6,11 +6,8 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import {
-  aggregateUsesMoneyDeep,
-  aggregateUsesPrincipalContextFilter,
-  findUsesCurrentUser,
-} from "../../ir/types/loom-ir.js";
+import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -35,6 +32,8 @@ import {
 import {
   combinePredicate,
   contextFilterPredicate,
+  drizzleOrderBy,
+  readScopeUsesPrincipal,
   writeScopeGuardLines,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
@@ -158,7 +157,7 @@ export function buildEmbeddedRepositoryFile(
   // `version`, so the guarded path stamps it explicitly (1 on insert, expected
   // + 1 on the CAS update) — mirroring repository-save-builder.ts.
   const versioned = aggregateIsVersioned(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // A versioned aggregate carries `version` as a projected column entry
   // (`version: aggregate.version`); the guarded path stamps version itself, so
   // drop that entry before re-appending the CAS value — else the object
@@ -214,7 +213,7 @@ export function buildEmbeddedRepositoryFile(
     "",
     `  async findManyByIds(ids: ${idVar}[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
-    `    const rows = await this.db.select().from(schema.${tableName}).where(${combinePredicate(`inArray(schema.${tableName}.id, ids)`, filterPred)});`,
+    `    const rows = await this.db.select().from(schema.${tableName}).where(${combinePredicate(`inArray(schema.${tableName}.id, ids)`, filterPred)}).orderBy(${drizzleOrderBy(tableName)});`,
     `    return rows.map((row) => {`,
     ...hydrateLocals(agg, "row", "      "),
     `      return ${hydrateRootExpr(agg, "row", ctx)};`,
@@ -313,7 +312,7 @@ export function buildEmbeddedRepositoryFile(
     // ambient-accessor path the relational builder uses — so import it.
     // …and a principal-referencing WRITE scope binds the same accessor in the
     // `getById` pre-guard, so key off the emitted body too (F2-ADP-5).
-    (aggregateUsesPrincipalContextFilter(agg) || /\brequireCurrentUser\(/.test(bodyScan)) &&
+    (readScopeUsesPrincipal(agg, ctx) || /\brequireCurrentUser\(/.test(bodyScan)) &&
       `import { requireCurrentUser } from "../../auth/middleware";`,
     `import { requestLog } from "../../obs/als";`,
     "",
@@ -408,7 +407,7 @@ function embeddedFindMethod(
   }
   return lines(
     `  async ${find.name}(${params}): Promise<${ret}> {`,
-    `    const rows = await this.db.select().from(schema.${tableName})${whereClause};`,
+    `    const rows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)});`,
     `    ${tail}`,
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: ${rowsExpr}`)}`,
     `    return result;`,

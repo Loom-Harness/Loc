@@ -573,6 +573,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // read model is read through `GET /api/projections/order_board/{key}`, which
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
+  // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
+  // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
+  "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -582,6 +585,21 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/transactional-workflow-event-rollback": [
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
+  ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
+  // Workflow runs (M-T6.90) — not a lifted route class, same as above.
+  "corpus/workflow-two-handles-containment": [
+    "api.addTwice.run (no such aggregate)",
+    "api.addViaSecond.run (no such aggregate)",
+    "api.dropViaSecond.run (no such aggregate)",
   ],
   // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
   // precondition after an `if let` branch saved.
@@ -601,6 +619,14 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.invoices.history (no derived operation)",
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
+  ],
+  // The same entity-history read class: `field-mask` reads its audited
+  // aggregate's trail as the unprivileged principal (the masked-field DROP and
+  // the RS-45 `actor`).
+  "corpus/field-mask": ["api.employees.history (no derived operation)"],
+  "corpus/audit-history-guarded": [
+    "api.employees.history (no derived operation)",
+    "api.payslips.history (no derived operation)",
   ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
@@ -721,6 +747,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.review.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  // The two `transactional` workflows the domain-service tiers orchestrate —
+  // the same not-lifted workflow-run class as the entries above.
+  "corpus/domain-services": [
+    "api.moveMoney.run (no such aggregate)",
+    "api.registerAccount.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",

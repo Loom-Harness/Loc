@@ -197,4 +197,30 @@ describe("group-by shape gates", () => {
       ),
     ).toContain("loom.projection-groupby-select-not-grouped");
   });
+
+  it("reports `count(<col>)` once, as an arity error — not as unresolved AND ungrouped", async () => {
+    // `count` takes no column.  Unrecognised as an aggregate, the select used
+    // to draw both `projection-select-unresolved` (telling the author to write
+    // `count(<alias>.<field>)`, which they had) and, being per-row under
+    // `group by`, `projection-groupby-select-not-grouped`.
+    const got = await codes(
+      context(`projection Nope { status: OrderStatus  orders: int  big: int
+        from Order as o
+        group by o.status
+        select status = o.status, orders = count(), big = count(o.lineCount) }`),
+    );
+    const projectionCodes = got.filter((c) => c.startsWith("loom.projection-"));
+    expect(projectionCodes).toEqual(["loom.projection-aggregate-arity"]);
+  });
+
+  it("reports a column aggregation with the wrong argument count as an arity error", async () => {
+    const got = await codes(
+      context(`projection Nope { revenue: money
+        from Order as o
+        select revenue = sum() }`),
+    );
+    expect(got.filter((c) => c.startsWith("loom.projection-"))).toEqual([
+      "loom.projection-aggregate-arity",
+    ]);
+  });
 });

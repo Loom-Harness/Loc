@@ -28,7 +28,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
-import { discriminatorValue } from "../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { indent, lines } from "../../util/code-builder.js";
@@ -48,6 +47,8 @@ import {
   combinePredicate,
   contextFilterPredicate,
   criterionFnName,
+  drizzleKindPredicate,
+  drizzleOrderBy,
   type FilterBypass,
   lowerToDrizzle,
   reifiableCriterion,
@@ -85,7 +86,6 @@ export {
   contextFilterPredicate,
   lowerToDrizzle,
   nonPrincipalContextFilterEntries,
-  nonPrincipalContextFilters,
   // The table a repository reads `agg` from.  Defined beside the predicate
   // lowerer (which derives it itself) and re-exported here so the sibling
   // builders keep importing it from this module.
@@ -148,8 +148,7 @@ export function kindPredicate(
   ctx: BoundedContextIR,
   tableName: string,
 ): string | null {
-  const kind = discriminatorValue(agg, ctx.aggregates);
-  return kind ? `eq(schema.${tableName}.kind, ${JSON.stringify(kind)})` : null;
+  return drizzleKindPredicate(agg, ctx, tableName);
 }
 
 /** Combine an id/param filter with the optional `kind` predicate. */
@@ -302,7 +301,7 @@ export function findManyByIdsMethod(
   return lines(
     `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
-    `    const rootRows = await this.db.select().from(schema.${tableName}).where(${rootWhere});`,
+    `    const rootRows = await this.db.select().from(schema.${tableName}).where(${rootWhere}).orderBy(${drizzleOrderBy(tableName)});`,
     `    if (rootRows.length === 0) return [];`,
     needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx),
@@ -535,7 +534,7 @@ export function findQueryMethod(
       valueCollectionsFor(agg).length > 0;
     return lines(
       `  async ${find.name}(${params}): Promise<${agg.name}[]> {`,
-      `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause};`,
+      `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)});`,
       `    if (rootRows.length === 0) {`,
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
       `      return [];`,
@@ -571,7 +570,7 @@ export function findQueryMethod(
     optional
       ? `  async ${find.name}(${params}): Promise<${agg.name} | null> {`
       : `  async ${find.name}(${params}): Promise<${agg.name}> {`,
-    `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.limit(1);`,
+    `    const rootRows = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${drizzleOrderBy(tableName, find.defaultSort)}).limit(1);`,
     optional
       ? [
           `    if (rootRows.length === 0) {`,
@@ -668,15 +667,11 @@ export function runMethod(
   // other-tenant rows through `run<Name>` (silent gap).
   const whereClause = `.where(${combinePredicate(withKind(whereInner, kindPred), filterPred)})`;
 
-  // `sort` → `.orderBy(asc(col), desc(col), …)`.  Only the first path
-  // segment is used in v1 (a direct column); nested / collection sort
-  // paths are a v2 concern, already gated by validateRetrievals.
-  const orderByClause =
-    retrieval.sort.length > 0
-      ? `.orderBy(${retrieval.sort
-          .map((s) => `${s.direction}(schema.${tableName}.${s.path[0]!.name})`)
-          .join(", ")})`
-      : "";
+  // `sort` → `.orderBy(asc(col), desc(col), …, asc(id))`: the declared terms
+  // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
+  // first path segment is used in v1 (a direct column); nested / collection
+  // sort paths are a v2 concern, already gated by validateRetrievals.
+  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort)})`;
 
   const eagerContains = eagerContainsOf(agg);
   const needsIdsLocal =
@@ -792,6 +787,7 @@ function tsTypeForReturn(t: TypeIR): string {
         return "Decimal";
       case "string":
       case "guid":
+      case "date":
         return "string";
       case "bool":
         return "boolean";

@@ -353,7 +353,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "an `operation … when <pred>` invoked in a state the predicate rejects — the 409 rung of the denial ladder",
     observable:
-      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg>.". The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
+      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg> (when <predicate source>).", built once by `disallowedDetail` (src/ir/util/denial-detail.ts). The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
     // Two independent divergences, and the split was NOT the one first recorded.
     //   * `detail` — elixir alone sent a fixed sentence ("Operation not allowed
     //     in the current state") because `:disallowed` was a bare atom carrying
@@ -1357,6 +1357,161 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     // BEHAVIORAL: what a request with no body is answered is only observable on
     // a booted backend; the static half is the generator test above.
+    tier: "behavioral",
+  },
+  {
+    id: "RS-40",
+    title:
+      'An optimistic-concurrency 409 carries the sentence `"<Aggregate> <id> was modified by another request"`',
+    trigger:
+      "`concurrency-conflict.ddd`: a `versioned` aggregate's `update` sent with a stale `If-Match` (the version the row had before an accepted update)",
+    observable:
+      'the write is refused with 409, `title` "Conflict", and the RFC 9457 `detail` is the sentence `"<Aggregate> <id> was modified by another request"` — the aggregate\'s PascalCase name, the conflicting row\'s id, no trailing punctuation — on every backend; the row keeps the accepted write.',
+    // THE RULING (M-T6.91): node's sentence is canonical (the C3F rule), the
+    // same shape RS-27 gave the 404-by-id: it names what conflicted, which the
+    // fixed sentence could not.  The split when ruled: node `ConcurrencyError`
+    // (aggregate + id); .NET EF + Dapper, java, python and elixir one fixed
+    // `"The resource was modified by another request; reload and retry."`.
+    // Status, `title` and `type` already agreed, so it surfaced only when #3224
+    // armed the first golden that recorded a non-node concurrency 409
+    // (`transactional-workflow-event-rollback`) and was waived there.
+    //
+    // Per-backend shape — the aggregate and id come from wherever both are in
+    // scope, never from a second copy of the rule: node `ConcurrencyError(agg,
+    // id)` at every guarded write / event append; python `ConcurrencyError` at
+    // the same sites (its message was already `<Agg> <id> was modified
+    // concurrently` and only the handler ignored it); java the
+    // `ObjectOptimisticLockingFailureException(<Agg>.class, id)` every raise
+    // site already passed, read back in the advice; .NET Dapper
+    // `ConcurrencyConflictException(agg, id)`, the EF event-store's wrapped
+    // 23505, and EF's NATIVE concurrency-token failure derived from the entry
+    // it reports (CLR type name — a document POCO's `Document` suffix dropped
+    // — and key value); elixir `conflict_response(conn, kind, id)`, like
+    // `not_found_response/3`.  The suffix is one constant,
+    // `CONCURRENCY_CONFLICT_SUFFIX` (src/ir/util/openapi-errors.ts).
+    //
+    // NOT part of the guarantee: a two-handle conflict INSIDE a workflow, which
+    // is not a shared behaviour yet (EF M-T6.90, elixir M-T6.92); the elixir
+    // event-sourced CREATE arm, whose conflict has no id in the path.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+      "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-41",
+    title:
+      "A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included",
+    trigger:
+      "`workflow-two-handles-document-eventlog.ddd`: two `getById` loads of one document row (and of one event stream) inside a `transactional` workflow, both changed",
+    observable:
+      "the second save answers the RS-40 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
+    // THE RULING (M-T6.98): EXPECTED-VERSION appends.  Every event store read
+    // `max(version)` at append time, so two loads of one stream both appended
+    // and a `precondition` decided on a stale fold was kept; the key only caught
+    // two appends racing between their read and their insert.  The stream is
+    // the event-sourced aggregate's concurrency control (why `versioned` is not
+    // spliced onto it), so it is checked against what the handle saw.  Document
+    // shape: java had no write-time guard (M-T6.95) and EF compared against the
+    // re-read, already-advanced tracked row.
+    //
+    // NOT yet proven on elixir: its store refuses both writes, but the
+    // workflows controller has no `{:error, :conflict}` arm (M-T6.92, #3247)
+    // and it persists each op call, bumping `version` per op (M-T6.99).
+    conforms: ["node", "dotnet", "java", "python"],
+    targets: ["elixir"],
+    provenance: [
+      "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+      "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-42",
+    title:
+      "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
+    trigger:
+      '`wire-ingress.ddd`: `reprice` with `"1.2.3"`, `"twelve"` and `"12,50"`; `restock` with ±3000000000',
+    observable:
+      "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
+    // The split when raised (wave C3 3d, D22 / D23): .NET + Dapper parsed money
+    // with NumberStyles.Number, whose AllowThousands accepted "12,50" as 1250;
+    // an int32 overflow answered zod's / pydantic's / elixir's own texts at 422
+    // and a 400 "Malformed JSON" on java (Jackson) and .NET (System.Text.Json),
+    // which fail the whole body on an integer they cannot hold.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d D22 / D23; fixed by wave C3F packet F4 — `INTEGER_RANGE_MESSAGE` in src/util/numeric-range.ts, .NET `WireFormatException.IsMoneyGrammar` + `Int32RangeJsonConverter`, java's `integerOverflowPointer` arm, python's `_int32`",
+      "the witness is test/fixtures/corpus/wire-ingress.ddd (golden test/behavioral/wire-golden/wire-ingress.json), green on all seven wire-gated legs; seams pinned per backend in test/conformance/numeric-ingress-parity.test.ts",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-43",
+    title: "A message-less rule's 422 carries node's sentence on every backend",
+    trigger:
+      '`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: "abc")` against a regex precondition) and `intrinsics.ddd`\'s blank-name create against `invariant name.trim().length > 0`',
+    observable:
+      'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
+    // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
+    // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
+    // TARGET, not a conformer: its operation rung follows the rule, its
+    // create/update changeset still sends Ecto's text (M-T6.96).
+    conforms: ["node", "dotnet", "java", "python"],
+    targets: ["elixir"],
+    provenance: [
+      "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
+      "seams pinned in test/conformance/message-less-rule-message.test.ts (node's sentence set derived from its emitted routes)",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-44",
+    title: "A string intrinsic counts and cases the same on every backend",
+    trigger:
+      '`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`\'s derived `middle` / `shout` fields over `"a😀bc"` and `"straße"`',
+    observable:
+      '`"a😀bc".substring(1, 2)` is `"😀b"` and `.substring(2)` is `"bc"` (code points, the unit of `.length`); `"straße".toUpper()` is `"STRASSE"`',
+    // The split when raised (wave C3 3d, D10 / D11): node, java and .NET sliced
+    // UTF-16 units, python code points, elixir graphemes; .NET's
+    // ToUpperInvariant is a simple mapping that keeps ß.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d D10 / D11 (the value table's two named divergences); fixed by wave C3F packet F4 — one snippet per language in src/generator/_expr/code-point.ts",
+      "rows `string_substring_astral`, `string_substring_astral_from`, `string_upper_eszett` of test/generator/_expr/expr-value-table.ts, run through each backend's real renderer; golden test/behavioral/wire-golden/intrinsics.json",
+    ],
+    tier: "static",
+  },
+  {
+    id: "RS-45",
+    title:
+      "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
+    trigger:
+      "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
+    observable:
+      "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",
+    // The split when raised (wave C3 3d, D1): node stored the request principal
+    // object as-is — under the dev stub that is the merged claim bag, every
+    // undeclared claim included; .NET serialised the `User` record (PascalCase
+    // keys plus its computed tenancy members); python never passed an actor
+    // (null); java handed Jackson the `User` record (camelCase, but its keys
+    // decided by record introspection); elixir carried only `{id}`.
+    //
+    // Per-backend shape — each projects the declared field list explicitly,
+    // the `/auth/me` projection: node `audit/actor.ts` `auditActor()`; .NET
+    // `RequestContext.PrincipalJson()` over a declared-name dictionary; java a
+    // per-service `auditActor()` LinkedHashMap; python `app/db/audit.py`
+    // `audit_actor()` read by `record_audit`; elixir `Audit.record/2`'s
+    // `actor/0` over the principal the Auth plug stashes.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+      "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json",
+    ],
+    // BEHAVIORAL: the stored actor is only observable through a booted
+    // backend's history read.
     tier: "behavioral",
   },
 ];

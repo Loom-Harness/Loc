@@ -1,1 +1,1 @@
-<v-avatar{{{testidAttr}}}>{{#if hasSrc}}<v-img{{{vueAttr "src" src}}}{{#if hasAlt}}{{{vueAttr "alt" alt}}}{{/if}} />{{/if}}</v-avatar>
+<v-avatar{{{testidAttr}}}{{#unless hasSrc}}{{#if hasAltLabel}} role="img"{{{vueAttr "aria-label" alt}}}{{/if}}{{/unless}}>{{#if hasSrc}}<v-img{{{vueAttr "src" src}}}{{#if hasAlt}}{{{vueAttr "alt" alt}}}{{/if}} />{{/if}}</v-avatar>

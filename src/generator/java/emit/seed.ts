@@ -195,6 +195,9 @@ function renderSeedValue(value: ExprIR, fieldType: TypeIR): string {
   if (t.kind === "primitive" && t.name === "datetime" && value.kind === "literal") {
     return `${INSTANT}.parse(${renderJavaExpr(value)})`;
   }
+  if (t.kind === "primitive" && t.name === "date" && value.kind === "literal") {
+    return `java.time.LocalDate.parse(${renderJavaExpr(value)})`;
+  }
   return renderJavaExpr(value);
 }
 

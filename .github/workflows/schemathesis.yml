@@ -34,7 +34,8 @@ name: Schemathesis contract fuzzing
 #
 # Local: `npm run test:schemathesis` (node) and
 # `npm run test:schemathesis-{python,java,dotnet,elixir}` — each needs
-# `uv tool install schemathesis` + `cd test/behavioral && npm ci`, and the four
+# `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` +
+# `cd test/behavioral && npm ci`, and the four
 # booted legs need a reachable Postgres.  Findings register:
 # docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
 # root-cause rules in test/behavioral/schemathesis-waivers.json, scoped per
@@ -96,27 +97,12 @@ jobs:
             script: test:schemathesis-dotnet
           - backend: java
             script: test:schemathesis-java
-          # DISCOVERY CELL.  Its waiver register is EMPTY, so every finding it
-          # makes is unattributed and the leg reports red.  Running it anyway is
-          # the point: the nightly produces the finding set a follow-up turns
-          # into root-cause rules (`LOOM_SCHEMATHESIS_UPDATE=1` writes
-          # observed.json).  This line is what a reviewer deletes when they do.
-          #
-          # RE-ASKED 2026-09-10, on a run rather than on the old assumption.
-          # The original reason ("the elixir toolchain could not be run locally,
-          # the hex image was unreachable") is STALE — it runs fine now, in
-          # `hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20260610-slim`
-          # under `--network host` with a `mix` shim on PATH.  The cell is still
-          # not binding for a MEASURED reason instead: 52 findings, 0 waived, 25
-          # distinct unhandled exceptions, across six root causes (TRACE→501, a
-          # non-uuid `{id}` reaching Ecto, an undeclared success Content-Type, a
-          # wrong-verb 405, an `:erlang.-("", 1)` 500 on a paged read, and F9's
-          # class).  Attributing those is a packet of its own; the inventory is
-          # in docs/audits/schemathesis-findings-2026-08.md → "The elixir leg".
+          # Elixir fuzzes its own `storefront-elixir` case (the runner's
+          # ELIXIR_CASES) and binds like the other four since its 2026-10-11
+          # triage — the record is docs/audits/schemathesis-findings-2026-08.md
+          # → "The elixir leg".
           - backend: elixir
             script: test:schemathesis-elixir
-            discovery: true
-    continue-on-error: ${{ matrix.discovery == true }}
     name: fuzz (${{ matrix.backend }})
     services:
       postgres:
@@ -144,8 +130,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      # `jsonschema-rs` is pinned beside schemathesis because schemathesis
+      # leaves it unpinned, and 0.56.0 removed a method its data generator
+      # calls: every operation with a parameter then errored inside the fuzzer
+      # before a request was sent (`'builtins.CanonicalSchema' object has no
+      # attribute 'is_satisfiable'`).  The harness counts such an operation as a
+      # finding (`<op>::error:<type>`); the pin is what keeps it from occurring.
+      # Bump the two together.
       - name: Install schemathesis
-        run: pipx install schemathesis==4.24.3
+        run: |
+          pipx install schemathesis==4.24.3
+          pipx inject schemathesis jsonschema-rs==0.49.1
 
       # --- per-backend toolchains (the versions their behavioral legs use) ---
       - name: Set up uv (python backend)

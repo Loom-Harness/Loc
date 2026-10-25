@@ -60,6 +60,14 @@ export function valueCollectionsWithVo(
   });
 }
 
+/** The (snake-cased) value-collection fields of an aggregate that persist as a
+ *  `has_many` child table — exactly the set `valueCollectionsWithVo` gives a
+ *  schema module, so an operation's persist tail and the schema agree on which
+ *  fields are associations (M-T6.94). */
+export function valueRowFieldsOf(agg: AggregateIR, ctx: BoundedContextIR): Set<string> {
+  return new Set(valueCollectionsWithVo(agg, ctx).map(({ vc }) => snake(vc.fieldName)));
+}
+
 /** Emit one child schema module file per value-collection field on every
  *  aggregate in the context. */
 export function emitVanillaValueCollectionSchemas(
@@ -107,6 +115,8 @@ function ectoFieldType(
           return ":boolean";
         case "datetime":
           return LOOM_DATETIME_MODULE;
+        case "date":
+          return ":date";
         case "guid":
           return "Ecto.UUID";
         case "json":

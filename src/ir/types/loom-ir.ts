@@ -29,6 +29,7 @@
 // `ir/types` → `ir/util`; the reverse edge (walk.ts → loom-ir.ts) is `import
 // type` only (erased at emit), so no runtime cycle forms.
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import {
   walkExprDeep,
@@ -47,6 +48,10 @@ export type PrimitiveName =
   | "money"
   | "string"
   | "bool"
+  /** A CALENDAR date — year, month, day; no time-of-day, no offset.  Wire
+   *  form is the ISO-8601 calendar date `"2026-01-01"`; Postgres `date`.
+   *  Distinct from `datetime` so a value west of UTC never shifts a day. */
+  | "date"
   | "datetime"
   | "guid"
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
@@ -93,6 +98,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "decimal",
   "money",
   "bool",
+  "date",
   "datetime",
   "guid",
   "json",
@@ -484,6 +490,10 @@ export interface OperationIR {
    * functions inline like any boolean position.  Emitted by every
    * backend. */
   when?: ExprIR;
+  /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
+   *  in the 409 Disallowed `detail` by `disallowedDetail`
+   *  (src/ir/util/denial-detail.ts) on every backend.  Absent when `when` is. */
+  whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -581,11 +591,6 @@ export interface AggregateIR {
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
   destroys?: OperationIR[];
-  /** The single unnamed canonical `create`, if declared, else null.
-   * Convenience accessor over `creates`. */
-  canonicalCreate?: OperationIR | null;
-  /** The single unnamed canonical `destroy`, if declared, else null. */
-  canonicalDestroy?: OperationIR | null;
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with
@@ -895,6 +900,12 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
+/** One clause-less find parameter and the aggregate field it equals. */
+export interface FindParamBindingIR {
+  param: string;
+  field: string;
+}
+
 export interface FindIR {
   name: string;
   params: ParamIR[];
@@ -911,6 +922,15 @@ export interface FindIR {
   requires?: ExprIR;
   /** Optional `where ...` filter expression in IR form. */
   filter?: ExprIR;
+  /** A clause-less find's parameters, each paired with the aggregate field it
+   *  filters on (`find byReference(reference: string)` → `reference ==
+   *  this.reference`).  Resolved once in enrichment, after the inheritance
+   *  field merge, by `bindFindParams`; backends read it through
+   *  `implicitFindMatches` / `effectiveFindFilter` and never match names
+   *  themselves.  In parameter order; a parameter that names no field has no
+   *  entry (and is refused, `loom.find-param-unbound`).  Absent when the find
+   *  has a `where` (it replaces the convention) or no parameters. */
+  paramBindings?: FindParamBindingIR[];
   /** Set when the `where` filter is *exactly* one named `criterion`
    *  reference — its name + lowered args, for backends that consume the
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
@@ -1104,6 +1124,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** Provenance back to the `retrieval` declaration — the span its
+   *  diagnostics point at. */
+  origin?: OriginRef;
 }
 
 export interface BoundedContextIR {
@@ -1785,6 +1808,9 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** What the call does (`util/repository-contract.ts`).  Emitters
+       *  dispatch on it; `method` is kept for a declared find's own name. */
+      op: RepoOp;
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
@@ -1806,6 +1832,8 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** Always `select-many`: a run binds the matching rows. */
+      op: Extract<RepoOp, "select-many">;
       retrievalName: string;
       retrievalArgs: ExprIR[];
       page?: { offset?: ExprIR; limit?: ExprIR };
@@ -1857,6 +1885,8 @@ export type WorkflowStmtIR =
       // the removed entity must NOT be re-saved at handler exit (`computeSaves`
       // never registers a `repo-delete` as a mutation target).
       kind: "repo-delete";
+      /** Always `remove`. */
+      op: Extract<RepoOp, "remove">;
       repoName: string;
       aggName: string;
       entity: ExprIR;
@@ -1928,6 +1958,9 @@ export type WorkflowStmtIR =
       // no retrieval is synthesised.
       kind: "if-let";
       var: string;
+      /** `select-one` for a criterion source, `declared-find` for a declared
+       *  optional find (`findMethod` names it). */
+      op: Extract<RepoOp, "select-one" | "declared-find">;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -3297,6 +3330,11 @@ export interface DeployableIR {
    *  `ui` a keyword in the deployable block would shadow the test-DSL
    *  accessor and break parsing of existing examples. */
   design?: string;
+  /** For a custom `design:` path: the directory of the `.ddd` file that
+   *  declared this deployable, which a RELATIVE path resolves against
+   *  (`resolvePackDir(design, designBaseDir)`).  Absent for built-in packs
+   *  and for a model with no file location (an in-memory source). */
+  designBaseDir?: string;
   /** Realization axes (D-REALIZATION-AXES).  Each decomposes the
    *  platform bundle into one orthogonal concern.  All optional in the
    *  type but **always concrete on backend deployables post-lowering**
@@ -3747,6 +3785,11 @@ export type ExprIR =
         verb: string;
         capability: string;
         interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
       };
       /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
        *  on a resource that binds an in-system `api`.  Fully resolved at
@@ -3787,28 +3830,32 @@ export type ExprIR =
        *  operation body (`Accounts.byHolder(h)` / `Repo.find/findAll/run`).
        *  Fully resolved at lowering time: `repo` is the repository name,
        *  `aggregate` its target aggregate, `method` the find / retrieval method
-       *  to render against the generated repository, and `readKind` the recognised
-       *  shape (`named` declared find / `getById`, vs the criterion `find`/`findAll`
-       *  vs retrieval `run`).  Backends render a real call into the generated
-       *  repository without re-recognising the AST.  No backend emits from it
-       *  yet — this is the IR foundation. */
+       *  to render against the generated repository, and `op` what the read
+       *  does.  Backends render a real call into the generated repository
+       *  without re-recognising the AST. */
       repoRead?: {
         repo: string;
         aggregate: string;
         method: string;
-        readKind: "named" | "find" | "findAll" | "run";
+        /** What the read does (`util/repository-contract.ts`): `load` /
+         *  `load-optional` by id, `select-one` / `select-many` over a criterion
+         *  or retrieval (or the whole collection), or a `declared-find`.
+         *  Backends dispatch on it, never on `method`. */
+        op: Exclude<RepoOp, "remove">;
         /** The retrieval a criterion / retrieval read runs against — mirrors the
          *  workflow `repo-run` path.  For `find`/`findAll` it is the synthesized
          *  `findAllBy<Criterion>` (materialised by `synthesizeFindAllRetrievals`
          *  from the criterion); for `run` it is the referenced retrieval name.
-         *  Absent for `named` reads (a declared `find`/`getById`).  Backends
+         *  Absent for a read called by name (a declared find, a by-id load,
+         *  the whole collection).  Backends
          *  render their retrieval-method name (`run<Name>`) from it so the
          *  emitted call hits a real method that APPLIES the criterion, rather
          *  than dropping it and calling the whole-table `findAll`/`all`. */
         retrievalName?: string;
         /** The criterion a `find`/`findAll` read filters by — drives the enrich
          *  pass's synthesis of the `retrievalName` retrieval (same criterion the
-         *  workflow `synthCriterion` names).  Absent for `run`/`named`. */
+         *  workflow `synthCriterion` names).  Absent for a retrieval run and a
+         *  read called by name. */
         synthCriterion?: { name: string };
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
@@ -4221,8 +4268,9 @@ export function workflowCanAnswerNotFound(
    *  evidence that it throws — a repository/method that does not exist is a
    *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
    *  declared set for a model that does not compile is moot either way. */
-  const readThrows = (repoName: string, method: string): boolean => {
-    if (method === "getById") return true;
+  const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
+    if (op === "load") return true;
+    if (op !== "declared-find") return false;
     const find = repositories
       .find((r) => r.name === repoName)
       ?.finds.find((f) => f.name === method);
@@ -4244,8 +4292,8 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (read?.readKind !== "named") return;
-      if (readThrows(read.repo, read.method)) canNotFound = true;
+      if (!read) return;
+      if (readThrows(read.repo, read.op, read.method)) canNotFound = true;
     });
   }
   return canNotFound;

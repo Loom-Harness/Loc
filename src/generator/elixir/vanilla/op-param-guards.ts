@@ -41,6 +41,11 @@ export function paramGuardClause(wireName: string, type: TypeIR | undefined): st
       return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
       return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+    // A `date` is ISO `YYYY-MM-DD` text on the wire; the op persists through
+    // `force_change` (no cast), so a non-date would reach the `:date` column
+    // as a binary and raise — refused here as the 422 instead.
+    case "date":
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_date_param(record, ${field}, ${access})`;
     default:
       return null;
   }

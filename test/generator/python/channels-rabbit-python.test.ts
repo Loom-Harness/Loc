@@ -79,8 +79,8 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
       // The redis driver stays out of a rabbit-only module.
       expect(mod).not.toContain("RedisChannelTransport");
       const pyproject = files.get(`${dep}/pyproject.toml`) ?? "";
-      expect(pyproject).toContain('"aio-pika>=');
-      expect(pyproject).not.toContain('"redis>=');
+      expect(pyproject).toContain('"aio-pika==');
+      expect(pyproject).not.toContain('"redis==');
     }
     // The consumer group is the deployable's durable queue name.
     expect(files.get("ship_api/app/channels.py")).toContain(

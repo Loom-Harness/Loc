@@ -35,6 +35,7 @@ import {
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
 import { upperFirst } from "../../util/naming.js";
+import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
 import type {
   AggregateIR,
@@ -58,11 +59,11 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { aggregateOpResolver, type SaveResolver } from "../util/domain-service-tier.js";
-import { isWriteMethod } from "../util/repo-methods.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
+  boundApiOf,
   inferExprType,
   lowerEmitFields,
   lowerExpr,
@@ -251,7 +252,7 @@ function lowerWorkflowCreate(
       repoForAgg,
       saveResolver,
     );
-    statements.push(lowered.stmt);
+    if (lowered.stmt) statements.push(lowered.stmt);
     inner = lowered.envAfter;
   }
   return {
@@ -284,25 +285,19 @@ function lowerHandle(
   // deliberate hold the domain-service row records (`callable-params.ts`).
   const boundParams = lowerCallableParams(h.params, baseEnv, { defaults: false });
   const params = boundParams.params;
-  let inner = boundParams.env;
+  const inner = boundParams.env;
   // `requires Expr` — authorization gate (authorization.md §11.3), lowered as a
   // prepended 403 pre-check in the param-bound env (currentUser + command
   // params).  See `lowerWorkflowCreate`.
-  const statements: WorkflowStmtIR[] = h.gate
-    ? [{ kind: "requires", expr: lowerExpr(h.gate, inner), source: cstText(h.gate) }]
-    : [];
-  for (const s of h.body) {
-    const lowered = lowerWorkflowStatement(
-      s,
-      inner,
-      aggsByName,
-      reposByName,
-      repoForAgg,
-      saveResolver,
-    );
-    statements.push(lowered.stmt);
-    inner = lowered.envAfter;
-  }
+  const { statements } = lowerWorkflowStatements(
+    h.body,
+    inner,
+    aggsByName,
+    reposByName,
+    repoForAgg,
+    saveResolver,
+    h.gate ? [{ kind: "requires", expr: lowerExpr(h.gate, inner), source: cstText(h.gate) }] : [],
+  );
   return {
     name: h.name,
     params,
@@ -466,7 +461,7 @@ function lowerHandlerBody(
       continue;
     }
     const l = lowerWorkflowStatement(s, inner, aggsByName, reposByName, repoForAgg, saveResolver);
-    statements.push(l.stmt);
+    if (l.stmt) statements.push(l.stmt);
     inner = l.envAfter;
   }
   return { statements, ...(returnValue ? { returnValue } : {}) };
@@ -490,20 +485,14 @@ function lowerOn(
   const eventName = o.event.ref?.name ?? o.event.$refText;
   const inner = withLocal(baseEnv, o.param, "param", { kind: "entity", name: eventName });
   const correlation = o.correlation ? lowerExpr(o.correlation, inner) : undefined;
-  const statements: WorkflowStmtIR[] = [];
-  let bodyEnv = inner;
-  for (const s of o.body) {
-    const lowered = lowerWorkflowStatement(
-      s,
-      bodyEnv,
-      aggsByName,
-      reposByName,
-      repoForAgg,
-      saveResolver,
-    );
-    statements.push(lowered.stmt);
-    bodyEnv = lowered.envAfter;
-  }
+  const { statements } = lowerWorkflowStatements(
+    o.body,
+    inner,
+    aggsByName,
+    reposByName,
+    repoForAgg,
+    saveResolver,
+  );
   return {
     event: eventName,
     param: o.param,
@@ -514,9 +503,39 @@ function lowerOn(
 }
 
 interface LoweredWorkflowStmt {
-  stmt: WorkflowStmtIR;
+  /** `null` for a statement phase ④ refuses and the IR has no form for (an
+   *  explicit `Repo.save(x)`): it contributes nothing to the body. */
+  stmt: WorkflowStmtIR | null;
   envAfter: Env;
   binding?: { name: string; aggName: string; repoName: string };
+}
+
+/** Lower a run of workflow statements in order, threading each one's
+ *  `envAfter` into the next, and return the lowered statements and the env
+ *  after the last. */
+function lowerWorkflowStatements(
+  body: readonly Statement[],
+  env: Env,
+  aggsByName: Map<string, Aggregate>,
+  reposByName: Map<string, Repository>,
+  repoForAgg: Map<string, string>,
+  saveResolver: SaveResolver | undefined,
+  into: WorkflowStmtIR[] = [],
+): { statements: WorkflowStmtIR[]; envAfter: Env } {
+  let walkEnv = env;
+  for (const s of body) {
+    const lowered = lowerWorkflowStatement(
+      s,
+      walkEnv,
+      aggsByName,
+      reposByName,
+      repoForAgg,
+      saveResolver,
+    );
+    if (lowered.stmt) into.push(lowered.stmt);
+    walkEnv = lowered.envAfter;
+  }
+  return { statements: into, envAfter: walkEnv };
 }
 
 /** Lower one workflow statement, then stamp its `.ddd` (or macro-call)
@@ -540,6 +559,7 @@ function lowerWorkflowStatement(
     repoForAgg,
     saveResolver,
   );
+  if (!lowered.stmt) return lowered;
   return {
     ...lowered,
     stmt: { ...lowered.stmt, origin: lowered.stmt.origin ?? originFor(stmt) },
@@ -601,20 +621,14 @@ function lowerWorkflowStatementInner(
     // iterable didn't infer to an array (the validator surfaces that).
     const varType: TypeIR = elementType ?? { kind: "entity", name: varAggName };
     const bodyEnv = withLocal(env, stmt.var, "let", varType);
-    const body: WorkflowStmtIR[] = [];
-    let walkEnv = bodyEnv;
-    for (const s of stmt.body) {
-      const lowered = lowerWorkflowStatement(
-        s,
-        walkEnv,
-        aggsByName,
-        reposByName,
-        repoForAgg,
-        saveResolver,
-      );
-      body.push(lowered.stmt);
-      walkEnv = lowered.envAfter;
-    }
+    const { statements: body } = lowerWorkflowStatements(
+      stmt.body,
+      bodyEnv,
+      aggsByName,
+      reposByName,
+      repoForAgg,
+      saveResolver,
+    );
     const savesPerIteration = computeSaves(
       body,
       repoForAgg,
@@ -657,34 +671,22 @@ function lowerWorkflowStatementInner(
     const repoName = repo?.name ?? "";
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
     const varType: TypeIR = { kind: "entity", name: aggName };
-    const thenBody: WorkflowStmtIR[] = [];
-    let thenEnv = withLocal(env, stmt.var, "let", varType);
-    for (const s of stmt.thenBody) {
-      const lowered = lowerWorkflowStatement(
-        s,
-        thenEnv,
-        aggsByName,
-        reposByName,
-        repoForAgg,
-        saveResolver,
-      );
-      thenBody.push(lowered.stmt);
-      thenEnv = lowered.envAfter;
-    }
-    const elseBody: WorkflowStmtIR[] = [];
-    let elseEnv = env;
-    for (const s of stmt.elseBody ?? []) {
-      const lowered = lowerWorkflowStatement(
-        s,
-        elseEnv,
-        aggsByName,
-        reposByName,
-        repoForAgg,
-        saveResolver,
-      );
-      elseBody.push(lowered.stmt);
-      elseEnv = lowered.envAfter;
-    }
+    const { statements: thenBody } = lowerWorkflowStatements(
+      stmt.thenBody,
+      withLocal(env, stmt.var, "let", varType),
+      aggsByName,
+      reposByName,
+      repoForAgg,
+      saveResolver,
+    );
+    const { statements: elseBody } = lowerWorkflowStatements(
+      stmt.elseBody ?? [],
+      env,
+      aggsByName,
+      reposByName,
+      repoForAgg,
+      saveResolver,
+    );
     const savesInThen = computeSaves(
       thenBody,
       repoForAgg,
@@ -700,6 +702,7 @@ function lowerWorkflowStatementInner(
       stmt: {
         kind: "if-let",
         var: stmt.var,
+        op: declaredFind ? "declared-find" : "select-one",
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
@@ -797,6 +800,7 @@ function lowerWorkflowStatementInner(
         stmt: {
           kind: "repo-run",
           name: stmt.name,
+          op: "select-many",
           repoName,
           aggName,
           retrievalName,
@@ -832,6 +836,7 @@ function lowerWorkflowStatementInner(
         stmt: {
           kind: "repo-run",
           name: stmt.name,
+          op: "select-many",
           repoName,
           aggName,
           retrievalName: `findAllBy${findAllCall.criterionName}`,
@@ -879,6 +884,14 @@ function lowerWorkflowStatementInner(
           name: stmt.name,
           repoName: repo.name,
           aggName,
+          // A name that is neither a declared find nor a by-name contract verb
+          // rides `declared-find`; `loom.workflow-unknown-repository-method`
+          // reports it.
+          op:
+            namedRepoCallOp(
+              repoCall.method,
+              repo.finds.some((f) => f.name === repoCall.method),
+            ) ?? "declared-find",
           method: repoCall.method,
           args,
           returnType,
@@ -940,6 +953,7 @@ function lowerWorkflowStatementInner(
                 verb,
                 capability: verbDef?.capability ?? "",
                 ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+                ...boundApiOf(lv.head, env),
               },
             },
           },
@@ -986,22 +1000,38 @@ function lowerWorkflowStatementInner(
       // aggregate and the single lowered entity operand.  `computeSaves` never
       // registers a `repo-delete` as a mutation target, so the removed entity
       // is not persisted again on the way out.
-      {
-        const deleteRepo = reposByName.get(lv.head);
-        const method = lv.tail[0]!;
-        const deleteArg = (lv.args ?? [])[0];
-        if (deleteRepo && isWriteMethod(method) && deleteArg) {
-          const aggName = deleteRepo.aggregate?.ref?.name ?? "Unknown";
-          const entity = lowerExpr(deleteArg, env);
+      //
+      // The verb's effect decides the arm, through the exhaustive
+      // `REPO_VERB_EFFECT` table: only a `delete` verb removes.  A `persist`
+      // verb (`Repo.save(x)` / insert / update / add / commit) is refused at
+      // phase ④ (`loom.workflow-explicit-save`) — the body persists at its
+      // exit — so it lowers to NO statement.  A bare read statement discards
+      // its value and falls through like any unrecognised name.
+      const stmtRepo = reposByName.get(lv.head);
+      const effect = stmtRepo ? repoVerbEffect(lv.tail[0]!) : undefined;
+      switch (effect) {
+        case "delete": {
+          const deleteArg = (lv.args ?? [])[0];
+          if (!stmtRepo || !deleteArg) break;
           return {
             stmt: {
               kind: "repo-delete",
-              repoName: deleteRepo.name,
-              aggName,
-              entity,
+              op: "remove",
+              repoName: stmtRepo.name,
+              aggName: stmtRepo.aggregate?.ref?.name ?? "Unknown",
+              entity: lowerExpr(deleteArg, env),
             },
             envAfter: env,
           };
+        }
+        case "persist":
+          return { stmt: null, envAfter: env };
+        case "load":
+        case undefined:
+          break;
+        default: {
+          const _exhaustive: never = effect;
+          void _exhaustive;
         }
       }
       // `name.op(args)` — op-call on a let binding.

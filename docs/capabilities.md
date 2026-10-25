@@ -22,7 +22,11 @@ aggregate Order with softDeletable { subject: string }   // gains the field + fi
 (the toolchain prelude, `src/macros/prelude.ts`) — available by name with nothing
 declared. The `softDelete()`/`restore()` operations stay in the `softDelete`
 macro (operations aren't part of a pure-mixin capability): `with softDeletable,
-softDelete`. `tenantOwned` (tenant column + claim stamp + tenant read filter)
+softDelete`. Because the capability adds no operation, it does not change
+`crudish`'s `destroy` either: on `with softDeletable, crudish`, `DELETE /{id}`
+stays a hard delete (the advisory `loom.crudish-hard-delete` says so; see
+[`scaffold-macros.md`](scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete)).
+`tenantOwned` (tenant column + claim stamp + tenant read filter)
 additionally requires a system-level `tenancy by` declaration — see
 [`tenancy.md`](tenancy.md).
 
@@ -131,6 +135,50 @@ context Sales {
 }
 ```
 
+### Principal terms
+
+A filter may also test the **principal alone**: a `==` / `!=` between
+`currentUser.<claim>` and another claim, a literal or an enum value, with no
+column on either side.  This is how a filter branches on role — "agents see
+every ticket, customers see their own":
+
+```ddd
+aggregate Ticket {
+  customer: Customer id
+  filter currentUser.role == "agent" || this.customer == currentUser.customerId
+}
+```
+
+The term's truth depends only on who is asking, so each backend decides it
+against the request principal in the host language and drops the result into
+the query as a constant:
+
+| Backend | `currentUser.role == "agent"` renders as |
+|---|---|
+| node / Drizzle | `(requireCurrentUser().role === "agent" ? sql\`true\` : sql\`false\`)` |
+| node / MikroORM | `{ [raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: [] }` |
+| .NET / EF Core | `_currentUser.User.Role == "agent"` inside `HasQueryFilter` (EF binds it as a parameter) |
+| .NET / Dapper | `@__pt_<hash>`, bound to `(RequestContext.Current!.CurrentUser!.Role == "agent")` |
+| Java / JPA | `:#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true` (`cb.conjunction()` / `cb.disjunction()` in a Criteria `Specification`) |
+| Python / SQLAlchemy | `literal(require_current_user().role == "agent")` |
+| Phoenix / Ecto | `^(not is_nil(current_user) and current_user.role == "agent")` |
+
+Null semantics are Loom's on every backend (a null claim equals `null` and
+differs from every value — which a SQL `$1 <> 'agent'` over a null claim would
+not give, so no backend leaves the comparison to SQL), and the term is never
+true without a principal.  Because a capability filter is installed on every
+read of the aggregate, the synthesised `GET /<plural>/{id}` included, a
+principal term is the way to scope single-record reads by role today (the
+by-id route has no `requires` surface; see `loom.default-deny-by-id-ungated`
+in [auth.md](auth.md)).  A filtered-out row reads 404 there.
+
+Only `==` / `!=` qualify — an ordering between two host values has no single
+meaning across the host languages — and only in a capability `filter` (inline,
+or through a named `criterion` installed as `filter <Criterion>`).  A `find` /
+`retrieval` `where` still refuses a column-free comparison
+(`loom.find-where-not-queryable` / `loom.retrieval-where-not-queryable`): a
+per-read principal test is what `requires` is for.
+
 ### Backend emission
 
 All five backends — .NET, Hono, Java, Phoenix, and Python — reify
@@ -162,7 +210,9 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   Emission is per-entity-type; the filter applies to *every* query of that
   aggregate (capability application was resolved earlier, at expansion +
   lowering).  **Under `sharedTable` (TPH) inheritance the entity type is the
-  hierarchy ROOT** — EF accepts a filter nowhere else — so a subtype's filter is
+  hierarchy ROOT** — EF accepts a filter nowhere else.  A filter the root
+  declares is registered there once and reaches every subtype, so a subtype's
+  `ignoring <rootCap>` names the root's filter; a subtype's own filter is
   registered on the root config, guarded by the `kind` discriminator
   (`EF.Property<string>(x, "kind") != "Car" || (…)`) and prefixed
   (`"Car_LiveFilter"`) so two subtypes carrying the same capability keep
@@ -293,23 +343,30 @@ Read surfaces (responses, views, detail/list pages) keep the field —
   `src/generator/dotnet/emit/auditable-interceptor.tpl.ts`.  Note
   that this means stamps fire at *save time*, after the operation
   body has already run.
-- **Java / JPA** — context stamps are emitted as entity
-  `_stampOnCreate` / `_stampOnUpdate` hooks (one arm per stamping
-  rule) with the service calling them on create / update; support
-  is gated by `validateJavaStampSupport`.
-- **Hono** (`node`) — context stamps are emitted as `_stampOnCreate` /
-  `_stampOnUpdate` methods on the aggregate (`this._<field> = <value>`)
-  that the route handler calls right before save.  A `now()` value renders
-  to `new Date()`; a `currentUser` value resolves to the principal id
-  (`currentUser.<idField>`), threaded from the request scope (the
-  `auth/middleware.ts` principal).  Support is gated by
-  `validateNodeStampSupport` (a principal stamp without auth, or any stamp on
-  an event-sourced aggregate, stays a fail-fast `loom.node-stamp-unsupported`).
+- **Java / JPA** — a bare `now()` / bare `currentUser` stamp rides Spring
+  Data auditing (`@CreatedDate`/`@LastModifiedDate`,
+  `@CreatedBy`/`@LastModifiedBy`); every other value (a claim read, or a
+  computed value such as `now() + hours(slaHours())`) is assigned in the
+  entity's `@PrePersist _stampOnCreate()` / `@PreUpdate _stampOnUpdate()`
+  hooks against `this`.
+- **Hono** (`node`) — context stamps are applied persist-time by
+  `db/audit-stamp.ts`, which holds one `stampInsert<Agg>` / `stampUpdate<Agg>`
+  pair per stamping aggregate; the repository `save()` wraps its insert row
+  and update set in its own aggregate's pair.  A `now()` value renders to
+  `new Date()`; a bare `currentUser` value resolves to the ambient
+  `ctx.actorId`; a value reading the aggregate renders against the domain
+  instance the save site passes (`aggregate.slaHours()`).
 - **Python / FastAPI** — context stamps are applied right before the
   repository persist: the domain class gets `_stamp_on_create` /
   `_stamp_on_update` methods (`now()` → `datetime.now(UTC)`; a `currentUser`
   value → `current_user.id`, threaded from `request.state.current_user`) that
-  the route handler calls before save.  Support is gated by
+  the route handler calls before save.  The in-process save sites — workflow
+  command routes, explicit command handlers, event reactors — call the same
+  methods (`src/generator/python/stamp-call.ts`): a `let x = X.create(…)`
+  binding takes the create stamp, a loaded one the update stamp, and a
+  principal stamp reads the ambient principal (`app.auth.user.current_user()`);
+  a save with no principal in scope (an outbox-relayed reactor) persists
+  unstamped, as Hono's does.  Support is gated by
   `validatePythonStampSupport` (a principal stamp without auth, or any stamp on
   an event-sourced aggregate, stays a fail-fast `loom.python-stamp-unsupported`).
 - **Phoenix** (`elixir`, plain-Ecto foundation) — context stamps
@@ -362,6 +419,28 @@ members propagate to every aggregate in the context:
 | `stamp <event> { … }` at context scope | every aggregate in the context |
 | `with <Cap>` / `implements <Cap>` at context scope | the capability is applied to every aggregate in the context |
 | `with <Cap>` / `implements <Cap>` at aggregate scope | the capability is applied to that aggregate |
+| any of the above on an `abstract` base | every concrete that `extends` it, transitively (enrich pass, `src/ir/enrich/inherited-capabilities.ts`) |
+
+A base's capabilities apply to every subtype (D-INHERITED-CAPABILITIES): the
+concrete inherits the base's filters (ancestors' first, then its own), stamps,
+capability tags and `crossTenant` stance, so `ignoring <baseCap>` is valid on a
+subtype read. A subtype repeating a capability its base applies gets that
+filter once. See [`inheritance.md`](inheritance.md#capabilities-and-inheritance--a-bases-capabilities-apply-to-every-subtype).
+
+### The read-scope fact
+
+What a read of an aggregate applies is one derived IR fact,
+`readScopeFor(agg, pool, { ignoring })` (`src/ir/enrich/read-scope.ts`). It
+lists, in order: the TPH `kind` discriminator, then every filter — inherited
+first, then the aggregate's own. Each filter is tagged with its kind
+(`tenancy` / `capability` / `deny` / bare `filter`), the capability that
+contributed it, whether `ignoring` can drop it, where it is declared, and, for
+`tenancy`, its stance (`tenant` / `deep` / `global` / `self`). For a TPH root, the
+fact also gives each concrete's own filters in root-hosted form, guarded by the
+discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
+by `id` (`readOrderFor`). Today the node/drizzle read paths take their
+restrictions and their default order from this fact. The other backends still
+derive them from the IR arrays.
 
 ## Relationship to macros
 

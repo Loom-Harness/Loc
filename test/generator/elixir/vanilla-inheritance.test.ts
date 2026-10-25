@@ -111,20 +111,23 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
     expect(repo).toMatch(/def by_email\([\s\S]*record\.kind == "Customer"/);
   });
 
-  it("the abstract base emits a read-only polymorphic reader over the shared table (find all <Base>)", async () => {
+  it("the abstract base emits a read-only polymorphic reader that delegates to the concrete repositories", async () => {
     const files = await generateSystemFiles(TPH);
-    // The base schema declares the UNION of every subtype's columns + kind so
-    // the reader can SELECT them off the shared table.
+    // The base schema declares the UNION of every subtype's columns + kind.
     const base = file(files, "/parties/party.ex");
     expect(base).toContain('schema "parties" do');
     expect(base).toContain("field :kind, :string");
     expect(base).toContain("field :credit_limit, :integer");
     expect(base).toContain("field :rating, :integer");
-    // The base reader is read-only: list/find_by_id over the shared table, no
-    // insert/update/delete (the base is never instantiated).
+    // The base reader is read-only (list/find_by_id, no insert/update/delete)
+    // and NEVER reads the shared table itself: each concrete repository owns the
+    // `kind` conjunct and every capability/inline filter, so a direct
+    // `Repo.all(Party)` would serve rows those filters exclude.
     const repo = file(files, "/parties/party_repository.ex");
-    expect(repo).toContain("Repo.all(Api.Parties.Party)");
-    expect(repo).toContain("Repo.get(Api.Parties.Party, id)");
+    expect(repo).toContain("Api.Parties.CustomerRepository.list()");
+    expect(repo).toContain("Api.Parties.VendorRepository.find_by_id(id)");
+    expect(repo).not.toContain("Repo.all(");
+    expect(repo).not.toContain("Repo.get(");
     expect(repo).not.toContain("def insert");
     expect(repo).not.toContain("def delete");
     // No changeset is emitted for the abstract base.

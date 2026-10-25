@@ -73,7 +73,7 @@ describe("vanilla — versioned optimistic-concurrency", () => {
     expect(ctrl).toContain("expected_version = __expected_version(conn)");
     expect(ctrl).toContain('get_req_header(conn, "if-match")');
     expect(ctrl).toContain("{:error, :conflict} ->");
-    expect(ctrl).toContain("ProblemDetails.conflict_response(conn)");
+    expect(ctrl).toContain('ProblemDetails.conflict_response(conn, "Customer", id)');
   });
 
   it("ProblemDetails.conflict_response emits 409 with a distinct `conflict` event", async () => {
@@ -81,7 +81,7 @@ describe("vanilla — versioned optimistic-concurrency", () => {
       await generateSystemFiles(SOURCE("with versioned")),
       "_web/problem_details.ex",
     );
-    expect(pd).toContain("def conflict_response(conn) do");
+    expect(pd).toContain("def conflict_response(conn, kind, id) do");
     expect(pd).toContain('Logger.warning("conflict", event: "conflict"');
     expect(pd).toContain("status: 409,");
     expect(pd).toContain('title: "Conflict",');
@@ -109,7 +109,7 @@ describe("vanilla — versioned optimistic-concurrency", () => {
     expect(cs).toContain(":version");
     expect(repo).toContain("expected_version \\\\ nil");
     expect(repo).toContain("Ecto.StaleEntryError -> {:error, :conflict}");
-    expect(pd).toContain("def conflict_response(conn) do");
+    expect(pd).toContain("def conflict_response(conn, kind, id) do");
     // …and it is byte-identical to the explicitly `with versioned` emission.
     const explicit = await generateSystemFiles(SOURCE("with versioned"));
     expect(cs).toBe(fileEndingWith(explicit, "customer_changeset.ex"));

@@ -66,21 +66,22 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    reactor's Audit row.  Discriminates.
  *  - python: passes.  Its reactor runs inside the open transaction (same
  *    session), so the dispatch half has no discriminating power there; armed
- *    because it honestly passes.  Its 409 `detail` sentence differs from
- *    node's (wire waiver, M-T6.91).
- *  - .NET DAPPER: armed adapter-only via `ADAPTER_ONLY_CASES`
- *    (test/behavioral/registers.mjs).  Discriminates #3224's atomicity fix:
- *    pre-fix the saves committed on their own connections (`expected 80 to
- *    be 90`).  Same 409 `detail` waiver.
- *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
- *    one tracked entity, so `debitTwice` never conflicts and the double debit
- *    commits (M-T6.90).  The key returns with that fix.
+ *    because it honestly passes.  Its 409 `detail` is node's sentence since
+ *    M-T6.91 (RS-40), so no wire waiver.
+ *  - .NET (the `dotnet` key — both persistence adapters, since the Dapper
+ *    leg reads the same key): EF discriminates M-T6.90 — two `getById` loads of
+ *    one row were ONE tracked entity, so `debitTwice` never conflicted and the
+ *    double debit committed (`expected the call to reject, but it resolved`);
+ *    the second handle now loads into a forked change tracker and its stale
+ *    save 409s.  Dapper discriminates #3224's atomicity fix: pre-fix the saves
+ *    committed on their own connections (`expected 80 to be 90`).  Same 409
+ *    `detail` (RS-40).
  *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
  *    the workflow's `Repo.transaction` rolled back but answered 500: the
  *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
  *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
  *    Same 409 `detail` waiver (M-T6.91).
- *  - java: FAILS on `debitTwice`, for the EF reason above — JPA's
+ *  - java: FAILS on `debitTwice`, for the reason EF had before M-T6.90 — JPA's
  *    persistence context hands both `getById` loads the SAME managed entity,
  *    so the second save is never stale and the double debit commits (booted:
  *    `expected the call to reject, but it resolved`; java's half of M-T6.90).
@@ -88,7 +89,37 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    publishes, after the commit) and gated by
  *    `transactional-workflow-post-commit-dispatch`, which runs on every
  *    backend. */
-const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
+const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
+
+/** The backends where two `getById` loads of one row inside a workflow are two
+ *  independent handles over a contained collection
+ *  (`workflow-two-handles-containment`, M-T6.90).  Every leg was booted:
+ *  - node, python, .NET Dapper: pass (the loads were always two objects).
+ *  - .NET EF: passes with M-T6.90; pre-fix the identity map handed both loads
+ *    one tracked instance, so `addTwice` resolved instead of 409ing.
+ *  - java: passes with M-T6.93; pre-fix the JPA persistence context returned
+ *    one managed instance for both loads, so the version CAS in `save` read the
+ *    already-bumped version and `addTwice` resolved.  A repeat load now reads a
+ *    detached copy through a connection-sharing child Session.
+ *  - elixir (`vanilla`): FAILS earlier — a contained-part removal
+ *    (`lines -= …`) does not persist even over the single-handle operation
+ *    route (`expected 2 to be 1`, M-T6.94); the stale save would then
+ *    answer M-T6.92's (now fixed) 409. */
+const INDEPENDENT_HANDLES: readonly Backend[] = ["node", "python", "dotnet", "java"];
+
+/** The backends whose in-workflow stale save of a `shape: document` row or a
+ *  `persistedAs: eventLog` stream answers the RS-40 409
+ *  (`workflow-two-handles-document-eventlog`, M-T6.95 / M-T6.98).
+ *
+ *  ELIXIR is out.  Its store refuses the stale write (`{:error, :conflict}`)
+ *  and the workflows controller maps that term to 409 (M-T6.92), but:
+ *   - that term carries no aggregate/id, so the RS-40 `detail` sentence cannot
+ *     be built from it;
+ *   - elixir persists each op call inside a workflow (the other four save a
+ *     handle once at the end), so `hitSameTwice` bumps the document `version`
+ *     twice — `$.version` reads one higher than the golden (M-T6.99).
+ *  Arm it by adding `"vanilla"` here when those close. */
+const WORKFLOW_DOC_ES_CONFLICT: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
 
 /** The backends that compile a hosted `X id[]` whose target aggregate lives in a
  *  sibling context the deployable does NOT host (claims eval D18's list position).
@@ -138,6 +169,11 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *    `:map` column — i.e. elixir is moving to a different column shape than the
  *    other four read.  That fork wants settling before a key is minted here. */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node"];
+
+// M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
+// owner (they are deleted with the old one), so the rebuild shape is held off
+// .NET until that lands — then this becomes ALL.
+const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -194,6 +230,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by ledger row F2-CB-C1.  Pagination and the storage shapes each had a fixture; their CROSSING did not, and that is exactly where it broke.  The route, the repository port and the response model all derive their contract from `pagedReturn(returnType)` and declared the 5-argument `Paged<T>` shape, while the document / event-log repository builders — which rehydrate and filter in app — had no paged branch and kept emitting the 1-argument unpaged method: CS0535 + CS0029 on .NET, a 5-arg call into a 1-arg `async def` (then `result.items`) on python.  No diagnostic anywhere — all five backends reported OK.  node / java / elixir already paged both carriers, which is the other half of why it stayed invisible: a fixture on any ONE of them would have passed.  `shape: embedded` is deliberately absent — it reuses the relational row table, so its paged find was always correct and `embedded.ddd` owns that shape.",
   },
   { id: "single-containment", title: "single (non-collection) containment — hidden `_parent`", doc: "language", backends: ALL },
+  {
+    id: "contained-part-removal",
+    title:
+      "an operation REMOVES a contained child (`lines -= l`) — entity part (carrying nested parts), value-object collection, `X id[]` join row, returning op, workflow save — and the row is gone on re-read",
+    doc: "language",
+    backends: ALL,
+    note: "M-T6.94 (filed by #3249).  elixir answered 2xx and left the child row: the op persist tail built its changeset over the already-mutated struct, so `put_assoc` diffed the new child list against itself and issued no DELETE (an ADD survived only because a PK-less child reads as an insert either way); a value-object collection op `force_change`d an association and 500'd on add and remove alike.  The case also found three non-elixir gaps, fixed with it: .NET EF's `X id[]` join-table configuration named neither the schema nor the snake columns (every save of such an aggregate 500'd — no behavioural fixture had ever carried a relational `X id[]`), .NET EF's finds never loaded the join rows (the paged list read 500'd), and java's create stored a caller's immutable `List.of()` so the first `+=` in a domain `test` threw.  node and python were already correct.",
+  },
+  {
+    id: "contained-part-rebuild",
+    title:
+      "a NESTED contained child removed by rebuilding its parent part (`lines -= old; lines += Line { …, notes: old.notes.where(…) }`) — the kept nested children re-hosted under a new parent",
+    doc: "language",
+    backends: PART_REBUILD,
+    note: "M-T6.94 sibling.  elixir answered a stale-entry 409 (the kept notes reached `put_assoc` as loaded structs).  .NET EF (and so its Dapper leg, which rides the same `dotnet` key) is not declared: EF loses the kept notes — an owned entity cannot move between owners, and the copy cannot keep its id because the owned key is the id alone — measured on a booted EF leg (the re-read answers 0 where 1 is expected; Dapper passes).  M-T6.96 fixes it and widens this row to ALL.",
+  },
   { id: "value-collections", title: "value-object array (`Money[]`) stored inline", doc: "language", backends: ALL },
   {
     id: "enum-collection",
@@ -263,7 +315,15 @@ export const CORPUS: readonly CorpusFeature[] = [
       "explicit-command workflow starter — `create(c: FileClaim)` over a declared `command` payload, whose wire record + wire→domain coercion every backend must emit",
     doc: "payloads",
     backends: ALL,
-    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
+    note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.  A malformed money INSIDE the payload is refused at `/c/amount` on every leg (RS-33; java pointed at the leaf, elixir let it reach the aggregate's changeset).",
+  },
+  {
+    id: "workflow-two-handles-containment",
+    title:
+      "two `getById` loads of one row inside a workflow are two handles over a contained collection — each saves its own child graph with the version it read",
+    doc: "workflow",
+    backends: INDEPENDENT_HANDLES,
+    note: "Added with M-T6.90.  .NET EF handed both loads ONE tracked instance (identity map); the fix loads a second handle of a tracked row into a forked change tracker.  That puts the second handle's OWNED `lines` graph on a different context from the first, so this case pins that a child INSERT and a child DELETE through the second handle persist exactly once, and that two handles both adding a child still conflict (409, neither persisted).  java had the same identity-map defect under JPA (M-T6.93: a repeat load of a managed row now reads a detached copy through a connection-sharing child Session).  Backend scope is the named `INDEPENDENT_HANDLES` set above.",
   },
   {
     id: "transactional-workflow-event-rollback",
@@ -271,7 +331,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "an aggregate event raised inside a `transactional` workflow whose later save fails — the event must not outlive the rollback",
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
-    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
+    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
   },
   {
     id: "transactional-workflow-post-commit-dispatch",
@@ -588,7 +648,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "resource-op inside a commandHandler / queryHandler body — the second legal site for outbound I/O",
     doc: "resources",
     backends: ALL,
-    note: "Four of five emitters could not render this LEGAL site: node / python emitted the helper call with no import (TS2304 / F821), .NET and java THREW 'reached the renderer without a resource class mapping' at generate time; only elixir was correct (it fully-qualifies the module). The handler loads via a declared FIND rather than `byId`, so the fixture isolates the resource-op leg from the unrelated `Agg id` path-param coercion.",
+    note: "Four of five emitters could not render this LEGAL site: node / python emitted the helper call with no import (TS2304 / F821), .NET and java THREW 'reached the renderer without a resource class mapping' at generate time; only elixir was correct (it fully-qualifies the module). The handler loads via a declared FIND rather than `byId`, so the fixture isolates the resource-op leg from the unrelated `Agg id` path-param coercion. Also carries the DISPATCHER leg — an event-triggered `create` starter and an `on(e)` reactor calling resource ops — which java and elixir threw on and node emitted unimported (the position × backend census in test/system/resource-op-positions.test.ts found it).",
   },
   {
     id: "handler-triad",
@@ -642,6 +702,22 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
+    id: "concurrency-conflict",
+    title:
+      "optimistic concurrency — a stale `If-Match` on a `versioned` aggregate's update answers the named 409 (RS-40)",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
+    id: "workflow-two-handles-document-eventlog",
+    title:
+      "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-40 409",
+    doc: "workflow",
+    backends: WORKFLOW_DOC_ES_CONFLICT,
+    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out — see `WORKFLOW_DOC_ES_CONFLICT`.",
+  },
+  {
     id: "audit-history",
     title: "entity history — the derived `GET /<agg>/{id}/history` read over audit_records",
     doc: "audit",
@@ -650,6 +726,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     // golden minted from node — A≡golden ∧ B≡golden ⇒ A≡B, so this row being
     // ALL is a proven cross-backend equality, not five self-assertions.
     backends: ALL,
+  },
+  {
+    id: "audit-history-guarded",
+    title:
+      "entity history behind its guards — `mask unless` field DROPPED from the trail, `auditable`/`versioned` stamps kept out of the diff, an inherited read gate + a `requires`-gated op (403 via the authz ladder), and an unaudited sibling with no history route",
+    doc: "audit",
+    backends: ALL,
+    note: "split from `audit-history` (auth-less, so it can pose none of these) rather than widening it, so that golden stays the reviewed answer key it is; the refused side of every gate is AUTHZ_LADDERS[\"audit-history-guarded\"]",
   },
   {
     id: "field-mask",
@@ -782,6 +866,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
   },
   {
+    id: "date-scalar",
+    title:
+      "the `date` scalar — a calendar date crosses the wire (`YYYY-MM-DD`) and the `date` column as the day it was written, through create / update / an op param / a SQL `find` comparison, with the `year`/`month`/`day`/`daysUntil` intrinsics and `today()`",
+    doc: "language",
+    backends: ALL,
+    note: "M-T5.39.  Every read-back is asserted as the exact STRING written: a backend that round-trips a date through an instant (a JS `Date` at local midnight, a `timestamptz`) answers the previous day west of UTC and fails it, which a column-type assertion would not.",
+  },
+  {
     id: "stamps-principal",
     title:
       "PRINCIPAL-valued lifecycle stamps — the prelude `auditable` (`createdBy`/`updatedBy` := `currentUser`) crossed with a claim-valued context stamp, read back from a booted row; create-only stamps unmoved by an update",
@@ -798,12 +890,20 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "M-T9.42 promotion of the five `intrinsic-trim.test.ts` string copies; the in-memory arms are also rows of the evaluated value table (M-T9.43), the query side is what only a booted backend can answer.",
   },
   {
-    id: "wire-ingress",
+    id: "unique-conflict",
     title:
-      "a malformed money on an operation param answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+      "a `unique (...)` key (single-column and compound) is enforced by the database: a duplicate create or an update into a taken key answers 409 with one RFC 7807 body; a key freed by a destroy can be taken again",
     doc: "language",
     backends: ALL,
-    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  The create/update, decimal-comma, nested-value-object and int32-range arms are out: promoting them found elixir answering Ecto's \"is invalid\" on create/update, a .NET/Dapper comma acceptance, an unguarded elixir VO member and no cross-backend int-range refusal (wave-c3-3d-promote D22–D25).",
+    note: "M-T9.42 promotion of the five `unique-conflict.test.ts` string copies, which pinned the 23505 → 409 spelling but not whether the unique index exists at run time — on the Dapper and MikroORM adapters it did not, and a duplicate answered 201.",
+  },
+  {
+    id: "wire-ingress",
+    title:
+      "a malformed money on an operation param, the crudish create/update body, or a value-object leaf answers 422 with a pointer-carrying `errors[]` entry — never a 500",
+    doc: "language",
+    backends: ALL,
+    note: "M-T9.42 promotion of the four `wire-numeric-ingress.test.ts` string copies (M-T6.48): the wire golden compares the refusal BODIES across every leg, so a backend whose guard answers a different pointer or message diverges rather than merely passing its own status check.  Every arm is in: the operation param, the crudish create/update body and a value-object leaf (elixir answers node's `Invalid decimal: \"…\"` at the leaf pointer on all three), and — RS-42 — the decimal comma and the int32 range, refused at the field with one message on every backend.",
   },
 ] as const;
 

@@ -92,6 +92,7 @@ function renderActionMutations(
     .map(([mod, names]) => `import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
   const decls = actionMutations
+    .filter((m) => !m.importOnly)
     .map(
       (m) => `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => id)});\n`,
     )
@@ -1541,6 +1542,7 @@ function stateTypeAsTsString(type: TypeIR): string {
       case "bool":
         return "boolean";
       case "string":
+      case "date":
       case "datetime":
       case "guid":
         return "string";

@@ -35,6 +35,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   vanillaCapabilityFilterParts,
 } from "./capability-filter.js";
+import { tphKind } from "./inheritance-emit.js";
 
 /** Per-context fan-out: emit one Ecto query module per retrieval. */
 export function emitVanillaRetrievals(
@@ -72,7 +73,14 @@ export function emitVanillaRetrievals(
       : [];
     out.set(
       `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
-      renderRetrievalModule(r, contextModule, appModule, capParts, principal),
+      renderRetrievalModule(
+        r,
+        contextModule,
+        appModule,
+        capParts,
+        principal,
+        target ? tphKind(target, ctx.aggregates) : undefined,
+      ),
     );
   }
 }
@@ -83,6 +91,8 @@ function renderRetrievalModule(
   appModule: string,
   capParts: { origin: string | undefined; pred: string }[],
   principal: boolean,
+  /** TPH concrete: the shared table's `kind` discriminator, always conjoined. */
+  kind?: string,
 ): string {
   const aggName = (r.targetType as { kind: "entity"; name: string }).name;
   const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
@@ -98,7 +108,8 @@ function renderRetrievalModule(
   const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   // The retrieval's own `where` predicate (the capability filters apply below,
   // as separately-gated pipe stages so a call-site `ignoring` can skip them).
-  const whereExpr = renderExpr(r.where, renderCtx);
+  const ownWhere = renderExpr(r.where, renderCtx);
+  const whereExpr = kind ? `record.kind == ${JSON.stringify(kind)} and (${ownWhere})` : ownWhere;
   const sortClause = renderSortClause(r.sort);
 
   // Build the Ecto pipeline in stages.  `from(...)` opens, conditional

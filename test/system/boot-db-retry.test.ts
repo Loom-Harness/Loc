@@ -14,6 +14,7 @@
 // Before the fix: `grep -c 'restart:' docker-compose.yml` = 0 and every
 // backend's boot migrate was a one-shot that rethrew on ECONNREFUSED.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
   BOOT_DB_RETRY,
@@ -109,6 +110,39 @@ describe("generated stack survives a late database (#24)", async () => {
     expect(loop.indexOf("await migrate(db")).toBeGreaterThan(-1);
     expect(loop.indexOf("await migrate(db")).toBeLessThan(loop.indexOf("db_connect_retry"));
     expect(loop).toContain('event: "migration_failed"');
+  });
+
+  it("node's migration_failed line carries the wrapped Postgres error's detail", () => {
+    // drizzle wraps the driver error: its own message is only `Failed query:
+    // <sql>`, and the reason a migration failed (which key collided, which
+    // constraint) lives on the `cause`.  Run the emitted helper against that
+    // exact chain shape rather than string-matching its source.
+    const index = expectEmitted(files, "node_svc/index.ts");
+    const start = index.indexOf("function bootMigrationError(");
+    expect(start).toBeGreaterThan(-1);
+    const end = index.indexOf("\n}\n", start) + 2;
+    const js = ts.transpileModule(index.slice(start, end), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const renderError = new Function(`${js}\nreturn bootMigrationError;`)() as (
+      e: unknown,
+    ) => string;
+    const driver = Object.assign(new Error('could not create unique index "tickets_number_key"'), {
+      code: "23505",
+      detail: "Key (number)=(T-1) is duplicated.",
+      constraint: "tickets_number_key",
+    });
+    const wrapped = new Error('Failed query: CREATE UNIQUE INDEX "tickets_number_key" …', {
+      cause: driver,
+    });
+    const line = renderError(wrapped);
+    expect(line).toContain("Failed query: CREATE UNIQUE INDEX");
+    expect(line).toContain("[23505]");
+    expect(line).toContain("detail: Key (number)=(T-1) is duplicated.");
+    expect(line).toContain("constraint: tickets_number_key");
+    expect(renderError("plain")).toBe("plain");
+    const loop = index.slice(index.indexOf("for (let attempt = 1"));
+    expect(loop).toContain('event: "migration_failed", error: bootMigrationError(err)');
   });
 
   it("python waits for the database before the migration transaction", () => {

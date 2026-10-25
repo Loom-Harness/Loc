@@ -19,6 +19,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, plural, snake } from "../../util/naming.js";
@@ -26,7 +27,7 @@ import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
-import { opDialogChrome } from "../_walker/i18n-chrome.js";
+import { chromeKey, chromeMessage, opDialogChrome } from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
@@ -34,6 +35,7 @@ import { gridCols, slugify } from "../_walker/shared/args.js";
 import {
   escapeHeexAttr,
   escapeHeexText,
+  gateActionButton,
   hostStateAssign,
   indent,
   isAttrRenderable,
@@ -47,7 +49,7 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
-import { formChromeAttr } from "./i18n.js";
+import { elixirI18nString, formChromeAttr } from "./i18n.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 
 // ---------------------------------------------------------------------------
@@ -312,7 +314,7 @@ ${heading}${childrenHeex}
       )}}`
     : "";
   const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
-  return [
+  const dialog = [
     `<.button phx-click={show_modal("${modalId}")}${disabledAttr}${testidAttr}>${label}</.button>`,
     `<.modal id="${modalId}" close_label=${closeLabel}>`,
     `  <:title>${heading}</:title>`,
@@ -324,6 +326,9 @@ ${heading}${childrenHeex}
     `  </.simple_form>`,
     `</.modal>`,
   ].join("\n");
+  // A currentUser-only `requires` hides the trigger and its dialog for a
+  // principal it refuses, exactly as an `Action` button is hidden.
+  return op ? gateActionButton(dialog, op, ctx) : dialog;
 }
 
 /** `CreateForm(of: Agg, testid: "...", ...)` → `<.simple_form>` with auto
@@ -632,6 +637,9 @@ function htmlInputTypeForIRType(t: TypeIR): string {
       return "checkbox";
     case "datetime":
       return "datetime-local";
+    // A date picker; its value is the `YYYY-MM-DD` text the `:date` field casts.
+    case "date":
+      return "date";
     default:
       return "text";
   }
@@ -674,7 +682,7 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
   }
   const itemVar = snake(itemLam.param);
   const collHeex = renderExpr(coll, { ...ctx, position: "template" });
-  const body = renderChild(itemLam.body, ctx);
+  const body = renderChild(itemLam.body, withRowType(ctx, coll, itemLam.param));
   const loop = [`<%= for ${itemVar} <- ${collHeex} do %>`, indent(body, 2), `<% end %>`].join("\n");
   if (!emptyExpr) return loop;
   const emptyBody = renderChild(emptyExpr, ctx);
@@ -685,6 +693,36 @@ export function renderFor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCont
     indent(loop, 2),
     `<% end %>`,
   ].join("\n");
+}
+
+/** The aggregate a `Table` `rows:` / `For` `each:` collection's rows are: a
+ *  list QueryView's data param (`rows`), or its server-paged envelope's
+ *  `rows.items`. */
+function collectionRowType(coll: ExprIR | undefined, ctx: WalkContext): string | undefined {
+  if (coll?.kind === "ref") return ctx.listTypes?.get(coll.name);
+  if (coll?.kind === "member" && coll.member === "items" && coll.receiver.kind === "ref") {
+    return ctx.listTypes?.get(coll.receiver.name);
+  }
+  return undefined;
+}
+
+/** `ctx` with a row lambda's param typed as the collection's row aggregate. */
+function withRowType(ctx: WalkContext, coll: ExprIR | undefined, param: string): WalkContext {
+  const agg = collectionRowType(coll, ctx);
+  return agg ? { ...ctx, rowTypes: new Map([...(ctx.rowTypes ?? []), [param, agg]]) } : ctx;
+}
+
+/** `ctx` for one `Column`: its accessor lambda's param is the table's row. */
+function withColumnRowType(
+  ctx: WalkContext,
+  rows: ExprIR | undefined,
+  column: Extract<ExprIR, { kind: "call" }>,
+): WalkContext {
+  const lam = column.args.find(
+    (a, i): a is Extract<ExprIR, { kind: "lambda" }> =>
+      !column.argNames?.[i] && a.kind === "lambda",
+  );
+  return lam ? withRowType(ctx, rows, lam.param) : ctx;
 }
 
 /** `Table(Column(...), ..., rows: ref("rows"), ...)` →
@@ -797,10 +835,11 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   // The active sort feeds the header indicator + `aria-sort`.
   const sortAttrs = sortActive ? ` sort_key={@${sortKey}} sort_dir={@${sortDir}}` : "";
 
+  const rowsArg = namedArg(expr, "rows");
   const colSlots = cols
     .map((c, i) =>
       c.kind === "call"
-        ? renderTableColumn(c, ctx, sortActive, i)
+        ? renderTableColumn(c, withColumnRowType(ctx, rowsArg, c), sortActive, i)
         : `<:col :let={_row} label="Column ${i + 1}">${renderChild(c, ctx)}</:col>`,
     )
     .join("\n");
@@ -1274,15 +1313,21 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
           [dataVar, autoPaged ? `${assignName}.items` : assignName],
         ]);
         // Type the data binding so a nested instance-qualified op-form
-        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on.
-        const recordAgg = isSingle && ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
+        // (`OperationForm(data.confirm)`) resolves the aggregate it operates on
+        // — or, for a list, so its `Table` / `For` rows type theirs.
+        const queried = ofArgNode ? resolveQueryAggregate(ofArgNode) : undefined;
+        const known = queried !== undefined && ctx.aggregatesByName.has(queried);
         const innerCtx: WalkContext = {
           ...ctx,
           varRemapping: remapping,
           instanceTypes:
-            recordAgg && ctx.aggregatesByName.has(recordAgg)
-              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, recordAgg]])
+            known && isSingle
+              ? new Map([...(ctx.instanceTypes ?? []), [arg.param, queried]])
               : ctx.instanceTypes,
+          listTypes:
+            known && !isSingle
+              ? new Map([...(ctx.listTypes ?? []), [arg.param, queried]])
+              : ctx.listTypes,
         };
         if (arg.body) dataHeex = renderChild(arg.body, innerCtx);
       } else {
@@ -1921,7 +1966,9 @@ export function renderAvatar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
     const altAttr = altArg ? ` alt=${attrValue(altArg, ctx)}` : ` alt=""`;
     return `<img class="${cls} object-cover" src=${attrValue(srcArg, ctx)}${altAttr}${testidAttr} />`;
   }
-  return `<span class="${cls} bg-gray-200"${testidAttr}></span>`;
+  // No image to carry the alt, so the placeholder itself is the named image.
+  const named = altArg ? ` role="img" aria-label=${attrValue(altArg, ctx)}` : "";
+  return `<span class="${cls} bg-gray-200"${named}${testidAttr}></span>`;
 }
 
 /** `Loader(size?)` → an animated spinner.  The optional `size:` is dropped
@@ -1993,7 +2040,7 @@ export function renderDestroyForm(
   const agg = ctx.aggregatesByName.get(ofName);
   if (!agg)
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): aggregate not found`)} -->`;
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`)} -->`;
   }
   const eventName = `destroy_${snake(ofName)}`;
@@ -2010,7 +2057,35 @@ export function renderDestroyForm(
   }
   const human = humanize(ofName);
   const testidAttr = testIdAttr(expr, ctx);
-  return `<.button phx-click="${eventName}" phx-value-id={@id} data-confirm="Delete this ${human.toLowerCase()}? This cannot be undone." class="btn-danger"${testidAttr}>Delete ${human}</.button>`;
+  // The prompt and the button label are emitter-built chrome: the shared
+  // `chrome.deleteConfirm` / `chrome.deleteEntity` messages every frontend
+  // reads, with the entity name substituted for the `{entity}` hole.
+  const confirm = heexChrome(ctx, "deleteConfirm", { entity: human.toLowerCase() });
+  const label = heexChrome(ctx, "deleteEntity", { entity: human });
+  const confirmAttr =
+    confirm.call !== undefined ? `{${confirm.call}}` : `"${escapeHeexAttr(confirm.english)}"`;
+  const labelText =
+    label.call !== undefined ? `<%= ${label.call} %>` : escapeHeexText(label.english);
+  return `<.button phx-click="${eventName}" phx-value-id={@id} data-confirm=${confirmAttr} class="btn-danger"${testidAttr}>${labelText}</.button>`;
+}
+
+/** A shared `chrome.<name>` string whose ICU holes take GENERATE-time values
+ *  (an entity name).  `english` is the filled sentence; `call` — present under
+ *  i18n — the Elixir expression that resolves the message through gettext and
+ *  substitutes each hole into the active locale's text. */
+function heexChrome(
+  ctx: WalkContext,
+  name: string,
+  holes: Readonly<Record<string, string>>,
+): { english: string; call?: string } {
+  const message = chromeMessage(name);
+  const english = message.replace(/\{(\w+)\}/g, (whole, hole: string) => holes[hole] ?? whole);
+  if (!ctx.i18nPrefix) return { english };
+  let call = `pgettext(${elixirI18nString(chromeKey(name))}, ${elixirI18nString(message)})`;
+  for (const [hole, value] of Object.entries(holes)) {
+    call = `String.replace(${call}, ${elixirI18nString(`{${hole}}`)}, ${elixirI18nString(value)})`;
+  }
+  return { english, call };
 }
 
 /** `Tabs(Tab(label, body), …)` → a client-side tab switcher.  All panels are

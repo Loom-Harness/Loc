@@ -3,7 +3,12 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
+import {
+  INT32_MAX,
+  INT32_MIN,
+  LONG_SAFE_MAX,
+  LONG_SAFE_MIN,
+} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -100,8 +105,10 @@ import {
   servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -114,6 +121,7 @@ import {
 import {
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
 import {
@@ -147,6 +155,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -287,11 +296,12 @@ function emitHistoryRoute(
     );
   }
   if (find.requires) {
-    // Audit-history's 403 `detail` stays bare `Forbidden` for now: unlike the
-    // plain read gates below, the descriptive backends disagree on its LABEL
-    // (java/python `find history` vs elixir `history <Agg>`), so unifying it is
-    // #2540's audit-history mission, not this read-gate fix.
-    out.push(`    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError("Forbidden");`);
+    // The history read is the derived find `history`, so its 403 `detail` is
+    // the declared-find spelling `Forbidden: find <name>` — the same sentence
+    // every backend answers for this refusal.
+    out.push(
+      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+    );
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
@@ -479,9 +489,9 @@ export function buildRoutesFile(
   // routes; an ES aggregate's create action is `agg.creates?.[0]`.  A named
   // create has no route, so only the route-driving action's flag matters.
   const auditedCreateAction =
-    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (agg.canonicalCreate ?? null);
+    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (canonicalCreate(agg) ?? null);
   const auditCreate = emitAudit && !!auditedCreateAction?.audited;
-  const auditDestroy = emitAudit && !!agg.canonicalDestroy?.audited;
+  const auditDestroy = emitAudit && !!canonicalDestroy(agg)?.audited;
   const fileHasAudit = auditOps.length > 0 || auditCreate || auditDestroy;
   // A provenanced write needs the same save+flush transaction: the
   // operation's `provenance_records` history rows must commit atomically
@@ -604,6 +614,7 @@ export function buildRoutesFile(
     // Needs the schema tables (runtime value), a UUID, and the db/events
     // types for the transactional repo (mirrors the workflow routes' imports).
     lines.push(`import { randomUUID } from "node:crypto";`);
+    if (fileHasAudit) lines.push(`import { auditActor } from "../audit/actor";`);
     if (usingMikro) {
       // MikroORM edition: `db` is the EntityManager and the history rows are
       // its Row entities (`em.insert(<Row>, …)`), so pull the entity classes +
@@ -1056,14 +1067,14 @@ export function buildRoutesFile(
     // the canonical create's `requires` gate, and ONE binding serves both.
     if (
       serverDefaulted.some((f) => !(f.default!.kind === "literal" && f.default!.lit === "now")) ||
-      lifecycleGatesUseCurrentUser(agg.canonicalCreate)
+      lifecycleGatesUseCurrentUser(canonicalCreate(agg))
     ) {
       lines.push(currentUserBindLine("      "));
     }
     // The gate runs BEFORE the factory — a create guard has no `this` to read,
     // and denying after construction would already have run the invariants and
     // (on an audited create) staged a row.
-    lines.push(...lifecycleGateLines(agg.canonicalCreate, "      "));
+    lines.push(...lifecycleGateLines(canonicalCreate(agg), "      "));
     // Wrap each wire-shape field into the typed factory argument (brand
     // ids, instantiate value objects).  Avoids `as never` and lets
     // strict tsc catch shape drift between Zod and the domain class.
@@ -1088,9 +1099,8 @@ export function buildRoutesFile(
       // transaction (mirrors the operation audit path).  Asymmetry: create
       // has no `before` (JSON null on the not-NULL column), `after` is the
       // freshly-created wire snapshot, keyed by the generated id.  Actor =
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      lines.push(`      const actor = ${actorExpr};`);
+      // the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`      const actor = auditActor();`);
       lines.push(`      const reqCtx = requestContext();`);
       lines.push(`      const __deferred = deferredDispatcher(events);`);
       lines.push(`      await ${txWrapperCall(usingMikro)}`);
@@ -1326,7 +1336,7 @@ export function buildRoutesFile(
     lines.push(`    }),`);
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
-    const destroyGates = lifecycleGates(agg.canonicalDestroy);
+    const destroyGates = lifecycleGates(canonicalDestroy(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1339,17 +1349,17 @@ export function buildRoutesFile(
       // A principal-only gate reads no field of the row, so the load is not
       // BOUND there — it still runs (it is the 404 probe), it just has no
       // receiver to name.
-      const readsRow = lifecycleGatesReadRow(agg.canonicalDestroy);
+      const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
         readsRow
           ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
           : `      await repo.getById(Ids.${agg.name}Id(id));`,
       );
-      if (lifecycleGatesUseCurrentUser(agg.canonicalDestroy)) {
+      if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
       }
       lines.push(
-        ...lifecycleGateLines(agg.canonicalDestroy, "      ", readsRow ? "__loaded" : undefined),
+        ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
@@ -1364,10 +1374,8 @@ export function buildRoutesFile(
       // the row + deletion commit or roll back together (a failed delete
       // must not leave a spurious destroy record).  Asymmetry: `before` is
       // the last wire snapshot, `after` is JSON null (hard delete).  Actor
-      // = the inbound claim via the untyped-key bridge (null when no auth).
-      lines.push(
-        `        const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;`,
-      );
+      // = the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`        const actor = auditActor();`);
       lines.push(`        const reqCtx = requestContext();`);
       lines.push(`        const __deferred = deferredDispatcher(events);`);
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
@@ -1620,7 +1628,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, "Conflict", \`A ${agg.name} with these values already exists.\`);`,
+      `      return problem(${uniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
     lines.push(`    }`);
   }
@@ -1830,7 +1838,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )});`,
   ];
 }
@@ -1897,20 +1905,16 @@ function auditProvTxLines(args: {
   audit: boolean;
   prov: boolean;
   usingMikro: boolean;
-  usesUser: boolean;
   isVersionedUpdate: boolean;
   mutation: (pad: string) => string[];
   capture?: boolean;
 }): string[] {
-  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const { agg, op, ctx, audit, prov, usingMikro, isVersionedUpdate, mutation } = args;
   const out: string[] = [];
   if (audit) {
-    // Actor = the typed currentUser if the body already reads it, else
-    // the inbound claim via the untyped-key bridge (null when no auth).
-    const actorExpr = usesUser
-      ? "currentUser"
-      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-    out.push(`    const actor = ${actorExpr};`);
+    // Actor = the principal's declared shape (`auditActor`, null when no
+    // auth) — never the principal object itself, which can carry more.
+    out.push(`    const actor = auditActor();`);
   }
   // The request correlation id + frame scope id stamped onto every audit /
   // provenance row, tying each to the request (and its causality position)
@@ -2145,7 +2149,6 @@ function emitOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         isVersionedUpdate,
         mutation,
       }),
@@ -2271,7 +2274,6 @@ function emitReturningOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         // A returning `update` does not take the `If-Match` precondition path —
         // the void handler owns the canonical crudish update; a hand-declared
         // returning op of the same name keeps the write-time CAS fallback.
@@ -2612,6 +2614,13 @@ function emitResponseDtoSchema(
 const BODY_DATETIME =
   "z.string().datetime({ offset: true, local: true }).transform((s: string) => new Date(s))";
 
+/** An ISO-8601 calendar DATE (`2026-01-01`) — no time, no offset.  It stays the
+ *  string it arrived as (the domain holds the same text), so no client zone can
+ *  move it.  `.date()` refuses a non-date (`2026-02-30`, `2026-01-01T00:00Z`) as
+ *  the typed 422 rather than letting Postgres answer 500, and publishes
+ *  `format: date`.  The same schema serves a body, query and path value. */
+const BODY_DATE = "z.string().date()";
+
 /** A query-string / path-segment `bool`, parsed from its four legal textual
  *  spellings.
  *
@@ -2687,7 +2696,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
  *  are deliberately not matched here. */
 const PLAIN_STRING_BASE = "z.string()";
 
-const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The bound carries the cross-backend range sentence (RS-42) rather than
+ *  zod's own text, which is both framework-worded and zod-major-specific
+ *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
+ *  equal to …" on 3). */
+const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}).max(${INT32_MAX}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -2709,6 +2722,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: QUERY_BOOL,
   datetime: "z.coerce.date()",
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2722,6 +2736,7 @@ const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: BODY_DATETIME,
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2735,6 +2750,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",

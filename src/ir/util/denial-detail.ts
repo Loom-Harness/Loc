@@ -33,3 +33,21 @@ export function echoesDenialDetail(
 ): boolean {
   return !!(deployable?.auth?.required && sys?.user && !sys.auth);
 }
+
+// What a 409 tells the caller — an `operation … when <pred>` invoked in a state
+// the predicate rejects (conformance rule RS-17, pinned byte-for-byte across
+// the five backends, so the sentence is built here once).
+//
+// The detail names the failed predicate by its `.ddd` source, the way a 422
+// names its `precondition` ("Precondition failed: <src>"), so a caller can tell
+// WHICH state gate refused the operation.  Unlike the 403 it is echoed under
+// every verifier: a `when` gate is a statement about the aggregate's lifecycle
+// state, a domain rule like a precondition, not an authorization predicate.
+
+/** `operation '<op>' is not allowed in the current state of <Agg> (when <src>).`
+ *  — without the parenthesis when no source text is available (an operation
+ *  synthesised without a `.ddd` span). */
+export function disallowedDetail(opName: string, aggName: string, whenSource?: string): string {
+  const gate = whenSource ? ` (when ${whenSource})` : "";
+  return `operation '${opName}' is not allowed in the current state of ${aggName}${gate}.`;
+}

@@ -1259,7 +1259,7 @@ Stack {
 if (['alpha', 'beta'].isEmpty) Center(child: Padding(padding: const EdgeInsets.all(32), child: Text(t('page.Lists.empty.8e7r1j', 'No tags')))) else ...['alpha', 'beta'].map((tag) => Chip(label: Text('${tag}'), visualDensity: VisualDensity.compact)),
 ```
 
-The list key is the loop index (`tagIdx` / `$index`). Inline `filter` / `map` on the collection render natively (`orders.filter(o => …)`); every other collection op is a backend vocabulary and is rejected (`loom.frontend-collection-op-unsupported`).
+The list key is the loop index (`tagIdx` / `$index`). Inline stdlib collection ops on the collection render through each frontend's own seam (`orders.where(o => …)`, `.map(…)`, `.sortBy(…)`, …; the full list is in [`page-metamodel.md` §8.1](../page-metamodel.md#81-inline-collection-ops)); the backend-only ops are rejected (`loom.frontend-collection-op-unsupported`), and a host-language method such as `.filter(…)` is an unknown member (`loom.unknown-member`).
 
 ## `match` in markup — the ternary/block split
 

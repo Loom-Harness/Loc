@@ -16,6 +16,7 @@ import { elixirCodePointLength } from "../../_expr/code-point.js";
 import {
   coerceMatcherExpected,
   coerceTestLiteral,
+  decideLiteralCoercion,
   matcherSubjectType,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
@@ -37,6 +38,7 @@ import { isValueObjectType, renderValueObjectEquality } from "./value-object-typ
 const EX_TEST_LITERAL: TestLiteralTarget = {
   id: (rendered) => rendered,
   datetime: (rendered) => `elem(DateTime.from_iso8601(${rendered}), 1)`,
+  date: (rendered) => `Date.from_iso8601!(${rendered})`,
 };
 
 // ---------------------------------------------------------------------------
@@ -348,8 +350,15 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
   // compared as instants.  `DateTime.compare/2` raises on a binary, so a value
   // STORED as the raw string fails the assertion instead of equalling it.
+  // A `date` subject compares by `Date.compare/2` on the same footing.
   const dt = coerceMatcherExpected(expr, expected, EX_TEST_LITERAL);
-  if (dt !== undefined) return verb(`DateTime.compare(${actual}, ${dt}) == :eq`);
+  if (dt !== undefined) {
+    const mod =
+      expr.args[0] && decideLiteralCoercion(matcherSubjectType(expr), expr.args[0]).kind === "date"
+        ? "Date"
+        : "DateTime";
+    return verb(`${mod}.compare(${actual}, ${dt}) == :eq`);
+  }
 
   // `toBe(nil)`-shaped asserts keep the native operator.
   const nullArg = arg?.kind === "literal" && arg.lit === "null";
@@ -527,6 +536,11 @@ export function vtExpr(e: ExprIR, env: Env): string {
     case "method-call": {
       if (isCreate(e)) return renderCreate(e, env);
       if (isAggOp(e, env)) return renderOp(e, env);
+      // `xs.first()` over a collection — the head, raising on an empty list like
+      // the runtime renderer's `hd/1` (a domain test reading a contained part).
+      if (e.receiverType.kind === "array" && e.member === "first" && e.args.length === 0) {
+        return `hd(${vtExpr(e.receiver, env)})`;
+      }
       throw new UnsupportedTestShapeError(
         `unsupported method-call '${e.member}' in vanilla test position`,
       );
@@ -561,6 +575,9 @@ export function vtExpr(e: ExprIR, env: Env): string {
       return `%{${e.fields.map((f) => `${snake(f.name)}: ${vtExpr(f.value, env)}`).join(", ")}}`;
     case "paren":
       return `(${vtExpr(e.inner, env)})`;
+    // A list literal (`charges: []` in a create's attrs map).
+    case "list":
+      return `[${e.elements.map((x) => vtExpr(x, env)).join(", ")}]`;
     case "unary": {
       if (e.op === "!") return `not ${vtExpr(e.operand, env)}`;
       // Fold a negative sign into a money/decimal literal — `-Decimal.new("1.0")`

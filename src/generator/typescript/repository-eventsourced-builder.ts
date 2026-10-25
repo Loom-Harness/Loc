@@ -116,11 +116,11 @@ export function buildEventSourcedRepositoryFile(
     `  async save(aggregate: ${agg.name}): Promise<void> {`,
     `    const pending = aggregate.pullEvents();`,
     `    if (pending.length > 0) {`,
-    `      const prior = await this.db`,
-    `        .select({ version: schema.${table}.version })`,
-    `        .from(schema.${table})`,
-    `        .where(and(eq(schema.${table}.streamType, "${streamType}"), eq(schema.${table}.streamId, aggregate.id as string)));`,
-    `      let version = prior.reduce((m, r) => Math.max(m, r.version), 0);`,
+    // Expected-version append (M-T6.98): continue from the version THIS handle
+    // was folded to, not from a `max(version)` re-read here — a re-read lets a
+    // handle loaded before another append commit a decision taken on its
+    // stale fold.
+    `      let version = aggregate._streamVersion;`,
     `      const rows = pending.map((event) => ({`,
     `        streamType: "${streamType}",`,
     `        streamId: aggregate.id as string,`,
@@ -129,20 +129,24 @@ export function buildEventSourcedRepositoryFile(
     `        data: eventToData(event),`,
     `      }));`,
     // The `(stream_id, version)` PK IS this stream's optimistic-concurrency
-    // control: a competing append that read the same `max(version)` inserts
-    // the same version and loses the race with a Postgres unique-violation
-    // (SQLSTATE 23505).  Map it to `ConcurrencyError` → 409 (the shared
+    // control: an append from a handle folded at a version some other append
+    // has since moved past inserts a version that exists and loses with a
+    // Postgres unique-violation (SQLSTATE 23505).  Map it to `ConcurrencyError` → 409 (the shared
     // `onError` arm), mirroring the `versioned` guarded write's stale-write
-    // rejection.  The pg driver surfaces `.code === "23505"` (same shape the
-    // routes `onError` uses for the `unique (...)` arm).
+    // rejection.  The pg error's `.code` is read directly or off `.cause`:
+    // drizzle wraps a failed query in a `DrizzleQueryError` whose `.cause` is
+    // the driver error (the same two-place read the routes `onError` uses for
+    // the `unique (...)` arm) — reading `.code` alone never matched, so a lost
+    // append surfaced as a 500.
     `      try {`,
     `        await this.db.insert(schema.${table}).values(rows);`,
     `      } catch (err) {`,
-    `        if (err && typeof err === "object" && (err as { code?: string }).code === "23505") {`,
+    `        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {`,
     `          throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `        }`,
     `        throw err;`,
     `      }`,
+    `      aggregate._streamVersion = version;`,
     `    }`,
     `    ${renderHonoStoreLogCall("repositorySave", `aggregate: "${agg.name}", id: aggregate.id as string`)}`,
     `    for (const event of pending) {`,

@@ -6,6 +6,7 @@
 // findById / findManyByIds / findQueryMethod live in
 // repository-find-builder.ts.
 
+import { readDiscriminator, readScopeFor } from "../../ir/enrich/read-scope.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -13,16 +14,17 @@ import type {
   FieldIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { discriminatorValue, tableOwnerName } from "../../ir/util/inheritance.js";
+import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
-import { aggregateIsAudited } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { associationsOf, isRefCollection } from "./repository-associations-builder.js";
+import { drizzleKindPredicate } from "./repository-find-predicate.js";
 
 /** Inner body of the save db.transaction callback at 6-space indent.
  *  Extracted so the trace-on variant can re-indent and wrap it with the
@@ -164,8 +166,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // duplicate id.  The guard belongs on the WRITE, so a foreign-subtype id
   // matches nothing, changes nothing, and raises the same ConcurrencyError the
   // lost-race path raises.  `null` for a non-TPH aggregate ⇒ byte-identical.
-  const kind = discriminatorValue(agg, ctx.aggregates);
-  const kindPred = kind ? `eq(schema.${tableName}.kind, ${JSON.stringify(kind)})` : null;
+  const kindPred = drizzleKindPredicate(agg, ctx, tableName);
 
   // Optimistic concurrency (`versioned` capability, versioned-capability.ts):
   // the unconditional `insert...onConflictDoUpdate` upsert becomes a guarded
@@ -188,8 +189,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
       ...baseEntries,
       { fieldName: "version", expr: "expected + 1" },
     ]);
-    const insertValues = audited ? `stampInsert(${insertRow})` : insertRow;
-    const updateSet = audited ? `stampUpdate(${updateRow})` : updateRow;
+    const insertValues = audited ? stampInsertCall(agg, insertRow) : insertRow;
+    const updateSet = audited ? stampUpdateCall(agg, updateRow) : updateRow;
     return [
       `      const expected = expectedVersion ?? aggregate.version;`,
       `      const existingRow = await tx.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(eq(schema.${tableName}.id, aggregate.id));`,
@@ -205,8 +206,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     ];
   }
 
-  const insertValues = audited ? "stampInsert(rootRow)" : "rootRow";
-  const updateSet = audited ? "stampUpdate(rootRow)" : "rootRow";
+  const insertValues = audited ? stampInsertCall(agg, "rootRow") : "rootRow";
+  const updateSet = audited ? stampUpdateCall(agg, "rootRow") : "rootRow";
   return [
     `      const rootRow = ${rootProjection(agg, "aggregate", ctx)};`,
     // NOTE: this unversioned arm is UNREACHABLE today and deliberately carries
@@ -315,8 +316,10 @@ function rootEntries(
   omit: ReadonlySet<string> = new Set(),
 ): { fieldName: string; expr: string }[] {
   // TPH: stamp the `kind` discriminator so the shared-table row records which
-  // concrete it is (null for non-TPH aggregates → entry omitted).
-  const kind = discriminatorValue(agg, ctx.aggregates);
+  // concrete it is (null for non-TPH aggregates → entry omitted).  The value is
+  // the read-scope discriminator, so a row is stamped with exactly the `kind`
+  // every read of it is scoped by.
+  const kind = readDiscriminator(readScopeFor(agg, ctx.aggregates));
   return [
     { fieldName: "id", expr: `${varExpr}.id as string` },
     ...(kind ? [{ fieldName: "kind", expr: JSON.stringify(kind) }] : []),

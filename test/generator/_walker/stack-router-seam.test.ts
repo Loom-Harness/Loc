@@ -33,13 +33,13 @@ describe("stacks/v3 partials", () => {
   it("ships the React 19 + Router 7 + Zod 4 dependency set", () => {
     const deps = fs.readFileSync(path.join(v3, "stack-package-deps.hbs"), "utf-8");
     // Router 7: the renamed package, NOT react-router-dom.
-    expect(deps).toMatch(/"react-router":\s*"\^7\./);
+    expect(deps).toMatch(/"react-router":\s*"7\./);
     expect(deps).not.toContain("react-router-dom");
     // Zod 4 + the zod-4-compatible resolvers major.
-    expect(deps).toMatch(/"zod":\s*"\^4\./);
-    expect(deps).toMatch(/"@hookform\/resolvers":\s*"\^5\./);
+    expect(deps).toMatch(/"zod":\s*"4\./);
+    expect(deps).toMatch(/"@hookform\/resolvers":\s*"5\./);
     // React 19 baseline.
-    expect(deps).toMatch(/"react":\s*"\^19\./);
+    expect(deps).toMatch(/"react":\s*"19\./);
   });
 
   it("has no trailing newline (spliced as a package.json partial)", () => {

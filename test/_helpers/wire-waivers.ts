@@ -48,45 +48,46 @@
 
 import type { WireWaiver } from "./wire-record.js";
 
-// 2026-10-04 — #15d (ruling D10) added the message-LESS rows to
-// `validation-messages` (seq 14 `ship`, seq 15 `retag`) and fixed python; the
-// other three backends still send their framework's default text, measured on
-// booted legs.  Mission M-T6.86 closes them and deletes these four entries.
+// 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
+// Dapper and python legs, the first golden to record an optimistic-concurrency
+// 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
+// sentence differs (node names the aggregate + id, the other four answer one
+// fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
+// `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
-  ...(["ship", "retag"] as const).map(
-    (op): WireWaiver => ({
-      backends: ["dotnet", "dapper", "java"],
-      cases: ["validation-messages"],
-      request: `POST /api/products/*/${op}`,
-      path: "$.errors[*].message",
-      kinds: ["value"],
-      reason:
-        "M-T6.86 — a message-less single-field rule answers FluentValidation's / the derived refine default, not node's synthesized per-field sentence",
-    }),
-  ),
-  ...(["ship", "retag"] as const).map(
-    (op): WireWaiver => ({
-      backends: ["elixir"],
-      cases: ["validation-messages"],
-      request: `POST /api/products/*/${op}`,
-      path: "**",
-      reason:
-        "M-T6.86 — a message-less precondition answers the domain-floor 422 (no errors[]) instead of the wire-validation shape",
-    }),
-  ),
-  // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
-  // Dapper and python legs, the first golden to record an optimistic-concurrency
-  // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
-  // sentence differs (node names the aggregate + id, the other four answer one
-  // fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
-  // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
+  // elixir's workflow / explicit-route dispatcher receives the bare
+  // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
+  // generic sentence.  Status, `title` and `type` agree; every other backend
+  // names `<Aggregate> <id>` (RS-40).  #3838 carries both through the term.
   {
-    backends: ["dapper", "python", "elixir"],
+    backends: ["elixir"],
     cases: ["transactional-workflow-event-rollback"],
     request: "POST /api/workflows/debit_twice",
     path: "$.detail",
     kinds: ["value"],
     reason:
-      "M-T6.91 — the concurrency-conflict 409 detail is `<Aggregate> <id> was modified by another request` on node, a fixed sentence on .NET/java/python/elixir",
+      "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
+  // node/drizzle orders every read with no declared order by `id` (the
+  // read-scope order).  The other legs still answer Postgres's physical order,
+  // which moves a row an `update` rewrote to the end, so the three reads below
+  // that list a row after updating it come back in a different order.  Each
+  // entry goes when that backend's reads take the `id` order.
+  ...(
+    [
+      ["projection-join", "GET /api/projections/order_with_customer"],
+      ["prefix-filter", "GET /api/docs/under?prefix=root"],
+      ["datetime-wire", "GET /api/projections/slot_board"],
+    ] as const
+  ).map(
+    ([c, request]): WireWaiver => ({
+      backends: ["dotnet", "dapper", "java", "python", "elixir", "mikroorm"],
+      cases: [c],
+      request,
+      path: "$",
+      kinds: ["ordering"],
+      reason:
+        "#3438 — only node/drizzle orders an unordered read by `id` yet; the other legs answer physical (heap) order",
+    }),
+  ),
 ];

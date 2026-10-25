@@ -4,18 +4,15 @@ import type {
   FindIR,
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import {
-  aggregateUsesMoneyDeep,
-  aggregateUsesPrincipalContextFilter,
-  findUsesCurrentUser,
-} from "../../ir/types/loom-ir.js";
+import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
-import { aggregateIsAudited } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
   contextFilterPredicate,
@@ -30,7 +27,7 @@ import {
   runMethod,
   withKind,
 } from "./repository-find-builder.js";
-import { writeScopeGuardLines } from "./repository-find-predicate.js";
+import { readScopeUsesPrincipal, writeScopeGuardLines } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
@@ -103,7 +100,7 @@ export function buildRepositoryFile(
     // (reified-criteria.md, the anonymous-`filter` row) — the predicate
     // builder calls the same module-level fn (non-principal entries only;
     // principal filters are validator-rejected on Hono).
-    ...nonPrincipalContextFilterEntries(agg).map((e) => e.criterionRef),
+    ...nonPrincipalContextFilterEntries(agg, ctx).map((e) => e.criterionRef),
   ];
   for (const ref of reifyingRefs) {
     const c = reifiableCriterion(ref, ctx, retrievalTable);
@@ -129,7 +126,7 @@ export function buildRepositoryFile(
   // currentUser.tenantId`) reads the ambient principal via `requireCurrentUser()`
   // inside every root read's predicate — so the repo imports that accessor
   // (DEBT-01).  Unlike a per-find `currentUser` use, no method signature changes.
-  const usesPrincipalFilter = aggregateUsesPrincipalContextFilter(agg);
+  const usesPrincipalFilter = readScopeUsesPrincipal(agg, ctx);
   const partNames = agg.parts.map((p) => p.name);
   const domainImports = [agg.name, ...partNames].join(", ");
   const valueObjectsUsed = collectValueObjects(agg, ctx);
@@ -157,7 +154,7 @@ export function buildRepositoryFile(
   const saveM = saveMethod(agg, ctx, emitTrace);
   // Hard delete — emitted only when the aggregate has a canonical `destroy`
   // (declared or via `crudish`), so plain aggregates' repos are unchanged.
-  const deleteM = agg.canonicalDestroy ? deleteMethod(agg, ctx) : null;
+  const deleteM = canonicalDestroy(agg) ? deleteMethod(agg, ctx) : null;
   // Find queries — capability filter AND-ed into each read.
   const findMs = (repo?.finds ?? []).map((find) => findQueryMethod(agg, find, ctx, filterPred));
   const viewFindMs = [...projectionFinds].map((find) =>
@@ -258,7 +255,7 @@ export function buildRepositoryFile(
     // Persist-time audit stamping helper — pulled in only when this aggregate's
     // `save()` stamps (audited).  Stamps the audit columns from the ambient
     // request principal at the upsert (db/audit-stamp.ts).
-    aggregateIsAudited(agg) && `import { stampInsert, stampUpdate } from "../audit-stamp";`,
+    aggregateIsAudited(agg) && stampImportLine(agg, { update: true }),
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
@@ -311,7 +308,7 @@ function getByIdMethod(
  * `DELETE … WHERE id = …`; containment children and join-table rows are
  * removed by their `ON DELETE CASCADE` foreign keys, so no per-child
  * cleanup is needed here (unlike `save`, which diffs collections).  Only
- * emitted when `agg.canonicalDestroy` is set. */
+ * emitted when `canonicalDestroy(agg)` is set. */
 function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
   // A TPH concrete subtype lives in its abstract base's shared table, so the
   // delete targets the owner's table (`tableOwnerName`) — not the subtype's

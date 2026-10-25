@@ -326,7 +326,9 @@ system PSP {
 // the one feature on the table whose silent gap is a SECURITY hole rather than
 // a missing capability — an unredacted mask ships the sensitive value in the
 // clear — so each marker is the redaction ITSELF (the principal-guarded
-// projection), never merely the presence of a `currentUser` accessor.
+// projection), never merely the presence of a `currentUser` accessor.  The
+// deployable needs `auth: required`: without a principal the mask is refused
+// (`loom.field-mask-principal-without-auth`).
 const fieldMaskDdd = (platform: string): string => `
 system Masked {
   user { id: string  role: string }
@@ -342,7 +344,7 @@ system Masked {
   api A from People
   storage pg { type: postgres }
   resource s { for: Staff, kind: state, use: pg }
-  deployable d { platform: ${platform}, contexts: [Staff], dataSources: [s], serves: A, port: 4000 }
+  deployable d { platform: ${platform}, contexts: [Staff], dataSources: [s], serves: A, port: 4000, auth: required }
 }`;
 
 // Audited LIFECYCLE actions (`audited create` / `destroy`) — a SEPARATE emit
@@ -798,7 +800,7 @@ const FEATURES: readonly Feature[] = [
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
     marker: {
-      node: '.from(schema.products).where(ne(schema.products.name, ""));',
+      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id));',
       dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
       // ^ the SINGLETON list is load-bearing: it also pins that the model under
       // test carries exactly one capability filter (see the fixture note above).

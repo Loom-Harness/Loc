@@ -85,14 +85,19 @@ system Demo {
     if (!routes) throw new Error("account_routes.py not emitted");
     // Single-field invariant → Pydantic Field constraint (FastAPI 422 on bad input).
     expect(routes).toContain("handle: WireStr = Field(min_length=1)");
-    // Cross-field invariant → @model_validator that raises ValueError → 422,
-    // instead of falling through to the domain's DomainError → 400.
+    // Cross-field invariant → @model_validator that raises a typed
+    // PydanticCustomError → 422 (never a bare ValueError, whose wire message is
+    // "Value error, …" — RS-44), instead of falling through to the domain's
+    // DomainError → 400.
     expect(routes).toMatch(
       /from pydantic import (?:\([^)]*\bField\b[^)]*\bmodel_validator\b|[^\n(]*\bField\b[^\n]*\bmodel_validator\b)/,
     );
     expect(routes).toMatch(/@model_validator\(mode="after"\)/);
     expect(routes).toContain("if not (self.handle != self.email):");
-    expect(routes).toContain('raise ValueError("Invariant violated: handle != email")');
+    expect(routes).toContain(
+      'PydanticCustomError("invariant", "Invariant violated: handle != email")',
+    );
+    expect(routes).not.toContain("raise ValueError(");
     // M-T6.8/SYS-1: the crudish `update` op's request model mirrors create's
     // wire constraints — Field(min_length=1) + the cross-field @model_validator
     // — so an invalid UPDATE is also rejected with 422 at the FastAPI boundary,
@@ -176,7 +181,7 @@ describe("python routes", () => {
     expect(problem).toContain("@app.exception_handler(RequestValidationError)");
     expect(problem).toContain('"pointer": _pointer(tuple(e["loc"])),');
     expect(problem).toContain(
-      '"message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),',
+      '"message": MISSING_FIELD if e.get("type") == "missing" else _wire_message(e),',
     );
     // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
     expect(problem).toContain('if code.startswith("msg."):');

@@ -213,3 +213,5 @@ is not queryable** (a block-function call is rejected in a `where` /
 ladder crisp: `function` (pure; expression form inlinable) → `criterion`
 (pure, queryable predicate) → `domainService` (reads, decides, mutates
 passed-in aggregates).
+
+For how a `domainService` operation compares to an aggregate `operation`, a `workflow` and a handler, see [Choosing a callable kind](language-reference/06-behavior-and-statements.md#choosing-a-callable-kind).

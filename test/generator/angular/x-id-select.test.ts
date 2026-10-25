@@ -89,7 +89,7 @@ describe("angular generator — CreateForm `X id` field renders a Select", () =>
   it("primeng: renders a <p-select> driven by the useAll<X> options + item template testid", async () => {
     const page = await formPage("primeng");
     expect(page).toContain(
-      '<p-select [options]="customerAll.data()?.items ?? []" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId">',
+      '<p-select [options]="customerAll.data()?.items ?? []" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId"',
     );
     expect(page).toContain(
       `<span [attr.data-testid]="'orders-new-input-customerId-option-' + __o.id">{{ __o.display }}</span>`,
@@ -102,7 +102,7 @@ describe("angular generator — CreateForm `X id` field renders a Select", () =>
   it("spartanNg: renders a plain <select> with the useAll<X> @for loop + per-option testid", async () => {
     const page = await formPage("spartanNg");
     expect(page).toContain(
-      '<select class="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId">',
+      '<select class="loom-input" formControlName="customerId" data-testid="orders-new-input-customerId"',
     );
     expect(page).toContain("@for (__o of customerAll.data()?.items ?? []; track __o.id) {");
     expect(page).toContain(

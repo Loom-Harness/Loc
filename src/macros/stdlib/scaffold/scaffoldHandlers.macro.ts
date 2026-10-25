@@ -1,3 +1,4 @@
+import { repoOpVerb } from "../../../util/repository-contract.js";
 import type { BoundedContext, TypeRef } from "../../api/index.js";
 import {
   callStmt,
@@ -105,7 +106,10 @@ function buildHandler(t: HandlerTarget) {
         // `let o = <Repo>.getById(<idParam>)`
         letStmt(
           "o",
-          memberAccess(nameRef(t.repo.name), "getById", { call: true, args: [nameRef(idParam)] }),
+          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
+            call: true,
+            args: [nameRef(idParam)],
+          }),
         ),
         // `o.<op>(cmd.<p>, …)` — the op's args read off the command record.
         callStmt(
@@ -180,7 +184,7 @@ function buildHandler(t: HandlerTarget) {
       const body = [
         letStmt(
           "o",
-          memberAccess(nameRef(t.repo.name), "getById", {
+          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
             call: true,
             args: [memberAccess(nameRef("query"), idField)],
           }),
@@ -204,7 +208,10 @@ function buildHandler(t: HandlerTarget) {
         // `let o = <Repo>.getById(<idParam>)`
         letStmt(
           "o",
-          memberAccess(nameRef(t.repo.name), "getById", { call: true, args: [nameRef(idParam)] }),
+          memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
+            call: true,
+            args: [nameRef(idParam)],
+          }),
         ),
         // `<Repo>.delete(o)` — a repo-delete statement.
         callStmt([t.repo.name, "delete"], [nameRef("o")]),

@@ -4,23 +4,34 @@
 //   - lowerToDrizzle: IR `where` expression → Drizzle operator tree
 //     (eq / ne / gt / … / and / or / not), or null for shapes Drizzle
 //     can't represent in plain SQL (the validator rejects those).
-//   - the capability-filter helpers (`filter <expr>` → contextFilters)
-//     that lower onto every root read, plus the combinator that AND-s a
+//   - the read-restriction helpers (the `kind` scope and the filters of the
+//     read-scope fact, `src/ir/enrich/read-scope.ts`) that lower onto every
+//     root read, plus the combinator that AND-s a
 //     filter predicate into an existing read predicate.
 //
 // Pure leaf — the find method builders depend on these, never the reverse.
 
+import {
+  type ReadBypass,
+  type ReadScope,
+  readDiscriminator,
+  readFilterRestrictions,
+  readOrderFor,
+  readScopeFor,
+} from "../../ir/enrich/read-scope.js";
 import type {
   BoundedContextIR,
   CriterionIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
+  SortTermIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { nullComparison, orientComparison } from "../../ir/util/comparison-operands.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
+import { principalTerm } from "../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -34,6 +45,7 @@ import {
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
@@ -255,6 +267,25 @@ export function lowerToDrizzle(
         ops.add(fn);
         return `${fn}(${l}, ${r})`;
       }
+      // A principal term (`currentUser.role == "agent"`) reads no column: its
+      // truth is fixed for the request, so it is decided in JS against the
+      // principal and enters the query as a constant `sql` TRUE / FALSE.
+      {
+        const pt = principalTerm(e);
+        if (pt) {
+          const test = renderPrincipalTest(pt, {
+            claim: (field) => `${principal}.${field}`,
+            value: (v) => renderValue(v),
+            isNull: (x) => `${x} == null`,
+            isNotNull: (x) => `${x} != null`,
+            eq: (l, r) => `${l} === ${r}`,
+            ne: (l, r) => `${l} !== ${r}`,
+          });
+          if (test === null) return null;
+          ops.add("sql");
+          return `(${test} ? sql\`true\` : sql\`false\`)`;
+        }
+      }
       const drizzleFn = COMPARE_OP_TO_DRIZZLE[e.op];
       if (!drizzleFn) return null;
       // `this.<optionalCol> == null` / `!= null` — SQL's IS [NOT] NULL, which
@@ -335,7 +366,12 @@ export function lowerToDrizzle(
           for (const op of ["and", "isNull", "isNotNull"]) ops.add(op);
           onNull = `and(isNull(${colExpr}), isNotNull(${colExpr}))`;
         }
-        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${valueExpr}))`;
+        // TS narrows a member chain rooted at an identifier (`currentUser.x`)
+        // but not one rooted at a CALL (`requireCurrentUser().x`, the
+        // capability-filter accessor), so the non-null branch asserts what the
+        // ternary just tested.
+        const narrowed = valueExpr.includes("(") ? `${valueExpr}!` : valueExpr;
+        return `(${valueExpr} == null ? ${onNull} : ${orientedFn}(${colExpr}, ${narrowed}))`;
       }
       return `${orientedFn}(${colExpr}, ${valueExpr})`;
     }
@@ -607,7 +643,7 @@ export function lowerToDrizzle(
 }
 
 // ---------------------------------------------------------------------------
-// Capability filters (`filter <expr>` → AggregateIR.contextFilters).
+// Read restrictions — the read-scope fact (`src/ir/enrich/read-scope.ts`).
 //
 // EF Core installs these once via `HasQueryFilter` and applies them to
 // every query automatically.  Drizzle has no global query filter, so the
@@ -623,69 +659,80 @@ export function lowerToDrizzle(
 // `currentUser` in scope — so it always inlines.
 // ---------------------------------------------------------------------------
 
-/** The capability-filter predicates for an aggregate that lower to a CLOSED
- *  Drizzle expression — i.e. every predicate except the principal-referencing
- *  ones, in declaration order.  Callers are the ones that need a predicate
- *  with no ambient-principal dependency: the drizzle-op import walk (which
- *  lowers each predicate without a `principalAccessor`) and the criterion
- *  reifier.  Every root read still applies the FULL set — principal filters
- *  included — via `contextFilterPredicate`. */
-export function nonPrincipalContextFilters(agg: EnrichedAggregateIR): ExprIR[] {
-  return (agg.contextFilters ?? []).filter((p) => !exprUsesCurrentUser(p));
-}
+/** A read's `ignoring` stance (`ignoring <Cap>` / `ignoring *`), as carried on
+ *  `FindIR` / the repo-run stmt / a projection query.  The read-scope fact
+ *  (`src/ir/enrich/read-scope.ts`) decides which restrictions it drops. */
+export type FilterBypass = ReadBypass;
 
-/** Same set, paired with the per-entry `criterionRef` (index-aligned in the
- *  IR) so the predicate builder can reify a filter that is exactly one named
- *  criterion (reified-criteria.md, the anonymous-`filter` row). */
-export function nonPrincipalContextFilterEntries(
+/** The read-scope fact for one read of `agg` — the single source every drizzle
+ *  read site takes its `kind` scope and its filters from. */
+function drizzleReadScope(
   agg: EnrichedAggregateIR,
-): { predicate: ExprIR; criterionRef?: { name: string; args: ExprIR[] } }[] {
-  return (agg.contextFilters ?? [])
-    .map((predicate, i) => ({ predicate, criterionRef: agg.contextFilterRefs?.[i] }))
-    .filter((e) => !exprUsesCurrentUser(e.predicate));
+  ctx: BoundedContextIR,
+  bypass?: FilterBypass,
+): ReadScope {
+  return readScopeFor(agg, ctx.aggregates, { ignoring: bypass });
 }
 
-/** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
- *  carried index-by-name on `FindIR` / the repo-run stmt.  Named
- *  capabilities are matched against `AggregateIR.contextFilterOrigins`; a
- *  filter whose origin is `undefined` (hand-written/bare) is never bypassable
- *  — only capability-contributed filters can be `ignoring`-dropped. */
-export interface FilterBypass {
-  bypassAll?: boolean;
-  bypassCaps?: string[];
-}
-
-/** True when the capability filter at `contextFilterOrigins[i]` is dropped by
- *  `bypass`: `ignoring *` drops every capability-origin filter; a named
- *  `ignoring <Cap>` drops only the matching origin.  An `undefined` origin
- *  (bare/hand-written filter) is never dropped. */
-function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | undefined): boolean {
-  if (!bypass || origin === undefined) return false;
-  if (bypass.bypassAll) return true;
-  return (bypass.bypassCaps ?? []).includes(origin);
-}
-
-/** ALL capability-filter entries for an aggregate (principal-referencing
- *  included), index-aligned with their `criterionRef`.  A principal filter
- *  (`currentUser.tenantId`) renders to `currentUser.<field>` against the
- *  `currentUser: User` parameter the read method gains — see
- *  `aggregateUsesPrincipalContextFilter`.  (DEBT-01.)
- *
- *  When `bypass` is supplied (the read carried an `ignoring` clause), entries
- *  whose `contextFilterOrigins[i]` the bypass names are dropped from the
- *  conjunction — the capability's predicate is OMITTED for that read only. */
+/** The predicate-carrying restrictions of one read of `agg` (the `kind` scope
+ *  excluded), with the read's `ignoring` clause applied, each paired with its
+ *  `criterionRef`.  A principal restriction (`currentUser.tenantId`) is
+ *  included and renders against the ambient `requireCurrentUser()` accessor
+ *  (DEBT-01). */
 export function allContextFilterEntries(
   agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
   bypass?: FilterBypass,
 ): { predicate: ExprIR; criterionRef?: { name: string; args: ExprIR[] } }[] {
-  return (agg.contextFilters ?? [])
-    .map((predicate, i) => ({
-      predicate,
-      criterionRef: agg.contextFilterRefs?.[i],
-      origin: agg.contextFilterOrigins?.[i],
-    }))
-    .filter((e) => !isFilterBypassed(e.origin, bypass))
-    .map(({ predicate, criterionRef }) => ({ predicate, criterionRef }));
+  return readFilterRestrictions(drizzleReadScope(agg, ctx, bypass)).map((r) => ({
+    predicate: r.predicate,
+    criterionRef: r.criterionRef,
+  }));
+}
+
+/** The same entries minus the principal-referencing ones — the filters that
+ *  lower to a CLOSED Drizzle expression, so the only ones that may reify into a
+ *  module-level `<name>Criterion(...)` fn (which has no `currentUser` in
+ *  scope).  Every root read still applies the full set via
+ *  `contextFilterPredicate`. */
+export function nonPrincipalContextFilterEntries(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+): { predicate: ExprIR; criterionRef?: { name: string; args: ExprIR[] } }[] {
+  return allContextFilterEntries(agg, ctx).filter((e) => !exprUsesCurrentUser(e.predicate));
+}
+
+/** The TPH `kind` scope of one read of `agg` as a Drizzle predicate over
+ *  `tableName`, or null when `agg` reads a table of its own. */
+export function drizzleKindPredicate(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  tableName: string,
+): string | null {
+  const kind = readDiscriminator(drizzleReadScope(agg, ctx));
+  return kind ? drizzleDiscriminatorEq(tableName, kind) : null;
+}
+
+/** The one drizzle spelling of a TPH discriminator scope: `kind = '<value>'`
+ *  over the shared table. */
+export function drizzleDiscriminatorEq(tableName: string, kind: string): string {
+  return `eq(schema.${tableName}.kind, ${JSON.stringify(kind)})`;
+}
+
+/** True when any restriction a read of `agg` applies reads the principal
+ *  (`currentUser.<claim>`), so the repository must bind the ambient
+ *  `requireCurrentUser()` accessor. */
+export function readScopeUsesPrincipal(agg: EnrichedAggregateIR, ctx: BoundedContextIR): boolean {
+  return allContextFilterEntries(agg, ctx).some((e) => exprUsesCurrentUser(e.predicate));
+}
+
+/** The ORDER BY arguments a drizzle read takes (`asc(schema.t.id)`), from the
+ *  read-scope order: the declared terms with an `id` tie-break, or `id` alone
+ *  when the read declares none. */
+export function drizzleOrderBy(tableName: string, declared?: readonly SortTermIR[]): string {
+  return readOrderFor(declared)
+    .map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
+    .join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -759,7 +806,7 @@ export function contextFilterPredicate(
   bypass?: FilterBypass,
 ): string | null {
   const tableName = repoTableName(agg, ctx);
-  const entries = allContextFilterEntries(agg, bypass);
+  const entries = allContextFilterEntries(agg, ctx, bypass);
   if (entries.length === 0) return null;
   const lowered: string[] = [];
   for (const e of entries) {

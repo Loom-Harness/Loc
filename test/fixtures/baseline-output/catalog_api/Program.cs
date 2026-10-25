@@ -154,6 +154,10 @@ builder.Services.AddControllers(opts =>
         new CatalogApi.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new CatalogApi.Serialization.CanonicalInstantOffsetJsonConverter());
+    // An int literal past Int32 names itself (RS-42), so ValidationProblem
+    // answers it as a 422 at the field instead of a 400 for the body.
+    opts.JsonSerializerOptions.Converters.Add(
+        new CatalogApi.Serialization.Int32RangeJsonConverter());
 });
 
 // Model binding + DataAnnotations run BEFORE any controller action, so a
@@ -351,7 +355,7 @@ using (var migrationScope = app.Services.CreateScope())
     }
     catch (Exception migrationError)
     {
-        migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", migrationError.Message);
+        migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", (migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message);
         throw;
     }
 }

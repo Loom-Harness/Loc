@@ -13,6 +13,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -31,7 +32,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited } from "./audit-stamp.js";
+import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
@@ -57,7 +58,7 @@ export function renderMikroDocumentRepository(
   const row = rowClassOf(agg.name);
   const idVar = `Ids.${agg.name}Id`;
   const versioned = aggregateIsVersioned(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>
@@ -71,8 +72,8 @@ export function renderMikroDocumentRepository(
   // `currentUser` bound in each read's scope, exactly as the drizzle document
   // builder does (`principalBind`).  Pairwise F5: this bind was missing here,
   // so every read named a free `currentUser` (TS2304).
-  const capRec = documentCapabilityBody(agg, "rec");
-  const capX = documentCapabilityBody(agg, "x");
+  const capRec = documentCapabilityBody(agg, ctx, "rec");
+  const capX = documentCapabilityBody(agg, ctx, "x");
   const principalBind = aggregateUsesPrincipalContextFilter(agg)
     ? `    const currentUser = requireCurrentUser();`
     : null;
@@ -103,7 +104,7 @@ export function renderMikroDocumentRepository(
     // drizzle document defect (M-T6.51).  The relational mikro path already
     // threads the bypass (`mikroContextFilters(agg, { bypassAll, bypassCaps })`);
     // the document path now does too.
-    const findCap = documentCapabilityBody(agg, "x", {
+    const findCap = documentCapabilityBody(agg, ctx, "x", {
       bypassAll: f.bypassAll,
       bypassCaps: f.bypassCaps,
     });
@@ -181,7 +182,7 @@ export function renderMikroDocumentRepository(
   // failed while drizzle passed.
   // Property SHORTHAND when unaudited (`data`, not `data: data`) so an
   // aggregate with no lifecycle stamps emits byte-identically to before.
-  const docData = docAudited ? "data: stampInsert(data)" : "data";
+  const docData = docAudited ? `data: ${stampInsertCall(agg, "data")}` : "data";
   const saveLines = versioned
     ? [
         `    const expected = expectedVersion ?? aggregate.version;`,
@@ -322,7 +323,7 @@ export function renderMikroDocumentRepository(
         ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
         : `import { AggregateNotFoundError } from "../../domain/errors";`,
       `import type { DomainEventDispatcher } from "../../domain/events";`,
-      docAudited && `import { stampInsert } from "../audit-stamp";`,
+      docAudited && stampImportLine(agg, { update: false }),
       `import { requestLog } from "../../obs/als";`,
       "",
       body,

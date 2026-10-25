@@ -35,7 +35,7 @@ import {
 } from "../../types/loom-ir.js";
 import { type GroupKey, groupKeyOf, sameGroupKey } from "../../util/projection-aggregate.js";
 import { typeLabel } from "../../util/type-label.js";
-import { walkExprDeep } from "../../util/walk.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { firstNonQueryablePredicate } from "./shared.js";
 
@@ -52,6 +52,21 @@ const WHOLE_TABLE_AGGREGATIONS: ReadonlySet<string> = new Set([
   "min",
   "max",
 ]);
+
+/** A `select` written as an aggregation call the lowering could not recognise
+ *  because of its ARITY — `count(o.flag)` (count takes no column) or
+ *  `sum()` / `sum(a, b)` (the others take exactly one) — else `null`.  Such a
+ *  select is neither an aggregate nor a resolvable per-row expression, so
+ *  without this pre-check it would draw two contradictory diagnostics (an
+ *  unresolved name AND, under `group by`, a per-row select not grouped); it
+ *  gets exactly one, `loom.projection-aggregate-arity`. */
+function misAritiedAggregation(e: ExprIR): { op: string; argCount: number } | null {
+  if (e.kind !== "call" || e.callKind !== "free" || !WHOLE_TABLE_AGGREGATIONS.has(e.name)) {
+    return null;
+  }
+  const ok = e.name === "count" ? e.args.length === 0 : e.args.length === 1;
+  return ok ? null : { op: e.name, argCount: e.args.length };
+}
 
 /** First unresolved NAME anywhere in a `select` expression, or `null` when
  *  every name resolves.  Two shapes, because the aggregation vocabulary lowers
@@ -397,12 +412,52 @@ function validateQueryComprehension(
       checkAggregateDeclaredType(ctx, proj, s, diags);
       continue;
     }
+    // A select-only row takes each field's type from its expression, and
+    // `datetime - datetime` is a `duration` — a type with no column and no
+    // wire form on any backend (it has no field syntax for the same reason).
+    const selType = s.type?.kind === "optional" ? s.type.inner : s.type;
+    if (selType?.kind === "primitive" && selType.name === "duration") {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-select-duration",
+        message: diagMessage("loom.projection-select-duration", {
+          name: proj.name,
+          field: s.field,
+        }),
+        source: `${ctx.name}/${proj.name}`,
+      });
+      continue;
+    }
+    const misAritied = misAritiedAggregation(s.expr);
+    if (misAritied) {
+      diags.push({
+        severity: "error",
+        code: "loom.projection-aggregate-arity",
+        message:
+          misAritied.op === "count"
+            ? diagMessage("loom.projection-aggregate-arity#count", {
+                name: proj.name,
+                field: s.field,
+              })
+            : diagMessage("loom.projection-aggregate-arity#column", {
+                name: proj.name,
+                field: s.field,
+                op: misAritied.op,
+                argCount: misAritied.argCount,
+              }),
+        source: `${ctx.name}/${proj.name}`,
+        origin: proj.origin,
+      });
+      continue;
+    }
     const unresolved = firstUnresolvedRefName(s.expr);
     if (!unresolved) continue;
-    const hint = WHOLE_TABLE_AGGREGATIONS.has(unresolved)
-      ? ` (a whole-table '${unresolved}' needs the aggregated column — write ` +
-        `'${unresolved}(<alias>.<field>)', or bare 'count' to count rows)`
-      : "";
+    const hint = !WHOLE_TABLE_AGGREGATIONS.has(unresolved)
+      ? ""
+      : unresolved === "count"
+        ? ` ('count' / 'count()' counts the rows)`
+        : ` (a whole-table '${unresolved}' needs the aggregated column — write ` +
+          `'${unresolved}(<alias>.<field>)')`;
     diags.push({
       severity: "error",
       code: "loom.projection-select-unresolved",
@@ -592,7 +647,8 @@ function validateGroupBy(ctx: BoundedContextIR, proj: ProjectionIR, diags: LoomD
   // key matches, transform included: `select day = o.placedAt` against
   // `group by o.placedAt.startOfDay()` is per-row, not per-group.
   for (const s of selects) {
-    if (s.aggregate) continue;
+    // A mis-aritied aggregation call is reported once, as such, above.
+    if (s.aggregate || misAritiedAggregation(s.expr)) continue;
     const key = groupKeyOf(s.expr);
     if (key === null || !keys.some((k) => sameGroupKey(k, key))) {
       diags.push({
@@ -665,11 +721,14 @@ function validateHandlers(
     seen.add(h.event);
 
     // Routability: with no explicit `by`, the event must carry the key field
-    // by name so the runtime can route by `e.<key>`.
-    if (!h.correlation) {
+    // by name so the runtime can route by `e.<key>`.  With no `keyed by` at
+    // all there is no key column to route to, so an explicit `by` does not
+    // help either — the row has nowhere to store the routed key.
+    const keyless = proj.correlationField === undefined;
+    if (!h.correlation || keyless) {
       const event = ctx.events.find((e) => e.name === h.event);
-      const carriesKey = event?.fields.some((f) => f.name === proj.correlationField);
-      if (event && !carriesKey) {
+      const carriesKey = !keyless && event?.fields.some((f) => f.name === proj.correlationField);
+      if ((event || keyless) && !carriesKey) {
         diags.push({
           severity: "error",
           code: "loom.projection-event-unkeyed",
@@ -734,7 +793,11 @@ function foldImpurity(stmt: StmtIR): string | undefined {
     case "add":
     case "remove":
     case "let":
-      return undefined;
+      // Pure by KIND, but a value is an expression, and an expression can
+      // reach outside the event: `blob := files.get(k)` reads a bucket on
+      // every replay.  No fold emitter has a resource client in scope either
+      // (.NET / Java / Phoenix threw mid-generation).
+      return outboundCallIn(stmt);
     case "emit":
       return "emits an event";
     case "call":
@@ -766,6 +829,21 @@ function foldImpurity(stmt: StmtIR): string | undefined {
       return _exhaustive;
     }
   }
+}
+
+/** The impurity phrase for the first resource / remote-api call anywhere
+ *  under a fold statement's expressions, or `undefined` when there is none. */
+function outboundCallIn(stmt: StmtIR): string | undefined {
+  let found: string | undefined;
+  walkStmtExprsDeep(stmt, (e) => {
+    if (found || e.kind !== "call") return;
+    if (e.callKind === "resource-op" && e.resourceOp) {
+      found = `${e.resourceOp.resourceName}.${e.resourceOp.verb}`;
+    } else if (e.callKind === "remote-api-op" && e.remoteApiOp) {
+      found = `${e.remoteApiOp.resourceName}.${e.remoteApiOp.operationId}`;
+    }
+  });
+  return found ? `calls the resource operation '${found}(...)'` : undefined;
 }
 
 /** Best-effort name of the call a bare expression-statement performs, for the

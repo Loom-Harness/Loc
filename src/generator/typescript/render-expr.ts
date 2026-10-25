@@ -523,9 +523,9 @@ function renderCall(
       // `find` takes the first row (`[0] ?? null`), mirroring the if-let render.
       const read = e.repoRead!;
       const handle = lowerFirst(read.repo);
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const call = `${handle}.run${upperFirst(read.retrievalName)}(${argList})`;
-        return read.readKind === "find" ? `(await ${call})[0] ?? null` : `(await ${call})`;
+        return read.op === "select-one" ? `(await ${call})[0] ?? null` : `(await ${call})`;
       }
       return `(await ${handle}.${read.method}(${argList}))`;
     }
@@ -890,6 +890,11 @@ const TS_TYPE_TARGET: TypeTarget = {
         return "string";
       case "bool":
         return "boolean";
+      case "date":
+        // A calendar date is its ISO `YYYY-MM-DD` text — the wire form, the
+        // drizzle `date(…, { mode: "string" })` column value, and ordered
+        // correctly by plain string comparison.
+        return "string";
       case "datetime":
         return "Date";
       case "duration":

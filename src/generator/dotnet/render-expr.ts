@@ -14,7 +14,8 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
-import { csCodePointLength } from "../_expr/code-point.js";
+import type { RepoOp } from "../../util/repository-contract.js";
+import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -753,7 +754,8 @@ function nullableValueOperand(e: Extract<ExprIR, { kind: "convert" }>): boolean 
     e.from !== "money" &&
     e.from !== "int" &&
     e.from !== "long" &&
-    e.from !== "datetime"
+    e.from !== "datetime" &&
+    e.from !== "date"
   ) {
     return false;
   }
@@ -786,6 +788,9 @@ function renderCsConvert(
       // ISO 8601 round-trip — "O" is the only format that preserves DateTime
       // precision losslessly, and IFormatProvider keeps the literal stable.
       return `${v}.ToString("O", ${sys}.Globalization.CultureInfo.InvariantCulture)`;
+    }
+    if (from === "date") {
+      return `${v}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
     }
     return `${v}.ToString()`;
   }
@@ -962,16 +967,20 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // check below says no and the call silently becomes culture-sensitive.
   // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` unwraps
   // it, so both forms land here.
-  "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
+  //
+  // `ToUpperInvariant` is a SIMPLE (one char to one char) mapping, so it keeps
+  // `ß`, where node, java, python and elixir apply the full Unicode mapping and
+  // answer "SS" ("straße" → "STRASSE").  The ordinal replace completes it for
+  // the one full-mapping expansion that is not a ligature or polytonic Greek
+  // (see the catalogue contract in `src/util/intrinsics.ts`).
+  "string.toUpper": (recv, _args, q = bareCsBcl) =>
+    `${recv}.ToUpperInvariant().Replace("\\u00DF", "SS", ${q("StringComparison")}.Ordinal)`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
-  // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
-  // .NET's Substring throws on out-of-range, so guard + ${q("Math")}.Min.  Receiver /
-  // arg duplication is safe — Loom expressions are pure.  StringComparison
-  // and Math live in `System`, covered by the SDK's <ImplicitUsings>.
-  "string.substring": (recv, args, q = bareCsBcl) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, ${q("Math")}.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
-      : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
+  // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`) — `Substring` counts UTF-16 units and
+  // throws out of range, so neither half of it fits.  The LINQ it rides is in
+  // the SDK's <ImplicitUsings>.
+  "string.substring": (recv, args) => csCodePointSubstring(recv, args[0]!, args[1]),
   // A ONE-character literal argument takes the `char` overload instead: Roslyn's
   // CA1865 rejects `StartsWith("x", StringComparison.Ordinal)` under the
   // generated project's /warnaserror, and `StartsWith(char)` IS an ordinal
@@ -1041,6 +1050,14 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // Core translates the `DateTime.Date` member to SQL `date_trunc('day', …)`
   // — the query position rides the same LINQ path (hence no SQL-table row).
   "datetime.startOfDay": (recv) => `${recv}.Date`,
+  // Every DateTime here is UTC (above), so its calendar date IS the UTC date.
+  "datetime.toDate": (recv) => `DateOnly.FromDateTime(${recv})`,
+  // ---- date — a `DateOnly`; `DayNumber` is the proleptic day count, so the
+  // difference is exact whole days with no zone in play.
+  "date.year": (recv) => `${recv}.Year`,
+  "date.month": (recv) => `${recv}.Month`,
+  "date.day": (recv) => `${recv}.Day`,
+  "date.daysUntil": (recv, args) => `((${args[0]}).DayNumber - (${recv}).DayNumber)`,
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1330,7 +1347,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // CA1826 (an error under `/warnaserror`), so the first row is read by
         // a list pattern — its variable is scoped to its own arm, so two finds
         // in one expression cannot collide.
-        if (read.readKind !== "named" && read.retrievalName) {
+        if (read.retrievalName) {
           const method = `Run${upperFirst(read.retrievalName)}Async`;
           const { ct } = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
           const callArgs =
@@ -1338,11 +1355,11 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
               ? `${argList}, ${ct}: cancellationToken`
               : `${ct}: cancellationToken`;
           const call = `${handle}.${method}(${callArgs})`;
-          return read.readKind === "find"
+          return read.op === "select-one"
             ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
             : `(await ${call})`;
         }
-        const method = csRepoReadMethod(read.method, read.readKind);
+        const method = csRepoReadMethod(read.op, read.method);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
         // `getById` is contractually NON-NULL — it throws rather than returning
         // absent, which is what `loom.handler-load-nullable-unsupported`
@@ -1362,7 +1379,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // `Api/DomainExceptionFilter.cs`, so "throws → 404" is literally true.
         // A declared find keeps its own declared nullability.
         const call = `await ${handle}.${method}(${ctArg})`;
-        if (read.readKind === "named" && read.method === "getById") {
+        if (read.op === "load") {
           const idArg = argList.length > 0 ? ` {${argList}}` : "";
           return `(${call} ?? throw new AggregateNotFoundException($"${read.aggregate}${idArg} not found"))`;
         }
@@ -1380,24 +1397,17 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
   }
 }
 
-/** The .NET repository method name a `repo-read` (`callKind: "repo-read"`) in a
- *  `reading` domain-service body resolves to (domain-services.md rev. 4).
- *  Mirrors the names the repository emitter generates:
- *   - a named `getById` read → `GetByIdAsync` (the built-in load-or-null, which
- *     carries the `Async` suffix, like the workflow `repoLet`);
- *   - the auto-`findAll` (`readKind: "findAll"`) → `All` (the enriched find named
- *     `all`, PascalCased — no `Async` suffix, like every declared find);
- *   - any other named declared `find` (`byHolder`, …) → `<UpperFirst>` (declared
- *     finds get no `Async` suffix — `Task<Account?> ByHolder(...)`).
- *  The `find`/`run` criterion/retrieval forms are not part of the reading-tier
- *  Slice-1 surface (the validator-admitted bodies use named finds); they fall
- *  back to the PascalCased verb so the switch stays total. */
-function csRepoReadMethod(method: string, readKind: string): string {
-  if (readKind === "named") {
-    return method === "getById" ? "GetByIdAsync" : upperFirst(method);
-  }
-  if (readKind === "findAll") return "All";
-  return upperFirst(method);
+/** The .NET repository method name a `repo-read` (`callKind: "repo-read"`)
+ *  called by name in a `reading` domain-service body resolves to
+ *  (domain-services.md rev. 4).  Mirrors the names the repository emitter
+ *  generates: the by-id `load` → `GetByIdAsync` (the built-in load-or-null,
+ *  which carries the `Async` suffix, like the workflow `repoLet`); any other
+ *  read called by name (a declared find such as `byHolder`, the enriched `all`)
+ *  → `<UpperFirst>` (declared finds get no `Async` suffix — `Task<Account?>
+ *  ByHolder(...)`).  A criterion / retrieval read never reaches here: it
+ *  carries a `retrievalName` and renders the retrieval method. */
+function csRepoReadMethod(op: RepoOp, method: string): string {
+  return op === "load" ? "GetByIdAsync" : upperFirst(method);
 }
 
 function renderNew(
@@ -1445,6 +1455,8 @@ const CS_TYPE_TARGET: TypeTarget = {
         return "bool";
       case "datetime":
         return "DateTime";
+      case "date":
+        return "DateOnly";
       case "guid":
         return "Guid";
       case "json":

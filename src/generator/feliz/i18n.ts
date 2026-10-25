@@ -31,7 +31,7 @@ import { fsString } from "./fs-expr.js";
 
 /** The npm dependency the ICU half needs — the same engine, at the same pin,
  *  the four JS frontends' stack dependency blocks carry. */
-export const FELIZ_INTL_MESSAGEFORMAT = "^10.7.0";
+export const FELIZ_INTL_MESSAGEFORMAT = "10.7.18";
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (module + npm dependency + `ctx.i18nPrefix`).  Empty
@@ -103,8 +103,23 @@ export function renderFelizI18nModule(ui: UiIR): string {
     "        | Some m -> m",
     "        | None -> defaultMessage",
     "",
+    "    /// A `{x, date}` hole formats a date, but a calendar `date` is its ISO",
+    "    /// `YYYY-MM-DD` text on this frontend.  It becomes LOCAL midnight of that",
+    "    /// day, so every zone shows the day that was written (UTC midnight reads",
+    "    /// as the previous day west of UTC).",
+    "    let private holeValue (message: string) (name: string, value: obj) : string * obj =",
+    "        match value with",
+    "        | :? string as s when",
+    "            s.Length = 10",
+    '            && System.Text.RegularExpressions.Regex.IsMatch(s, "^\\\\d{4}-\\\\d{2}-\\\\d{2}$")',
+    '            && System.Text.RegularExpressions.Regex.IsMatch(message, "\\\\{\\\\s*" + name + "\\\\s*,\\\\s*date")',
+    "            ->",
+    "            name, box (System.DateTime(int (s.Substring(0, 4)), int (s.Substring(5, 2)), int (s.Substring(8, 2))))",
+    "        | _ -> name, value",
+    "",
     "    /// Translate, then ICU-format the message's holes in the active locale.",
     "    let tf (key: string) (defaultMessage: string) (values: (string * obj) list) : string =",
-    "        icuFormat intlMessageFormat (t key defaultMessage) activeLocale (createObj values)",
+    "        let message = t key defaultMessage",
+    "        icuFormat intlMessageFormat message activeLocale (createObj (List.map (holeValue message) values))",
   );
 }

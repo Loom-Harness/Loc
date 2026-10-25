@@ -13,6 +13,8 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -39,7 +41,7 @@ import {
 } from "./audit-history.js";
 import { javaNotFoundThrow } from "./common.js";
 import { exprsCallDomainService } from "./domain-service.js";
-import { claimStampsFor } from "./entity.js";
+import { hookStampsFor } from "./entity.js";
 import {
   declaredFinds,
   isPagedAutoAll,
@@ -102,6 +104,9 @@ export interface ServiceCtx {
   domainRepoPkg: string;
   /** auth: required + system user block — gates currentUser threading. */
   authed?: boolean;
+  /** Declared `user { … }` field names, in declaration order — the shape the
+   *  audit `actor` records (RS-45).  Empty without auth. */
+  userFields?: readonly string[];
   /** The enclosing context — resolves exception-less return unions. */
   boundedContext: EnrichedBoundedContextIR;
   /** Strongly-typed id class (default `<Agg>Id`); a TPH concrete passes
@@ -201,27 +206,32 @@ export function renderJavaService(
   // canonical destroy stage an audit_records row in the SAME @Transactional
   // method as the save / delete.  The route-driving create is the ES `create`
   // for an event-sourced aggregate, else the canonical create.
-  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : agg.canonicalCreate;
+  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : canonicalCreate(agg);
   // See the call site below: document roots stamp explicitly.
   const docClaimCreateStamps =
     agg.savingShape === "document" &&
     agg.persistedAs !== "eventLog" &&
-    claimStampsFor(agg, "create").length > 0;
+    hookStampsFor(agg, "create").length > 0;
   const auditCreate = !!createAction?.audited;
-  const auditDestroy = !!agg.canonicalDestroy?.audited;
+  const auditDestroy = !!canonicalDestroy(agg)?.audited;
   // create: before is JSON null (NullNode → the `null` token, satisfying the
   // NOT NULL jsonb column), after is the freshly-created wire snapshot, keyed by
   // the generated id; actor + correlation/scope/parent ids from RequestContext.
+  // `after` is projected from the instance `save` RETURNS, not the one passed
+  // in.  An assigned-id entity is not "new" to Spring Data, so `save` MERGES:
+  // the AuditingEntityListener stamps the managed copy it returns, and the
+  // instance handed in keeps null @CreatedDate / @CreatedBy — projecting it
+  // NPEs on the first stamp read and the audited create answers 500.
   const createAuditLines = auditCreate
     ? [
-        `        var __after = ${agg.name}Response.from(aggregate);`,
+        `        var __after = ${agg.name}Response.from(__saved);`,
         `        auditRecords.save(new AuditRecord(`,
         `            ${J.UUID}.randomUUID().toString(),`,
         `            ${JSON.stringify(`create${agg.name}`)},`,
         `            "create",`,
         `            ${JSON.stringify(agg.name)},`,
         `            aggregate.id().value().toString(),`,
-        `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
+        `            ${ctx.authed ? "auditActor()" : "null"},`,
         `            ${NULL_NODE}.getInstance(),`,
         `            __after,`,
         `            ${OFFSET_DATE_TIME}.now(),`,
@@ -237,8 +247,8 @@ export function renderJavaService(
   // (op-gates.ts): the create gate belongs beside the factory call, and the
   // destroy gate needs the aggregate the service loads.  The controller is a
   // thin dispatch that holds neither.
-  const createGates = lifecycleGates(agg.canonicalCreate);
-  const destroyGates = lifecycleGates(agg.canonicalDestroy);
+  const createGates = lifecycleGates(canonicalCreate(agg));
+  const destroyGates = lifecycleGates(canonicalDestroy(agg));
   const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
    *  (no instance exists yet — the guard reads the principal only) and the
@@ -267,7 +277,7 @@ export function renderJavaService(
   const createLines = emitsRestCreate(agg)
     ? [
         `    public ${idClass} create${agg.name}(Create${agg.name}Request request) {`,
-        createDefaultUsesUser || lifecycleGatesUseCurrentUser(agg.canonicalCreate)
+        createDefaultUsesUser || lifecycleGatesUseCurrentUser(canonicalCreate(agg))
           ? `        var currentUser = currentUserAccessor.user();`
           : null,
         // BEFORE the factory: a denied create constructs nothing, saves
@@ -279,11 +289,18 @@ export function renderJavaService(
         // its claim stamps (`tenantOwned`'s tenantId/dataKey) cannot ride an
         // @PrePersist hook — entity.ts emits them as a plain `_stampOnCreate()`
         // and the call belongs here, mirroring python's route calling
-        // `_stamp_on_create`.  Both halves read `claimStampsFor` so a method
+        // `_stamp_on_create`.  Both halves read `hookStampsFor` so a method
         // without a caller (stamps nothing) or a caller without a method (does
         // not compile) cannot drift apart (§89).
         docClaimCreateStamps ? `        aggregate._stampOnCreate();` : null,
-        `        repository.save(aggregate);`,
+        // The audited create snapshots the instance the repository SAVED, not
+        // the one it was handed: JPA's `save` of an assigned-id entity merges a
+        // managed copy, and only that copy carries the persist-time stamps
+        // (`@CreatedDate` / `@LastModifiedDate`) — projecting the un-stamped
+        // original dereferenced a null stamp.  Events stay on `aggregate`.
+        auditCreate
+          ? `        var __saved = repository.save(aggregate);`
+          : `        repository.save(aggregate);`,
         ...createAuditLines,
         `        publishEvents(aggregate);`,
         `        return aggregate.id();`,
@@ -441,7 +458,7 @@ export function renderJavaService(
     locals: ReadonlyMap<string, string>,
   ): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&
@@ -453,6 +470,26 @@ export function renderJavaService(
   const anyOpAudited = agg.operations.some((op) => op.visibility === "public" && op.audited);
   const anyLifecycleAudited = auditCreate || auditDestroy;
   const anyAudited = anyOpAudited || anyLifecycleAudited;
+  // The audit row's `actor` (RS-45): the principal's DECLARED `user { … }`
+  // shape by declared name — the `/auth/me` projection — or null.  Handing
+  // Jackson the `User` record instead let its introspection decide the keys.
+  const auditActorLines =
+    anyAudited && ctx.authed
+      ? [
+          `    private java.util.Map<String, Object> auditActor() {`,
+          `        var user = currentUserAccessor.user();`,
+          `        if (user == null) {`,
+          `            return null;`,
+          `        }`,
+          `        var actor = new java.util.LinkedHashMap<String, Object>();`,
+          ...(ctx.userFields ?? []).map(
+            (f) => `        actor.put(${JSON.stringify(f)}, user.${jid(f)}());`,
+          ),
+          `        return actor;`,
+          `    }`,
+          ``,
+        ]
+      : [];
   // The audit-record actor reads `currentUserAccessor.user()` on an authed
   // system even when no operation otherwise uses the current user, so the
   // accessor must be injected whenever audit + auth are both present — not only
@@ -464,8 +501,8 @@ export function renderJavaService(
     // A canonical create/destroy gate reading `currentUser` binds it off the
     // accessor, so the accessor must be injected — otherwise the emitted method
     // references an uninjected field.
-    lifecycleGatesUseCurrentUser(agg.canonicalCreate) ||
-    lifecycleGatesUseCurrentUser(agg.canonicalDestroy);
+    lifecycleGatesUseCurrentUser(canonicalCreate(agg)) ||
+    lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   // Optimistic concurrency (`versioned`): every public mutation threads the
   // client's expected version from the `If-Match` request header (think-time
   // CAS).  When supplied and it disagrees with the freshly-loaded aggregate's
@@ -569,7 +606,7 @@ export function renderJavaService(
         audited ? `            ${JSON.stringify(op.name)},` : null,
         audited ? `            ${JSON.stringify(agg.name)},` : null,
         audited ? `            id.value().toString(),` : null,
-        audited ? `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},` : null,
+        audited ? `            ${ctx.authed ? "auditActor()" : "null"},` : null,
         audited ? `            __before,` : null,
         audited ? `            __after,` : null,
         audited ? `            ${OFFSET_DATE_TIME}.now(),` : null,
@@ -604,7 +641,7 @@ export function renderJavaService(
           // AFTER the load (the gate may read the row) and BEFORE the audit row
           // is staged, so a denied delete records nothing.  `aggregate` is bound
           // regardless of whether the gate reads it — the delete needs it.
-          ...(lifecycleGatesUseCurrentUser(agg.canonicalDestroy)
+          ...(lifecycleGatesUseCurrentUser(canonicalDestroy(agg))
             ? [`        var currentUser = currentUserAccessor.user();`]
             : []),
           ...lifecycleGateLines(destroyGates, "aggregate"),
@@ -617,7 +654,7 @@ export function renderJavaService(
                 `            "destroy",`,
                 `            ${JSON.stringify(agg.name)},`,
                 `            id.value().toString(),`,
-                `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
+                `            ${ctx.authed ? "auditActor()" : "null"},`,
                 `            __before,`,
                 `            ${NULL_NODE}.getInstance(),`,
                 `            ${OFFSET_DATE_TIME}.now(),`,
@@ -642,11 +679,19 @@ export function renderJavaService(
   const voMappers = [...voNames].sort().flatMap((vo) => {
     const fields = voLookup.get(vo) ?? [];
     const args = fields
-      .map((f) => wireToDomain(eff(f.type, f.optional), `request.${jid(f.name)}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(
+          eff(f.type, f.optional),
+          `request.${jid(f.name)}()`,
+          `/${f.name}`,
+          undefined,
+          "at",
+        ),
+      )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, ctx.basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request) {`,
+      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
       `        return new ${vo}(${args});`,
       `    }`,
       ``,
@@ -742,6 +787,7 @@ export function renderJavaService(
     ...canLines,
     ...destroyLines,
     ...voMappers,
+    ...auditActorLines,
     `    private void publishEvents(${agg.name} aggregate) {`,
     `        for (var event : aggregate.pullEvents()) {`,
     // The domain-event narrative line fires at the dispatch seam regardless of

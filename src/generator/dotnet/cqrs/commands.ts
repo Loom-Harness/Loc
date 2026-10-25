@@ -5,6 +5,8 @@ import type {
   EnrichedBoundedContextIR,
   OperationIR,
 } from "../../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -109,7 +111,7 @@ type DepList = readonly { readonly type: string; readonly field: string }[];
 function whenGate(agg: AggregateIR, op: AggregateIR["operations"][number]): string {
   if (!op.when) return "";
   const pred = renderCsExpr(op.when, { thisName: "aggregate" });
-  return `        if (!(${pred})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");\n`;
+  return `        if (!(${pred})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});\n`;
 }
 
 /** Namespaces the gates rendered INTO the handler body reach into — the `when`
@@ -212,7 +214,7 @@ export function emitCreateCommandAndHandler(
     : [];
   // The canonical create's authorization gate (no receiver — the guard reads
   // the principal only, there being no instance yet).
-  const createGate = lifecycleGate(agg.canonicalCreate, ns);
+  const createGate = lifecycleGate(canonicalCreate(agg), ns);
   // `Domain.Common` is already in the base handler usings — don't repeat it
   // here (CS0105 duplicate-using is an error under /warnaserror).
   const createAuditUsings = auditCreate
@@ -329,7 +331,7 @@ export function emitDestroyCommandAndHandler(
   // `Domain.Common` is already in the base handler usings — don't repeat it
   // here (CS0105 duplicate-using is an error under /warnaserror).
   // The canonical destroy's gate reads the row the handler just loaded.
-  const destroyGate = lifecycleGate(agg.canonicalDestroy, ns, "aggregate");
+  const destroyGate = lifecycleGate(canonicalDestroy(agg), ns, "aggregate");
   const destroyAuditUsings = auditDestroy
     ? [
         `${ns}.Application.Common`,

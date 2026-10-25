@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { validate } from "../../src/api/index.js";
+import { type ToolkitOptions, validate } from "../../src/api/index.js";
 import { codeOfMessageKey, DIAGNOSTIC_MESSAGES } from "../../src/diagnostics/messages.js";
+import { fsDesignPackInspector } from "../../src/generator/_packs/loader-fs.js";
 import { TABLE_FILTER_FRAMEWORKS } from "../../src/ir/validate/checks/ui-collection-display-checks.js";
 import {
   allAdapterNames,
@@ -505,7 +506,73 @@ system S {
   } }
 }`;
 
+/** What a fixture needs from the HOST beyond its source — the toolkit parses in
+ *  memory and reads no disk, so a check that inspects a file the model names
+ *  fires only when the host hands phase ⑦ a reader, exactly as the CLI does. */
+const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
+  "loom.design-pack-invalid": {
+    designPacks: fsDesignPackInspector(dirname(fileURLToPath(import.meta.url))),
+  },
+};
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // An event-sourced workflow with only a command-triggered create and no
+  // id-shaped state field: its event stream has no key, so it is refused even
+  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
+  // need the key's id class).
+  "loom.workflow-correlation-required": `
+system EsNoKey {
+  subdomain S { context C {
+    event Recorded { code: string, count: int }
+    workflow Tracker eventSourced {
+      code: string
+      archivedCount: int
+      create(c: string) { emit Recorded { code: c, count: 1 } }
+      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+    }
+  } }
+}`,
+  // An OPTIONAL reference collection: the schema has no optional form of a
+  // join-table set, and JPA crashed demanding an association for it.
+  "loom.collection-field-unpersisted": `
+system OptRefColl {
+  subdomain S { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Order with crudish {
+      code: string
+      tags: Tag id[]?
+    }
+  } }
+}`,
+  // A query-time projection selecting a \`datetime - datetime\` span: a
+  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
+  "loom.projection-select-duration": `
+system SpanSelect {
+  subdomain S { context C {
+    aggregate Order with crudish {
+      code: string
+      openedAt: datetime
+      closedAt: datetime
+    }
+    projection Spans {
+      from Order as o
+      select code = o.code, span = o.closedAt - o.openedAt
+    }
+  } }
+}`,
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // `create(…): T` — a result needs a caller.  An event-triggered starter has
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
@@ -651,6 +718,49 @@ system MemberBackstop {
 }`,
   // An `emit` in a CONTEXT integration test: no backend's integration-test
   // renderer has an arm for it, and before #3133 every one crashed generate.
+  // A `return` in an applier: a fold yields nothing, and the Phoenix fold
+  // renderer has no arm for it (it crashed generate before the gate).
+  "loom.applier-stmt-invalid": `
+system Ledger {
+  subdomain Core { context Accounts {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) {
+        owner := e.owner
+        return owner
+      }
+    }
+    repository Accounts for Account { }
+  } }
+}`,
+  // A workflow fold constructing an entity part of an aggregate: nothing
+  // outside the owning aggregate can hold one (the IR arm; the AST arm — a part
+  // TYPE named outside its aggregate — never links, see `ddd-scope.ts`).
+  "loom.cross-aggregate-entity-part": `
+system WFN {
+  subdomain F { context F {
+    aggregate Order {
+      create(status: string) { }
+      status: string
+      entity Line { sku: string }
+      lines: Line[]
+    }
+    repository Orders for Order { }
+    event Started { order: Order id }
+    event Added { order: Order id, sku: string }
+    workflow Track eventSourced {
+      orderId: Order id
+      last: string
+      create(p: Started) by p.order { emit Added { order: p.order, sku: "x" } }
+      apply(a: Added) {
+        let l = Line { sku: a.sku }
+        last := a.sku
+      }
+    }
+  } }
+}`,
   "loom.test-statement-invalid": `
 system TestVocab {
   subdomain S { context C {
@@ -874,6 +984,19 @@ system UpdateGate {
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
 }`,
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account { }
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to
@@ -1052,6 +1175,13 @@ system S {
     }
     repository Orders for Order { }`),
 
+  // A clause-less find whose parameter names no field: dropped from the query,
+  // the lookup answered with an arbitrary row.
+  "loom.find-param-unbound": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing {
+      find byName(n: string): Thing?
+    }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n
@@ -1192,6 +1322,11 @@ system S {
   "loom.guard-principal-without-auth": deployed(`      aggregate Order {
         code: string
         create(code: string) { requires currentUser.role == "admin"  code := code }
+      }`),
+  "loom.field-mask-principal-without-auth": deployed(`      aggregate Order {
+        code: string
+        total: decimal mask unless currentUser.role == "admin"
+        create(code: string, total: decimal) { code := code  total := total }
       }`),
   "loom.named-lifecycle-dropped": deployed(`      aggregate Order {
         code: string
@@ -1372,11 +1507,9 @@ system S {
   deployable d { platform: dotnet contexts: [Vehicles] dataSources: [st] serves: Api port: 8080 }
 }`,
 
-  // A subtype taking the OPPOSITE tenancy stance from the base it inherits its
-  // columns from.  The base capability still contributes `tenant_id NOT NULL`
-  // to the row; `crossTenant` means nothing stamps or filters it.  This parsed
-  // 0 errors on all five backends, and it is the exact spelling the old
-  // `loom.tenancy-stance-unmarked` message recommended.
+  // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
+  // The base's `tenantOwned` reaches the subtype, so it would be both tenant
+  // data and shared data.
   "loom.tenancy-inherited-stance-conflict": `
 system S {
   user { id: guid  tenantId: string }
@@ -1660,6 +1793,25 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
+  // the aggregate's own function: the document write seam has no record to
+  // evaluate it against.
+  "loom.stamp-reads-aggregate-unsupported": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for
@@ -1697,6 +1849,23 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // Declared names differ only in case, so the namespace gate above passes —
+  // but both derive the table `sweeps`.
+  // `count` takes no column; the grouped select passes one.
+  "loom.projection-aggregate-arity":
+    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
+    repository Tickets for Ticket { }
+    projection ByQueue { queue: string  breached: int
+      from Ticket as t
+      group by t.queue
+      select queue = t.queue, breached = count(t.breached) }`),
+  // A single-row find on `number`, which no `unique (number)` covers.
+  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
+    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
+  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
+    repository Sweeps for Sweep { }
+    event Tick { sweep: Sweep id }
+    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
   // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
   // it neither way: `oid` does not name-match `orderId`, and the body never
   // assigns `orderId := oid` either — so the body would render against an
@@ -1708,6 +1877,29 @@ system P {
       orderId: Order id
       status: string
       create(oid: Order id) { status := "Pending" }
+    }`),
+  // A state write on a workflow with no id-shaped state field: no instance row
+  // is kept, so the write is unaddressable.
+  "loom.workflow-uncorrelated-state-write":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow Tally {
+      total: int
+      create(n: int) { total := n }
+    }`),
+  // An explicit persistence statement in a workflow body: the body persists at
+  // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
+  "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string) { name := n }
+    }
+    repository Orders for Order { }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.getById(oid)
+        o.rename("x")
+        Orders.save(o)
+      }
     }`),
   // A repository reached INLINE, inside a `precondition` expression, instead of
   // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
@@ -2538,6 +2730,12 @@ system P {
     "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
     { ui: true },
   ),
+  // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
+  // the path names no directory, so the pack has no `pack.json`.
+  "loom.design-pack-invalid": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
+    { ui: true },
+  ),
   "loom.datasource-context-unlisted": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
     { secondContext: true },
@@ -2616,6 +2814,25 @@ system S {
   test e2e "t" against d {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
   }
 }`,
 
@@ -3136,6 +3353,43 @@ system P {
     }`,
   ),
 
+  // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
+  // Each validated clean and then crashed `generate system`: the shared JS
+  // walker (`this`, a write to a non-state name), the Feliz find-read builder
+  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  "loom.ui-assign-not-state": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { other := 1 }
+      body: Stack { Button { "Bump", onClick: bump } }
+    }`,
+  ),
+  "loom.ui-find-call-arity": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      body: QueryView { of: Sales.Order.byCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+    }`,
+  ).replace(
+    "repository Orders for Order { }",
+    "repository Orders for Order { find byCode(code: string): Order[] where this.code == code }",
+  ),
+  "loom.ui-body-feature-unsupported": flutterUi(
+    `    page Detail(id: Order id) {
+      route: "/orders/:id"
+      state { msg: string = "" }
+      action go() {
+        match await Shop.Order.confirm() {
+          Order o => { match await Shop.Order.confirm() { Order p => { msg := p.code } else => { msg := "b" } } }
+          else => { msg := "u" }
+        }
+      }
+      body: Stack { Button { "Go", onClick: go } }
+    }`,
+  ),
+
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names
   // what IS linkable — and a scaffolded page is named by ROLE inside a
@@ -3652,12 +3906,6 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "ungating `isolation:` in `ddd.langium`.",
 
   // --- the last three singletons -------------------------------------------
-  "loom.cross-aggregate-entity-part":
-    "The arm needs a RESOLVED entity-part owned by a different aggregate, and `ddd-scope.ts` " +
-    "restricts containment part types to entity parts declared in the SAME aggregate (the rule " +
-    "CLAUDE.md states as `cross-aggregate references must use X id`).  So the name never links " +
-    "and the source reports `loom.linking-error` instead.  Driven and confirmed.  Re-test by " +
-    "widening the containment part-type scope to sibling aggregates.",
   "loom.platform-knob-style-layout-mismatch":
     "Every platform's LAYOUT menu is a subset of what its style declares in `styleSupportedLayouts`, " +
     "so a layout that would mismatch is already out-of-menu and `loom.platform-knob-out-of-menu` " +
@@ -3842,11 +4090,22 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨ again: "this block is spent" is a judgement against a BASELINE
+  // SNAPSHOT (the schema and the applied-data ledger), which `validate()` does
+  // not have. The pointed-at file drives two generations and asserts it fires
+  // on the second, and stays silent on the first run, on the generation that
+  // runs the block, and while one sql step is still unledgered.
+  "loom.migration-block-applied": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, same reason (B-20b): a unique index added to a table the
   // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
+  // catalog entries are the capability-column lines (a `tenantOwned` /
+  // `auditable` column added to a populated table); the pointed-at file drives
+  // both refusals and asserts the code and the wording.
+  "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
@@ -4046,7 +4305,9 @@ describe("diagnostic firing census", () => {
   describe("every fixture raises the code it claims", () => {
     for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
       it(`${code} fires`, async () => {
-        const raised = (await validate(source)).diagnostics.map((d) => d.code);
+        const raised = (await validate(source, FIXTURE_HOST_OPTIONS[code])).diagnostics.map(
+          (d) => d.code,
+        );
         expect(
           raised,
           `${code} did not come out of its own fixture.  Either the fixture\n` +

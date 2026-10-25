@@ -6,6 +6,8 @@ import type {
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -58,7 +60,7 @@ export function buildPyEmbeddedRepositoryFile(
   // `delete(id)` under the reachable-`destroy` gate (the destroy route calls
   // `repo.delete(id)`).  One row — containments / ref-collections fold into the
   // row's jsonb.  (The embedded `save` is already versioned.)
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // An embedded aggregate's root scalars are real columns, so a capability
   // `filter` AND-s into every root read exactly like the relational path
   // (DEBT-02 tail).  Non-principal AND principal predicates are wired — the
@@ -268,7 +270,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `            .returning(${row}.id)`,
       "        )",
       "        if _guarded.first() is None:",
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} was modified concurrently")`,
+      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push(

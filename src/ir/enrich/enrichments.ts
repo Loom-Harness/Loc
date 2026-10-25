@@ -53,6 +53,7 @@ import type {
   SystemIR,
   TraceabilityIR,
   TypeIR,
+  UniqueKeyIR,
   ValueObjectIR,
   WireField,
   WorkflowIR,
@@ -61,6 +62,7 @@ import type {
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
@@ -80,6 +82,8 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { bindFindParams } from "./find-param-bindings.js";
+import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -924,14 +928,50 @@ export function enrichContext(
     const base = byName.get(a.extendsAggregate);
     return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
   };
-  const withInheritance = ctx.aggregates.map((a) => {
+  // A concrete's writes are bound by every `unique (…)` key an ancestor
+  // declares, so the keys land on the concrete too.  Root-most keys first.
+  //   * TPC (`ownTable`): the concrete is a standalone table — without the copy
+  //     the key reaches no table at all (an abstract TPC base owns none) and
+  //     every per-table derivation keyed on `agg.uniqueKeys` (the migration's
+  //     `<table>_<cols>_uq` index on all five backends + Dapper's DbSchema)
+  //     silently drops it.  The keys are per TABLE, so duplicates ACROSS
+  //     sibling concretes are not prevented — `loom.unique-tpc-not-hierarchy-
+  //     wide` says so on the base.
+  //   * TPH (`sharedTable`): the base's shared table already carries the ONE
+  //     index (`tphTableForAggregate` reads the base's keys; a TPH concrete
+  //     emits no table), but the concrete's WRITE surface still has to map the
+  //     23505 it raises — the Hono per-router 409 arm and the Ecto
+  //     `unique_constraint` (named for the shared table) gate on the
+  //     concrete's own `uniqueKeys`, so without the copy a duplicate answered 500.
+  const inheritedUniqueKeysFor = (a: AggregateIR, seen: Set<string>): UniqueKeyIR[] => {
+    if (!a.extendsAggregate || seen.has(a.name)) return [];
+    seen.add(a.name);
+    const base = byName.get(a.extendsAggregate);
+    if (!base) return [];
+    return [...inheritedUniqueKeysFor(base, seen), ...(base.uniqueKeys ?? [])];
+  };
+  // Filters and capability tags inherit the same way (`inheritBaseCapabilities`).
+  const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
     const idValueType = rootIdValueTypeFor(a, new Set<string>());
     const fieldsChanged = merged !== a.fields;
     const idChanged = idValueType !== a.idValueType;
-    if (!fieldsChanged && !idChanged) return a;
-    return { ...a, fields: merged, idValueType };
+    const own = a.uniqueKeys ?? [];
+    const ownKeys = new Set(own.map((uk) => uk.columns.join(",")));
+    const inherited =
+      isTpcConcrete(a, ctx.aggregates) || isTphConcrete(a, ctx.aggregates)
+        ? inheritedUniqueKeysFor(a, new Set<string>()).filter(
+            (uk) => !ownKeys.has(uk.columns.join(",")),
+          )
+        : [];
+    if (!fieldsChanged && !idChanged && inherited.length === 0) return a;
+    return {
+      ...a,
+      fields: merged,
+      idValueType,
+      ...(inherited.length > 0 ? { uniqueKeys: [...inherited, ...own] } : {}),
+    };
   });
   const aggregates = withInheritance.map((a) => enrichAggregate(a, valueObjects, urlStyle));
   // paged-run (paged-queryHandler): a paged `queryHandler` over
@@ -940,13 +980,16 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizePagedQueryHandlerFinds(
-    // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-    // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
-    ctx.queryHandlers,
-    ctx.criteria,
-    ctx.retrievals,
+  const repositories = bindFindParams(
+    synthesizePagedQueryHandlerFinds(
+      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+      ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+      ctx.queryHandlers,
+      ctx.criteria,
+      ctx.retrievals,
+    ),
+    aggregates,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1705,8 +1748,7 @@ function enrichAggregate(
   // wire shape is NOT stamped — every consumer recomputes it on demand via
   // `wireFieldsForAggregate` (see CLAUDE.md "Derive, don't stamp").
   // Stamp routeSlug on every lifecycle action.  New objects (don't
-  // mutate shared refs); canonicalCreate/Destroy are re-pointed at the
-  // freshly-stamped array entries.
+  // mutate shared refs).
   const stamp = (o: OperationIR): OperationIR => ({ ...o, routeSlug: routeSlugFor(o, urlStyle) });
   const operations = agg.operations.map(stamp);
   const creates = agg.creates?.map(stamp);
@@ -1717,8 +1759,6 @@ function enrichAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate: creates?.find((c) => c.canonical) ?? null,
-    canonicalDestroy: destroys?.find((d) => d.canonical) ?? null,
     parts,
     associations: associationsForAggregate(resolved),
     createInput: buildCreateInput(resolved),

@@ -488,8 +488,8 @@ system Demo {
 
   it("emits phx-click AND a synthesized handle_event dispatching the store action", async () => {
     const home = (await gen(DIRECT)).get("app/lib/app_web/live/home_live.ex")!;
-    expect(home).toContain(`phx-click="clear"`);
-    expect(home).toContain(`def handle_event("clear", _params, socket) do`);
+    expect(home).toContain(`phx-click="store-cart-clear"`);
+    expect(home).toContain(`def handle_event("store-cart-clear", _params, socket) do`);
     expect(home).toContain(`|> update(:cart, &Cart.clear/1)`);
     // the store assign is seeded in mount even though the page only onClicks it
     expect(home).toContain(`assign(:cart, %Cart{})`);

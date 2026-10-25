@@ -1,0 +1,20 @@
+// Repro: workflow `sweep` and aggregate `Sweep` both map to table `sweeps`.
+// `ddd parse` is clean (loom.workflow-name-collision is case-sensitive);
+// the generated node backend fails tsc (duplicate `sweeps` table) and the
+// migration creates the table twice.
+system R {
+  subdomain S {
+    context C {
+      aggregate Sweep with crudish { at: datetime }
+      event Tick { sweep: Sweep id, at: datetime }
+      repository Sweeps for Sweep { }
+      workflow sweep {
+        sweep: Sweep id
+        create(t: Tick) by t.sweep { }
+      }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}

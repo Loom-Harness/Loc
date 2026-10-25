@@ -161,7 +161,7 @@ describe("Phoenix typed in-system api client", () => {
     // An api-bound resource has no `storage`, so the restApi ResourceAdapter —
     // where `:req` is normally declared — is skipped by design.
     const files = await emit(system("string"));
-    expect(files.get("shipping_svc/mix.exs") ?? "").toContain('{:req, "~> 0.5"}');
+    expect(files.get("shipping_svc/mix.exs") ?? "").toContain('{:req, "0.7.5"}');
   });
 
   it("calls through the FULLY-QUALIFIED module — no alias to get wrong", async () => {

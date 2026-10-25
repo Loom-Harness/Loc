@@ -33,6 +33,7 @@ import {
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -494,7 +495,7 @@ export function buildApiModule(
   // `destroy` (declared or via `crudish`), so plain aggregates' API modules
   // are unchanged.  Pairs with the `api.delete` helper, which the shell
   // emits under the same condition.
-  if (agg.canonicalDestroy) {
+  if (canonicalDestroy(agg)) {
     lines.push(`export function useDelete${agg.name}() {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return useMutation({`);
@@ -860,6 +861,7 @@ const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   // A `File` REQUEST field is `.nullable()`: a form starts with no file
@@ -878,6 +880,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",

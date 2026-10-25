@@ -259,7 +259,7 @@ function renderStructModule(
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "Event-sourced aggregate — in-memory state folded from its event stream (no state table)."
-  defstruct [${fields.map((f) => `:${f}`).join(", ")}]
+  defstruct [${[...fields.map((f) => `:${f}`), "__stream_version__: 0"].join(", ")}]
   @type t :: %__MODULE__{}
 ${pureCoreBlock}end
 `;
@@ -340,7 +340,10 @@ defmodule ${aggModule}Fold do
 
   @spec from_events(binary(), [struct()]) :: ${aggModule}.t()
   def from_events(id, events) do
-    Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    folded = Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    # A stream is gap-free from 1, so the folded count IS its head version: the
+    # expected version of this handle's next append (M-T6.98).
+    %{folded | __stream_version__: length(events)}
   end
 
 ${clauses.join("\n\n")}
@@ -457,20 +460,17 @@ defmodule ${repoMod} do
     end
   end
 
-  @doc "Append gap-free event versions to the aggregate's stream."
-  @spec append(binary(), [struct()]) :: :ok | {:error, term()}
-  def append(_id, []), do: :ok
+  @doc """
+  Append \`events\` to the aggregate's stream after \`expected_version\` — the
+  version the caller's handle was folded to (M-T6.98).  A handle some other
+  append has moved past re-inserts a version that exists and loses on the
+  (stream_type, stream_id, version) key: \`{:error, :conflict}\`, the RS-40 409.
+  """
+  @spec append(binary(), non_neg_integer(), [struct()]) :: :ok | {:error, term()}
+  def append(_id, _expected_version, []), do: :ok
 
-  def append(id, events) when is_binary(id) and is_list(events) do
+  def append(id, prior, events) when is_binary(id) and is_integer(prior) and is_list(events) do
     Repo.transaction(fn ->
-      prior =
-        Repo.one(
-          from(r in ${logShort},
-            where: r.stream_type == ^${streamType} and r.stream_id == ^id,
-            select: max(r.version)
-          )
-        ) || 0
-
       events
       |> Enum.with_index(prior + 1)
       |> Enum.each(fn {ev, version} ->
@@ -492,8 +492,8 @@ defmodule ${repoMod} do
     end
   rescue
     e in Postgrex.Error ->
-      # The (stream_id, version) PK rejected a duplicate append: a competing write
-      # won the version race (unique_violation, SQLSTATE 23505).  That IS the event
+      # The (stream_id, version) PK rejected a duplicate append: the handle was
+      # folded before another append landed (unique_violation, SQLSTATE 23505).  That IS the event
       # stream's optimistic-concurrency control — surface it as {:error, :conflict}
       # → HTTP 409 (parity with the \`versioned\` guarded write's stale-write).
       case e do
@@ -825,7 +825,7 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   # rescued to {:error, :conflict}.  Map to the distinct 409 conflict responder
   # (parity with the \`versioned\` capability's stale-write → 409).
   defp command_error(conn, :conflict) do
-    ProblemDetails.conflict_response(conn)
+    ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])
   end
 
   defp command_error(conn, _reason) do
@@ -957,7 +957,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // Only an operation carries `when` (a create has no prior state to gate on).
   if (c.kind === "operation" && c.op.when) {
     clauses.push(
-      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op.name)})`,
+      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op)})`,
     );
   }
   const lets: string[] = [];
@@ -999,10 +999,18 @@ function renderCommandRunner(c: CommandCtx): string {
 
   clauses.push(`events = [${eventStructs.join(", ")}]`);
 
+  // The returned state carries the stream version the append moves it to, so
+  // the same handle can be saved again (an operation's fold starts from the
+  // handle's own version; a create's `from_events` counts its events).
   const fold =
     c.kind === "create"
       ? `${c.foldMod}.from_events(id, events)`
-      : `Enum.reduce(events, state, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+      : `Enum.reduce(events, %{state | __stream_version__: state.__stream_version__ + length(events)}, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+  // Expected-version append (M-T6.98): the version THIS handle was folded to —
+  // 0 for a fresh stream — not a `max(version)` re-read at append time, which
+  // let a handle loaded before another append keep a decision taken on its
+  // stale fold.
+  const expectedVersion = c.kind === "create" ? "0" : "state.__stream_version__";
   // The aggregate's invariants are asserted on the FOLDED state, before the
   // append: a command whose events would leave the aggregate invalid is refused
   // and nothing reaches the log.  With no invariant the fold stays after the
@@ -1014,7 +1022,7 @@ function renderCommandRunner(c: CommandCtx): string {
     for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
     newState = "folded";
   }
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
+  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

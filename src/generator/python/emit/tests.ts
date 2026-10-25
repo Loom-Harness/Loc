@@ -24,6 +24,7 @@ import {
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
+import { PY_CALENDAR_DATE } from "./calendar-date.js";
 
 /** Python leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `<X>Id(…)` is the id class the generator emits
@@ -31,6 +32,7 @@ import { renderPyExpr, renderPyType } from "../render-expr.js";
 const PY_TEST_LITERAL: TestLiteralTarget = {
   id: (rendered, targetName) => `${pyIdType(targetName)}(${rendered})`,
   datetime: (rendered) => `${PY.datetime}.fromisoformat(${rendered})`,
+  date: (rendered) => `${PY_CALENDAR_DATE}.fromisoformat(${rendered})`,
 };
 
 // A currentUser-gated operation's method signature picks up a trailing

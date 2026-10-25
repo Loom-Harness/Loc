@@ -76,7 +76,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -762,7 +762,7 @@ export function buildExplicitRoutesFile(
       // PG unique_violation — drizzle wraps the driver error, so the SQLSTATE
       // rides `err.cause` under v5 and `err` under older drizzle; read both, as
       // the aggregate router does.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, "Conflict", "A record with these values already exists.");`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
   }
   if (exNeedsConcurrency) {

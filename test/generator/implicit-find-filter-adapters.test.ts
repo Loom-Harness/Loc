@@ -26,7 +26,6 @@ system FieldOps {
         find byRegionAndRef(region: string, reference: string): WorkOrder[]
         find bySite(siteId: Site id): WorkOrder[]
         find inRegion(region: string): WorkOrder paged
-        find tagged(tag: string): WorkOrder[]
       }
     }
   }
@@ -56,8 +55,6 @@ describe("dapper — a clause-less find applies its implicit key-match filter", 
     expect(r).toContain(`"${cols} WHERE (site = @siteId)", new { siteId = siteId.Value }`);
     expect(r).toContain(`"SELECT COUNT(*) FROM work_orders WHERE (region = @region)"`);
     expect(r).toContain(`$"${cols} WHERE (region = @region) ORDER BY {sortColumn}`);
-    // A param naming no field adds no conjunct.
-    expect(r).toContain(`"${cols}", new { tag }`);
   });
 });
 

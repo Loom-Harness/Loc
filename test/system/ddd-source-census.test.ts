@@ -7,11 +7,6 @@
 // good as someone's memory to append to it: a fixture nobody lists is a fixture
 // nobody checks, and it rots silently until a contributor opens it.
 //
-// That is not hypothetical.  This gate's first run found `examples/sales-ui.ddd`
-// — a file the top-level README advertises in its examples table — failing with
-// six syntax errors.  (It turns out to say so itself, in its own header; see the
-// pin below.  The README does not.)
-//
 // TWO gates, because they answer different questions:
 //
 //  1. PARSE — every tracked file, no exception beyond the pinned set, must reach
@@ -91,21 +86,8 @@ function projectMembers(files: readonly string[]): Set<string> {
 // never a file that merely happens to fail.
 // ---------------------------------------------------------------------------
 
-/** Does not PARSE, and says so in its own first paragraph: "This file does NOT
- *  parse with the current Langium grammar; it is the target syntax driving the
- *  discussion.  It is a HISTORICAL prototype".  It is a design document that
- *  happens to carry a `.ddd` extension — `Dashboard(items: [...])`, `Stat { api
- *  Sales.Order.all }` and `MasterDetail` were proposed and never shipped (or
- *  were retired), which its header also records.
- *
- *  Kept rather than deleted: it is the page-metamodel discussion's record, and
- *  `docs/new-plan/missions/M-T1.3-charts-and-dashboards-scope.md` cites it as
- *  prior art.  Pinned rather than silently skipped, because "a tracked .ddd that
- *  does not parse" is worth one line of explanation — and because the README
- *  advertises it beside files that DO parse, which is a docs-truth gap this pin
- *  is the evidence for. */
+/** Files that cannot parse, each pinned with its reason. */
 const UNPARSEABLE = [
-  "examples/sales-ui.ddd",
   // The recorded repro for the "a `let` inside a `for` body is required"
   // refusal (FieldOps evaluation, F-002): `for l in ls { Parts.getById(
   // l.partId).consume(l.qty) }` does not parse — a call cannot be chained onto

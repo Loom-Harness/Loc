@@ -92,7 +92,7 @@ end
 
 The record survives as a named type only where the host language has cheap records: node keeps the body schema plus a `cmd` object, .NET emits `PlaceCommand` as a Mediator `ICommand<OrderId>`, while Java, Python and Elixir **flatten the record into positional parameters** (`handle(String code, String region)`) and destructure the JSON at the edge.
 
-Do not write `Orders.save(o)` in the body — the exit save is derived (`computeSaves`), and a bare `<Repo>.<verb>(x)` statement naming any repository write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit` — `src/ir/util/repo-methods.ts`) is lowered as a repository **delete** (`repo-delete`), whatever the verb reads like (see the note in [`../workflow.md`](../workflow.md)). A record parameter always binds to the JSON body, so bind record-param handlers to `POST`/`PUT`/`PATCH` routes.
+There is no `Orders.save(o)` statement — the exit save is derived (`computeSaves`), and an explicit `save` / `insert` / `update` / `add` / `commit` call in a handler or workflow body is refused with `loom.workflow-explicit-save` (see "Save + event drain semantics" in [`../workflow.md`](../workflow.md)). A record parameter always binds to the JSON body, so bind record-param handlers to `POST`/`PUT`/`PATCH` routes.
 
 ### `<Agg>Wire` — the auto-synthesized record
 
@@ -100,7 +100,7 @@ Every aggregate, part, and value object carries a canonical ordered `wireShape` 
 
 ## Anonymous union — `A or B`
 
-A union is a value that is **one of several distinct variants**. The inline form needs no declaration — write `A or B` directly in a transport position: an `operation` return, a repository `find` return (in the constrained *absence* shape — next section), or a payload field. `A or B or C` flattens to one variant set; `or` is associative-commutative, so an anonymous union is **structural on its variants** (`A or B` ≡ `B or A`). An inline `or` anywhere else (an aggregate field, say) is rejected with `loom.union-position`; a repeated variant (`A or A`) with `loom.union-duplicate-variant`; a non-carrier variant (a `slot`) with `loom.union-variant-not-carrier`.
+A union is a value that is **one of several distinct variants**. The inline form needs no declaration — write `A or B` directly in a transport position: an `operation` return or a repository `find` return (in the constrained *absence* shape — next section). `A or B or C` flattens to one variant set; `or` is associative-commutative, so an anonymous union is **structural on its variants** (`A or B` ≡ `B or A`). An inline `or` anywhere else (an aggregate field, say) is rejected with `loom.union-position` — a payload field too, because no backend renders a tagged union nested inside a record (return the union from the operation, or give the payload one optional field per variant); a repeated variant (`A or A`) with `loom.union-duplicate-variant`; a non-carrier variant (a `slot`) with `loom.union-variant-not-carrier`.
 
 An **operation return** is the tagged case — the producer picks the variant, so the wire carries a **`type` discriminator**. A record variant (an aggregate → its `<Agg>Wire`, a payload/event → its fields) flattens its fields alongside `type`; a scalar variant is wrapped as `{ type, value }`; the tag is the variant type's name:
 

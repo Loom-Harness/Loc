@@ -1,4 +1,11 @@
-import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  BinOp,
+  DerivedIR,
+  EnrichedAggregateIR,
+  ExprIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
+import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -20,8 +27,10 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
-import { elixirCodePointLength } from "../_expr/code-point.js";
+import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -175,6 +184,16 @@ export interface RenderCtx {
    *  (`snake(field)`), not struct-dot on an unbound `cmd`.  Set only by the
    *  handler emitter; empty/undefined everywhere else (byte-identical). */
   recordParams?: ReadonlySet<string>;
+  /** Render an aggregate `function` call module-qualified on `contextModule`
+   *  (`Api.Ticketing.sla_hours(record)`) instead of bare.  The facade module
+   *  defines every aggregate function, so a bare call only resolves inside it;
+   *  a stamp value rendered into the repository module (`stamp-emit.ts`) sets
+   *  this.  Unset everywhere else (bare call). */
+  qualifyFunctions?: boolean;
+  /** The host aggregate's `derived` definitions, for inlining a `this-derived`
+   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
+   *  only when `agg` is unset. */
+  derivedDefs?: readonly DerivedIR[];
 }
 
 const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
@@ -386,8 +405,8 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
  *  resolves them as bare same-module calls. */
-export function contextFindFnFor(method: string, aggregate: string): string {
-  return method === "getById" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
+export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
+  return op === "load" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
 }
 
 /**
@@ -418,6 +437,9 @@ function renderElixirConvert(
     // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
     // not the value .NET / java / python / node emit for this conversion.
     if (from === "datetime") return `DateTime.to_iso8601(${v})`;
+    // `to_string(%Date{})` is already ISO `YYYY-MM-DD`; spelled explicitly so
+    // the wire form does not rest on `String.Chars`.
+    if (from === "date") return `Date.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
@@ -489,7 +511,7 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // key that raises `KeyError` at runtime (#1765).  Recurse into a
       // derived-of-derived; the `derivedStack` guard breaks a cycle (validator
       // -prevented) and the fallback covers a ctx with no aggregate index.
-      const d = ctx.agg?.derived.find((x) => x.name === e.name);
+      const d = (ctx.agg?.derived ?? ctx.derivedDefs)?.find((x) => x.name === e.name);
       if (d && !ctx.derivedStack?.has(e.name)) {
         const inner: RenderCtx = {
           ...ctx,
@@ -683,16 +705,10 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,
-    // 0-based clamping semantics = JS slice (the catalogue contract):
-    // `String.slice/3` takes start + LENGTH and clamps at both ends; the
-    // omitted-len arity runs to the end via the stepped range (`..-1//1`
-    // keeps an out-of-range start yielding "" instead of wrapping).
-    // Grapheme-vs-codeunit divergence is accepted and documented in the
-    // catalogue.
-    "string.substring": (recv, args) =>
-      args.length > 1
-        ? `String.slice(${recv}, ${args[0]}, ${args[1]})`
-        : `String.slice(${recv}, ${args[0]}..-1//1)`,
+    // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the
+    // catalogue contract; `_expr/code-point.ts`) — `String.slice/3` would
+    // count graphemes.
+    "string.substring": (recv, args) => elixirCodePointSubstring(recv, args[0]!, args[1]),
     "string.startsWith": (recv, args) => `String.starts_with?(${recv}, ${args[0]})`,
     "string.endsWith": (recv, args) => `String.ends_with?(${recv}, ${args[0]})`,
     // String-receiver `contains` is the intrinsic (lowering keys
@@ -739,6 +755,14 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     // TIME to midnight is the catalogue's midnight-UTC bucket.
     "datetime.startOfDay": (recv) =>
       `DateTime.new!(DateTime.to_date(${recv}), ~T[00:00:00], "Etc/UTC")`,
+    // The `%DateTime{}` is UTC (above), so its date IS the UTC calendar date.
+    "datetime.toDate": (recv) => `DateTime.to_date(${recv})`,
+    // ---- date — a `%Date{}`; `Date.diff/2` is the signed whole-day distance
+    // (`Date.diff(b, a)` is `b - a`).
+    "date.year": (recv) => `${recv}.year`,
+    "date.month": (recv) => `${recv}.month`,
+    "date.day": (recv) => `${recv}.day`,
+    "date.daysUntil": (recv, args) => `Date.diff(${args[0]}, ${recv})`,
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -1084,7 +1108,13 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
-  const mod = isDecimalStruct(name) ? "Decimal" : name === "datetime" ? "DateTime" : null;
+  const mod = isDecimalStruct(name)
+    ? "Decimal"
+    : name === "datetime"
+      ? "DateTime"
+      : name === "date"
+        ? "Date"
+        : null;
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
 }
@@ -1099,6 +1129,7 @@ function reductionSorter(
   const notToken = kind === "min" ? ":gt" : ":lt";
   if (isDecimalStruct(name)) return `&(Decimal.compare(&1, &2) != ${notToken})`;
   if (name === "datetime") return `&(DateTime.compare(&1, &2) != ${notToken})`;
+  if (name === "date") return `&(Date.compare(&1, &2) != ${notToken})`;
   return kind === "min" ? "&<=/2" : "&>=/2";
 }
 
@@ -1157,9 +1188,8 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // Elixir.  On the document path (Route A) the receiver is the rehydrated
       // `%<Agg>.Data{}` embed, still bound as `record` (`ctx.thisName`).
       const recv = ctx.thisName;
-      return args.length > 0
-        ? `${snake(e.name)}(${recv}, ${args.join(", ")})`
-        : `${snake(e.name)}(${recv})`;
+      const fn = ctx.qualifyFunctions ? `${ctx.contextModule}.${snake(e.name)}` : snake(e.name);
+      return args.length > 0 ? `${fn}(${recv}, ${args.join(", ")})` : `${fn}(${recv})`;
     }
     case "workflow-fn":
       // A workflow's own `function` — a `defp <snake(fn)>(params)` in the
@@ -1200,14 +1230,14 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // actually filters the query instead of dropping to the whole-table find.
       // `findAll`/`run` unwrap to the list; a single-result `find` takes the head.
       const read = e.repoRead!;
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const fn = `run_${snake(read.retrievalName)}_${snake(read.aggregate)}`;
         const call = `${fn}(${args.join(", ")})`;
-        return read.readKind === "find"
+        return read.op === "select-one"
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent ("Use getById (throws → 404)", the remedy
@@ -1224,7 +1254,7 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // through (`Ecto.NoResultsError` -> 404, `vanilla/shell-emit.ts`), so
       // "throws → 404" holds here too.  A declared find keeps the
       // value-or-nil unwrap and stays byte-identical.
-      if (read.method === "getById") {
+      if (read.op === "load") {
         return `(case ${call} do\n      {:ok, value} -> value\n      _ -> raise Ecto.NoResultsError, queryable: ${ctx.contextModule}.${upperFirst(read.aggregate)}\n    end)`;
       }
       return `(case ${call} do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
@@ -1425,6 +1455,28 @@ function isStringType(e: ExprIR): boolean {
   return false;
 }
 
+/** The Elixir boolean for a principal term, over a NON-nil `current_user`
+ *  (the caller guards the actor).  Enum claims compare as their declared name
+ *  through `to_string/1`, so an atom-valued and a string-valued claim agree. */
+function renderEctoPrincipalTest(pt: PrincipalTerm): string | null {
+  const hasEnum = [pt.left, pt.right].some(
+    (o) => o.kind === "value" && o.expr.kind === "ref" && o.expr.refKind === "enum-value",
+  );
+  return renderPrincipalTest(pt, {
+    claim: (field) =>
+      hasEnum ? `to_string(current_user.${snake(field)})` : `current_user.${snake(field)}`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value") return JSON.stringify(v.name);
+      if (v.kind === "literal") return renderLiteral(v.lit, v.value);
+      return null;
+    },
+    isNull: (x) => `is_nil(${x})`,
+    isNotNull: (x) => `not is_nil(${x})`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+}
+
 function renderBinary(
   l: string,
   r: string,
@@ -1443,6 +1495,17 @@ function renderBinary(
   if (ectoQuery) {
     if (isNowLiteral(e.left)) l = "^DateTime.utc_now()";
     if (isNowLiteral(e.right)) r = "^DateTime.utc_now()";
+  }
+  // A principal term (`currentUser.role == "agent"`) reads no column: its
+  // truth is fixed for the request, so it is decided in Elixir — false without
+  // an actor — and pinned as ONE boolean, which Ecto casts as `:boolean`
+  // inside `and` / `or` / `not`.
+  if (ectoQuery) {
+    const pt = principalTerm(e);
+    if (pt) {
+      const test = renderEctoPrincipalTest(pt);
+      if (test !== null) return `^(not is_nil(current_user) and ${test})`;
+    }
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  `duration ± duration` and `duration * int` stay native integer
@@ -1587,6 +1650,16 @@ function renderBinary(
   ) {
     return renderDateTimeCompare(e.op, l, r);
   }
+  // A `%Date{}` is a struct too — the same structural-order hazard, through
+  // `Date.compare/2`.
+  if (
+    !ectoQuery &&
+    e.leftType?.kind === "primitive" &&
+    e.leftType.name === "date" &&
+    (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=")
+  ) {
+    return renderDateTimeCompare(e.op, l, r, "Date");
+  }
   // Prefer the IR-level `leftType` over the AST-shape check: chained
   // string concats (`a + b + c`) carry `leftType: string` on the outer
   // binary even when the left operand is itself a binary.
@@ -1664,11 +1737,16 @@ function renderEctoNullableComparison(l: string, r: string, e: BinaryExpr): stri
 
 /** `DateTime.compare/2`-based order comparison (A5 temporal) — the datetime
  *  sibling of `renderDecimalBinary`'s comparison arms. */
-function renderDateTimeCompare(op: "<" | "<=" | ">" | ">=", l: string, r: string): string {
-  if (op === "<") return `DateTime.compare(${l}, ${r}) == :lt`;
-  if (op === "<=") return `DateTime.compare(${l}, ${r}) in [:lt, :eq]`;
-  if (op === ">") return `DateTime.compare(${l}, ${r}) == :gt`;
-  return `DateTime.compare(${l}, ${r}) in [:gt, :eq]`;
+function renderDateTimeCompare(
+  op: "<" | "<=" | ">" | ">=",
+  l: string,
+  r: string,
+  mod: "DateTime" | "Date" = "DateTime",
+): string {
+  if (op === "<") return `${mod}.compare(${l}, ${r}) == :lt`;
+  if (op === "<=") return `${mod}.compare(${l}, ${r}) in [:lt, :eq]`;
+  if (op === ">") return `${mod}.compare(${l}, ${r}) == :gt`;
+  return `${mod}.compare(${l}, ${r}) in [:gt, :eq]`;
 }
 
 const DECIMAL_ARITH: Record<string, string | undefined> = {
@@ -1865,6 +1943,8 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
           return "boolean()";
         case "datetime":
           return typesModule ? `${typesModule}.timestamp()` : "DateTime.t()";
+        case "date":
+          return "Date.t()";
         case "guid":
           // UUIDs are plain binary strings on the struct.
           return "String.t()";

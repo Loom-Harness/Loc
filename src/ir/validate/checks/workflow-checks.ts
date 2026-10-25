@@ -6,6 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { repoOpVerb } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
   createInputFields,
@@ -24,6 +25,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
+import { bodyEffects } from "../../util/effects.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -211,6 +213,7 @@ export function validateWorkflows(
     validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, declaredNames, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
+    validateWorkflowUncorrelatedStateWrite(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
     validateWorkflowHandlers(wf, diags, ctx.name);
@@ -369,7 +372,7 @@ function validateWorkflowInlineRepoCalls(
         message: diagMessage("loom.workflow-inline-repository-call", {
           where: `workflow '${wf.name}' ${body.label}`,
           repoName,
-          call: `${repoName}.${method ?? "getById"}(…)`,
+          call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
           binding: lowerFirst(repoAgg.get(repoName) as string),
         }),
         source: `${ctx.name}/${wf.name}`,
@@ -682,6 +685,16 @@ const idTarget = (t: TypeIR | undefined): string | undefined =>
 // Applying these uniformly to reactors AND event-creates also subsumes rule 24
 // (create-vs-on correlation agreement): both are checked against the same
 // correlation field, so a `create` and an `on` for one event necessarily agree.
+//
+// An `eventSourced` workflow needs the correlation field even with NO event
+// consumers: it is the key of the workflow's event stream — every backend
+// appends to and folds `stream_id = <correlation field>`, and the instance read
+// surface (`/<wf>/instances/{id}`) is addressed by it.  With no (or more than
+// one) id-shaped field there is no stream key and no instance to address, so
+// nothing sound can be emitted: the .NET / Java / Elixir ES emitters need the
+// key's id class, and a node / python rendering without it would be a plain
+// command route that silently drops the declared state and `apply` blocks.
+// So rules 10 + 19 apply to it uniformly.
 function validateWorkflowCorrelation(
   ctx: BoundedContextIR,
   wf: WorkflowIR,
@@ -705,13 +718,17 @@ function validateWorkflowCorrelation(
         label: `create(${c.eventBinding ?? "_"}: ${c.eventRef})`,
       })),
   ];
-  if (consumers.length === 0) return;
+  const eventSourced = wf.eventSourced === true;
+  if (consumers.length === 0 && !eventSourced) return;
   const src = `${ctx.name}/${wf.name}`;
   const idFields = (wf.stateFields ?? []).filter((f) => f.type.kind === "id");
+  // Which requirement the field serves, for the message: routing inbound
+  // events (any consumer) or keying the event stream (eventSourced only).
+  const why = consumers.length > 0 ? "consumers" : "stream";
   if (idFields.length === 0) {
     diags.push({
       severity: "error",
-      message: diagMessage("loom.workflow-correlation-required", { name: wf.name }),
+      message: diagMessage("loom.workflow-correlation-required", { name: wf.name, why }),
       source: src,
       origin: wf.origin,
       code: "loom.workflow-correlation-required",
@@ -725,6 +742,7 @@ function validateWorkflowCorrelation(
         name: wf.name,
         length: idFields.length,
         idFields: idFields.map((f) => f.name).join(", "),
+        why,
       }),
       source: src,
       origin: wf.origin,
@@ -810,11 +828,10 @@ function validateWorkflowCorrelation(
 // TWO THINGS DELIBERATELY NOT GATED, named so the silence is not read as a
 // claim that they are fine:
 //
-//   * a workflow with `Property` members and NO id-shaped field at all.  That
-//     is a SHIPPED shape, not a gap: M-T6.50 (b) made python emit a
-//     request-scoped scratch (`self = SimpleNamespace(...)`) for it.  node,
-//     .NET and java still emit an unbound `this` there — a cross-backend parity
-//     gap on M-T6.62, not something to refuse.
+//   * a workflow with `Property` members and NO id-shaped field at all.  A
+//     command create that WRITES that state is refused by its own rule
+//     (`validateWorkflowUncorrelatedStateWrite`, below): with no row key no
+//     later step could ever read the write.
 //   * a command create whose body does NOT touch own state: it emits fine, but
 //     still creates no row, so an `on` reactor for the same key logs
 //     `event_unrouted` forever (the reactor path loads, it does not allocate).
@@ -861,6 +878,42 @@ function validateWorkflowOwnStateAddressable(
     origin: wf.origin,
     code: "loom.workflow-create-correlation-unsupplied",
   });
+}
+
+// An UNCORRELATED workflow — state fields but no id-shaped one, not
+// event-sourced — keeps no instance row: there is no key to store one under or
+// to find it by.  A command `create` that assigns that state therefore writes a
+// value no later step could ever address, and the backends disagreed on what
+// to make of it (an unbound `this` / `state` on node, .NET, java and elixir; a
+// request-scoped scratch that persisted nothing on python).  Refused, so the
+// author correlates the workflow or drops the state.  The write is read off the
+// body's effects (`ir/util/effects.ts`), at any nesting depth.
+function validateWorkflowUncorrelatedStateWrite(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  diags: LoomDiagnostic[],
+): void {
+  const stateFields = wf.stateFields ?? [];
+  if (stateFields.length === 0 || wf.eventSourced) return;
+  if (stateFields.some((f) => f.type.kind === "id")) return;
+  for (const c of wf.creates) {
+    if (c.triggerKind !== "command") continue;
+    const written = new Set<string>();
+    for (const e of bodyEffects(c)) {
+      if (e.kind === "mutate" && e.target.kind === "state") written.add(e.target.field);
+    }
+    if (written.size === 0) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.workflow-uncorrelated-state-write",
+      message: diagMessage("loom.workflow-uncorrelated-state-write", {
+        name: wf.name,
+        fields: [...written].map((f) => `'${f}'`).join(", "),
+      }),
+      source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
+    });
+  }
 }
 
 /** A create param whose PAYLOAD type declares a field named `corr` — the
@@ -1523,7 +1576,7 @@ function validateWorkflowStatements(
           });
           break;
         }
-        if (st.method !== "getById" && !repo.finds.some((f) => f.name === st.method)) {
+        if (st.op !== "load" && !repo.finds.some((f) => f.name === st.method)) {
           diags.push({
             severity: "error",
             code: "loom.workflow-unknown-repository-method",
@@ -1532,7 +1585,10 @@ function validateWorkflowStatements(
               repoName: st.repoName,
               method: st.method,
               finds: repo.finds.map((f) => f.name).join(", ") || "(no declared finds)",
-              suggestion: nearestName(st.method, ["getById", ...repo.finds.map((f) => f.name)]),
+              suggestion: nearestName(st.method, [
+                repoOpVerb("load"),
+                ...repo.finds.map((f) => f.name),
+              ]),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
@@ -1560,9 +1616,9 @@ function validateWorkflowStatements(
           break;
         }
         // Reject array / nullable returns — workflow body has no
-        // iteration / null-handling vocab in v1.  getById is always
+        // iteration / null-handling vocab in v1.  A `load` is always
         // a single non-nullable aggregate (the impl throws on miss).
-        if (st.method !== "getById") {
+        if (st.op !== "load") {
           if (st.returnType.kind === "array") {
             diags.push({
               severity: "error",
@@ -2010,7 +2066,9 @@ function checkResourceOpExpr(
 ): void {
   if (expr.kind !== "call" || expr.callKind !== "resource-op" || !expr.resourceOp) return;
   const op = expr.resourceOp;
-  if (op.capability === "") {
+  // An api-bound resource has no verb vocabulary at all; its `#api-bound`
+  // refusal is raised (at every position) by `resource-op-positions.ts`.
+  if (op.capability === "" && !op.boundApi) {
     diags.push({
       severity: "error",
       code: "loom.resource-verb-invalid",

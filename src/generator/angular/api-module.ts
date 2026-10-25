@@ -23,6 +23,7 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
@@ -88,6 +89,7 @@ function wireTsType(t: TypeIR, precise = false): string {
         case "bool":
           return "boolean";
         case "string":
+        case "date":
         case "datetime":
         case "guid":
           return "string";
@@ -359,7 +361,7 @@ export function buildAngularApiModule(
   // The canonical destroy (declared `destroy { }` or via `crudish`) drives the
   // `DELETE /<tag>/{id}` route + `useDelete<Agg>` factory the `DestroyForm`
   // renderer hoists.  Plain aggregates' modules stay delete-free.
-  const hasDelete = !!agg.canonicalDestroy;
+  const hasDelete = !!canonicalDestroy(agg);
 
   // Paged-by-default findAll (M-T2.6): a paged `all` returns the `<Agg>Paged`
   // envelope and accepts a page/pageSize/sort/dir query getter.  A user-declared

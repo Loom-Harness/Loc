@@ -1,8 +1,10 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   errorStatuses,
   MISSING_FIELD_MESSAGE,
@@ -381,7 +383,7 @@ export function renderController(
   // aggregate emits none, so `using …Commands;` would reference a namespace
   // that does not exist (CS0234 under `/warnaserror`).  (Queries/Requests/
   // Responses always have at least the auto findAll + Response DTO.)
-  const hasCommands = emitsRestCreate(agg) || !!agg.canonicalDestroy || agg.operations.length > 0;
+  const hasCommands = emitsRestCreate(agg) || !!canonicalDestroy(agg) || agg.operations.length > 0;
   return (
     lines(
       "// Auto-generated.",
@@ -1044,19 +1046,38 @@ export function renderExceptionFilter(
   const concurrencyExceptionType = usingDapper
     ? "ConcurrencyConflictException"
     : "Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException";
+  // RS-40 (M-T6.91) — the detail is node's sentence, `<Aggregate> <id> was
+  // modified by another request`.  Dapper's `ConcurrencyConflictException` and
+  // the EF event-store's wrapped 23505 carry it as their message (built where
+  // the aggregate is in scope).  EF's NATIVE concurrency-token failure carries
+  // EF's own wording, so the sentence is derived from the entry the guarded
+  // UPDATE missed — its CLR type name and primary-key value (a strongly-typed
+  // id prints its `Value`).  A `shape: document` aggregate persists through its
+  // `<Agg>Document` POCO (document.ts), whose suffix is dropped so the sentence
+  // names the aggregate, not the persistence record.
+  const efEntryDetail = usingDapper
+    ? ""
+    : `
+            if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException { Entries.Count: > 0 } __dbx)
+            {
+                var __entry = __dbx.Entries[0];
+                var __type = __entry.Metadata.ClrType;
+                var __name = __type.Namespace?.EndsWith(".Infrastructure.Persistence.Documents") == true && __type.Name.EndsWith("Document") ? __type.Name[..^"Document".Length] : __type.Name;
+                var __key = __entry.Metadata.FindPrimaryKey();
+                var __idVal = __key is { Properties.Count: > 0 } ? __entry.Property(__key.Properties[0].Name).CurrentValue : null;
+                __conflictDetail = $"{__name} {__idVal} ${CONCURRENCY_CONFLICT_SUFFIX}";
+            }`;
   const concurrencyConflictArm = hasVersioned
     ? `
         if (context.Exception is ${concurrencyExceptionType})
         {
+            var __conflictDetail = context.Exception.Message;${efEntryDetail}
             ${renderDotnetLogCall("conflict", [
-              {
-                name: "message",
-                valueExpr: `"The resource was modified by another request; reload and retry."`,
-              },
+              { name: "message", valueExpr: "__conflictDetail" },
               { name: "status", valueExpr: `${concurrencyStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, ${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry.", trace_id);
+            context.Result = Problem(context, ${concurrencyStatus}, "Conflict", __conflictDetail, trace_id);
             context.ExceptionHandled = true;
             return;
         }`
@@ -1502,6 +1523,43 @@ public static class ValidationProblem
                 })
                 .ToArray();
             return new ObjectResult(missingProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
+        // An int literal past Int32 is a FIELD refusal, not a malformed body
+        // (RS-42): Serialization.Int32RangeJsonConverter throws it with the
+        // range sentence as its message, and the input formatter files that
+        // message under the field's JSON path ("$.n", "$.best.qty").  Answered
+        // like a missing member: only the range errors, never the companion
+        // "The request field is required." the same rejection records against
+        // the action parameter.
+        static bool IsIntegerRange(ModelError error) =>
+            error.ErrorMessage == global::${ns}.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::${ns}.Serialization.Int32RangeJsonConverter.Message;
+        var outOfRange = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
+            .Select(entry => entry.Key)
+            .ToArray();
+        if (outOfRange.Length > 0)
+        {
+            var rangeProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            rangeProblem.Extensions["errors"] = outOfRange
+                .Select(key => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
+                    ["message"] = global::${ns}.Serialization.Int32RangeJsonConverter.Message,
+                })
+                .ToArray();
+            return new ObjectResult(rangeProblem)
             {
                 StatusCode = 422,
                 ContentTypes = { "application/problem+json" },

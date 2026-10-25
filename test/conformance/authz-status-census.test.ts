@@ -38,11 +38,8 @@
 //     "Forbidden: find <name>".  node's find-guard emitter (routes-builder.ts:
 //     1820) hardcodes the bare string while its OPERATION-guard emitter threads
 //     the predicate — the exact intra-backend split this mission exists to name.
-//     Unifying the detail convention across every guard site (finds, projections,
-//     audit-history — where even the descriptive backends disagree: java "find
-//     history" vs elixir "history Item") is mission-sized, so this is a reasoned
-//     ratchet + a filed finding, not a one-line fix that would only trade node's
-//     outlier for a fresh intra-node split (WAIVER_FIND_DETAIL below).
+//     The audit-history read is the derived find `history`, so it carries the
+//     same declared-find detail, "Forbidden: find history", on all five.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -378,17 +375,14 @@ describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way
 });
 
 // ---------------------------------------------------------------------------
-// RATCHETING WAIVER — the AUDIT-HISTORY read gate's 403 detail (wave C3 3c).
+// The AUDIT-HISTORY read gate's 403 detail.
 //
-// Found by the emitted-source gate sweep (`test/ir/authz-emitted-census.ts`,
-// sweep G, M-T9.41): an `audited` aggregate's history read inherits its `find
-// all` gate (`docs/audit.md`), and all five backends APPLY it — but they spell
-// the 403 detail three ways, so the problem+json body of one refusal differs
-// across the stack while every other gate's detail agrees five-way (#2541).
-// No golden records it (no ladder arm addresses a history route), so this
-// source-level pin is the only witness.  HANDED OFF (a src fix, outside a
-// test-only wave).  Closing it fails this block — delete it and move the site
-// into a positive five-way assertion.
+// An `audited` aggregate's history read inherits its `find all` gate
+// (`docs/audit.md`), and the history read is a find named `history` — so its
+// refusal carries the same `Forbidden: find <name>` label every other read gate
+// does, five-way.  The booted witness is the `audit-history-guarded` wire golden
+// (its authz ladder records the history 403 body); this is the source-level twin
+// that fails in seconds.
 // ---------------------------------------------------------------------------
 
 const HISTORY_SOURCE = (platform: string) => `
@@ -418,8 +412,8 @@ system Census {
 }
 `;
 
-describe("RATCHET — the audit-history 403 detail diverges across the five backends (handed off)", () => {
-  it("each backend's history-gate detail is still the divergent spelling recorded here", async () => {
+describe("the audit-history 403 detail agrees across the five backends", () => {
+  it("each backend's history-gate detail is the read-gate label `Forbidden: find history`", async () => {
     const got: Record<string, string[]> = {};
     for (const platform of PLATFORMS) {
       const files = await generateSystemFiles(HISTORY_SOURCE(platform));
@@ -427,15 +421,13 @@ describe("RATCHET — the audit-history 403 detail diverges across the five back
         .filter((s) => s.context.includes("history"))
         .map((s) => s.detail);
     }
-    expect(
-      got,
-      "the history 403 detail changed — if it now AGREES five-way, delete this waiver",
-    ).toEqual({
-      node: ["Forbidden"],
-      dotnet: ["Forbidden: find history"],
-      java: ["Forbidden: find history"],
-      python: ["Forbidden"],
-      elixir: ["Forbidden: history Item"],
+    const expected = ["Forbidden: find history"];
+    expect(got).toEqual({
+      node: expected,
+      dotnet: expected,
+      java: expected,
+      python: expected,
+      elixir: expected,
     });
   });
 });

@@ -75,7 +75,12 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
       "if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)",
     );
     expect(filter).toContain(
-      'context.Result = Problem(context, 409, "Conflict", "The resource was modified by another request; reload and retry.", trace_id);',
+      'context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id);',
+    );
+    // RS-40 — EF's native concurrency-token failure carries EF's own wording,
+    // so the detail is rebuilt from the entry the guarded UPDATE missed.
+    expect(filter).toContain(
+      '__conflictDetail = $"{__name} {__idVal} was modified by another request";',
     );
   });
 
@@ -93,7 +98,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     // The concurrency arm's LogWarning line — isolate it and assert its event.
     const concurrencyArm = filter
       .split("\n")
-      .filter((l) => l.includes("The resource was modified by another request"))
+      .filter((l) => l.includes("__conflictDetail") && l.includes("LogWarning"))
       .join("\n");
     expect(concurrencyArm).toContain('"conflict"');
   });

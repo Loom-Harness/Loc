@@ -10,7 +10,7 @@ import {
   upperFirst,
   workflowFnCamel,
 } from "../../util/naming.js";
-import { javaCodePointLength } from "../_expr/code-point.js";
+import { javaCodePointLength, javaCodePointSubstring } from "../_expr/code-point.js";
 import {
   type BinaryExpr,
   type CallExpr,
@@ -273,6 +273,7 @@ function needsObjectsEquals(t: TypeIR | undefined, e: BinaryExpr): boolean {
     return (
       t.name === "string" ||
       t.name === "datetime" ||
+      t.name === "date" ||
       t.name === "guid" ||
       t.name === "json" ||
       // A5 temporal — a duration is a java.time.Duration reference
@@ -506,14 +507,10 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   // (the default-locale overloads diverge under e.g. tr-TR dotted-i).
   "string.toUpper": (recv) => `${recv}.toUpperCase(java.util.Locale.ROOT)`,
   "string.toLower": (recv) => `${recv}.toLowerCase(java.util.Locale.ROOT)`,
-  // 0-based CLAMPING semantics (JS slice — see the catalogue contract):
-  // Java's String.substring throws on out-of-range indices, so guard the
-  // start and clamp the end.  Argument duplication is safe — Loom
-  // expressions are pure.
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.length() ? "" : ${recv}.substring(${args[0]}, Math.min((${args[0]}) + (${args[1]}), ${recv}.length())))`
-      : `(${args[0]} >= ${recv}.length() ? "" : ${recv}.substring(${args[0]}))`,
+  // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`) — `String.substring` counts UTF-16 units
+  // and throws out of range.
+  "string.substring": (recv, args) => javaCodePointSubstring(recv, args[0]!, args[1]),
   "string.startsWith": (recv, args) => `${recv}.startsWith(${args[0]})`,
   "string.endsWith": (recv, args) => `${recv}.endsWith(${args[0]})`,
   "string.contains": (recv, args) => `${recv}.contains(${args[0]})`,
@@ -564,6 +561,14 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   // exactly the catalogue's midnight-UTC contract.  Fully-qualified
   // ChronoUnit avoids import wiring (same trick as string.split above).
   "datetime.startOfDay": (recv) => `${recv}.truncatedTo(java.time.temporal.ChronoUnit.DAYS)`,
+  "datetime.toDate": (recv) => `java.time.LocalDate.ofInstant(${recv}, java.time.ZoneOffset.UTC)`,
+  // ---- date — `java.time.LocalDate`; `ChronoUnit.DAYS.between` counts whole
+  // calendar days, signed, with no zone in play.
+  "date.year": (recv) => `${recv}.getYear()`,
+  "date.month": (recv) => `${recv}.getMonthValue()`,
+  "date.day": (recv) => `${recv}.getDayOfMonth()`,
+  "date.daysUntil": (recv, args) =>
+    `((int) java.time.temporal.ChronoUnit.DAYS.between(${recv}, ${args[0]}))`,
 };
 
 function renderMethodCall(
@@ -764,9 +769,9 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       // `findAll`.  A single-result `find` takes the first row.
       const read = e.repoRead!;
       const field = javaRepoField(read.aggregate);
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const call = `${field}.run${upperFirst(read.retrievalName)}(${argList})`;
-        return read.readKind === "find" ? `${call}.stream().findFirst().orElse(null)` : call;
+        return read.op === "select-one" ? `${call}.stream().findFirst().orElse(null)` : call;
       }
       return `${field}.${read.method}(${argList})`;
     }
@@ -883,8 +888,8 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
     }
     return `${l} ${e.op} ${r}`;
   }
-  // Instant ordering goes through isBefore / isAfter.
-  if (lt?.kind === "primitive" && lt.name === "datetime") {
+  // Instant / LocalDate ordering goes through isBefore / isAfter.
+  if (lt?.kind === "primitive" && (lt.name === "datetime" || lt.name === "date")) {
     if (e.op === "<") return `${l}.isBefore(${r})`;
     if (e.op === ">") return `${l}.isAfter(${r})`;
     if (e.op === "<=") return `!${l}.isAfter(${r})`;
@@ -992,6 +997,8 @@ function renderJavaConvert(target: string, from: string | undefined, v: string):
   if (target === "string") {
     if (from === "decimal" || from === "money") return `${v}.toPlainString()`;
     if (from === "datetime") return `${v}.toString()`;
+    // `LocalDate.toString()` is ISO `yyyy-MM-dd`.
+    if (from === "date") return `${v}.toString()`;
     if (from === "int" || from === "long" || from === "bool") return `String.valueOf(${v})`;
     return `String.valueOf(${v})`;
   }
@@ -1033,6 +1040,8 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         return mode === "reference" ? "Boolean" : "boolean";
       case "datetime":
         return J.Instant;
+      case "date":
+        return J.LocalDate;
       case "guid":
         return J.UUID;
       case "json":

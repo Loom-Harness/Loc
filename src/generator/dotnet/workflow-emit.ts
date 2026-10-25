@@ -43,7 +43,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
-import { commandCreateResult } from "../../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -372,16 +372,6 @@ ${noNulCharUsing(ns, recs)}
 namespace ${ns}.Application.Workflows;
 
 ${recs}`;
-}
-
-/** A workflow exposes an HTTP command POST when its facade (the primary
- *  unnamed create) is command-triggered.  A workflow whose only create is
- *  event-triggered (`create(e: Event)`) — i.e. a reactor / saga started by an
- *  event, never by an HTTP call — has no command surface. */
-function emitsCommandRoute(wf: WorkflowIR): boolean {
-  const facade =
-    wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
-  return !facade || facade.triggerKind === "command";
 }
 
 // ---------------------------------------------------------------------------
@@ -1877,13 +1867,13 @@ export function csWorkflowStmtTarget(
       const fieldName = `_${st.repoName.charAt(0).toLowerCase() + st.repoName.slice(1)}`;
       const argList = st.args.map(renderArg).join(", ");
       const callArgs = argList.length > 0 ? `${argList}, cancellationToken` : `cancellationToken`;
-      // `getById` is the built-in load, emitted on the repo as `GetByIdAsync`.
+      // The by-id `load` is emitted on the repo as `GetByIdAsync`.
       // A user find (`locate`, `byHandle`) is emitted WITHOUT an `Async` suffix
       // (matching the CQRS query handler's `_repo.<Find>(...)` call convention),
       // so don't append one or the method won't resolve (CS1061).
-      const methodName = st.method === "getById" ? "GetByIdAsync" : upperFirst(st.method);
+      const methodName = st.op === "load" ? "GetByIdAsync" : upperFirst(st.method);
       const call = `await ${fieldName}.${methodName}(${callArgs})`;
-      // `getById` is load-or-throw (Hono's returns non-null; the .NET
+      // `load` is load-or-throw (Hono's returns non-null; the .NET
       // op-command handler guards the same way).  Guard the `Task<T?>` result
       // with `?? throw` whenever the loaded aggregate is dereferenced — a
       // reactor / event-create body always does (`guardLoads === true`), and a
@@ -1893,7 +1883,7 @@ export function csWorkflowStmtTarget(
       // byte-identical.  Without the guard the deref is a CS8602 under
       // /warnaserror.
       const guardsLoad = typeof guardLoads === "boolean" ? guardLoads : guardLoads.has(st.name);
-      if (guardsLoad && st.method === "getById") {
+      if (guardsLoad && st.op === "load") {
         return [
           `${indent}var ${st.name} = ${call}`,
           `${indent}    ?? throw new AggregateNotFoundException($"${st.aggName} {${argList}} not found");`,

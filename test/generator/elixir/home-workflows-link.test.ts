@@ -58,8 +58,9 @@ describe("phoenix home page — workflows link gating (#1029 regression)", () =>
     // WorkflowsIndex `/workflows` route, so the home card is valid.
     const files = await generateSystemFiles(
       SYS(`
+        orderId: Order id
         amount: int
-        create(amount: int) { attempts := 0 }
+        create(orderId: Order id, amount: int) { attempts := 0 }
         attempts: int
       `),
     );
