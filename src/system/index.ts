@@ -46,7 +46,6 @@ import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
-import { rerootLegacyDapperModules, withRerootedVersions } from "./dapper-legacy-reroot.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
@@ -63,20 +62,20 @@ import {
   renderWorkflowDiagram,
 } from "./mermaid.js";
 import {
-  checkMigrationBaseline,
-  type MigrationArtifactIndex,
-  memoryMigrationArtifactIndex,
-} from "./migration-artifacts.js";
-import { buildMigrationLedger, type MigrationHistoryLedger } from "./migration-ledger.js";
-import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
+  chainMigrations,
+  headSnapshots,
+  type MigrationChain,
+  MigrationDriftError,
+  unrecordedMigrations,
+} from "./migration-chain.js";
+import {
+  buildMigrations,
+  type MigrationDelta,
+  type MigrationWarning,
+} from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
-import {
-  memorySnapshotStore,
-  type SnapshotStore,
-  serializeSnapshot,
-  snapshotRelPath,
-} from "./snapshot.js";
+import { memorySnapshotStore } from "./snapshot.js";
 import { renderSourceMap } from "./sourcemap.js";
 import { renderSourceMapV3 } from "./sourcemap-v3.js";
 import { renderTraceabilityArtifacts } from "./traceability.js";
@@ -110,12 +109,6 @@ export interface SystemEmission {
    *  `loom.*` code in a comment beside each one; this is where that becomes a
    *  reportable diagnostic instead of a note in a file nobody reads. */
   giveUps: GiveUpReport[];
-  /** The migration history this run's output tree now has, folded over
-   *  `options.recordedHistory`.  The CLI writes it back beside the `.ddd`
-   *  after a successful non-dry run so the NEXT run can tell "this module
-   *  has history" from "this module is new" even when `-o` points at a tree
-   *  that carries neither.  See `migration-ledger.ts` (F-029). */
-  migrationLedger: MigrationHistoryLedger;
   /** Non-fatal diagnostics raised while deriving the migrations (phase ⑨) —
    *  today only `loom.migration-rename-inferred`, which announces the
    *  drop+add → RENAME inference the builder makes on purpose and used to make
@@ -132,17 +125,13 @@ export interface GenerateSystemOptions {
    *  `docker-compose.yml`.  Opt-in (the CLI `--k8s` flag); off keeps the
    *  output the inner-loop compose stack only.  See docs/kubernetes.md. */
   emitKubernetes?: boolean;
-  /** Source for `.loom/snapshots/<module>.snapshot.json` baselines.  When
-   *  omitted, an empty in-memory store is used — every owning module
-   *  emits an "Initial" migration.  CLI wires `fsSnapshotStore(outDir)`;
-   *  web playground wires its VFS-backed store. */
-  snapshots?: SnapshotStore;
-  /** Allow destructive migration deltas (drops / narrowing type changes /
-   *  NOT-NULL column adds without a default on an existing table).  Off by
-   *  default: such a delta throws `MigrationDestructiveError` so the
-   *  operator applies it deliberately (the CLI `--allow-destructive`
-   *  flag).  See docs/migrations.md § Destructive changes. */
-  allowDestructive?: boolean;
+  /** The committed migration chain (`migrations/` beside the `.ddd`, read
+   *  by the caller).  Every backend renders its migration files from the
+   *  whole chain, and a model that has changed since the chain's head is
+   *  refused with a `MigrationDriftError`.  Omitted when the source has no
+   *  chain yet: every owning module then gets one initial migration derived
+   *  from the model, with nothing to drift from.  See docs/migrations.md. */
+  migrationChain?: MigrationChain;
   /** `--sourcemap` switch — when true, additionally emit
    *  `.loom/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
@@ -175,18 +164,6 @@ export interface GenerateSystemOptions {
    *  filesystem for a devtools pane to read the `.ddd` from — so it passes
    *  `true`.  No effect unless `sourcemap` and `sourceTexts` are both set. */
   inlineSources?: boolean;
-  /** On-disk migration-file inventory used by the baseline-safety guards
-   *  (M-T2.2).  When provided, `generate system` refuses to silently
-   *  re-baseline over an existing migration history, verifies files against
-   *  the snapshot's recorded history, and rejects version-number reuse.
-   *  Omitted by callers with no real output tree (the web playground) — the
-   *  guards are then skipped.  CLI wires `fsMigrationArtifactIndex(outDir,
-   *  loom)`. */
-  existingMigrations?: MigrationArtifactIndex;
-  /** Override for guards (a)/(d)/(e): permit re-emitting "Initial" (or
-   *  re-issuing a recorded version) even though the module demonstrably has
-   *  migration history — the CLI `--allow-rebaseline` flag. */
-  allowRebaseline?: boolean;
   /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
    *  locale tag (`de`, `pt-BR`).  Each frontend with a translation runtime
    *  emits one `src/locales/<locale>.json` per entry (scoped to that ui's own
@@ -199,13 +176,6 @@ export interface GenerateSystemOptions {
    *  `ddd i18n` subcommand uses) and the playground supplies its own.  Absent
    *  / empty is the normal case and emits byte-identically to before. */
   translations?: ReadonlyMap<string, Record<string, string>>;
-  /** The migration-history ledger read from beside the `.ddd` source, when
-   *  the caller has a source directory.  Feeds baseline guards (d)/(e) —
-   *  the ones that see a re-baseline into a CLEAN output tree, which the
-   *  output-tree-only guards cannot.  Omitted by the web playground. */
-  recordedHistory?: MigrationHistoryLedger | null;
-  /** Path to name in the guard (d)/(e) refusal messages. */
-  ledgerPath?: string;
 }
 
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
@@ -227,30 +197,17 @@ export function generateSystemsFromLoom(
   options: GenerateSystemOptions = {},
 ): SystemEmission {
   const out = emissionSink("system/index");
-  const snapshots = options.snapshots ?? memorySnapshotStore();
   // One recorder for the whole model — systems share one flat output map
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
-  // Every system's migrations, folded into ONE source-side ledger below: the
-  // ledger is keyed by module and lives beside the `.ddd`.  (A valid project
-  // declares exactly one system — `loom.multiple-systems` — so these loops run
-  // once; a second system would collide on the root files, which the
-  // write-once sink refuses.)
-  const builtMigrations: MigrationsIR[] = [];
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
   for (const sys of loom.systems) {
     emitSystem(sys, loom, out, {
       emitTrace: options.emitTrace,
       emitKubernetes: options.emitKubernetes,
-      snapshots,
-      allowDestructive: options.allowDestructive,
-      existingMigrations: options.existingMigrations,
-      allowRebaseline: options.allowRebaseline,
-      recordedHistory: options.recordedHistory,
-      ledgerPath: options.ledgerPath,
-      collectMigrations: builtMigrations,
+      migrationChain: options.migrationChain,
       collectMigrationWarnings: migrationWarnings,
       sourcemap: recorder,
       sourceTexts: options.sourceTexts,
@@ -330,9 +287,6 @@ export function generateSystemsFromLoom(
     files: out,
     giveUps: collectGiveUps(out),
     migrationWarnings,
-    // Always built (it is pure): callers with no source directory simply
-    // never write it.
-    migrationLedger: buildMigrationLedger(builtMigrations, options.recordedHistory ?? null),
   };
 }
 
@@ -343,15 +297,7 @@ function emitSystem(
   options: {
     emitTrace?: boolean;
     emitKubernetes?: boolean;
-    snapshots: SnapshotStore;
-    allowDestructive?: boolean;
-    existingMigrations?: MigrationArtifactIndex;
-    allowRebaseline?: boolean;
-    recordedHistory?: MigrationHistoryLedger | null;
-    ledgerPath?: string;
-    /** Sink the freshly-built `MigrationsIR[]` is appended to, so the caller
-     *  can fold every system's migrations into one source-side ledger. */
-    collectMigrations?: MigrationsIR[];
+    migrationChain?: MigrationChain;
     /** Sink for the derivation's non-fatal diagnostics, folded into
      *  `SystemEmission.migrationWarnings`. */
     collectMigrationWarnings?: MigrationWarning[];
@@ -365,57 +311,7 @@ function emitSystem(
   const modulesByName = new Map<string, EnrichedSubdomainIR>();
   for (const m of sys.subdomains) modulesByName.set(m.name, m);
 
-  // Build platform-neutral migration deltas once per system, then write
-  // the updated snapshot for every owning module so the next regen has
-  // a baseline to diff against.  Modules without an owner are skipped
-  // by `buildMigrations` — `migrations` only carries entries for
-  // modules where `module.migrationsOwner` is set.
-  const built = buildMigrations(sys, options.snapshots, {
-    allowDestructive: options.allowDestructive,
-    renameIntents: loom.renameIntents,
-    tableRenameIntents: loom.tableRenameIntents,
-    backfillIntents: loom.backfillIntents,
-    sqlSteps: loom.sqlMigrationSteps,
-    warnings: options.collectMigrationWarnings,
-  });
-  // A Dapper output tree written before that adapter applied the chain holds a
-  // snapshot history with no files behind it; re-emit its Initial so the
-  // runner can baseline the database the old bootstrap provisioned
-  // (`dapper-legacy-reroot.ts`).  Needs the on-disk inventory to recognise it.
-  const { migrations, rerooted } = rerootLegacyDapperModules(
-    sys,
-    built,
-    options.existingMigrations,
-  );
-  // Baseline-safety guards (M-T2.2): refuse a silent re-baseline when the
-  // snapshot is missing but migration files exist, verify files ↔ recorded
-  // history, and reject version-number reuse.  Skipped when no on-disk
-  // inventory was supplied (web playground / in-memory callers).
-  // Guards (d)/(e) read the source-side ledger, not the output tree, so they
-  // run even for a caller that supplied no on-disk inventory — as long as it
-  // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
-  // skips (a)-(c).
-  if (options.existingMigrations || options.recordedHistory) {
-    // Guarded on the DERIVED list: a re-emitted Initial is not a fresh
-    // "Initial" re-baselining a module (guard (a)), it is the file the
-    // snapshot history already names — which the index now shows on disk.
-    checkMigrationBaseline(
-      built,
-      withRerootedVersions(options.existingMigrations ?? memoryMigrationArtifactIndex(), rerooted),
-      {
-        allowRebaseline: options.allowRebaseline,
-        recordedHistory: options.recordedHistory,
-        ledgerPath: options.ledgerPath,
-      },
-    );
-  }
-  options.collectMigrations?.push(...migrations);
-  // One snapshot per module — the LAST migration's (a re-rooted module carries
-  // its re-emitted Initial ahead of this run's delta).
-  const nextByModule = new Map(migrations.map((m) => [m.module, m.next] as const));
-  for (const [module, next] of nextByModule) {
-    out.set(snapshotRelPath(module), serializeSnapshot(next));
-  }
+  const migrations = systemMigrations(sys, loom, options);
 
   for (const d of sys.deployables) {
     const contexts = collectContextsFor(d, modulesByName);
@@ -759,6 +655,67 @@ function emitDeployable(
     translations: options.translations,
   });
   out.copyFrom(files, `${sub}/`);
+}
+
+/** The schema changes `loom` has made since `chain`'s head — one delta per
+ *  owning module of every system, empty where nothing changed.  What
+ *  `ddd migrate add` records, and what `generate system` refuses to render
+ *  past.  Pure: the caller reads the chain and writes the entries. */
+export function pendingMigrations(
+  loom: EnrichedLoomModel,
+  chain: MigrationChain,
+  options: { allowDestructive?: boolean; warnings?: MigrationWarning[] } = {},
+): MigrationDelta[] {
+  return loom.systems.flatMap((sys) =>
+    buildMigrations(sys, headSnapshots(chain), {
+      ...migrationIntents(loom),
+      allowDestructive: options.allowDestructive,
+      warnings: options.warnings,
+    }),
+  );
+}
+
+function migrationIntents(loom: EnrichedLoomModel) {
+  return {
+    renameIntents: loom.renameIntents,
+    tableRenameIntents: loom.tableRenameIntents,
+    backfillIntents: loom.backfillIntents,
+    sqlSteps: loom.sqlMigrationSteps,
+  };
+}
+
+/** The migrations every backend renders for `sys`.  With a committed chain:
+ *  the whole chain, after checking the model has not moved past its head.
+ *  Without one: each owning module's initial migration, derived from the
+ *  model. */
+function systemMigrations(
+  sys: EnrichedSystemIR,
+  loom: EnrichedLoomModel,
+  options: {
+    migrationChain?: MigrationChain;
+    collectMigrationWarnings?: MigrationWarning[];
+  },
+): MigrationsIR[] {
+  const chain = options.migrationChain;
+  if (!chain) {
+    return unrecordedMigrations(
+      buildMigrations(sys, memorySnapshotStore(), {
+        ...migrationIntents(loom),
+        warnings: options.collectMigrationWarnings,
+      }),
+    );
+  }
+  // Drift is a fact about the model, not a decision: whether a drop is allowed
+  // was settled when the generation was recorded, so the check diffs as if it
+  // were and only asks whether anything is left to record.
+  const drift = buildMigrations(sys, headSnapshots(chain), {
+    ...migrationIntents(loom),
+    allowDestructive: true,
+  });
+  const drifted = drift.filter((d) => d.steps.length > 0).map((d) => d.module);
+  if (drifted.length > 0) throw new MigrationDriftError(drifted);
+  const owned = new Set(sys.subdomains.filter((m) => m.migrationsOwner).map((m) => m.name));
+  return chainMigrations(chain).filter((m) => owned.has(m.module));
 }
 
 /** Filter system-level migrations to just those this deployable runs.

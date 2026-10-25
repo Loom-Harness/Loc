@@ -5,7 +5,8 @@ Postgres database in line with the `.ddd` source. It is the **only secondary IR
 in the compiler** — every backend consumes `LoomModel` directly for everything
 else, but schema migration is the one place where (a) the table layout is a pure
 function of the enriched IR that every DB backend needs identically, and (b) the
-output is *stateful* (it diffs against what was emitted last time). Deriving it
+output is *stateful* (it diffs against the schema the committed migration
+chain already builds). Deriving it
 once in phase ⑨ and handing the same `MigrationsIR[]` to Drizzle, EF Core, Ecto,
 Flyway, and the Python runner means a schema change is bit-for-bit equivalent
 across all five backends — cross-backend consistency falls out of having one
@@ -17,17 +18,18 @@ canonical source rather than five hand-kept emitters.
 
 ## The shape
 
-One `MigrationsIR` is produced **per owning module**:
+One `MigrationsIR` is produced **per generation of an owning module** — one per
+entry of the [migration chain](#the-migration-chain--migrations-beside-the-source):
 
 ```ts
 interface MigrationsIR {
-  module: string;        // .loom/snapshots/<module>.snapshot.json is keyed here
+  module: string;        // owning module
   storageName: string;   // physical storage binding (pg, analyticsDb), or ""
-  baseline: SchemaSnapshot | null;   // last regen's schema, null on first run
-  next: SchemaSnapshot;              // schema the current source describes
-  steps: MigrationStep[];            // ordered ops baseline → next; [] = no-op
-  version: string;       // YYYYMMDDHHMMSS slug, drives file ordering
-  name: string;          // "Initial", "AddOrderStatus", …
+  baseline: SchemaSnapshot | null;   // the module's schema before; null for its Initial
+  next: SchemaSnapshot;              // the module's schema after
+  steps: MigrationStep[];            // ordered ops baseline → next
+  version: string;       // chain version — unique across modules, strictly increasing
+  name: string;          // "Initial", or the `migrate add` name ("AddOrderStatus")
 }
 ```
 
@@ -49,18 +51,20 @@ schema.
 
 ## Phase ⑨ derivation
 
-`buildMigrations(sys, snapshots)` (called by the system orchestrator, not by
-`ir/`) walks every module:
+`buildMigrations(sys, snapshots)` (called by `ddd migrate add` and by the
+system orchestrator, not by `ir/`) walks every module:
 
 1. Skip modules with no `migrationsOwner` (frontend-only subdomains emit nothing).
 2. Build `next = schemaFromModule(module, shapeOf, schemaOf)` — the table list
    the current source describes.
-3. Read `baseline` from the `SnapshotStore` (`.loom/snapshots/<module>.snapshot.json`).
+3. Read `baseline` from the `SnapshotStore` — the module's schema at the head of
+   the migration chain (`headSnapshots`), or nothing when the module has no entry.
 4. `steps = diffSchema(baseline, next)` — a pure diff. Same snapshot in ⇒ empty
-   steps, so regenerating a clean repo is a no-op.
-5. Stamp `next` with the bumped `version` (monotonic: `String(BigInt(lastVersion)
-   + 1n)`, starting from `BASE_TIMESTAMP = "20260101000000"`) and append to
-   `migrationHistory`, then write it back to disk as the next baseline.
+   steps.
+
+The result is a `MigrationDelta` — a `MigrationsIR` without a version. Only the
+chain numbers a generation, when `ddd migrate add` records it (see
+[The migration chain](#the-migration-chain--migrations-beside-the-source)).
 
 `diffSchema` emits an **FK-safe global order**: drop indexes/columns (which
 unblocks table drops) → drop tables in **reverse-topological (child-first)** order
@@ -82,9 +86,12 @@ delta and enforces the **destructive-change gate** (see below).
 ## Destructive changes — the `--allow-destructive` gate
 
 A delta can silently destroy data. `applyDestructivePolicy` classifies each step
-and, unless the generate run passes `--allow-destructive`, **aborts** with a
-`loom.migration-destructive` error naming the offending steps. First-run
-(`Initial`) migrations are always exempt — nothing pre-exists to destroy.
+and, unless `ddd migrate add` is run with `--allow-destructive`, **aborts** with a
+`loom.migration-destructive` error naming the offending steps. A module's
+`Initial` is always exempt — nothing pre-exists to destroy. The decision is made
+once, when the generation is recorded, and the chain entry records it
+(`"allowDestructive": true`); `generate system` replays the chain and takes no
+such flag.
 
 - **Explicit rename intent (M-T2.1).** A top-level `migration "<name>" { Agg.old
   -> new }` block declares a rename directly, so the diff emits a
@@ -228,7 +235,7 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   previously-existing table fails on any populated table → blocked unless a
   **backfill step** covers it (see § Data migrations — the safe sequence with
   a real `UPDATE`, no flag needed), the field carries a **scalar-literal
-  default** (below), or the run passes `--allow-destructive`.
+  default** (below), or `migrate add` passes `--allow-destructive`.
   Under the flag it is rewritten into the safe sequence with a
   `-- TODO backfill …` comment in place of the `UPDATE`: add the column
   *nullable* → TODO → `SET NOT NULL` (`alterColumnNullable`). Fill in the
@@ -312,8 +319,8 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   no flag and touches no existing row.
 
 ```bash
-ddd generate system app.ddd -o out                       # aborts on a destructive delta
-ddd generate system app.ddd -o out --allow-destructive   # applies it (drops; NOT-NULL → 3-step)
+ddd migrate add drop-legacy app.ddd                       # aborts on a destructive delta
+ddd migrate add drop-legacy app.ddd --allow-destructive   # records it (drops; NOT-NULL → 3-step)
 ```
 
 ### The inferred rename announces itself — `loom.migration-rename-inferred`
@@ -595,33 +602,22 @@ test:migration-evolution{,-python,-java,-dotnet,-elixir}`):
 
 ### Amending a generation that never applied
 
-Once a generation is emitted it is frozen: the snapshot's `lastVersion` has
-moved past it, and the source-side ledger records its version. If that
-generation then FAILS at boot (the unique-index case above), adding the fix to
-the `.ddd` and regenerating lands the fix in the NEXT generation — behind the
-one that fails, so it never runs. A failed generation was never recorded by
-the migrator — each backend applies a generation inside a transaction on
-Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the python runner's
-`__loom_migrations`), so a failure leaves no history row (verified live on the
-banking evaluation's node stack) — and it is therefore safe to **re-issue the same version with different
-content** — as long as no database has applied it. The recipe:
+A recorded generation is frozen: it is a file in `migrations/`, and the next
+`migrate add` diffs against the schema it leaves. If that generation then FAILS
+at boot (the unique-index case above), recording the fix as a new generation
+puts it BEHIND the one that fails, so it never runs. A failed generation was
+never recorded by the migrator — each backend applies a generation inside a
+transaction on Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the
+python runner's `__loom_migrations`), so a failure leaves no history row — and
+it is therefore safe to **replace it**, as long as no database has applied it:
 
-1. Restore the output tree (at least `.loom/snapshots/` and each owning
-   backend's migrations directory) **and** the source-side ledger
-   `<source-dir>/.loom/<source>.migration-history.json` to the last generation
-   every database has applied — from VCS (commit both after each `generate`) or
-   a copy. Restoring the tree alone is refused by guard (e) above ("refusing to
-   re-issue migration version … already recorded in …migration-history.json"),
-   which is the guard doing its job: it cannot tell "never applied" from
-   "applied somewhere".
+1. Delete the failed generation's file(s) from `migrations/` (the newest
+   entries — the chain refuses a gap).
 2. Amend the `.ddd` (e.g. add the `sql before` dedupe).
-3. `ddd generate system` again — it re-emits the same version, now carrying the
-   fix, and the next boot applies it.
+3. `ddd migrate add <name>` again, then `ddd generate system`.
 
-`--allow-rebaseline` instead of step 1's ledger restore also works, but it
-discards the ledger's history wholesale; prefer restoring it. If any database
-DID apply the generation, do not re-issue it — add a new generation instead.
-The other way out — running the fix by hand
+If any database DID apply the generation, do not replace it — record a new one
+instead. The other way out — running the fix by hand
 (`docker compose exec db psql -U postgres -d <db> -c "UPDATE …"`) and
 restarting the service so the frozen generation re-runs — works, but leaves the
 fix outside the model.
@@ -659,113 +655,60 @@ CREATE TABLE "carts" ("id" UUID NOT NULL, "data" JSONB NOT NULL, "version" INTEG
 -- TODO reshape (…): copy data from "carts__pre_reshape" into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
 ```
 
-## Baseline safety — the `--allow-rebaseline` gate (M-T2.2, F-029)
+## The migration chain — `migrations/` beside the source
 
-The snapshot at `.loom/snapshots/<module>.snapshot.json` **is** the migration
-baseline. A *corrupt* snapshot fails loudly (`SnapshotReadError`), but a
-*missing* one used to read as `null` — a first run — so `buildMigrations` would
-re-emit a full `Initial` migration and reset the version/history chain, silently
-re-baselining against a database that already has migrations applied. Five
-generate-time guards ([`migration-artifacts.ts`](../src/system/migration-artifacts.ts),
-`checkMigrationBaseline`) close that window.
+Every generation a model has recorded lives beside its entry `.ddd`, in
+`migrations/`, one JSON file per (generation, module):
+[`src/system/migration-chain.ts`](../src/system/migration-chain.ts) owns the
+format and every rule, `src/cli/migrate.ts` only moves the files. Each entry
+carries the backend-neutral `steps` **and** the module's schema after them, so
+`generate system` renders every backend's migration files — the whole chain,
+every run — from `migrations/` alone. The output tree holds no migration state,
+can be deleted, and regenerates byte-identically anywhere: CI, a fresh clone, a
+second environment.
 
-Guards (a)–(c) read the **output tree**:
-
-- **(a) Missing snapshot over existing files → refuse.** If the snapshot is gone
-  but migration files exist *in the module's own version block*, the run
-  **aborts** rather than re-baselining. `--allow-rebaseline` overrides it.
-  The per-module narrowing matters: `MigrationArtifactIndex` can only answer per
-  *deployable*, and one deployable hosts many modules, so without it a brand-new
-  module was refused for a **sibling's** files — prescribing the one flag that
-  would have discarded the sibling's history. Version blocks
-  (`BASE_TIMESTAMP + block * MODULE_VERSION_STRIDE`) are the only per-module
-  attribution a flat migrations directory supports.
-- **(b) Recorded history missing from disk → refuse.** With a snapshot present,
-  every version in its `migrationHistory` must have a file on disk. This is
-  deliberately **one-directional** (history ⊆ files, not files ⊆ history):
-  backends legitimately emit migration files the version chain never records —
-  the feature-local audit/provenance late migrations at fixed far-future
-  `2999…` versions. Flagging those as "extra" would false-positive on every
-  audited system; the stale-baseline case it would otherwise catch is caught by
-  (c) on the next real delta.
-- **(c) Version reuse → refuse.** The version this run would emit must not
-  already exist on disk — the tell of a stale baseline whose `lastVersion` lags
-  the files.
-
-(b) and (c) ask about a version *number*, so they read the whole directory;
-only (a) needs attribution.
-
-### The source-side ledger — guards (d) and (e) (F-029)
-
-All of (a)–(c)'s evidence lives in the output tree, which makes them
-structurally blind to the case where **the output tree is the thing that is
-missing**. A *clean* `-o` has no snapshot **and** no migration files, which is
-indistinguishable from a genuine first run: the re-issued `Initial` carries the
-current schema under the **same** base version the earlier tree used. Deployed
-against a database that already ran that version, the migrator matches the tag,
-considers it applied, and **skips the changed contents** — the new column never
-lands, the container reports healthy, and every request naming it 500s.
-`ddd generate system … -o ../build` in CI, a fresh clone that never committed
-the output tree, and a second environment all take this path.
-
-The missing fact is not in the output tree, so it is recorded next to the
-**source**: [`<source-dir>/.loom/<source>.migration-history.json`](../src/system/migration-ledger.ts),
-written after every successful non-dry run and **meant to be committed with the
-`.ddd`**. It records *which versions* each module has emitted plus a fingerprint
-of that module's schema — never the schema itself (that is still the snapshot's
-job), so it is a detector, not a second baseline.
-
-- **(d) Recorded history the run would not reproduce → refuse.** The module is
-  about to emit an `Initial`, and the ledger says it already has history.
-- **(e) A recorded version this output tree lacks → refuse.** The snapshot and
-  the files agree with each other, so (b) and (c) pass, but the ledger records a
-  version this run is about to emit: an older *copy* of the output tree,
-  internally consistent and behind the model.
-
-(a), (d) and (e) are overridden by `--allow-rebaseline`.
-
-**Guard (d) compares content, not presence.** Regenerating an **unchanged**
-model into a fresh directory is a reproducible build — CI, a second
-environment, a clone that never committed its output tree — and the tree it
-writes *is* the tree that already exists, so it must stay silent. A
-presence-only guard would refuse it, and `-o` would become a one-directory
-lock. (d) therefore refuses only when the `Initial` this run would emit does
-**not** reproduce the recorded one, which requires all three of:
-
-1. the record is a **single** version — a longer history cannot be reproduced by
-   one migration. A fresh generate *collapses* `Initial + delta` into one file:
-   the end state matches, but a database that applied only the `Initial` would
-   never receive the delta, and the file that delivers it is gone from the tree;
-2. that version is the one this run would emit (the module's version block has
-   not shifted);
-3. the recorded schema fingerprint is this run's schema. A record written
-   without one cannot *prove* reproduction, and an unproven reproduction is read
-   conservatively — refuse, and let `--allow-rebaseline` be the way through.
-
-The fingerprint is canonicalised through `serializeSnapshot` over `tables`
-alone, so `lastVersion` / `migrationHistory` / `versionBlock` /
-`appliedDataMigrations` — which differ between a fresh tree and an incremental
-one for the same model — are excluded by construction.
-
-The checks run on the platform-neutral `MigrationsIR`, so they're
-backend-agnostic (every backend's migration filenames are recognised —
-`<version>_…` and Flyway's `V<version>.<n>__…`). (a)–(c) are wired only where
-there's a real output tree to scan (the CLI passes
-`fsMigrationArtifactIndex(outDir, loom)`); (d)/(e) need only the ledger. The web
-playground has neither and keeps the prior behaviour.
-
-```bash
-ddd generate system app.ddd -o out                     # aborts if the module has history this run would not reproduce
-ddd generate system app.ddd -o out --allow-rebaseline  # overwrites the migration history deliberately
+```text
+app.ddd
+migrations/
+  20261025141500_sales_initial.json
+  20261026141500_billing_initial.json
+  20261102093000_sales_rename_order_qty.json
 ```
 
-**Where the baseline lives.** The *baseline* stays in the output tree, and has
-to: it describes the schema the migration files build up, and a delta is only
-meaningful beside the files it follows. The ledger is the smaller, separate
-fact — "this module has history" — which must survive being read in a tree that
-carries none of it, so it lives with the model. Committing
-`.loom/<source>.migration-history.json` alongside the `.ddd` is what makes the guard
-work in a fresh clone.
+```bash
+ddd migrate add initial app.ddd             # first recorded generation: each module's Initial
+ddd migrate add rename-order-qty app.ddd    # every later schema change, kebab-case name
+ddd generate system app.ddd -o out          # renders the chain; never records anything
+```
+
+**Commit `migrations/`.** It is the record a database's migration history
+is checked against.
+
+**A model with no `migrations/` has nothing recorded.** `generate system`
+then emits each owning module's initial migration, derived from the model and
+numbered from `BASE_VERSION`, with nothing to drift from — every example and
+fixture in this repository works that way. The first `migrate add` starts the
+chain, and from then on `generate system` refuses a model that has moved past
+the chain's head (`MigrationDriftError`, naming the modules) until the change
+is recorded.
+
+**Versions.** An entry's version is the UTC clock at `migrate add`
+(`YYYYMMDDHHMMSS`), moved above the head when the clock is behind it, and above
+`head + INITIAL_RESERVATION` (one "day", `1_000_000`) when the head is a
+module's `Initial` — one initial expands into many files on Ecto, which numbers
+one per table from the generation's version. So a version is unique across
+modules and strictly increasing along the chain, and every backend's migrator
+(Drizzle's watermark, Flyway's out-of-order refusal, Ecto's per-file versions)
+sees a new generation above everything it already applied.
+
+**One list.** Every entry names its parent — the entry recorded just before it,
+of any module. Two entries naming the same parent are **two heads**: what two
+branches that each recorded a migration look like once merged. The chain then
+refuses to be read (`MigrationChainError`) until one of them is deleted and
+recorded again with `migrate add` on top of the other. The same error covers a
+missing parent, an entry numbered at or below its parent, a file name that does
+not match its contents, two entries of one module sharing a name, and
+unparseable JSON (an unresolved merge conflict).
 
 ## `migrationsOwner` — one backend per module owns schema
 
@@ -1017,10 +960,11 @@ seed SQL is bit-identical cross-backend).
 | Java / Spring | `src/main/resources/db/migration/V<v>.<n>__<Mod>_<Name>.sql` | Flyway |
 | Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `__loom_migrations` tracking table |
 
-Files use a module-qualified tag (`<version>_<module>_<name>`) because every
-module's *initial* migration shares `BASE_TIMESTAMP` + `"Initial"` — without the
-module, filenames and migration ids collide and only the last module's tables
-survive. Down migrations are no-ops everywhere (operators roll forward, not back).
+Files use a module-qualified tag (`<version>_<module>_<name>`): the version is
+already unique, but every module's first generation is named `"Initial"`, and
+the module keeps a filename saying which module it migrates (Ecto's migration
+module is `<Module><Name>` for the same reason — its names are app-wide). Down
+migrations are no-ops everywhere (operators roll forward, not back).
 
 The fixed **companion tables** — the transactional outbox (`__loom_outbox`), the
 command-audit log (`audit_records`) and the provenance history
@@ -1036,7 +980,7 @@ What *is* still feature-local and hand-emitted per backend is the
 **per-aggregate** half of provenance: the co-located `<field>_provenance` jsonb
 columns, which `ALTER` tables the module migration owns and so ship as a *late*
 migration (a far-future version like `29991231235959`) sorting after every
-module's initial migration.
+generation of the chain.
 
 ### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
 
@@ -1075,19 +1019,7 @@ applies the same `MigrationsIR` chain EF applies
   `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
   into exactly one generation's file, and that file runs once.
 
-#### The transition from the old bootstrap
-
-Two halves, one per place the old world left a trace.
-
-**At generate time — re-rooting the output tree**
-([`system/dapper-legacy-reroot.ts`](../src/system/dapper-legacy-reroot.ts)).
-The old toolchain wrote the module snapshot but no migration files, so guard (b)
-refused every later generate into that tree: its history is always exactly one
-`Initial`, and the snapshot it carries is the schema the old bootstrap
-provisioned. On a Dapper-owned module whose snapshot history has **no** file on
-disk, the generate re-emits that `Initial` from the snapshot (under the version
-the history records) ahead of this run's delta, and rewrites the history to name
-just those two. Any other backend in that state is still refused by guard (b).
+#### Databases the old bootstrap provisioned
 
 **At boot — baselining the database** (`BaselineLegacyAsync` in `DbSchema.cs`).
 A database with no `__loom_migrations` table is examined once, inside one
@@ -1100,16 +1032,11 @@ the list of tables it creates):
 - every table absent → a module the old bootstrap never saw; left pending;
 - some of each → refuse to boot, naming the missing tables, rather than guess.
 
-Later migrations then apply normally, which is what finally brings the old
-database up to the model. The decision rests on the old bootstrap having
-provisioned the `Initial`'s shape. That holds column-for-column (checked over
-every `dapper*.ddd` compile fixture). It does not hold for constraints the old
-DDL never had: the FKs, enum CHECKs, `DEFAULT 1` on `version`, and money's
-`NUMERIC(19,4)` bounds stay absent on a baselined database until a later
-migration touches them. A model that already evolved under the old toolchain is
-also out of scope: such a tree could only be regenerated by deleting its
-snapshot and passing `--allow-rebaseline`, so its database is behind its
-snapshot in a way no tool recorded, and it needs reconciling by hand.
+Later migrations then apply normally. The decision rests on the old bootstrap
+having provisioned the `Initial`'s shape. That holds column-for-column; it does
+not hold for constraints the old DDL never had (the FKs, enum CHECKs,
+`DEFAULT 1` on `version`, and money's `NUMERIC(19,4)` bounds), which stay absent
+on a baselined database until a later migration touches them.
 
 Compose and k8s need nothing for this. The per-deployable `db-bootstrap`
 service (#3141) only ever creates the database; the schema inside it is the
@@ -1135,37 +1062,17 @@ That makes `when` load-bearing in a way a filename is not. Three requirements:
 3. **strictly greater**, for a newly appended entry, than for every entry already
    applied — otherwise the watermark hides it forever.
 
-`when` therefore derives from `MigrationHistoryEntry.seq`, a global **creation
-ordinal** recorded in the module snapshot when the entry is appended and never
-recomputed: `when = epochMillis(BASE_TIMESTAMP) + seq * 2`. Entries take the even
-slots; the odd slot just above the newest one carries the always-last provenance
+`when` is therefore the entry's **position in chain order**:
+`when = epochMillis(BASE_VERSION) + ordinal * 2`. The chain only grows at its
+head, with a version above every existing one, so an entry's position never
+moves (2) and a new entry always lands last (1, 3). Entries take the even slots;
+the odd slot just above the newest one carries the always-last provenance
 migration, so it sorts after its own generation without sitting above the next
 one. The late provenance migration is emitted with `ADD COLUMN IF NOT EXISTS`
 because it is re-derived from scratch each generation rather than diffed, so
-re-applying it is a no-op — and a field newly marked `provenanced` now actually
-receives its column.
-
-`when` cannot be derived from `version`: versions are allocated in per-module
-**blocks** (`versionBlock`), so they are not chronological. A delta in block 0
-(`20260101500001`) sorts *below* the initial migration of block 1
-(`20260102000000`), which breaks (1) and (3) the moment a second module exists.
-The key this replaced was `epochMillis(version) + arrayIndex`, which broke all
-three at once — inserting a migration renumbered every later entry, and the
-year-2999 provenance sentinel, always the last row, was always the entry that got
-renumbered, so it re-ran on every boot. The first deploy was fine; the *second* —
-the first real evolution, against a database with data in it — silently skipped
-its own migration and crashed the boot if anything was `provenanced`. The runtime
-gate is the `journal-ordering` leg of `migration-evolution-e2e`.
-
-> **Upgrading a stack deployed before this change.** Its `__drizzle_migrations`
-> holds watermarks from the old key, which ran up to a year-2999 sentinel
-> (~3.25e13) — far above anything the new key emits. Such a database reads every
-> new `when` as already-applied and applies nothing, which leaves it exactly as
-> stuck as the bug already left it (it could not evolve either way), rather than
-> re-running its whole chain and crashing. Recover it once with
-> `DELETE FROM "__drizzle_migrations";` after confirming the schema matches the
-> head model — the chain is then re-applied from a journal whose ordering is
-> stable. Stacks generated after this change need nothing.
+re-applying it is a no-op — and a field newly marked `provenanced` actually
+receives its column. The runtime gate is the `journal-ordering` leg of
+`migration-evolution-e2e`.
 
 ## Migration-evolution gate — proving migrations evolve *on data* (M-T2.13)
 
@@ -1187,8 +1094,8 @@ Postgres:
    `__loom_migrations`, `__EFMigrationsHistory`, `flyway_schema_history`,
    `schema_migrations`) is excluded so only the domain schema is compared.
 2. **Populated forward-migrate.** Seed a v1 row through the REST surface,
-   regenerate the `.ddd` to v2 over the same tree (so the snapshot diff derives
-   the forward migration), apply it (at boot for node/python/dotnet/java; an
+   record the `.ddd`'s v2 with `ddd migrate add` and regenerate the same tree
+   (so the chain carries the forward migration), apply it (at boot for node/python/dotnet/java; an
    explicit `mix ecto.migrate` for vanilla Phoenix), and assert the row
    **survives** with correct values — the renamed column keeps its value, the
    back-filled NOT-NULL column is populated, the nullable add is NULL. A
@@ -1210,10 +1117,7 @@ Opt-in, per backend: `npm run test:migration-evolution{,-python,-java,-dotnet,-d
 (each gated on `LOOM_MIGRATION_E2E[_…]=1`; needs docker or `LOOM_MIGRATION_PG_URL`
 plus host `psql`). The gate runs per-PR (path-scoped) and in the merge queue;
 see [`ci-gating.md`](ci-gating.md). The `dapper` leg runs every gate the `dotnet` leg runs on `persistence:
-dapper`, plus the transition case (`runDapperLegacyBaselineGate`): the old
-bootstrap's literal DDL (`dapper-legacy-bootstrap.sql`) plus one row, an old
-tree with no `Migrations/`, regenerate v2, then boot. The row must survive the
-baseline and the delta, and a reboot must change nothing.
+dapper`.
 
 ## Semantic changes that emit no migration — exact `decimal` arithmetic (RS-37)
 
@@ -1269,16 +1173,11 @@ how the elixir migration emitter *renders* that column type, so:
 
 ## Relationship to `.loom/` and `wire-spec.json`
 
-Two `.loom/` artifacts come out of phase ⑨ and are easy to conflate:
+Two change records sit side by side and are easy to conflate:
 
-- **`.loom/snapshots/<module>.snapshot.json`** *is* the migration baseline — the
-  serialized `SchemaSnapshot` (`next`) written on every `generate system` run and
-  diffed on the next regen. Tracked in git so the diff is stable across machines.
-- **`<source-dir>/.loom/<source>.migration-history.json`** is the *ledger* — versions +
-  a schema fingerprint per module, kept beside the `.ddd` **source** rather than
-  under `-o`. It is not a baseline: nothing diffs against it, and the SQL is not
-  in it. Its only job is to let the guard refuse a re-baseline into an output
-  tree that carries no history. Commit it with the model.
+- **`migrations/`** (beside the `.ddd`, committed) *is* the migration history —
+  every recorded generation's steps and the schema it leaves; the next
+  `migrate add` diffs against its head.
 - **`.loom/wire-spec.json`** is the JSON-Schema-shaped derivation of every
   aggregate's `wireShape` — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the

@@ -89,7 +89,8 @@ node bin/cli.js parse <file.ddd>                       # parse + validate (AST +
 node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
 node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
-node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot — like `ef migrations add`, run deliberately)
+node bin/cli.js migrate add     <name> <file.ddd> [--allow-destructive]  # record the model's schema changes as the next entry of the migration chain (migrations/ beside the .ddd, committed) — like `ef migrations add`; `generate system` renders the chain and refuses unrecorded changes
+node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot, run deliberately)
 node bin/cli.js verify          <file.ddd> (--results <results.json> | --from-vitest <report.json>) [--out <dir>] [--allow-missing]  # join an existing test-results JSON onto the requirements graph → .loom/verification.{json,md} (gates the exit code — a declared test with NO result fails it unless --allow-missing; does NOT run the suites itself)
 node bin/cli.js trace           <logfile>                              # translate a runtime stack-trace back to .ddd source via .loom/sourcemap.json
 node bin/cli.js breakpoints     <file.ddd> --line <n>                  # resolve a .ddd source line to the generated file:line(s) it produced, or file:line:col when it's a fine expression region — the reverse of `ddd trace`
@@ -97,7 +98,7 @@ node bin/cli.js patch           <file.ddd> …                           # apply
 node bin/cli.js i18n {extract|init|sync|status|check|prune} <file.ddd> # translator workflow over the extracted string catalog — `sync` is a three-way merge (BASE locales/.loom/source.lock.json, OURS locales/<locale>.json, THEIRS a fresh extraction); `check --strict` is the CI gate (src/cli/i18n/ over the pure merge core src/i18n/merge.ts)
 ```
 
-Flags: `-o/--out`, `-w/--watch` (legacy generate only), `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, `--allow-destructive`, `--allow-rebaseline` (destructive/rebaseline migration gating), and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
+Flags: `-o/--out`, `-w/--watch` (legacy generate only), `--dry-run` (print `write`/`skip` plan, touch nothing), `--sourcemap` (`generate system` only — also emit `.loom/sourcemap.json`). `generate system` also takes `--json`, `--trace`, and `--inline-sources` (with `--sourcemap`: inline each `.ddd`'s text into every v3 sidecar — off by default, the sidecars name the `.ddd` by absolute path); `new` also takes `--force`.
 
 ## Architecture — the one-directional pipeline
 

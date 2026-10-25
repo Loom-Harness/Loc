@@ -1,11 +1,10 @@
 // ---------------------------------------------------------------------------
 // MigrationsIR — platform-neutral schema delta.
 //
-// One `MigrationsIR` per owning (module, storage) pair.  `baseline` is the
-// schema as it existed last time we generated (read from
-// `.loom/snapshots/<module>.snapshot.json`); `next` is the schema the
-// current source describes.  `steps` is the ordered op list that closes
-// the gap.  Backends only translate steps to their native syntax — they
+// One `MigrationsIR` per generation of an owning module — every entry of
+// the committed migration chain (`src/system/migration-chain.ts`).
+// `baseline` is the module's schema before the generation, `next` the
+// schema after it, and `steps` the ordered op list that closes the gap.  Backends only translate steps to their native syntax — they
 // never re-derive the schema from the IR.
 //
 // The shared diff layer (`migrations-builder.ts`) guarantees Phoenix,
@@ -251,19 +250,6 @@ export interface InheritanceStamp {
 
 export interface SchemaSnapshot {
   schemaVersion: 1;
-  /** Version of the last migration written against this snapshot.  The
-   *  builder bumps it monotonically (next = `String(BigInt(lastVersion)
-   *  + 1n)`) so subsequent migration files always sort after existing
-   *  ones without consulting the filesystem.  Absent on a freshly-init
-   *  snapshot — the builder starts at the canonical base timestamp. */
-  lastVersion?: string;
-  /** Ordered history of every migration emitted against this snapshot.
-   *  The TS/Hono emitter rebuilds Drizzle's `meta/_journal.json` from
-   *  this list so Drizzle's runtime migrator (and `drizzle-kit migrate`)
-   *  can apply them.  Phoenix + .NET ignore the field — their own
-   *  framework migration tables (`schema_migrations`, `__EFMigrationsHistory`)
-   *  track runtime state.  Empty / absent on a fresh snapshot. */
-  migrationHistory?: MigrationHistoryEntry[];
   /** Applied-data-migration ledger.  Keys `"<block>#<index>"` for
    *  every raw `sql` migration-block step already emitted against this
    *  baseline.  Raw SQL has no structural condition to guard on (unlike
@@ -272,51 +258,7 @@ export interface SchemaSnapshot {
    *  once.  Absent / empty when no raw steps have been emitted.  Optional
    *  ⇒ `schemaVersion` stays 1; old snapshots read fine. */
   appliedDataMigrations?: string[];
-  /** Per-module VERSION BLOCK index.  Every backend that
-   *  serves >1 module writes all their migrations into ONE directory, and Ecto
-   *  refuses a directory with a duplicated integer version prefix — so each
-   *  module needs a disjoint slice of the version space.  Deriving that slice
-   *  from the module's POSITION in the migrations array is wrong twice: a
-   *  position computed only for INITIAL migrations makes every module's first
-   *  delta collide at the same version (sorting before its own create-table),
-   *  and a position shifts under a later module insertion.
-   *
-   *  Recording the block in the snapshot avoids both: a module keeps its block
-   *  for life, and a NEW module is allocated a block above every existing one.
-   *  Absent on snapshots that predate the field — the builder then
-   *  falls back to the legacy position-derived index, so existing projects
-   *  keep the block they were generated with.  Optional ⇒ `schemaVersion`
-   *  stays 1. */
-  versionBlock?: number;
   tables: TableShape[];
-}
-
-export interface MigrationHistoryEntry {
-  version: string;
-  name: string;
-  /** Global CREATION ORDINAL, allocated once when this entry is appended and
-   *  never recomputed (fleet-bug-hunt F-012).  It exists because Drizzle's
-   *  runtime migrator is a WATERMARK: it applies a journal entry only when
-   *  `lastApplied.created_at < entry.when`, so the journal's ordering key has
-   *  to be (a) stable per migration identity and (b) greater for every newly
-   *  appended entry than for anything already applied.
-   *
-   *  Neither holds for a key derived from `version`.  Versions are allocated in
-   *  per-module BLOCKS (`versionBlock` below), so they are NOT chronological: a
-   *  delta in module block 0 (`20260101500001`) sorts BELOW the initial
-   *  migration of module block 1 (`20260102000000`), and once that initial has
-   *  been applied the watermark hides the delta forever.  The positional key
-   *  this replaced (`epochMillis(version) + arrayIndex`) additionally renumbered
-   *  every later entry whenever one was inserted, so the journal stopped
-   *  agreeing with what the database recorded as applied.
-   *
-   *  A recorded ordinal fixes both: an entry keeps its ordinal for life, and a
-   *  newly appended one is allocated above every ordinal already in use.
-   *  Absent on snapshots that predate the field — the builder then backfills
-   *  deterministically from version order (the order the old journal used), so
-   *  existing projects keep a stable, same-shaped history.  Optional ⇒
-   *  `schemaVersion` stays 1; old snapshots read fine. */
-  seq?: number;
 }
 
 // Every delta step carries the Postgres `schema` of the relation it targets
@@ -447,27 +389,26 @@ export type MigrationStep =
   | { op: "sqlExec"; sql: string };
 
 export interface MigrationsIR {
-  /** Owning module name — `.loom/snapshots/<module>.snapshot.json` is keyed
-   *  here.  System orchestrator distributes one MigrationsIR to every
-   *  needsDb deployable that includes the module (per-deployable
-   *  compose databases ⇒ each owns its own migration files). */
+  /** Owning module name.  The system orchestrator distributes each
+   *  MigrationsIR to every needsDb deployable that includes the module
+   *  (per-deployable compose databases ⇒ each owns its own migration files). */
   module: string;
   /** Optional storage binding name (`pg`, `analyticsDb`).  Empty string when
    *  the deployable used the bare `contexts: [Sales]` form. */
   storageName: string;
-  /** Snapshot read from disk on the previous regen; `null` on first run. */
+  /** The module's schema before this generation; `null` for its initial one. */
   baseline: SchemaSnapshot | null;
-  /** Schema the current source describes — what gets written back to disk
-   *  after the per-deployable loop completes. */
+  /** The module's schema after this generation. */
   next: SchemaSnapshot;
-  /** Ordered ops from baseline → next.  Empty when the snapshot matches
-   *  the current source — emitter MUST skip in that case so regenerating
-   *  a clean repo is a no-op. */
+  /** Ordered ops from baseline → next.  An emitter skips a generation with
+   *  no steps. */
   steps: MigrationStep[];
-  /** Deterministic timestamp slug, `<YYYYMMDDHHMMSS>` — drives migration
-   *  file ordering across regens.  See `migrations-builder.ts`. */
+  /** The generation's version in the migration chain — a decimal integer,
+   *  strictly increasing along the chain and unique across every module, so
+   *  it orders migration files in a directory several modules share.  See
+   *  `src/system/migration-chain.ts`. */
   version: string;
-  /** Human-readable migration name (PascalCase) — `"Initial"` on first
-   *  run, `"AddOrderStatus"` etc. on subsequent diffs. */
+  /** Migration name (PascalCase) — `"Initial"` for a module's first
+   *  generation, otherwise the name given to `ddd migrate add`. */
   name: string;
 }

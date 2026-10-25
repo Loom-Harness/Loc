@@ -15,9 +15,7 @@
 //    `"amount": "1.0"` where every other backend ships a number.
 
 import { describe, expect, it } from "vitest";
-import type { SchemaSnapshot } from "../../../src/ir/types/migrations-ir.js";
-import { memorySnapshotStore } from "../../../src/system/snapshot.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const system = (billBody: string, money = "amount: decimal  currency: string") => `system S {
   subdomain C {
@@ -38,20 +36,12 @@ const system = (billBody: string, money = "amount: decimal  currency: string") =
 const WITHOUT = system("label: string");
 const WITH = system("label: string\n        total: Money?\n        price: Money");
 
-async function snapshotOf(src: string): Promise<SchemaSnapshot> {
-  const files = await generateSystemFiles(src);
-  return JSON.parse(files.get(".loom/snapshots/C.snapshot.json")!) as SchemaSnapshot;
-}
-
-/** The single DELTA migration (`…_migrate.exs`) generated for `next` against
- *  `prev`'s snapshot, or `undefined` when none was emitted. */
+/** The single DELTA migration generated for `next` once `prev` is recorded,
+ *  or `undefined` when none was emitted. */
 async function delta(prev: string, next: string): Promise<string | undefined> {
-  const files = await generateSystemFiles(next, {
-    snapshots: memorySnapshotStore({ C: await snapshotOf(prev) }),
-    allowDestructive: true,
-  });
+  const files = await generateEvolvedSystemFiles([prev, next]);
   const deltas = [...files.keys()].filter(
-    (k) => k.includes("/priv/repo/migrations/") && !k.endsWith("_create_bills.exs"),
+    (k) => k.includes("/priv/repo/migrations/") && /_gen\d+\.exs$/.test(k),
   );
   expect(deltas.length).toBeLessThanOrEqual(1);
   return deltas[0] ? files.get(deltas[0]) : undefined;

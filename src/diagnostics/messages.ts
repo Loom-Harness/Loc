@@ -2111,7 +2111,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `If this is a rename, declare it explicitly so the data is preserved. Add this block at the TOP LEVEL of the .ddd file — outside \`system { … }\`, as a sibling of it (inside it is a parse error):\n` +
     `  migration "<name>" { <Aggregate>.<oldField> -> <newField> }\n` +
     `(one line per renamed field; this handles both a rename that also changes type and two renames at once.)\n` +
-    `If you really mean to drop the old column and add a new empty one — losing the data — re-run \`generate system\` with --allow-destructive.`,
+    `If you really mean to drop the old column and add a new empty one — losing the data — record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\`.`,
 
   /** A declared backfill whose column is arriving in THIS migration, yet no
    *  step consumed it — the silent-discard shape (F-018). A backfill is

@@ -1451,15 +1451,15 @@ exist`).
 ### Migrations
 
 Schema changes flow through a platform-neutral **MigrationsIR**
-([`src/ir/types/migrations-ir.ts`](../src/ir/types/migrations-ir.ts))
-built by diffing the current source against a checked-in snapshot at
-`.loom/snapshots/<Subdomain>.snapshot.json`.  The builder
+([`src/ir/types/migrations-ir.ts`](../src/ir/types/migrations-ir.ts)),
+one per entry of the committed migration chain (`migrations/` beside
+the `.ddd`, recorded by `ddd migrate add`).  The builder
 ([`src/system/migrations-builder.ts`](../src/system/migrations-builder.ts))
-computes one `MigrationsIR` per `(subdomain, storage)` pair owned by a
-deployable (`migrationsOwner` enrichment in
-`src/ir/enrich/enrichments.ts`).  Backends only translate steps to
-their syntax via the per-platform emitters listed below — they never
-recompute the schema themselves.  Shared SQL rendering for the two
+derives each module's delta against the chain's head for every
+`(subdomain, storage)` pair owned by a deployable (`migrationsOwner`
+enrichment in `src/ir/enrich/enrichments.ts`).  Backends only translate
+steps to their syntax via the per-platform emitters listed below — they
+never recompute the schema themselves.  Shared SQL rendering for the
 Postgres-backed emitters lives in
 [`src/generator/sql-pg.ts`](../src/generator/sql-pg.ts).
 
@@ -1472,17 +1472,15 @@ Postgres-backed emitters lives in
 Phoenix stays in Ecto DSL because its output is Elixir.  Hono and
 .NET share `src/generator/sql-pg.ts` for bit-identical Postgres DDL.
 
-Initial regen of an output tree emits one "Initial" migration per
-subdomain per backend.  Subsequent regens diff against the snapshot and
-emit one new dated file per backend covering just the delta — adding
-a property produces a single `ALTER TABLE … ADD COLUMN …` per
-backend, with the snapshot's `lastVersion` bumped so the next run's
-filename sorts after.
+Every `generate system` renders the whole chain: one file per backend
+per recorded generation, the first of each subdomain its "Initial".
+Recording a new property with `migrate add` adds a single
+`ALTER TABLE … ADD COLUMN …` per backend.  A source with no chain yet
+renders each subdomain's "Initial" derived from the model.
 
-Regenerating against an unchanged tree is a no-op: the diff is empty
-and the emitters skip.  Column renames are not detected (drop+add);
-operators wanting a real rename use `.loomignore` to hand-edit the
-emitted file or fold the rename into the next migration.
+Regenerating is deterministic: the same source and chain render the
+same files into any output tree.  Renames are declared in a `migration`
+block (see [`migrations.md`](migrations.md)).
 
 ### `test e2e` lowering
 
