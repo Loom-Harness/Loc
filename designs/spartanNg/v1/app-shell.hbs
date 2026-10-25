@@ -7,7 +7,7 @@ import { Component, inject } from "@angular/core";
 import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from "@angular/router";
 import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
-{{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
+{{/if}}{{#if navUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
 {{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
 {{/if}}
@@ -31,10 +31,7 @@ import { LoomErrorHandler } from "./error-handler";
 {{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
 {{else}}          <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/each}}{{/each}}        </nav>
-{{#if authUi}}        @if (session.snapshot().kind === "authed") {
-          <button type="button" class="loom-nav-link loom-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
-        }
-{{/if}}      </aside>
+      </aside>
       <main class="loom-main" id="main-content">
 {{#if authUi}}        <app-auth-gate>
           <router-outlet />
@@ -75,8 +72,7 @@ import { LoomErrorHandler } from "./error-handler";
       font-weight: 500;
     }
     .loom-nav-link:hover { background: hsl(var(--accent)); }
-{{#if authUi}}    .loom-sign-out { margin-top: auto; width: 100%; text-align: left; background: none; border: 1px solid hsl(var(--border)); font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
-{{/if}}    .loom-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+    .loom-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
     .loom-main { flex: 1; padding: 1rem; min-width: 0; }
     @media (min-width: 1024px) { .loom-main { padding: 1.5rem; } }
     .loom-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }

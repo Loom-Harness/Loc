@@ -2,15 +2,14 @@
 // app-root) rendering the Material toolbar + sidenav chrome around the
 // router outlet.  Nav labels/links are baked at generation time.
 import { Component, inject } from "@angular/core";
-{{#if authUi}}import { MatButtonModule } from "@angular/material/button";
-{{/if}}import { MatIconModule } from "@angular/material/icon";
+import { MatIconModule } from "@angular/material/icon";
 import { MatListModule } from "@angular/material/list";
 import { MatSidenavModule } from "@angular/material/sidenav";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from "@angular/router";
 import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
-{{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
+{{/if}}{{#if navUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
 {{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
 {{/if}}
@@ -24,8 +23,7 @@ import { LoomErrorHandler } from "./error-handler";
     MatSidenavModule,
     MatListModule,
     MatIconModule,
-{{#if authUi}}    MatButtonModule,
-    AuthGateComponent,
+{{#if authUi}}    AuthGateComponent,
 {{/if}}{{#if hasRealtimeHandlers}}    RealtimeHandlersComponent,
 {{/if}}  ],
   template: `
@@ -33,10 +31,7 @@ import { LoomErrorHandler } from "./error-handler";
 {{#if hasRealtimeHandlers}}    <app-realtime-handlers />
 {{/if}}    <mat-toolbar color="primary">
       <a routerLink="/" class="loom-brand">{{systemNameHuman}}</a>
-{{#if authUi}}      @if (session.snapshot().kind === "authed") {
-        <button mat-button type="button" class="loom-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
-      }
-{{/if}}    </mat-toolbar>
+    </mat-toolbar>
     <mat-sidenav-container class="loom-shell">
       <mat-sidenav mode="side" opened class="loom-sidenav" role="navigation" {{{primaryNavAria}}}>
         <mat-nav-list data-testid="nav-sidebar">
@@ -57,8 +52,7 @@ import { LoomErrorHandler } from "./error-handler";
   styles: [
     `
     .loom-brand { color: inherit; text-decoration: none; font-weight: 600; }
-{{#if authUi}}    .loom-sign-out { margin-left: auto; }
-{{/if}}    .loom-shell { height: calc(100vh - 64px); }
+    .loom-shell { height: calc(100vh - 64px); }
     .loom-sidenav { width: 240px; }
     .loom-content { padding: 16px; min-width: 0; }
     @media (min-width: 1024px) { .loom-content { padding: 24px; } }

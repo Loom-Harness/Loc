@@ -9,7 +9,6 @@ import {
 import MenuIcon from "@mui/icons-material/Menu";
 import React from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
-{{/if}}{{#if authUi}}import { signOut } from "./auth/session";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
 {{/if}}{{#each lazyPages}}const {{specifier}} = React.lazy(() => import("{{from}}"));
@@ -149,8 +148,7 @@ function AppShellLayout() {
             <Box sx=\{{ width: 28, height: 28, borderRadius: 1, bgcolor: "primary.light" }} aria-hidden="true" />
             <Typography variant="h6" sx=\{{ letterSpacing: "-0.01em" }}>{{systemNameHuman}}</Typography>
           </Box>
-{{#if authUi}}          <Button color="inherit" onClick={signOut} sx=\{{ ml: "auto" }} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
-{{/if}}        </Toolbar>
+        </Toolbar>
       </AppBar>
       <Drawer
         variant="temporary"

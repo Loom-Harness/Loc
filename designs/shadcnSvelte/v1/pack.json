@@ -83,7 +83,6 @@
     "primitive-file-upload": "primitive-file-upload.hbs"
   },
   "chrome": {
-    "signOut": "Sign out",
     "addItem": "Add {item}",
     "arrayUnsupported": "(arrays not yet supported in forms)",
     "boolFalse": "No",

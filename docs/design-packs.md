@@ -383,7 +383,7 @@ to fulfill the contract.
 | `tsconfig` | `tsconfig.json`.  shadcn adds path mappings for `@/*`. |
 | `vite-config` | `vite.config.ts`.  shadcn adds Vite resolver alias for `@/*`. |
 | `format-helpers` | Per-pack runtime helpers (`IdValue`, `DateTimeValue`, `BoolValue`, `NumberValue`, `EmptyValue`, `KeyValueRow`, and the money helper — see the money-display contract below).  Output written to `src/lib/format.tsx` (`src/lib/format.ts` on Vue/Svelte/Angular). |
-| `app-shell` | App-shell layout: navbar/sidebar/main outlet.  Under `auth: ui` (the `authUi` view-model flag) it also renders the **Sign out** control (`data-testid="sign-out"`, label via `{{{chrome "signOut"}}}`) in its header/toolbar — the pack-agnostic `AuthGate` renders none, so it never floats over page content.  Pinned for every pack by `test/generator/_frontend/sign-out-in-shell.test.ts`. |
+| `app-shell` | App-shell layout: navbar/sidebar/main outlet. |
 | `home` | Home/dashboard page. |
 
 #### The money-display contract (a pack does not own it)

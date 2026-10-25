@@ -4,7 +4,6 @@ import { AppShell, Burger, Group, Title, NavLink, Anchor, Alert, Button, Loader,
 import { useDisclosure } from "@mantine/hooks";
 import React from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
-{{/if}}{{#if authUi}}import { signOut } from "./auth/session";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
 {{/if}}{{#each lazyPages}}const {{specifier}} = React.lazy(() => import("{{from}}"));
@@ -135,8 +134,7 @@ function AppShellLayout() {
               </Group>
             </Anchor>
           </Group>
-{{#if authUi}}          <Button variant="default" size="xs" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
-{{/if}}        </Group>
+        </Group>
       </AppShell.Header>
       <AppShell.Navbar p="md" {{{primaryNavAria}}}>
         <Stack gap={4} data-testid="nav-sidebar">

@@ -6,7 +6,6 @@ import { Menu } from "lucide-vue-next";
 import { Alert, AlertDescription, AlertTitle, Button } from "@/components/ui";
 {{#if i18nEnabled}}import { t } from "{{i18nImportPath}}";
 {{/if}}{{#if navUsesSession}}import { useSession } from "@/auth/useSession";
-{{/if}}{{#if authUi}}import { signOut } from "@/auth/session";
 {{/if}}{{#if hasRealtimeHandlers}}import RealtimeHandlers from "@/components/RealtimeHandlers.vue";
 {{/if}}{{#if hasToastHost}}import { toastQueue } from "@/lib/toast";
 {{/if}}
@@ -54,8 +53,7 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
         <div class="h-7 w-7 rounded-md bg-primary" aria-hidden="true"></div>
         <span class="text-lg font-semibold tracking-tight">{{systemNameHuman}}</span>
       </router-link>
-{{#if authUi}}      <Button variant="outline" size="sm" class="ml-auto" data-testid="sign-out" @click="signOut">{{{chrome "signOut"}}}</Button>
-{{/if}}    </header>
+    </header>
     <div class="flex flex-1">
       <nav data-testid="nav-sidebar" {{{primaryNavAria}}} :class="['w-60 shrink-0 border-r bg-background p-4 sm:block', opened ? 'block' : 'hidden']">
         <div class="flex flex-col gap-1">

@@ -62,7 +62,6 @@
     "realtime-toast-setup": "realtime-toast-setup.hbs"
   },
   "chrome": {
-    "signOut": "Sign out",
     "boolFalse": "No",
     "boolTrue": "Yes",
     "breadcrumbsLandmark": "Breadcrumb"
