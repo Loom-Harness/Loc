@@ -278,6 +278,18 @@ const BOTH: readonly MenuShape[] = ["explicit", "derived"];
  *  over-merge waiver may NEVER cover a key whose English the tree renders raw —
  *  that is a defect by definition, and the gate fails it. */
 const DEAD_KEY_WAIVERS: readonly Waiver[] = [
+  // --- over-merge: a feature this fixture does not reach -------------------
+  {
+    kind: "over-merge",
+    id: "OM-SIGN-OUT",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG],
+    menus: BOTH,
+    key: /^pack\.\w+\.signOut\./,
+    reason:
+      "each JSX pack's app shell renders its Sign out control only under `auth: ui`; the " +
+      "pack declares the chrome role unconditionally (packChromeCatalog catalogs every " +
+      "declared role), and this fixture's frontend deployable has no auth.",
+  },
   // --- defects -------------------------------------------------------------
   {
     kind: "defect",

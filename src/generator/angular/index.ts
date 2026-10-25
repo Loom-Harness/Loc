@@ -621,8 +621,14 @@ export function generateAngularForContexts(
   // the banner spliced in at `errorBanner` below.  Unconditional: an app that
   // cannot fail is not a thing.
   appClassMembers.push("  readonly errors = inject(LoomErrorHandler);");
-  if (navUsesSession) {
+  // The shell injects the session for two consumers: the gated nav links
+  // (`currentUser`) and the `auth: ui` Sign out control in the shell chrome
+  // (the AuthGate wraps only the router outlet, so it cannot host it).
+  const shellUsesSession = authUi || navUsesSession;
+  if (shellUsesSession) {
     appClassMembers.push("  readonly session = inject(SessionService);");
+  }
+  if (navUsesSession) {
     appClassMembers.push(
       "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
@@ -648,6 +654,7 @@ export function generateAngularForContexts(
       hasNav: navSections.some((s) => s.entries.length > 0),
       authUi,
       navUsesSession,
+      shellUsesSession,
       hasRealtimeHandlers,
       i18nEnabled,
       skipToContentText,
