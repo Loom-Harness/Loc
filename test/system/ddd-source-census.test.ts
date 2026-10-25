@@ -94,7 +94,7 @@ const UNPARSEABLE = [
   // a repository read inside a `for`.  Pinned rather than fixed because the
   // file IS the evidence; when the grammar accepts the chained form this pin
   // goes stale and the check below says so.
-  "eval/repro/wf-for-let-d.ddd",
+  "test/fixtures/eval-models/eval/repro/wf-for-let-d.ddd",
 ] as const;
 
 /** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
@@ -116,11 +116,11 @@ const DELIBERATELY_INVALID = [
   // is kept as tracked evidence beside the audit, and the negative control
   // below turns it into a live regression guard: revert #2923 and it validates
   // clean again, failing here.
-  "eval/repro/F014-money-ctor-unchecked.ddd",
+  "test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd",
   "test/language/validators/fixtures/stmt-placement-variant-match.ddd",
   "test/language/validators/fixtures/stmt-placement-for.ddd",
   "test/language/validators/fixtures/stmt-placement-if-let.ddd",
-  // The error-QUALITY corpus from the external evaluation in `eval/`: ten models,
+  // The error-QUALITY corpus from the external evaluation (`test/fixtures/eval-models/eval/`): ten models,
   // each carrying one realistic authoring mistake, written to measure whether the
   // diagnostic points at the right line and is actionable.  Being refused IS the
   // assertion, so they belong here rather than being "fixed".
@@ -139,30 +139,30 @@ const DELIBERATELY_INVALID = [
   // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
   // now `checkContainmentCycles` refuses it at the AST layer with a real
   // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
-  "eval-fieldops/repro/H-rowlevel-currentuser.ddd",
-  "eval-fieldops/repro/broken/05-cyclic-containment.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/H-rowlevel-currentuser.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/05-cyclic-containment.ddd",
   // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
   // `invariant Technicians.getById(...)` used to validate clean and emit an
   // unresolvable identifier on four backends (and nothing at all on Phoenix);
   // `checkRuleExprPurity` now refuses it at the rule's own line.
-  "eval-fieldops/repro/A-cross-agg-invariant.ddd",
-  "eval-fieldops/repro/broken/01-typo-type.ddd",
-  "eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
-  "eval-fieldops/repro/broken/03-wrong-arity.ddd",
-  "eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
-  "eval-fieldops/repro/broken/06-duplicate-names.ddd",
-  "eval-fieldops/repro/broken/07-bad-enum-value.ddd",
-  "eval-fieldops/repro/broken/10-type-mismatch.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/A-cross-agg-invariant.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/01-typo-type.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/02-invariant-unknown-field.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/03-wrong-arity.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/04-bare-aggregate-ref.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/06-duplicate-names.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/07-bad-enum-value.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/10-type-mismatch.ddd",
   // A SECOND, independent evaluation's repro corpus (`eval-clinica/`), already on
   // main.  It found two of the same defects this branch fixes, which is useful
   // corroboration in itself: r02 is a cross-aggregate `invariant` reaching a
   // repository (F-003) and r18 is cyclic containment (F-020).  Both were written
   // as deliberately-broken evidence and validated clean until these gates landed,
   // so they belong here for exactly the reason the entries above do.
-  "eval-clinica/repro/r02-overlap.ddd",
-  "eval-clinica/repro/r02-overlap-system.ddd",
-  "eval-clinica/repro/r18-recursive-containment-crash.ddd",
-  // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
+  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
+  // `test/fixtures/eval-models/eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  The ones that fail
@@ -173,40 +173,40 @@ const DELIBERATELY_INVALID = [
   // Listing them here also puts them under the negative control below, which
   // turns the corpus into a standing ratchet: a gate that stops firing fails
   // this file.
-  "eval/repro/broken/b01-typo-type.ddd",
-  "eval/repro/broken/b02-missing-field.ddd",
-  "eval/repro/broken/b03-wrong-arity.ddd",
-  "eval/repro/broken/b04-bare-aggregate-ref.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b01-typo-type.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b02-missing-field.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b03-wrong-arity.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b04-bare-aggregate-ref.ddd",
   // `b05` was this corpus's F-040 — cyclic containment validating clean — and
   // it is now REFUSED, by the `loom.containment-cycle` AST gate this branch adds
   // for the same defect it found independently as F-020.  Per the note above
   // ("the day either starts being refused, its pin is what should be added"),
   // here is the pin.  Two evaluations reaching the same defect, one of them
   // closing it, is the corroboration both registers were written to produce.
-  "eval/repro/broken/b05-cyclic-containment.ddd",
-  "eval/repro/broken/b06-duplicate-names.ddd",
-  "eval/repro/broken/b07-bad-enum-value.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b05-cyclic-containment.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b06-duplicate-names.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b07-bad-enum-value.ddd",
   // `b09` was this corpus's F-041 — a typo'd field (`o.totl`) read off a page
   // `QueryView`'s `data:` row validated clean, because the language layer never
   // typed the row.  The single typing pass (M-T5.47 cutover 3b) types it, and
   // `loom.unknown-member` now refuses it — so, per the note above, its pin.
-  "eval/repro/broken/b09-page-wrong-aggregate.ddd",
-  "eval/repro/broken/b10-money-decimal-mix.ddd",
-  // The Commons register's (`eval/FINDINGS.md`) repro sources, ported from the
+  "test/fixtures/eval-models/eval/repro/broken/b09-page-wrong-aggregate.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b10-money-decimal-mix.ddd",
+  // The Commons register's (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/eval/FINDINGS.md) repro sources, ported from the
   // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the
   // register's citations resolve (eval-closure review G8-09a).  Three of them
   // are refused, each for the reason its finding records:
   //  - `adversarial/05-missing-ctor-field.ddd` is F-014 — a `Money { … }`
   //    construction omitting `currency` validated CLEAN before #2923; it is the
-  //    same regression guard as `eval/repro/F014-money-ctor-unchecked.ddd`.
+  //    same regression guard as `test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd`.
   //  - `probe/rowlevel.ddd` is F-012's "own rows" probe written with the claim
   //    typed `string`, which the register records is refused until the claim is
   //    typed `Member id` in `user { }`.
   //  - `probe/searchstore.ddd` is F-010 — `meilisearch` bound to a `replica`
   //    resource, an HONEST refusal ("no resource kind accepts it").
-  "eval/adversarial/05-missing-ctor-field.ddd",
-  "eval/probe/rowlevel.ddd",
-  "eval/probe/searchstore.ddd",
+  "test/fixtures/eval-models/eval/adversarial/05-missing-ctor-field.ddd",
+  "test/fixtures/eval-models/eval/probe/rowlevel.ddd",
+  "test/fixtures/eval-models/eval/probe/searchstore.ddd",
   // The helpdesk evaluation's H-24, kept as written: `openTicket` passes the
   // `Customer id?` claim `currentUser.customerId` into the non-optional
   // `Ticket.requester` behind a `requires … != null` that does not narrow.  It

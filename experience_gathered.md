@@ -675,7 +675,7 @@ or not.
     reason; DEBT-13 is de-scoped. **Value-object collections keep their
     `ordinal`** — there it's part of the `(parent_id, ordinal)` PK and the
     only way to store an ordered, identity-less list. See
-    `docs/old/proposals/reference-collection-set-semantics.md`.
+    [`docs/old/proposals/reference-collection-set-semantics.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/reference-collection-set-semantics.md).
 - **Only `primaryKey` import is conditional.**  Adding `primaryKey` to the
   Drizzle import line unconditionally drifted every existing schema's
   byte-for-byte fixture.  Gate the import on "context has ≥1 join table"
@@ -1109,7 +1109,7 @@ The DDD Specification pattern is named **inconsistently — and sometimes
 backwards — across the frameworks Loom targets**, so reusing a
 framework's term for a generated type silently hands the reader the wrong
 mental model. Map (this surfaced designing reified criteria, see
-`docs/old/plans/retrieval-implementation.md` Phase 5 + `reified-criteria.md`):
+[`docs/old/plans/retrieval-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/retrieval-implementation.md) Phase 5 + `reified-criteria.md`):
 
 | Framework | `Specification<T>` means | `Criteria*` means |
 |---|---|---|
@@ -1812,7 +1812,7 @@ the ones that cost real tool-calls and are non-obvious.
 
 - **A design doc's stated *risk / prerequisite* can be silently obsoleted by an
   unrelated fix that merged *after* it was written — re-derive the premise, don't
-  trust the doc.** `docs/old/plans/vanilla-document-route-a.md` risk 2 said typed VO
+  trust the doc.** [`docs/old/plans/vanilla-document-route-a.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-document-route-a.md) risk 2 said typed VO
   *struct* modules were **mandatory** (the only sound fix for the #1660 VO-subfield
   crash). That was true when written — but #1664 had since fixed #1660 a different
   way (a key-agnostic `Map.get(vo, :k, Map.get(vo, "k"))` fallback that works on a
@@ -1940,7 +1940,7 @@ because of one discipline and two blind spots that bit / nearly bit.
 
 Landing the Feliz frontend's **wire layer** (Thoth decoders + a `Cmd`-based
 `Api` module + the MVU `Remote<'T>` projection for `<param>.<agg>.all` reads,
-slice 7 of `docs/old/plans/feliz-frontend-build.md`) turned up one load-bearing
+slice 7 of [`docs/old/plans/feliz-frontend-build.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/feliz-frontend-build.md)) turned up one load-bearing
 gotcha that dictated the whole design.
 
 - **The shared `walkBody` re-indents only a child's FIRST line.** Children are
@@ -2427,12 +2427,12 @@ map stopped at the generated `.ts` (`vfs:/…`).
   bytes the instant they're posted, so don't gate on PGlite/jsdelivr coming up.
 ## 35. The docs-corpus consolidation — status rot, hollow work, and the mechanics of moving 190 docs (2026-07-13)
 
-The proposals/plans corpus (118 + 71 docs, three competing status tables) was consolidated into `docs/new-plan/` (tracks + missions + coverage) and archived to `docs/old/`. Lessons:
+The proposals/plans corpus (118 + 71 docs, three competing status tables) was consolidated into [`docs/new-plan/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan) (tracks + missions + coverage) and archived to [`docs/old/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old). Lessons:
 
-- **Status banners rot in BOTH directions, fast.** A 17-point code-verification pass found **9 of 17** checked statuses stale — mostly *understated* (extern re-homing, stdlib A4, store lifetimes, node criterion filter leak, Angular `X id` selects, audit/provenance parity all shipped while their docs said in-progress/gated), a few overstated. The three trackers (proposals README, global plan, DEBT backlog) had drifted from each other within weeks because they refreshed on different cadences. Rule now encoded in `docs/new-plan/README.md`: no status flip without file:line evidence; the mission table is the ONLY status home.
+- **Status banners rot in BOTH directions, fast.** A 17-point code-verification pass found **9 of 17** checked statuses stale — mostly *understated* (extern re-homing, stdlib A4, store lifetimes, node criterion filter leak, Angular `X id` selects, audit/provenance parity all shipped while their docs said in-progress/gated), a few overstated. The three trackers (proposals README, global plan, DEBT backlog) had drifted from each other within weeks because they refreshed on different cadences. Rule now encoded in [`docs/new-plan/README.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/README.md): no status flip without file:line evidence; the mission table is the ONLY status home.
 - **"Merged" ≠ "real" — audit for pretended work.** An adversarial sweep (now recurring as mission M-T9.8) found: `renderSpaController` exported-but-never-imported (Phoenix-hosts-SPA is a phantom feature), the Feliz walker silently replacing unsupported statements with `// TODO` comments and unsupported expressions with `()` unit in *compiling* F# (no validator), and the showcase HARD-gate allowlist grown to exempt grammar-only kinds (`Projection`, `PolicyDecl`, `Route`…) that most backends don't consume. The three checks worth automating: dead-export gate (knip/ts-prune over `render*/emit*/build*`), no-TODO-in-generated-output gate, allowlist-growth ratchet.
 - **Moving docs that emitters cite: sed BOTH sides in one commit.** Generated output embeds doc-path comments, and `test/fixtures/` holds byte-for-byte snapshots of that output. A path rewrite must hit emitter template strings AND fixtures in the same pass — done uniformly, the byte-equivalence tests stay green and prove the sync. Relative links inside a moved tree need the two-step sed (blanket `](../` → `](../../`, then restore sibling dirs that moved together); watch for subdirectories the globs miss (`proposals/maybe-one-day/`).
-- **`docs/build.mjs` gotchas for nested dirs:** `MD_LINK` allowed only ONE path segment (`(?:seg/)?` → needs `*`), and subdir depth was hard-coded to 1 — both needed generalizing for `old/plans/` etc.
+- **`docs/build.mjs` gotchas for nested dirs:** `MD_LINK` allowed only ONE path segment (`(?:seg/)?` → needs `*`), and subdir depth was hard-coded to 1 — both needed generalizing for [`old/plans/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans) etc.
 - **Don't pipe `npm test` through `tail`.** The pipeline exit code is tail's, so a red suite reports exit 0, and the failure detail is truncated away. Redirect to a file instead. Corollary: don't rebase/mutate the working tree while vitest is mid-run — imports read at different times see different trees; our "2 failed" run during a rebase was unreproducible noise.
 - **Squash-merge + fast main:** the pre-push merge-tree hook caught upstream conflicts twice in one session (docs/extern.md rewritten upstream while we sed'd it). Resolving = take upstream's newer prose, re-apply the mechanical rewrite.
 
@@ -4681,7 +4681,7 @@ nil in a comparison outright, so the "fail-closed" path had always raised.
 
 ### And a corollary for reading trackers
 
-Three separate claims in `docs/new-plan/` and `docs/tenancy.md` were stale in
+Three separate claims in [`docs/new-plan/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan) and `docs/tenancy.md` were stale in
 one session: M-T3.7(b) ("extend to elixir" — already a 10-cell matrix),
 `tenancy.md` ("500s on every backend" — .NET never did), and M-T3.3 (`open` —
 fully shipped, missing only a fixture). All three were checkable in under two
@@ -6700,3 +6700,221 @@ So after any push from a shallow clone, create the ref yourself —
 `git fetch origin <branch>:refs/remotes/origin/<branch>` — and verify with
 `git ls-remote origin <branch>` against `git rev-parse HEAD` rather than trusting
 either the hook or `@{upstream}`.
+
+## 120. A fix across a mode/shape/adapter axis must re-verify the axis's other cells (2026-10-18)
+
+A fix mutation-proved against its own witness keeps regressing or missing a
+neighbouring cell of the axis it touches. One code-review window found three of
+its serious findings were regressions from the previous window's own fixes: a
+SpEL prefilter broke deep/global JPQL reads, outbox capture stopped .NET SSE
+delivery, and a filter push-down made document × aggregation reachable. The
+pairwise corpus found the same shape twice — a mask fix landed for non-relational
+repositories on TypeScript only, and a document-only fix left its event-sourced
+twin broken — and Schemathesis closures landed Hono-only three times.
+
+**Rule.** A PR touching a site that branches on mode, shape, adapter or backend
+says in its body which other cells of that axis it re-verified. "Fixed" without
+that list means "fixed on the cells it names".
+
+## 121. Never set a finding's status from PR state — regenerate the repro (2026-10-18)
+
+Re-measuring one evaluation's regression-gate audit found three status rows
+wrong: a finding recorded as an open claim was merged; one recorded as merged
+was not fixed (a policy used from a sibling context still typed as `unknown`);
+and one recorded "still live" because its PR closed unmerged had been fixed
+under a different evaluation's number. Generating the model took a minute and
+settled each. Other re-verifications repeat it: a "claimed by #N" PR merged
+without the fix, and a "half fixed" finding was a refusal for a different shape.
+
+**Rule.** A finding's status comes from regenerating its repro on fresh `main`
+and reading the emitted output — never from a PR's open/closed/merged state or
+its title.
+
+## 122. OIDC on a backend: HTTPS enforcement follows the issuer scheme, and the issuer is read at runtime (2026-10-18)
+
+Two gotchas cost real bugs in the OIDC fan-out:
+
+1. The bundled dev Keycloak issuer is plain `http`. A JWKS/discovery client that
+   defaults to requiring HTTPS rejects every token with 401. .NET now sets
+   `RequireHttps = Issuer.StartsWith("https://", …)`
+   (`src/generator/dotnet/auth-emit.ts`): an https issuer stays strict, an http
+   (dev/loopback) one opts out.
+2. On Phoenix the issuer is read at RUNTIME — `def issuer` reads the env in a
+   function (`src/generator/elixir/auth-emit.ts`) — never in a module attribute
+   or `compile_env`, which would freeze the empty build-time environment into
+   the release.
+
+Any backend's verifier must satisfy both; its native OIDC e2e against the bundled
+Keycloak is the gate that catches them.
+
+## 123. `npm audit fix` crashes on this tree, and the vitest override is why it is not worse (2026-10-18)
+
+`npm audit fix` (and any command that re-resolves vitest) dies in arborist with
+`Cannot read properties of null (reading 'edgesOut')`. The chain is `vite@8` →
+`@vitejs/devtools-vitest` → peer `vitest@*`, which resolves to vitest 5, whose
+`@vitest/browser-playwright@5` peer breaks peer-set loading. The workaround is a
+lockfile-only `npm update <pkgs>` plus the scoped override in `package.json`
+(`"@vitejs/devtools-vitest": { "vitest": "^4.1.11" }`). Two routes fail, so
+don't retry them: a top-level `vitest` override is refused with EOVERRIDE (it
+conflicts with the direct dependency), and `$vitest` reference syntax does not
+resolve in a nested position. Whoever moves to vitest 5 deletes the override in
+the same PR.
+
+Related trap: the `hono` in the root `node_modules` is the MCP SDK's transitive
+copy, not the generated backend's pin (an emitted string in
+`src/platform/hono/v5/pins.ts`). A hono advisory in `npm audit` does not touch
+generated projects.
+
+## 124. Biome's unsafe fix renames an unused binding to `_name` instead of deleting it (2026-10-18)
+
+`biome check --write --unsafe` with `correctness/noUnusedVariables` renames an
+unused binding to `_name`; it does not delete it, and it skips an unused
+destructured binding entirely. That silences the warning and keeps the dead
+code: a sweep would have parked a 60-line dead hand-rolled IR walk and an
+orphaned carve-out constant as `_walkExpr` / `_MAP_…`.
+
+**Rule.** After an unsafe Biome sweep, grep for new `_`-prefixed names and decide
+each by hand: dead, so delete; or a dropped reference, so wire it back. Never
+commit the rename. The lint script runs `biome ci . --error-on-warnings` rather
+than promoting individual rules, because a promote list misses any rule a later
+Biome minor adds at `warn`.
+
+## 125. To ask whether a gate runs in CI, follow the npm script, not the `LOOM_*` variable (2026-10-18)
+
+A `LOOM_*` env gate is usually set INSIDE the package.json script
+(`test:pairwise` sets `LOOM_PAIRWISE=1`), so a correctly wired workflow calls
+`npm run test:pairwise` and never mentions the variable. Grepping workflows for
+the variable made the healthy `schema-load.yml` look dark. The chain is workflow
+→ npm script → env var → skip condition, and
+`test/system/skip-gate-reachability.test.ts` enforces that every skip-condition
+`LOOM_*` read is set by some script or workflow — use it instead of a hand grep.
+
+Mechanical rewrites of test files went wrong twice in the same fleet: a regex put
+an options object inside `join(dir, "out", app, {...})` at eight sites (only
+`npm run test:typecheck` caught it — `tsc -b` skips `test/`), and an "insert
+after the last import" heuristic injected an import into a template literal that
+embeds a generated script.
+
+## 126. To prove a primitive renders something, bracket it with markers and diff against a control (2026-10-18)
+
+A test that renders `Stack { P1 {}, P2 {}, … }` and asserts "carries a code"
+cannot see a primitive that renders NOTHING: a silent `return ""` only shortens
+the joined body, and the assertion stays green on the other primitives'
+give-ups. Before bracketing, the `return ""` mutation was invisible.
+
+**Technique.** Wrap each primitive between two literal `Text` markers and compare
+the region between them with a CONTROL pair that has nothing between it. The
+control measures what two adjacent markers cost on that target, so the
+comparison needs no per-target knowledge and survives pack wrapper changes. Find
+the region with `lastIndexOf`, not `indexOf`: Feliz emits its i18n catalog at the
+top of `App.fs`, one row per string ordered by hash, so the first occurrence of
+each marker is a catalog row.
+
+## 127. A gate built from one or two targets' output over-claims (2026-10-18)
+
+Two UI gates were built from measurements on react and flutter and both
+over-claimed: a statement-kind refusal was made universal although Phoenix
+LiveView renders all three refused kinds, and a page-route-collision refusal
+rejected the repo's own flagship example. Only a sweep of every affected suite
+caught them, because they refused shapes that work.
+
+**Rule.** A sentinel gives ONE target's answer; measure every target before
+turning an observation into a refusal. Likewise a gate's coverage is a claim
+about POSITIONS: a "this branch is dead on valid `.ddd`" comment was wrong in one
+corner because nobody had enumerated the positions (projection reads, handler
+slots, lambda purity). Enumerate the positions and drive each with a probe.
+
+## 128. When a premise rests on a comment, generate the shape and read the output (2026-10-18)
+
+One validator-drops packet found every row was prose describing behaviour that
+no longer held: a Java capability filter "handled by omitting the conjunct,
+exactly like node" did not; a private-op call with "no callable target" had one
+six lines away; a messaged rule "routed there when recognised" was unreachable
+for a guarded rule; and a language-reference chapter called a shipped behaviour
+an "honest gap". Reading the prose said all four were fine. The anchor ratchet
+(`diagnostic-docs-anchors.test.ts` — a minted code needs its doc anchor) is what
+forced the doc revisit.
+
+## 129. A .NET compile proof uses `/warnaserror` and the generated csproj unchanged (2026-10-18)
+
+An agent compile-checked generated .NET without `/warnaserror` and without the
+emitted csproj's `AnalysisLevel`, so it could not see the CA-rule class: a member
+named `Pointer` tripped CA1720, and the corpus tier caught it later. Compile-check
+with the exact CI flags, in the SDK container (`mcr.microsoft.com/dotnet/sdk:10.0`,
+`dotnet build /warnaserror` against the generated csproj).
+
+Two coordination notes from the same wave: two coordinated golden re-captures
+whose re-baselines are provably disjoint can share one PR (say so in the body —
+the one-PR-per-recapture rule exists for the golden diff, not for its own sake);
+and pre-staging the next change on the queue group's merge commit (the exact
+future `main`) turns each following merge into a fast-forward push minutes after
+the previous one.
+
+## 130. A silent drop hides every bug downstream of it — and TypeScript is the weakest oracle (2026-10-18)
+
+Closing a silently dropped canonical create/destroy body surfaced three emitter
+bugs that had been invisible because the construct never reached an emitter: an
+int literal in a decimal value-object slot (Java: `int cannot be converted to
+BigDecimal`), Python passing a float where `Decimal` was required (with a test
+pinning the wrong output), and a value-object-typed field default. A silent drop
+does not only lose the author's intent; it hides every bug on the path that
+intent would have taken — a stronger reason to close drops than "the source says
+something untrue".
+
+Corollary: `build-generated-ts` was green while Python and .NET could not compile
+the same fixture. TypeScript's structural typing makes it the weakest oracle for
+wire/domain confusion; check Java and Python (the strict ones) first when proving
+a cross-backend shape compiles.
+
+## 131. An adapter refusal's shape says nothing about the port's cost (2026-10-18)
+
+The MikroORM refusals sat behind identical `&& !usingMikro` gates and cost wildly
+different amounts to port. Broker channels and realtime SSE were single-boolean
+deletions — their emitters read no `db` at all — yet had been hard errors for two
+weeks. The outbox capture/drain and the timer watermark plus advisory lock were
+real ports; one gate was mixed (three of four shapes needed a QueryBuilder, the
+fourth was already adapter-neutral). A review caught a first version that deleted
+the gate for all four shapes while porting three: the raw-table shape fell
+through to the Drizzle arm and emitted `db.select().from(schema…)` into an
+EntityManager file (TS2304, generate-then-broken).
+
+**Rule.** Size an adapter gap by reading what the gated emitter consumes, and
+delete a refusal per shape only after that shape is ported.
+
+## 132. `upload-artifact` ships nothing from a dot-directory (2026-10-18)
+
+`actions/upload-artifact` (v4+) excludes hidden files by default, so an upload
+whose path is a dot-directory (`.loom/`, `test/behavioral/.work*/`) succeeds and
+ships nothing — the evidence you meant to read is missing. Set
+`include-hidden-files: true` (as `schemathesis.yml`, `behavioral-ui-vue-e2e.yml`,
+`behavioral-heex-ui-e2e.yml` and `frontend-fullstack-e2e.yml` do).
+
+The Angular cell of the same leg depends on CI's floating `node-version: '22'`
+resolving above the Angular CLI's 22.22.3 floor (see `docs/tools.md`); a local
+repro on the sandbox's 22.22.2 fails for a reason CI never sees.
+
+## 133. A text golden pins whatever shipped, defects included (2026-10-18)
+
+Two evaluation defects survived because tests had frozen the broken output:
+`test/generator/elixir/phoenix-find-gate.test.ts` asserted `if not (true) do`,
+which Elixir 1.18+ rejects as a typing violation under the generated project's
+own `--warnings-as-errors`, and `test/system/storage-sidecars.test.ts` asserted
+`image: minio/minio:latest`, an image withdrawn from Docker Hub. A
+string-contains golden proves the emitter is unchanged, not that the output is
+right: a golden over emitted source must have been compiled or booted once, and
+a fix that "breaks" a golden may be exposing it.
+
+Related: the node/Hono Dockerfile was a `const`, not a renderer, so it sat
+outside `generation-defaults.test.ts`'s `allDockerfiles()` sweep and inherited
+none of its invariants. An artifact built outside the shared renderer path
+silently opts out of every sweep over that path.
+
+## 134. `parseString(src, { validate: false })` always returns empty errors (2026-10-18)
+
+Langium fills `doc.diagnostics` only while validating, so
+`const { errors } = await parseString(src, { validate: false }); expect(errors).toEqual([])`
+passes for any input, including one that does not parse. Eleven tests named
+"parses cleanly" did this, and one of them pinned a live grammar defect (a field
+named `ignoring` did not parse). Use `parseErrorsOf` / `parseRawOk` from
+`test/_helpers/parse.ts`; `test/system/vacuous-parse-assertion.test.ts` gates the
+pattern.

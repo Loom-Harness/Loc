@@ -1,5 +1,5 @@
 // AST-level tenancy declaration checks (multi-tenancy Phase 1a, slice 1a.3 —
-// docs/old/plans/multi-tenancy-implementation.md §1): duplicate `tenancy by`
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md §1): duplicate `tenancy by`
 // declarations, plus the LINKING errors that replaced the existence checks
 // in 1b.1 — the claim / registry bindings are real cross-references now, so
 // an unknown user field or aggregate is a parse-level "Could not resolve

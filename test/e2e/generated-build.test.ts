@@ -412,7 +412,7 @@ describe.skipIf(!ENABLED)(
     // Mirrors the dotnet gate's showcase cell — this is what catches a
     // lowering-/renderer-level break (e.g. the union-find variant-match) that
     // the narrower fixtures never exercise (S3 of
-    // docs/audits/generated-code-ddd-review-2026-07.md).
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md).
     it("system showcase (hono) — multi-context backend type-checks + bundles", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-showcase-"));
       try {

@@ -8,7 +8,7 @@ import type { Model } from "../../src/language/generated/ast.js";
 
 // ---------------------------------------------------------------------------
 // The IR TYPE of a `let` that binds a repository READ inside a `domainService`
-// operation body (testability audit F1, `docs/audits/2026-09-13-testability-audit.md`).
+// operation body (testability audit F1, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-13-testability-audit.md`).
 //
 // WHY THIS PINS THE TYPE AND NOT THE RENDERED STRING.  The reported symptom was
 // `return found.count > 0` emitted verbatim — TS2339 on `Owner[]`, `found.count()`

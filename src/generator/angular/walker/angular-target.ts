@@ -2,7 +2,7 @@
 // Angular `WalkerTarget` — Angular-flavoured implementation of the
 // cross-framework walker contract.  See `src/generator/_walker/target.ts`
 // for the contract definition and scope, and
-// `docs/old/plans/angular-frontend-plan.md` for the platform plan.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md` for the platform plan.
 //
 // Generated pages are standalone components: state fields are `signal()`s
 // and API handles are toSignal-backed reads off `inject()`-ed `@Injectable`

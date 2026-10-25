@@ -10,7 +10,7 @@ import { MONEY_WIRE_SCALE } from "../money-scale.js";
 // Each leaf is the BARE encode fragment — no null-guard, no `?? 0` default.
 // Callers keep their own optional-handling exactly as before; only the inner
 // literal moved here, which is what keeps the refactor byte-identical (see
-// `docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`).
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md`).
 // ---------------------------------------------------------------------------
 
 export const TS_NUMERIC: NumericTarget = {

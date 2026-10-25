@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// S5 of the domain-seam log-parity drain (docs/audits/domain-seam-log-parity.md):
+// S5 of the domain-seam log-parity drain (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/domain-seam-log-parity.md):
 // the repository "mechanism" debug trio —
 //   aggregate_loaded {aggregate, id, found}  at getById
 //   repository_save   {aggregate, id}        at the save path

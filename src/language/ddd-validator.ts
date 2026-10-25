@@ -270,7 +270,7 @@ export class DddValidator {
     // Project composition: a top-level `subdomain` (declared outside any
     // `system { }`) folds into the project's single system — enforce that
     // exactly one system exists across the import graph.  See
-    // docs/old/proposals/implicit-system-composition.md.
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.
     guard("top-level-domain-composition", model, () =>
       checkTopLevelDomainComposition(model, accept, this.services),
     );

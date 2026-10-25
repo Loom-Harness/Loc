@@ -1,6 +1,6 @@
 import { wireFieldsFor } from "../../src/ir/enrich/wire-projection.js";
 // Tenancy IR lowering — slice 1a.1 of multi-tenancy Phase 1a
-// (docs/old/plans/multi-tenancy-implementation.md).  `tenancy by user.<claim>
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).  `tenancy by user.<claim>
 // of <Registry>` lowers to `SystemIR.tenancy: TenancyIR`; the
 // `crossTenant` aggregate header flag lowers to `AggregateIR.crossTenant`.
 // NO stance classification is stamped on the IR — that is derived on

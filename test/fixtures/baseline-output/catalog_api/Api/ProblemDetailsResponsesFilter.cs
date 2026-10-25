@@ -29,8 +29,7 @@ public sealed class ProblemDetailsResponsesFilter : IOperationFilter
     // (per-field `{ pointer, message }`) that the FluentValidation arm
     // of DomainExceptionFilter emits on 422 validation responses.
     // Consumed by the frontend ACL's `applyServerErrors`.  Idempotent;
-    // safe to run per operation.  See
-    // docs/old/proposals/validation-error-extension.md.
+    // safe to run per operation.
     // Microsoft.OpenApi 2.0: schema type is the `JsonSchemaType` flags enum
     // (nullability folded in as `| JsonSchemaType.Null`, which the 3.0 writer
     // serializes back to `nullable: true`); property maps are keyed by the

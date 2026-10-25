@@ -1,5 +1,5 @@
 // Domain `test "..."` blocks → ExUnit emission (Phoenix/Elixir parity, F1 of
-// docs/audits/test-parity-generated-backends.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md).
 //
 // The two foundations diverge because their domain models do:
 //   * VANILLA emits a pure domain core on the aggregate (`create/1` via

@@ -100,7 +100,7 @@ describe(".NET generator — paged finds (P3b)", () => {
   });
 });
 
-// Regression (docs/audits/repo-code-review-2026-07.md T2): on the Dapper
+// Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md T2): on the Dapper
 // persistence adapter, a PARAMETERIZED paged find (`… paged where this.f == x`)
 // must bind its predicate params in the ROWS (page) query, not only the COUNT
 // query — otherwise the page query's `@x` is unbound and Npgsql throws at

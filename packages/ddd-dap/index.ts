@@ -15,8 +15,8 @@
 // pure cores (`resolveSetBreakpoints`, `remapStackFrames`).  It does NOT
 // implement the full delegating target-debugger proxy (spawning
 // js-debug/coreclr/JDWP for `launch`/`attach`) — that remains the documented,
-// editor-verified frontier.  See docs/old/proposals/source-map-and-debugging.md
-// §6E and docs/old/plans/dap-node-debug.md (Milestone 27).
+// editor-verified frontier.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md
+// §6E and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md (Milestone 27).
 // ---------------------------------------------------------------------------
 
 export { LoomDebugSession } from "../../src/dap-server/index.js";

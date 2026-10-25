@@ -37,7 +37,7 @@ name: Schemathesis contract fuzzing
 # `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` +
 # `cd test/behavioral && npm ci`, and the four
 # booted legs need a reachable Postgres.  Findings register:
-# docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
+# https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.  Known findings are ratcheting
 # root-cause rules in test/behavioral/schemathesis-waivers.json, scoped per
 # backend — an unattributed finding fails the leg, and a rule that stops
 # reproducing on a leg it claims fails it too.
@@ -99,7 +99,7 @@ jobs:
             script: test:schemathesis-java
           # Elixir fuzzes its own `storefront-elixir` case (the runner's
           # ELIXIR_CASES) and binds like the other four since its 2026-10-11
-          # triage — the record is docs/audits/schemathesis-findings-2026-08.md
+          # triage — the record is https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md
           # → "The elixir leg".
           - backend: elixir
             script: test:schemathesis-elixir

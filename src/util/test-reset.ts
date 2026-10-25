@@ -5,7 +5,7 @@
 // so without a reset it is not idempotent: an exact count assertion is green
 // on a fresh database and red on the second run of the same one, and every
 // `it()` is coupled to the blocks that ran before it.  The audit measured
-// exactly that (`docs/audits/2026-09-13-testability-audit.md` F3) — and since
+// exactly that (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-13-testability-audit.md` F3) — and since
 // the generated `docker-compose.yml` uses a named `pgdata` volume, the
 // DOCUMENTED run recipe was red on its second run.
 //

@@ -13,7 +13,7 @@
 // suppression list: when someone fixes a crossing, the gate tells them to
 // delete its entry in the same PR.  CLAUDE.md's waiver rule, applied here.
 //
-// Each entry cites `docs/audits/pairwise-corpus-findings-2026-08.md`, which
+// Each entry cites `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md`, which
 // carries the diagnosis (file:line, why it throws, what the fix would be).
 // ---------------------------------------------------------------------------
 

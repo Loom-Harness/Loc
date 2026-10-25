@@ -3,7 +3,7 @@
 // Each scaffolder builds a page body as Langium AST, so its output prints to
 // literal `.ddd` source and unfolds like any other macro.  `scaffoldList`
 // scaffolds a list; `scaffoldNewForm` scaffolds a new-form — the name is the
-// spec.  See `docs/old/proposals/unfoldable-page-scaffolding.md`.
+// spec.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md`.
 //
 // Status: this is the ONLY scaffold body path.  The scaffold macro family
 // (`_pages.ts`) returns these full AST trees directly as page bodies — `unfold`
@@ -1211,7 +1211,7 @@ function kindForType(type: TypeRef, voAsText: boolean): ColumnKind | null {
     // principal has no `aggregate User`, so no `/users` route is ever
     // registered and `auditable`'s `createdBy`/`updatedBy` link straight into
     // the router's catch-all.  (Live today on a checked-in model:
-    // `docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
+    // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
     // across its list and detail pages.)  Render it for what it is instead —
     // a managed, read-only stamped identity — as plain text.
     //

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Imports derived from use — Java (M-T9.86; design:
-// docs/new-plan/missions/M-T9.84-derived-imports.md §3).  Symbol constructors
+// https://github.com/Loom-Harness/Loc/blob/35354de7c61ecac7622d9dbdac9f326bcf7023fd/docs/new-plan/missions/M-T9.84-derived-imports.md §3).  Symbol constructors
 // and the compilation-unit finalizer: resolves `ref()` markers, merges the
 // unit's remaining hand-written imports with the referenced types, and renders
 // ONE import block in the google-java-format order:

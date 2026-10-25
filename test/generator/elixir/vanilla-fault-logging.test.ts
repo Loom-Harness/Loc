@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // Vanilla (Ecto/Phoenix, non-Ash) foundation — domain-seam fault logging
-// (S1 of the observability parity drain, docs/audits/domain-seam-log-parity.md).
+// (S1 of the observability parity drain, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/domain-seam-log-parity.md).
 //
 // The vanilla foundation emitted NO domain-seam catalog log events. The
 // shared `<App>Web.ProblemDetails` module is the single chokepoint every

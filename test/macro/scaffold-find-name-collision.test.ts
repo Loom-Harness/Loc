@@ -2,7 +2,7 @@
 // the same name.  Their scaffolded query handlers / contract records / routes
 // must stay distinct per aggregate.
 //
-// From `docs/audits/repo-code-review-2026-07.md` C2: `targetHandlerName` used a
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md` C2: `targetHandlerName` used a
 // bare `<Find>` for the find kind (unlike every other kind, which suffixes the
 // aggregate name).  So `Orders.byStatus` and `Customers.byStatus` both derived
 // handler `ByStatus`; the expander's scope-local override-by-name silently

@@ -1,6 +1,6 @@
 // Minimal vanilla-foundation fixture — one CRUD aggregate on
 // `foundation: vanilla` (plain Ecto, no Ash).  Drives Slice 0 + Slice 1
-// of docs/old/plans/vanilla-foundation-tdd-plan.md: gate-lift,
+// of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md: gate-lift,
 // orchestrator branch, schema/repository/context/api emit, and
 // wire-spec parity with the same `.ddd` under `foundation: vanilla`.
 system Tasks {

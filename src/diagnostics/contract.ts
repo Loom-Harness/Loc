@@ -1,12 +1,12 @@
 // ---------------------------------------------------------------------------
 // Structured-diagnostics wire contract — the machine-readable interface the
-// AI authoring loop consumes (docs/old/proposals/ai-diagnostics-contract.md).
+// AI authoring loop consumes (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md).
 //
 // Pure types, NO imports: this module is the shared shape spoken by the CLI
 // `--json` mode and (later) the in-browser `validate` tool (web/ imports
 // ../src), so neither side can drift from the other.  The compile-time
 // analogue of the runtime RFC 7807 `errors[]` format
-// (docs/old/proposals/validation-error-extension.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md).
 // ---------------------------------------------------------------------------
 
 /** LSP-compatible severities (design goal §7 — feeds VS Code + playground). */

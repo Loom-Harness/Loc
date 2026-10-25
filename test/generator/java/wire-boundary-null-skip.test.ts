@@ -1,6 +1,6 @@
 // F31/F32/F33 — the three java escapes the Schemathesis leg was still red on
 // (schemathesis.yml, 0/20 first-attempt pass; register:
-// docs/audits/schemathesis-findings-2026-08.md).  All three are one sentence:
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).  All three are one sentence:
 // the wire boundary answered a 500 for a body its OWN published contract
 // already describes.
 //

@@ -465,7 +465,7 @@ function containmentTypeFor(partName: string, collection: boolean): TypeIR {
  * The WIRE type of a declared property — its domain type, except that a
  * `provenanced` field ships as the `Provenanced<T>` carrier
  * `{ value: T, lineage: json | null }` (M-T6.12,
- * `docs/old/proposals/provenanced-wire-pair.md`).
+ * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/provenanced-wire-pair.md`).
  *
  * This is the ONE place the value/lineage pairing is decided.  Before it
  * existed each backend appended a trailing `<field>_provenance` SIBLING key out

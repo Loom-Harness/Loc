@@ -14,7 +14,7 @@ import {
 // pino embedded in the payload, not the console method pino called).
 // These tests guard the predicate: tight enough to skip unrelated
 // `console.log({...})` calls, loose enough to admit every catalog line.
-// See docs/old/proposals/observability.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
 // ---------------------------------------------------------------------------
 
 describe("asStructuredPayload — catalog payload detection", () => {

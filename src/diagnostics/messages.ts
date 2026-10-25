@@ -719,7 +719,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.user-visible-concat": (p: { type: unknown }) =>
     `String concatenation in a user-visible '${p.type}' slot won't translate to languages with different word order, plural rules, or formatting. ` +
-    'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id. See docs/old/proposals/i18n-strings.md.',
+    'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id.',
 
   // ----------------------------------------------------------------------
   // src/language/validators/inheritance.ts
@@ -2860,7 +2860,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`operation\`s, and the five standard ops (all / byId / create / update / delete) are not ` +
     `among them, so the whole effect — the request, the error reification and every arm body — ` +
     `would be replaced by a comment. Await a declared \`operation\` that returns a union, or ` +
-    `host this ui on another frontend. Tracked as M-T1.32 in docs/new-plan/T1-ui-frontend.md.`,
+    `host this ui on another frontend.`,
   // The Riverpod emitter's internal floor — it replaces the three
   // `// TODO(flutter full-parity)` comments that used to be emitted INTO the
   // Dart, where they compiled fine and left the action doing nothing.

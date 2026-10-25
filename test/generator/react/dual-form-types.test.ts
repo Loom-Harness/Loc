@@ -10,7 +10,7 @@
 // The original flat-dot-key half of the Phase 3 spec is unimplementable
 // as written: react-hook-form always interprets dots in field names as
 // nesting, so a flat-keyed schema would reject the nested runtime values
-// RHF produces.  Recorded in docs/old/plans/frontend-acl-implementation.md.
+// RHF produces.  Recorded in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/frontend-acl-implementation.md.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

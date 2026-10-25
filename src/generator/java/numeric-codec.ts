@@ -81,7 +81,7 @@ export const JAVA_NUMERIC: NumericTarget = {
  *  than a second `NumericTarget` slot: the leaf contract is one function per
  *  (kind, boundary), and this is the SAME boundary with a qualification
  *  difference the byte-identical refactor gate must preserve exactly (see
- *  docs/new-plan/waves/handoffs/wave-2-numeric-codec.md). */
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md). */
 export function javaMoneyProjectionKeyEncode(read: string): string {
   return `new ${J.BigDecimal}(${read}.toString()).setScale(${MONEY_WIRE_SCALE}, java.math.RoundingMode.HALF_UP).toPlainString()`;
 }

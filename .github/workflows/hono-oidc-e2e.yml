@@ -13,7 +13,7 @@ name: Hono OIDC auth (runtime e2e)
 #
 # TIER: per-PR, path-scoped, binding through `pr-gate` — with `push: main`
 # kept as the post-merge regression net.  Promoted out of push:main-only by
-# wave G1 packet 1.3 of docs/new-plan/verification-waves-2026-09.md: a
+# wave G1 packet 1.3 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md: a
 # runtime gate that runs only after the merge can only ever report a red
 # `main`, so whatever it catches, it catches too late.  The `run-oidc` label
 # opt-in is removed; the draft guard on the job below is what keeps draft

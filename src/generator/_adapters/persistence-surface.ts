@@ -24,7 +24,7 @@ export interface PersistenceAdapter {
   // capability declarations (`supports()` / `supportedShapes` /
   // `supportedStrategies`).  The persistence seam lives INSIDE each backend's
   // emitters, not behind the adapter registry (see
-  // docs/new-plan/missions/M-T9.2-persistence-seam-design.md §0.7/§2.5): each
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T9.2-persistence-seam-design.md §0.7/§2.5): each
   // orchestrator calls the underlying emitters directly, so an emit method here
   // would sit on no production path.
   //

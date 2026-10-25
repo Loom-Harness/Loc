@@ -1,6 +1,6 @@
 // Stamp targets never appear in Create/Update request DTOs — cross-backend, static.
 //
-// S1(b) of `docs/audits/generated-code-ddd-review-2026-07.md`: a field written
+// S1(b) of `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md`: a field written
 // by a `stamp onCreate`/`onUpdate` is server-owned at persist time.  Admitting
 // it on the request wire is a mass-assignment surface — the client controls
 // the very column a row-security `filter` typically reads (`createdByRole` in

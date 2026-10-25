@@ -76,10 +76,9 @@ These cover a single language feature each.  Each one is self-contained.
 
 ## Subdirectories
 
-- [`new-plan/`](new-plan/) — **the global implementation plan.**  One consolidated roadmap, divided into feature tracks and agent-pickable missions, with a coverage table dispositioning every archived proposal/plan.  This is the only live status/ordering source — start at [`new-plan/README.md`](new-plan/README.md).  Closed missions and the refresh history are filed under [`new-plan/archive/`](new-plan/archive/) — the track files list only live work.
 - [`architecture/`](architecture/) — cross-cutting design specs shared by several proposals (`RequestContext`, wire envelope, modifier propagation, diagnostic catalog, CLI surface, fixture re-baseline).  Pin shapes that multiple features consume; back the `D-*` decisions in [`decisions.md`](decisions.md).
-- [`audits/`](audits/) — empirical audits of shipped state (parity matrices, code reviews, weak-spot reviews).  Snapshot-in-time documents; their still-open findings are mission-mapped in [`new-plan/coverage.md`](new-plan/coverage.md).
 - [`decisions.md`](decisions.md) — pinned cross-proposal decisions (the `D-*` tags).  The binding answer when a proposal cites a tag.
+- Legacy design record (plans, proposals, audits, the mission plan) — removed from the tree; browse it at [https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs).  Work state lives in [GitHub issues](https://github.com/Loom-Harness/Loc/issues).
 
 ## See also
 

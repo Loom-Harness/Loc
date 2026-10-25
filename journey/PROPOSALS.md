@@ -1,6 +1,6 @@
 # Proposed improvements
 
-Drawn from the `01→05` build journey ([FINDINGS.md](FINDINGS.md)). Two of the
+Drawn from the `01→05` build journey ([FINDINGS.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/journey/FINDINGS.md)). Two of the
 codegen bugs are already fixed in this branch; the rest are proposals, ordered by
 value-to-cost. Each names the friction it closes, a concrete implementation
 surface, and the CI gate that would prove it.

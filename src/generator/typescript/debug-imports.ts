@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Node debug-mode import rewriting (`--sourcemap` —
-// Node debug wiring; see docs/old/plans/dap-node-debug.md).
+// Node debug wiring; see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
 //
 // The generated node/Hono project's relative imports are extensionless
 // (`moduleResolution: "Bundler"` style — `from "./ids"`), which the `tsx`
@@ -11,7 +11,7 @@
 // unflagged type-stripping) fails immediately with ERR_MODULE_NOT_FOUND on
 // the project's very first relative import — independent of, and prior to,
 // any question about type-stripping itself.  See
-// docs/old/plans/dap-node-debug.md for the reproduction.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md for the reproduction.
 //
 // This pass appends the resolved module's real extension (`.ts`/`.tsx`) to
 // every relative import specifier that resolves to an emitted file — a
