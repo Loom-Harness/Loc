@@ -33,6 +33,7 @@ import type {
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
   csBareToThrow,
@@ -61,9 +62,6 @@ function createAggOf(e: ExprIR, ctx: BoundedContextIR): AggregateIR | undefined 
   return undefined;
 }
 
-// Built-in repository reads every aggregate's repo emits.
-const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
-
 /** A `<Agg>.<find>(...)` repository read → the aggregate + emitted call + whether
  *  it is nullable; undefined otherwise.  `.NET`'s `GetByIdAsync` returns
  *  `<Agg>?` (there is no throwing variant), so both `findById` and `getById` map
@@ -77,13 +75,14 @@ function findCallOf(
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
-  if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
+  const op = repoVerbOpAt(e.member, "integration-test");
+  if (!op && !custom) return undefined;
   const repo = repoVar(aggName);
   const args = e.args.map((a) => renderCsExpr(a)).join(", ");
-  if (e.member === "findById" || e.member === "getById") {
+  if (op === "load" || op === "load-optional") {
     return { call: `await ${repo}.GetByIdAsync(${args})`, nullable: true };
   }
-  if (e.member === "findAll") {
+  if (op === "select-many") {
     return { call: `(await ${repo}.All(1, 1000, "id", "asc")).Items`, nullable: false };
   }
   const nullable = custom?.returnType.kind === "optional" || custom?.returnType.kind === "union";

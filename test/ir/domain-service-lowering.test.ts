@@ -108,7 +108,7 @@ describe("lowering — domainService", () => {
       repo: "Accounts",
       aggregate: "Account",
       method: "byHolder",
-      readKind: "named",
+      op: "declared-find",
     });
     expect(read.name).toBe("byHolder");
     expect(read.args.length).toBe(1);

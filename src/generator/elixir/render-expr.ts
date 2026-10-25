@@ -20,6 +20,7 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { elixirCodePointLength } from "../_expr/code-point.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
@@ -374,8 +375,8 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
  *  resolves them as bare same-module calls. */
-export function contextFindFnFor(method: string, aggregate: string): string {
-  return method === "getById" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
+export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
+  return op === "load" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
 }
 
 /**
@@ -1206,14 +1207,14 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // actually filters the query instead of dropping to the whole-table find.
       // `findAll`/`run` unwrap to the list; a single-result `find` takes the head.
       const read = e.repoRead!;
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const fn = `run_${snake(read.retrievalName)}_${snake(read.aggregate)}`;
         const call = `${fn}(${args.join(", ")})`;
-        return read.readKind === "find"
+        return read.op === "select-one"
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent ("Use getById (throws → 404)", the remedy
@@ -1230,7 +1231,7 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // through (`Ecto.NoResultsError` -> 404, `vanilla/shell-emit.ts`), so
       // "throws → 404" holds here too.  A declared find keeps the
       // value-or-nil unwrap and stays byte-identical.
-      if (read.method === "getById") {
+      if (read.op === "load") {
         return `(case ${call} do\n      {:ok, value} -> value\n      _ -> raise Ecto.NoResultsError, queryable: ${ctx.contextModule}.${upperFirst(read.aggregate)}\n    end)`;
       }
       return `(case ${call} do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
