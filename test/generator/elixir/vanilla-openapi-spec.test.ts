@@ -80,7 +80,7 @@ describe("vanilla OpenAPI spec (§11f)", () => {
 
   it("adds the open_api_spex hex dep to mix.exs", async () => {
     const mix = file(await generateSystemFiles(SOURCE), "mix.exs");
-    expect(mix).toContain('{:open_api_spex, "~> 3.0"}');
+    expect(mix).toContain('{:open_api_spex, "3.22.4"}');
   });
 
   it("routes GET /openapi.json at the router ROOT (not under /api)", async () => {

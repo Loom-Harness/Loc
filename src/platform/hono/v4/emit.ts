@@ -1761,8 +1761,8 @@ function projectPackageJson(
   const dependencies = mikro
     ? {
         ...depsNoDrizzle,
-        "@mikro-orm/core": "^6.4.0",
-        "@mikro-orm/postgresql": "^6.4.0",
+        "@mikro-orm/core": "6.6.17",
+        "@mikro-orm/postgresql": "6.6.17",
       }
     : { ...pins.dependencies };
   const devDependencies = {
@@ -1771,7 +1771,7 @@ function projectPackageJson(
     // own types, so no @types devDep is needed for the timer path.
     // Types for the amqplib broker dep (M-T4.4) — devDep so the
     // generated project's `tsc --noEmit` resolves `import amqp from "amqplib"`.
-    ...(opts.withRabbitChannels ? { "@types/amqplib": "^0.10.5" } : {}),
+    ...(opts.withRabbitChannels ? { "@types/amqplib": "0.10.8" } : {}),
   };
   const dbScripts = mikro
     ? {}
@@ -1812,24 +1812,24 @@ function projectPackageJson(
         },
         dependencies: {
           ...dependencies,
-          ...(opts.withMoney ? { "decimal.js": "^10.4.3" } : {}),
+          ...(opts.withMoney ? { "decimal.js": "10.6.0" } : {}),
           // OIDC token verification (D-AUTH-OIDC) — jose owns JWKS fetch +
           // signature/claims validation in the generated verifier.
-          ...(opts.withOidc ? { jose: "^5.9.0" } : {}),
+          ...(opts.withOidc ? { jose: "5.10.0" } : {}),
           // Durable timer scheduler (scheduling.md) — pg-boss runs
           // cron: timers as Postgres-backed durable jobs (single-fire + retry);
           // cron-parser computes the previous boundary for the coalesce-once
           // catch-up.  An `every:`-only deployable needs neither (in-process).
-          ...(opts.withCronTimers ? { "pg-boss": "^12.26.1", "cron-parser": "^5.4.0" } : {}),
+          ...(opts.withCronTimers ? { "pg-boss": "12.38.0", "cron-parser": "5.10.2" } : {}),
           // Broker transport (M-T4.4) — ioredis (MIT, design §6a)
           // speaks RESP to the compose-provisioned Valkey sidecar.
-          ...(opts.withRedisChannels ? { ioredis: "^5.4.0" } : {}),
+          ...(opts.withRedisChannels ? { ioredis: "5.11.1" } : {}),
           // Broker transport (M-T4.4) — amqplib (MIT, design §6a)
           // speaks AMQP 0-9-1 to the compose-provisioned RabbitMQ sidecar.
-          ...(opts.withRabbitChannels ? { amqplib: "^0.10.4" } : {}),
+          ...(opts.withRabbitChannels ? { amqplib: "0.10.9" } : {}),
           // Broker transport (M-T4.4) — kafkajs (MIT, design §6a)
           // only when a kafka-bound channelSource is wired.
-          ...(opts.withKafkaChannels ? { kafkajs: "^2.2.4" } : {}),
+          ...(opts.withKafkaChannels ? { kafkajs: "2.2.4" } : {}),
           ...(opts.resourceDeps ?? {}),
         },
         devDependencies,

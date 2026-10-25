@@ -37,6 +37,6 @@ export const ectoPersistenceAdapter: PersistenceAdapter = {
   emitProjectDeps(_ctx: EmitCtx): Lines {
     // Plain Ecto/Postgrex.  The rest of `mix.exs` (phoenix / bandit /
     // jason already present via the framework) lives in the shell.
-    return [`{:ecto_sql, "~> 3.12"},`, `{:postgrex, ">= 0.0.0"},`];
+    return [`{:ecto_sql, "3.14.0"},`, `{:postgrex, "0.22.4"},`];
   },
 };

@@ -343,14 +343,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   }
   // PyJWT (with the `crypto` extra for RS256/ES256 JWKS verification) ships
   // in pyproject only under an `auth { oidc }` block.
-  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]>=2.9,<3"] : [];
+  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]==2.15.1"] : [];
   // Durable timer store: procrastinate drives the owned `cron:` timerSources
   // (Postgres-native periodic tasks — store-coordinated single-fire + missed-run
   // catch-up).  psycopg[binary] bundles libpq so the python:3.13-slim image needs
   // no apt libpq (the domain layer's asyncpg driver doesn't ship one).  Both are
   // added ONLY when this deployable owns a cron timer; an every-only (or
   // timer-free) project stays byte-identical.
-  const timerDeps = hasDurableTimers ? ["procrastinate>=3,<4", "psycopg[binary]>=3.2,<4"] : [];
+  const timerDeps = hasDurableTimers ? ["procrastinate==3.10.0", "psycopg[binary]==3.3.6"] : [];
   // Broker transports (M-T4.4 slices 2b + 7a + 8a) — redis-py (MIT, design
   // §6a) speaks RESP to the compose-provisioned Valkey sidecar; aio-pika
   // (Apache-2.0) speaks AMQP 0-9-1 to the rabbitmq sidecar; aiokafka
@@ -366,11 +366,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // `file-download.ddd` (M-T6.39), so no python leg had ever booted one.
   // Wiring-gated on the same flag that emits the routes, so a File-free project
   // stays byte-identical.
-  const fileDeps = hasFileRoutes ? ["python-multipart>=0.0.20,<1"] : [];
+  const fileDeps = hasFileRoutes ? ["python-multipart==0.0.32"] : [];
   const channelDeps = [
-    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis>=5.2,<7"] : []),
-    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika>=9.5,<10"] : []),
-    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka>=0.12,<0.13"] : []),
+    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis==6.4.0"] : []),
+    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika==9.6.2"] : []),
+    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka==0.12.0"] : []),
   ];
   out.set(
     "pyproject.toml",
@@ -387,7 +387,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         ...timerDeps,
         ...fileDeps,
         ...channelDeps,
-        ...(apiClients ? ["httpx>=0.28,<1"] : []),
+        ...(apiClients ? ["httpx==0.28.1"] : []),
       ],
       [...resources.devDeps],
       channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka"] : [],
@@ -951,7 +951,7 @@ function renderPyproject(
     "# discovery refuses the flat layout, which also holds `migrations/` and",
     "# `tests/` beside it.",
     "[build-system]",
-    `requires = ["setuptools>=77"]`,
+    `requires = ["setuptools==84.2.1"]`,
     `build-backend = "setuptools.build_meta"`,
     "",
     "[tool.setuptools.packages.find]",

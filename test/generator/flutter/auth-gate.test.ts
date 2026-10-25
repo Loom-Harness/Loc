@@ -93,7 +93,7 @@ describe("flutter auth: ui — the session module", () => {
     // `window.location.href`); the system browser on a native surface.
     expect(dart).toContain("await launchUrl(apiUri(path), webOnlyWindowName: '_self');");
     // The one pub package the guard pulls, and only under `auth: ui`.
-    expect(out.get("web/pubspec.yaml")!).toContain("url_launcher: ^6.3.1");
+    expect(out.get("web/pubspec.yaml")!).toContain("url_launcher: 6.3.3");
   });
 
   it("gates the app through MaterialApp.builder, not a wrapper around it", async () => {

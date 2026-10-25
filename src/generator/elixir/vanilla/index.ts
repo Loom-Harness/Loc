@@ -788,27 +788,27 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // A `cron:` timer rides `crontab` (next-boundary computation) + `oban` (the
   // durable single-fire/retry job store); an `every:`-only timer needs neither.
   const hexDeps = usesCron
-    ? { ...resourceEmission.hexDeps, crontab: '"~> 1.1"', oban: '"~> 2.19"' }
+    ? { ...resourceEmission.hexDeps, crontab: '"1.2.1"', oban: '"2.24.2"' }
     : resourceEmission.hexDeps;
   // The emitted client imports `Req`; without this the project references a
   // package it does not depend on (the exact defect that shipped an
   // httpx-importing Python client into a project with no httpx).
-  if (apiClients) (hexDeps as Record<string, string>).req = '"~> 0.5"';
+  if (apiClients) (hexDeps as Record<string, string>).req = '"0.7.5"';
   // Channel drivers, wiring-gated so a channel-less mix.exs stays
   // byte-identical: Redix (MIT — design §6a) for redis pub/sub; the hex
   // `amqp` client (MIT, wrapping the official RabbitMQ Erlang client) for
   // rabbitmq — same `~> 4.0` line the queue resource adapter pins, so a
   // project wiring both never carries two conflicting requirements.
   if (channelBindings.some((b) => b.transport === "redis")) {
-    (hexDeps as Record<string, string>).redix = '"~> 1.5"';
+    (hexDeps as Record<string, string>).redix = '"1.10.0"';
   }
   if (channelBindings.some((b) => b.transport === "rabbitmq")) {
-    (hexDeps as Record<string, string>).amqp = '"~> 4.0"';
+    (hexDeps as Record<string, string>).amqp = '"4.3.0"';
   }
   if (channelBindings.some((b) => b.transport === "kafka")) {
     // brod (Apache 2.0 — Klarna's Erlang kafka client, the plain-driver
     // choice matching Redix/amqp).
-    (hexDeps as Record<string, string>).brod = '"~> 4.4"';
+    (hexDeps as Record<string, string>).brod = '"4.7.0"';
   }
 
   // JWKS strategy (OIDC only): the joken_jwks GenServer that fetches, caches,

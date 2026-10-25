@@ -51,8 +51,8 @@ function storeOf(resource: DataSourceIR, stores: readonly StorageIR[]): StorageI
 
 const s3Adapter: PyResourceAdapter = {
   name: "s3",
-  deps: () => ["boto3>=1.35,<2"],
-  devDeps: () => ["boto3-stubs[s3]>=1.35,<2"],
+  deps: () => ["boto3==1.43.118"],
+  devDeps: () => ["boto3-stubs[s3]==1.43.118"],
   emitModule(resources, stores): string {
     const body: string[] = [];
     for (const r of resources) {
@@ -241,7 +241,7 @@ const localDiskAdapter: PyResourceAdapter = {
 
 const rabbitmqAdapter: PyResourceAdapter = {
   name: "rabbitmq",
-  deps: () => ["aio-pika>=9.5,<10"],
+  deps: () => ["aio-pika==9.6.2"],
   devDeps: () => [],
   emitModule(resources): string {
     const body: string[] = [];
@@ -308,7 +308,7 @@ const rabbitmqAdapter: PyResourceAdapter = {
 
 const restApiAdapter: PyResourceAdapter = {
   name: "restApi",
-  deps: () => ["httpx>=0.28,<1"],
+  deps: () => ["httpx==0.28.1"],
   devDeps: () => [],
   emitModule(resources, stores): string {
     const body: string[] = [];
@@ -354,7 +354,7 @@ function mailFrom(r: DataSourceIR, stores: readonly StorageIR[]): string {
 
 const smtpAdapter: PyResourceAdapter = {
   name: "smtp",
-  deps: () => ["aiosmtplib>=3.0,<4"],
+  deps: () => ["aiosmtplib==3.0.2"],
   devDeps: () => [],
   emitModule(resources, stores): string {
     const body: string[] = [];
@@ -401,8 +401,8 @@ const smtpAdapter: PyResourceAdapter = {
 
 const sesAdapter: PyResourceAdapter = {
   name: "ses",
-  deps: () => ["boto3>=1.35,<2"],
-  devDeps: () => ["boto3-stubs[ses]>=1.35,<2"],
+  deps: () => ["boto3==1.43.118"],
+  devDeps: () => ["boto3-stubs[ses]==1.43.118"],
   emitModule(resources, stores): string {
     const body: string[] = [];
     for (const r of resources) {
@@ -441,7 +441,7 @@ const sesAdapter: PyResourceAdapter = {
 
 const sendgridAdapter: PyResourceAdapter = {
   name: "sendgrid",
-  deps: () => ["httpx>=0.28,<1"],
+  deps: () => ["httpx==0.28.1"],
   devDeps: () => [],
   emitModule(resources, stores): string {
     const body: string[] = [];
