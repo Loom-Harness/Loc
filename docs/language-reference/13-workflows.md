@@ -21,7 +21,7 @@ workflow fulfillment {
 }
 ```
 
-A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
+A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
 
 ### `requires` on the header — the instance-read gate
 
@@ -563,7 +563,7 @@ The tick rides the ordinary in-process dispatcher, so a reactor sees no differen
 
 ## `apply` — the `eventSourced` fold
 
-Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` assignments only), exactly like an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
+Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` / `+=` / `-=`, `let` and `if`), under exactly the rules of an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold) (`loom.applier-emits` / `loom.applier-guard` / `loom.applier-impure-call` / `loom.applier-stmt-invalid`). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
 
 ```ddd
 workflow settlement eventSourced {
@@ -715,7 +715,7 @@ public void transferCredit(TransferCreditRequest request) {
 
 ## Resource consumption
 
-`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the two application-layer render sites have the client in scope). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and **forbidden inside a transactional span** (`loom.resource-op-in-transaction` — an external effect can't roll back with the DB).
+`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, any `function` (a workflow's included), a handler's `return` value, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the application-layer render sites have the client in scope; a projection fold is `loom.projection-fold-impure`). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and **forbidden inside a transactional span** (`loom.resource-op-in-transaction` — an external effect can't roll back with the DB).
 
 ```ddd
 resource files { for: Sales, kind: objectStore, use: bucket }

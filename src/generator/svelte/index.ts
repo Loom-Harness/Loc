@@ -153,7 +153,7 @@ export function generateSvelteForContexts(
   };
 
   const design = deployable.design ?? "shadcnSvelte@v1";
-  const pack = loadPack(resolvePackDir(design));
+  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
 
   if (!deployable.uiName) {
     throw new Error(
