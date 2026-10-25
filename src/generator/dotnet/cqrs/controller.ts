@@ -253,7 +253,7 @@ export function emitController(
       // so probe `requiredFields` — the very list `emitRequestDtos` builds the
       // record from (the event-sourced `create` action's params when the
       // aggregate is event-sourced, `createInputFields` otherwise).  Probing
-      // `forCreateInput(agg.fields)` instead let the controller call a
+      // `createInputFields(agg)` instead let the controller call a
       // `Create<Agg>RequestValidator` the validator emitter never wrote, on any
       // event-sourced aggregate whose FIELDS carry a rule-bearing VO its create
       // params do not.
@@ -326,6 +326,7 @@ export function emitController(
           isRoot: isAllFind(entry),
           apiOp: entry,
           responseType: isUnion ? `${agg.name}Response` : undefined,
+          paramNames: find.params.map((p) => p.name),
           queryRouteParams: [
             ...find.params.map((p) => {
               // A required find param must bind required so Swashbuckle emits

@@ -1,8 +1,7 @@
-import { emitsRestCreate, forCreateInput } from "../../ir/enrich/wire-projection.js";
+import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   ExprIR,
-  FieldIR,
   InvariantIR,
   OperationIR,
   TypeIR,
@@ -16,7 +15,7 @@ import {
   singleFieldShape,
 } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
@@ -61,10 +60,7 @@ interface ValidatorEmission {
 }
 
 /** Render the validator file for a Create<Agg>Command. */
-export function renderCreateValidator(
-  agg: { name: string; invariants: InvariantIR[]; fields: FieldIR[] },
-  ns: string,
-): ValidatorEmission {
+export function renderCreateValidator(agg: AggregateIR, ns: string): ValidatorEmission {
   return renderValidatorFile({
     ns,
     aggName: agg.name,
@@ -74,7 +70,7 @@ export function renderCreateValidator(
     // an invariant over an excluded field (e.g. a `managed` collection)
     // is enforced in the domain layer, not here, so it must not reference
     // an absent request property.
-    available: new Set(forCreateInput(agg.fields).map((f) => f.name)),
+    available: new Set(createInputFields(agg).map((f) => f.name)),
   });
 }
 
@@ -320,7 +316,7 @@ function requestParamSets(
       name: `Create${agg.name}Request`,
       params: esCreate
         ? esCreate.params.map((p) => ({ name: p.name, type: p.type }))
-        : forCreateInput(agg.fields).map((f) => ({
+        : createInputFields(agg).map((f) => ({
             name: f.name,
             type: f.type,
             default: f.default,
@@ -563,7 +559,7 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>): string {
     case "lambda":
       return e.name;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     default:
       return `false /* UNRENDERABLE-REF:${e.refKind} */`;
   }
@@ -604,8 +600,10 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   }
   if (e.isCollectionOp) {
     switch (e.member) {
+      // The `Count` property, not LINQ `Count()` (CA1829) — every collection
+      // on a command/request record is a `List<T>`.
       case "count":
-        return `(${recv}).Count()`;
+        return `(${recv}).Count`;
       case "all":
         return `(${recv}).All(${args[0] ?? "_ => true"})`;
       case "any":

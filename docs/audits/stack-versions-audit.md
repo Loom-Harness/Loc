@@ -51,7 +51,7 @@ acting; these numbers age).
 
 ### Stack-supplied cross-cutting deps (one row per stack)
 
-| package | stack v1 (mantine@v7, chakra@v2, mui@v5, shadcn@v3) | stack v3 (mantine@v9; React 19 + Router 7 + Zod 4) | latest stable |
+| package | stack v1 (RETIRED — its packs mantine@v7, chakra@v2, mui@v5, shadcn@v3 were removed with `stacks/v1`; column kept as the historical pin record) | stack v3 (mantine@v9; React 19 + Router 7 + Zod 4) | latest stable |
 | --- | --- | --- | --- |
 | `react` / `react-dom` | ^18.3.0 | **^19.2.0** | 19.2 |
 | `react-router-dom` | ^6.27.0 | `react-router` ^7.0.0 (renamed; RR 7 adopted in stack v3) | **7.x** |

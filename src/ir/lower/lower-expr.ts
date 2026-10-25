@@ -72,6 +72,7 @@ import {
   PRINCIPAL_ORG_CONTEXT_PATH,
 } from "../../util/principal.js";
 import { durationUnitOf } from "../../util/temporal.js";
+import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
 import { isWalkerPrimitive } from "../../util/walker-primitive-names.js";
 import { findVerb, type ResourceVerbDef } from "../resource-verbs.js";
 import { variantTag } from "../stdlib/unions.js";
@@ -968,6 +969,39 @@ function applySuffixToRecv(
         return { recv: orExpr, recvType: bool };
       }
     }
+    // `<vo>.equals(other)` — VALUE equality, the value-object intrinsic
+    // (src/util/value-object-intrinsics.ts).  It lowers to the SAME
+    // `binary ==` node a `vo == other` writes, so every backend renders it
+    // through its one value-equality leaf (python `==` on the frozen
+    // dataclass, java `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`,
+    // node `.equals(…)`) instead of each emitter meeting a `method-call` named
+    // `equals` it has no idiom for — python rendered `x.equals(…)` (no such
+    // attribute; mypy rejects it) and elixir's test emitter threw.  A value
+    // object that declares its OWN `equals` member keeps the ordinary call.
+    if (
+      args.length === 1 &&
+      recvType.kind === "valueobject" &&
+      isValueObjectEqualsIntrinsic(
+        findValueObjectByName(env, recvType.name)?.members ?? [],
+        ms.member,
+      )
+    ) {
+      const bool: TypeIR = { kind: "primitive", name: "bool" };
+      const eq: ExprIR = {
+        kind: "binary",
+        op: "==",
+        left: recv,
+        right: args[0]!,
+        leftType: recvType,
+        rightType: recvType,
+        resultType: bool,
+      };
+      // Parenthesized: the source was a postfix ATOM, the replacement is a
+      // low-precedence binary.  Bare, `!berth.equals(o)` rendered
+      // `!this.Berth == o` on .NET (CS0023) and `not record.berth == o` on
+      // elixir (`not` binds tighter than `==` — ArgumentError at runtime).
+      return { recv: { kind: "paren", inner: eq }, recvType: bool };
+    }
     // `this.<fn>(args)` / `this.<op>(args)` — an EXPLICIT self-call on an
     // aggregate-local `function` or `operation`.  The bare spelling
     // (`strictfp(x)`) lowers above to a `call` with `callKind: "function"` /
@@ -1053,7 +1087,9 @@ function applySuffixToRecv(
       !env.ctx &&
       (env.actions !== undefined || env.stores !== undefined) &&
       uiEnumOwnersFor(ms.member, suffix).includes(enumName);
-    if (localEnum || rootEnum || uiEnum) {
+    // `Kind.Fire` naming a sibling context's enum — see `enumCandidatesFor`.
+    const siblingEnum = !!env.ctx && siblingEnumOwnersFor(ms.member, env.ctx).includes(enumName);
+    if (localEnum || rootEnum || uiEnum || siblingEnum) {
       return {
         recv: {
           kind: "ref",
@@ -1828,6 +1864,16 @@ function uiEnumIndexFor(root: AstNode): ReadonlyMap<string, readonly string[]> {
   return index;
 }
 
+/** Every enum declared ANYWHERE in `ctx`'s document that owns value `name` —
+ *  the sibling-context fallback for a bare / qualified enum value in a context
+ *  body (the IR-side twin of `enumPool`).  Same-document only: a sibling
+ *  context in another file is reached through its `import`, whose root enums
+ *  the ambient index already carries. */
+function siblingEnumOwnersFor(name: string, ctx: AstNode): readonly string[] {
+  const root = AstUtils.getContainerOfType(ctx, isModel);
+  return (root ? uiEnumIndexFor(root).get(name) : undefined) ?? [];
+}
+
 /** Append `enumName` to the candidate list for `valueName`, skipping a
  *  duplicate (the same enum reached twice through two index levels). */
 function pushCandidate(index: Map<string, string[]>, valueName: string, enumName: string): void {
@@ -1880,7 +1926,14 @@ function enumCandidatesFor(name: string, env: Env, node?: AstNode): readonly str
       if (isEnumDecl(m) && m.values.some((v) => v.name === name)) local.push(m.name);
     }
     if (local.length > 0) return local;
-    return ambientEnumIndex.get(name) ?? [];
+    const ambient = ambientEnumIndex.get(name);
+    if (ambient && ambient.length > 0) return ambient;
+    // A SIBLING context's enum (`Clm.kind: Kind`, `Kind` declared in another
+    // context of the system) is a legal, linked field type, so its bare value
+    // must resolve too — otherwise the ref stays `unknown` and every backend
+    // emits the bare identifier (`Clm.Create(kind: Fire, …)`: CS0103 / TS2304).
+    // Lowest precedence: own and ambient enums still shadow (claims D1).
+    return siblingEnumOwnersFor(name, env.ctx);
   }
   // A `ui` body has no enclosing context — see the ui arm of `resolveNameRef`
   // for why this is gated to ui bodies rather than every ctx-less body.

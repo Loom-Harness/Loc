@@ -96,7 +96,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
       "finish",
     );
     expect(wf).toContain(
-      `Phoenix.PubSub.broadcast(Api.PubSub, "events", %Context.Events.TaskFinished{task: task_id, at: DateTime.utc_now()})`,
+      `Api.PostCommit.broadcast(%Context.Events.TaskFinished{task: task_id, at: DateTime.utc_now()})`,
     );
   });
 
@@ -113,7 +113,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
     // The broadcast line appears AFTER `with ... do` and BEFORE the
     // success `{:ok, _}` return — so a failed with-clause skips it.
     expect(wf).toMatch(
-      /with \{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\) do\n\s+Phoenix\.PubSub\.broadcast[\s\S]+\n\s+\{:ok, t\}\n\s+end/,
+      /with \{:ok, t\} <- \(case Context\.get_task\(task_id\) do[\s\S]*?end\) do\n\s+Api\.PostCommit\.broadcast[\s\S]+\n\s+\{:ok, t\}\n\s+end/,
     );
   });
 
@@ -146,7 +146,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
       "announce",
     );
     // No with-chain — broadcast runs unconditionally then return {:ok, :emitted}.
-    expect(wf).toMatch(/Phoenix\.PubSub\.broadcast[\s\S]+\n\s+\{:ok, :emitted\}/);
+    expect(wf).toMatch(/Api\.PostCommit\.broadcast[\s\S]+\n\s+\{:ok, :emitted\}/);
     // ...and `with` is NOT present.
     expect(wf).not.toMatch(/\n\s+with /);
   });
@@ -161,7 +161,7 @@ describe("vanilla — workflow body lowering (emit)", () => {
       }`,
       "finish",
     );
-    expect(wf).toContain("Api.PubSub");
+    expect(wf).toContain("Api.PostCommit.broadcast(");
     // The struct module routes through the Context alias.
     expect(wf).toContain("%Context.Events.TaskFinished");
   });

@@ -804,6 +804,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
@@ -930,6 +934,12 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** The order a PAGED find's page is taken in when the caller's `sort` key
+   *  names no whitelisted column — its route's `sort` then defaults to `""`
+   *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
+   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  synthesizes, from the retrieval's declared `sort:`. */
+  defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto
@@ -943,6 +953,13 @@ export interface FindIR {
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
   auditHistory?: boolean;
+  /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
+   *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
+   *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
+   *  `readsDefaultDenied`, when the author declared no gate for it: under
+   *  `denyByDefault` that read fails closed (403 before the load) on every
+   *  backend, and the validator still reports it as ungated. */
+  defaultDenied?: boolean;
 }
 
 export interface RepositoryIR {
@@ -965,6 +982,13 @@ export interface RepositoryIR {
    *  resolved for `op.audited`; a separate field makes consumption OPT-IN, so
    *  a backend that has not ported history emits nothing instead of garbage. */
   historyFind?: FindIR;
+  /** Set by enrichment (M-T3.19) when the aggregate is served by an
+   *  `auth: required` backend under `enforcement: denyByDefault`: its two
+   *  compiler-derived reads (list, by-id) fail CLOSED unless the author
+   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  per-context backends cannot re-derive (they never see the deployables),
+   *  hence stored.  Consumed through `read-gates.ts`. */
+  readsDefaultDenied?: boolean;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -1134,6 +1158,14 @@ export interface BoundedContextIR {
    *  translator reads `errorStatusOverrides?.[name] ?? defaultErrorStatus(name)`.
    *  Undefined in single-context (no-api) lowering — defaults apply. */
   errorStatusOverrides?: Record<string, number>;
+  /** Router slots (`routeSlot` form, `"get /api/orders/{}"`) occupied by the
+   *  explicit `route`s of the apis surfacing this subdomain.  The auto-derived
+   *  REST surface YIELDS any of its operations whose slot is listed
+   *  (D-EXPLICIT-ROUTE-WINS): the derivation flags it `claimedByExplicitRoute`,
+   *  the route + OpenAPI emitters skip it, and the explicit handler alone
+   *  serves the slot.  Populated by `enrichLoomModel`; undefined when those
+   *  apis declare no explicit route. */
+  explicitRouteSlots?: string[];
   /** App-wide resolved HTTP status for each structural-conflict built-in
    *  (`UniquenessConflict` / `ConcurrencyConflict` / `Disallowed` /
    *  `ReferencedInUse` — expressible-builtins.md §3 / M-T3.4a). Folded across
@@ -1876,14 +1908,27 @@ export type WorkflowStmtIR =
       // repository `find` which would auto-expose a query endpoint.  This is
       // why the optional never becomes a standalone `repo-let` (which forbids
       // nullable returns) nor a public `find`.
+      //
+      // The second source form is a DECLARED optional find
+      // (`if let o = Orders.byCode(c)` over `find byCode(..): Order?`):
+      // `findMethod` names it, `retrievalArgs` carry its arguments, and
+      // `retrievalName` / `synthCriterion.name` stay empty.  The backends call
+      // the repository's own nullable find method and branch on presence —
+      // no retrieval is synthesised.
       kind: "if-let";
       var: string;
       repoName: string;
       aggName: string;
-      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`). */
+      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
+       *  empty for a declared-find source. */
       retrievalName: string;
+      /** The source call's arguments: the criterion's, or — when `findMethod`
+       *  is set — the declared find's. */
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
+      /** The declared optional find the source calls, when the source is
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+      findMethod?: string;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -2351,8 +2396,11 @@ export interface VerificationIR {
     total: number;
   };
   diagnostics: {
-    /** Result rows that matched no backing executable test. */
+    /** Result rows that matched no declared executable test at all. */
     unknownTests: TestOutcome[];
+    /** Result rows of a declared executable test that carries no
+     *  `verifies` — real tests, just not evidence for any test case. */
+    unlinkedTests: TestOutcome[];
     /** TestCase ids referenced by a test's `verifies` that don't exist. */
     unmappedTestCases: string[];
   };
@@ -3188,9 +3236,9 @@ export interface DeployableIR {
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
   platform: Platform;
-  /** The fully-qualified backend ref (`"node@v4"`) after lowering,
+  /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
-   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v4"`) flows
+   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
    *  through as written.  For frontend platforms (`react`/`static`)
    *  this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`
@@ -3225,7 +3273,7 @@ export interface DeployableIR {
    *  ignored otherwise.
    *
    *  After lowering this field is always fully qualified
-   *  (`family@version`, e.g. `"mantine@v7"`) for built-in packs.  The
+   *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The
    *  bareword DSL form `design: mantine` resolves through
    *  `BUILTIN_PACK_LATEST` during lowering, so downstream consumers
    *  (generator dispatch in `src/generator/react/index.ts`, the

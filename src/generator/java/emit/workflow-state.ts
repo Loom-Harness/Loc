@@ -5,22 +5,19 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
-import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
+import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
-import {
-  jpaClassAnnotations,
-  jpaFieldAnnotations,
-  needsHibernateTypes,
-} from "./jpa-annotations.js";
+import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 
 // ---------------------------------------------------------------------------
 // Persisted workflow-correlation state (Java / JPA) — the saga-instance row
 // keyed by the correlation field, with the remaining state fields as columns.
 // The Java counterpart of dotnet's `workflow-state-emit.ts`: a `@Entity` bound
-// to the Flyway-owned `plural(snake(wf.name))` table (DDL derived
+// to the Flyway-owned `workflowStateTableName(wf.name)` table (DDL derived
 // platform-neutrally by `workflowStateTableShape` in the migrations builder)
 // plus a Spring Data `JpaRepository` over it.  This is the persistence
 // foundation the in-process dispatcher (load-or-allocate / route-or-drop) and
@@ -52,7 +49,7 @@ export function setterName(field: string): string {
 /** The saga table name — matches `workflowStateTableShape` in the migrations
  *  builder and dotnet's `workflowStateTable`. */
 export function workflowStateTable(wf: WorkflowIR): string {
-  return plural(snake(wf.name));
+  return workflowStateTableName(wf.name);
 }
 
 function correlationField(wf: WorkflowIR): FieldIR {
@@ -95,9 +92,6 @@ export function renderWorkflowStateEntity(
   // Saga state has no reference/value collections, so jpaFieldAnnotations never
   // touches `associations` — a bare owner satisfies the type.
   const owner = { name: wf.name, associations: [] } as unknown as EnrichedAggregateIR;
-
-  const javaImports = new Set<string>();
-  for (const f of fields) collectJavaTypeImports(f.type, javaImports);
 
   const fieldLines: string[] = [
     `    @EmbeddedId`,
@@ -165,14 +159,9 @@ export function renderWorkflowStateEntity(
     ...(durable ? [...accessor("String", "lastEventId"), ...setter("String", "lastEventId")] : []),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
-    usesHibernateTypes ? `import org.hibernate.annotations.JdbcTypeCode;` : null,
-    usesHibernateTypes ? `import org.hibernate.type.SqlTypes;` : null,
     `import jakarta.persistence.*;`,
     ``,
     `import ${basePkg}.domain.enums.*;`,
@@ -217,7 +206,7 @@ export function javaStateDefault(f: FieldIR, ctx: EnrichedBoundedContextIR): str
     }
   }
   if (t.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === t.name);
+    const e = enumPool(ctx).find((x) => x.name === t.name);
     const first = e?.values[0];
     return first ? `${t.name}.${jid(first)}` : "null";
   }

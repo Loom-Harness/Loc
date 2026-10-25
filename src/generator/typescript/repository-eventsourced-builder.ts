@@ -9,13 +9,14 @@ import type {
 import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst } from "../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import {
   blobGetByIdLines,
   deserializeField,
   docFieldType,
   findPredicate,
+  inMemoryPagedLocals,
   inMemoryPagedTailLines,
   PAGED_TAIL_PARAMS,
   pagedReturnType,
@@ -239,7 +240,7 @@ function eventSourcedFindMethod(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   const pred = findPredicate(agg, find, ctx);
   const isArray = find.returnType.kind === "array";
@@ -260,11 +261,12 @@ function eventSourcedFindMethod(
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
     const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
+    const L = inMemoryPagedLocals(find.params);
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       `    const all = await this._loadAll();`,
-      `    const matched = ${pred ? `all.filter(${pred})` : "all"};`,
-      ...inMemoryPagedTailLines(agg, "matched", find.name),
+      `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
+      ...inMemoryPagedTailLines(agg, L, find.name),
       `  }`,
     );
   }

@@ -11,13 +11,15 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
+import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -28,6 +30,18 @@ import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from 
 import { csClaimStampsFor } from "./entity.js";
 import { eventDbSetName, eventRecordClass } from "./event-store.js";
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
+
+/** The locals an EF relational `find` method (plain + paged) declares for
+ *  itself — each yields to a same-named find param. */
+const EF_FIND_LOCALS = [
+  "offset",
+  "sortColumn",
+  "total",
+  "totalPages",
+  "ordered",
+  "items",
+  "result",
+];
 
 // Repository interface (Domain layer) + EF-backed implementation
 // (Infrastructure layer).  Both surfaces own a `GetByIdAsync` /
@@ -66,13 +80,14 @@ export function renderRepositoryInterface(
     const pageExtra = pagedReturn(f.returnType)
       ? ["int page", "int pageSize", "string sort", "string dir"]
       : [];
-    return `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`;
+    return [
+      `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
+    ];
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
-  const retrievalLines = retrievals.map(
-    (r) =>
-      `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
-  );
+  const retrievalLines = retrievals.map((r) => [
+    `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
+  ]);
   return (
     lines(
       "// Auto-generated.",
@@ -108,8 +123,8 @@ export function renderRepositoryInterface(
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
         : []),
-      ...findLines,
-      ...retrievalLines,
+      ...findLines.flat(),
+      ...retrievalLines.flat(),
       "}",
     ) + "\n"
   );
@@ -257,8 +272,15 @@ export function renderRepositoryImpl(
     // §11) — installed on the IQueryable BEFORE `.Where(...)`, so the bypassed
     // capability filter(s) never compose into this read.
     const ignore = body?.ignoreClause ?? "";
-    const projection = body?.projectionClause ?? ".ToListAsync(cancellationToken)";
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = body?.projectionClause ?? `.ToListAsync(${ct})`;
     const usesUser = findUsesCurrentUser(f);
+    // The method's own locals yield (`__`-prefixed) to a same-named find param
+    // (CS0136) — only on a collision, so every other model is byte-identical.
+    const L = csLocalNamer(
+      f.params.map((p) => p.name),
+      EF_FIND_LOCALS,
+    );
     // Paged (P3b): a count query + a `Skip`/`Take` page query (the find's
     // `where` threaded into both), returning the domain `Paged<Agg>`
     // envelope (1-based).  The query handler maps items to response DTOs.
@@ -271,37 +293,47 @@ export function renderRepositoryImpl(
         .filter((wf) => wf !== "id")
         .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map(
+          (t, i) =>
+            `.${i === 0 ? (t.direction === "desc" ? "OrderByDescending" : "OrderBy") : t.direction === "desc" ? "ThenByDescending" : "ThenBy"}(e => e.${upperFirst(t.field)})`,
+        )
+        .join("");
       const orderExpr = (asc: boolean): string =>
-        `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, sortColumn))`;
+        `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
-        "        var offset = (page - 1) * pageSize;",
-        `        var sortColumn = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
-        `        var total = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
-        "        var totalPages = pageSize > 0 ? (int)System.Math.Ceiling((double)total / pageSize) : 0;",
-        `        var ordered = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
-        `        var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);`,
+        `        var ${L("offset")} = (page - 1) * pageSize;`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"Id"'} };`,
+        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(${ct});`,
+        `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
+        declaredOrder
+          ? // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            `        var ${L("ordered")} = ${L("sortColumn")} is null ? _db.${setName}${ignore}${filter}${declaredOrder} : dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`
+          : `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
+        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(${ct});`,
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },
           { name: "find", valueExpr: `"${f.name}"` },
-          { name: "rows", valueExpr: "items.Count" },
+          { name: "rows", valueExpr: `${L("items")}.Count` },
         ])}`,
-        `        return new Paged<${agg.name}>(items, page, pageSize, total, totalPages);`,
+        `        return new Paged<${agg.name}>(${L("items")}, page, pageSize, ${L("total")}, ${L("totalPages")});`,
         "    }",
       ];
     }
-    const rowsExpr = findRowsExpr(f.returnType);
+    const rowsExpr = findRowsExpr(f.returnType, L("result"));
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
-      `        var result = await _db.${setName}${ignore}${filter}${projection};`,
+      `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${L("result")};`,
       "    }",
     ];
   });
@@ -336,27 +368,29 @@ export function renderRepositoryImpl(
   // enumerated by name instead — or the branch disappears entirely when the
   // deny carve-out is the only filter.
   const allBypassNames = hasNonBypassableFilter(agg) ? bypassableFilterNames(agg, pool) : null;
-  const bypassAllLines =
+  // `q` is the method's IQueryable local (`__q` unless a retrieval param takes
+  // that name — see csLocalNamer).
+  const bypassAllLines = (q: string, bypass: string): string[] =>
     allBypassNames === null
-      ? ["        if (bypass.All) __q = __q.IgnoreQueryFilters();"]
+      ? [`        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters();`]
       : allBypassNames.length > 0
         ? [
-            `        if (bypass.All) __q = __q.IgnoreQueryFilters([${allBypassNames
+            `        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
               .map((n) => JSON.stringify(n))
               .join(", ")}]);`,
           ]
         : [];
-  const bypassBody = [
-    ...bypassAllLines,
+  const bypassBody = (q: string, bypass: string): string[] => [
+    ...bypassAllLines(q, bypass),
     ...(bypassPairs.length > 0
       ? [
-          `        ${bypassAllLines.length > 0 ? "else if" : "if"} (bypass.Capabilities is { Count: > 0 })`,
+          `        ${bypassAllLines(q, bypass).length > 0 ? "else if" : "if"} (${bypass}.Capabilities is { Count: > 0 })`,
           "        {",
           `            var __ignore = new (string Capability, string Filter)[] { ${bypassPairs
             .map((p) => `(${JSON.stringify(p.cap)}, ${JSON.stringify(p.filter)})`)
             .join(", ")} }`,
-          "                .Where(m => bypass.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();",
-          "            if (__ignore.Length > 0) __q = __q.IgnoreQueryFilters(__ignore);",
+          `                .Where(m => ${bypass}.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();`,
+          `            if (__ignore.Length > 0) ${q} = ${q}.IgnoreQueryFilters(__ignore);`,
           "        }",
         ]
       : []),
@@ -364,7 +398,13 @@ export function renderRepositoryImpl(
   const retrievalMethodLines = retrievals.flatMap((r) => {
     // The retrieval is a reified Ardalis Specification (where + sort, emitted
     // by spec-emit.ts); the method applies it and layers call-site paging.
-    const specArgs = r.params.map((p) => p.name).join(", ");
+    const specArgs = r.params.map((p) => escapeCsharpIdent(p.name)).join(", ");
+    // `result` / `__q` yield to a same-named retrieval param (CS0136).
+    const L = csLocalNamer(
+      r.params.map((p) => p.name),
+      ["__q", "result"],
+    );
+    const own = csReadOwnParams(r.params.map((p) => p.name));
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -372,15 +412,15 @@ export function renderRepositoryImpl(
       // to the base IQueryable BEFORE the spec composes its WHERE/ORDER.  The
       // domain `bypass` (capability names) is translated to EF filter names
       // adapter-side, above.
-      `        var __q = _db.${setName}.AsQueryable();`,
-      ...bypassBody,
-      `        var result = await __q.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(page).ToListAsync(cancellationToken);`,
+      `        var ${L("__q")} = _db.${setName}.AsQueryable();`,
+      ...bypassBody(L("__q"), own.bypass),
+      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
-        { name: "rows", valueExpr: "result.Count" },
+        { name: "rows", valueExpr: `${L("result")}.Count` },
       ])}`,
-      "        return result;",
+      `        return ${L("result")};`,
       "    }",
     ];
   });
@@ -546,7 +586,7 @@ export function renderRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
-      "            await _events.DispatchAsync(ev, cancellationToken);",
+      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "        }",
       "    }",
       // Hard delete — gated on a canonical `destroy`.  `Remove` + Save;
@@ -705,6 +745,39 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // shape — a silent cross-tenant read.  node/java/python filter document reads
 // in-app the same way.
 // ---------------------------------------------------------------------------
+/** The in-app capability-filter suffix a document-store FIND applies to its
+ *  rehydrated rows, honouring the find's `ignoring` clause (C2, M-T6.75).
+ *  No clause → the shared `_CapabilityVisible` (every filter).  A bypass keeps
+ *  only the filters it does not name — same selection rule as
+ *  `bypassedFilterNames` on the relational path: `ignoring *` drops every
+ *  bypassable filter, `ignoring A` drops the filters whose contributing
+ *  capability is `A`, and a deny sentinel is never dropped. */
+function docFindCapFilter(
+  agg: EnrichedAggregateIR,
+  f: { bypassAll?: boolean; bypassCaps?: string[] },
+  capPredicate: string | null,
+): string {
+  if (!capPredicate) return "";
+  const filters = agg.contextFilters ?? [];
+  const origins = agg.contextFilterOrigins ?? [];
+  const caps = new Set(f.bypassCaps ?? []);
+  if (!f.bypassAll && caps.size === 0) return ".Where(_CapabilityVisible)";
+  const kept = filters.filter((p, i) => {
+    if (isDenyFilter(p)) return true;
+    if (f.bypassAll) return false;
+    const origin = origins[i];
+    return !(origin != null && caps.has(origin));
+  });
+  if (kept.length === filters.length) return ".Where(_CapabilityVisible)";
+  if (kept.length === 0) return "";
+  const pred = kept
+    .map(
+      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
+    )
+    .join(" && ");
+  return `.Where(x => ${pred})`;
+}
+
 export function renderDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -803,12 +876,15 @@ export function renderDocumentRepositoryImpl(
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects
     // equivalents.
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
-    const rowsExpr = findRowsExpr(f.returnType);
+    // `result` yields to a same-named find param (CS0136).
+    const result = csLocalNamer(f.params.map((p) => p.name))("result");
+    const rowsExpr = findRowsExpr(f.returnType, result);
     // The capability filter narrows the visible set BEFORE the find's own
     // predicate runs, so a find never returns a capability-hidden (foreign
     // tenant, soft-deleted) document.
@@ -818,7 +894,15 @@ export function renderDocumentRepositoryImpl(
     // by id since it was written; the other four did not, so one fixture
     // answered two different orders across the backends.  Id is the primary
     // key, so this is an index scan.
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
+    //
+    // C2 (M-T6.75): the find's `ignoring` clause (named-filter-bypass.md §11)
+    // narrows WHICH capability filters apply — the in-app twin of the
+    // relational `.IgnoreQueryFilters(…)`.  No clause keeps the shared
+    // `_CapabilityVisible`; a bypass renders only the retained conjuncts
+    // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
+    // every filter whatever a find bypasses.  A deny sentinel is never
+    // bypassable (deny wins over `ignoring *`).
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -827,13 +911,13 @@ export function renderDocumentRepositoryImpl(
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
-      `        var result = __all${filter}${projection};`,
+      `        var ${result} = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${result};`,
       "    }",
     ];
   });
@@ -973,7 +1057,7 @@ export function renderDocumentRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
-      "            await _events.DispatchAsync(ev, cancellationToken);",
+      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "        }",
       "    }",
       // Hard delete — gated on a canonical `destroy` (declared or via `crudish`),
@@ -1113,13 +1197,16 @@ export function renderEventSourcedRepositoryImpl(
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
-    const rowsExpr = findRowsExpr(f.returnType);
-    const loadAll = "var __all = await _LoadAllAsync(cancellationToken);";
+    // `result` yields to a same-named find param (CS0136).
+    const result = csLocalNamer(f.params.map((p) => p.name))("result");
+    const rowsExpr = findRowsExpr(f.returnType, result);
+    const loadAll = `var __all = await _LoadAllAsync(${ct});`;
     // `find … paged` over an event-log carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -1128,13 +1215,13 @@ export function renderEventSourcedRepositoryImpl(
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
-      `        var result = __all${filter}${projection};`,
+      `        var ${result} = __all${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
         { name: "rows", valueExpr: rowsExpr },
       ])}`,
-      "        return result;",
+      `        return ${result};`,
       "    }",
     ];
   });
@@ -1252,7 +1339,7 @@ export function renderEventSourcedRepositoryImpl(
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "id", valueExpr: "aggregate.Id.Value" },
       ])}`,
-      "            await _events.DispatchAsync(ev, cancellationToken);",
+      "            await DomainEventDeferral.DispatchAsync(_events, ev, cancellationToken);",
       "        }",
       "    }",
       "",
@@ -1324,6 +1411,8 @@ export function inMemoryPagedFindLines(
   f: FindIR,
   opts: { loadAll: string; filter: string; usesUser: boolean; log?: boolean },
 ): string[] {
+  // `items` yields to a same-named find param (CS0136).
+  const items = csLocalNamer(f.params.map((p) => p.name))("items");
   const sortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
     .map((wf) => `"${wf}" => (object?)__x.${upperFirst(wf)}`)
@@ -1343,7 +1432,7 @@ export function inMemoryPagedFindLines(
       sortArms ? ", " : ""
     }_ => (object?)__x.Id.Value };`,
     '        var __ordered = dir == "desc" ? __matched.OrderByDescending(__key) : __matched.OrderBy(__key);',
-    "        var items = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();",
+    `        var ${items} = __ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList();`,
     // The Dapper mirrors carry no `_log` (no Dapper repository logs a read
     // today), so the caller can drop the event rather than reference a field
     // the class does not declare (CS0103).
@@ -1353,17 +1442,17 @@ export function inMemoryPagedFindLines(
           `        ${renderDotnetLogCall("findExecuted", [
             { name: "aggregate", valueExpr: `"${agg.name}"` },
             { name: "find", valueExpr: `"${f.name}"` },
-            { name: "rows", valueExpr: "items.Count" },
+            { name: "rows", valueExpr: `${items}.Count` },
           ])}`,
         ]),
-    `        return new Paged<${agg.name}>(items, page, pageSize, __total, __totalPages);`,
+    `        return new Paged<${agg.name}>(${items}, page, pageSize, __total, __totalPages);`,
     "    }",
   ];
 }
 
-function findRowsExpr(returnType: TypeIR): string {
-  if (returnType.kind === "array") return "result.Count";
-  return returnType.kind === "optional" ? "result == null ? 0 : 1" : "1";
+function findRowsExpr(returnType: TypeIR, result = "result"): string {
+  if (returnType.kind === "array") return `${result}.Count`;
+  return returnType.kind === "optional" ? `${result} == null ? 0 : 1` : "1";
 }
 
 function renderParamsWithCt(
@@ -1378,9 +1467,10 @@ function renderParamsWithCt(
   ]
     .filter(Boolean)
     .join(", ");
+  const { ct } = csReadOwnParams(params.map((p) => p.name));
   return head.length > 0
-    ? `${head}, CancellationToken cancellationToken = default`
-    : "CancellationToken cancellationToken = default";
+    ? `${head}, CancellationToken ${ct} = default`
+    : `CancellationToken ${ct} = default`;
 }
 
 /** Retrieval params + an optional call-site `page` argument
@@ -1388,9 +1478,10 @@ function renderParamsWithCt(
  *  never part of the retrieval declaration (retrieval.md) — it rides on
  *  the run method. */
 export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
+  const own = csReadOwnParams(params.map((p) => p.name));
   const head = [
     ...params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
-    "(int? offset, int? limit)? page = null",
+    `(int? offset, int? limit)? ${own.page} = null`,
   ].join(", ");
   // The `bypass` param carries an inline read's `ignoring` clause
   // (named-filter-bypass.md §11) from the call site to the shared retrieval
@@ -1399,5 +1490,6 @@ export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
   // (audit S7); the adapter translates it.  `cancellationToken` MUST stay last
   // (CA1068, an error under `/warnaserror`), so `bypass` sits before it; call
   // sites pass `cancellationToken` NAMED (it follows the optional `page`).
-  return `${head}, FilterBypass bypass = default, CancellationToken cancellationToken = default`;
+  // All three yield to a same-named retrieval param — see `csReadOwnParams`.
+  return `${head}, FilterBypass ${own.bypass} = default, CancellationToken ${own.ct} = default`;
 }

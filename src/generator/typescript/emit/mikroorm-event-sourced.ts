@@ -12,14 +12,15 @@ import type {
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   deserializeField,
   docFieldType,
   findPredicate,
+  inMemoryPagedLocals,
   inMemoryPagedTailLines,
   PAGED_TAIL_PARAMS,
   pagedReturnType,
@@ -77,7 +78,7 @@ export function renderMikroEventSourcedRepository(
   const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map(
     (find) => {
       const usesUser = findUsesCurrentUser(find);
-      const baseParams = find.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+      const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
       const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
       const pred = findPredicate(agg, find, ctx);
       const isArray = find.returnType.kind === "array";
@@ -97,11 +98,12 @@ export function renderMikroEventSourcedRepository(
         const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(
           ", ",
         );
+        const L = inMemoryPagedLocals(find.params);
         return lines(
           `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
           "    const all = await this._loadAll();",
-          `    const matched = ${pred ? `all.filter(${pred})` : "all"};`,
-          ...inMemoryPagedTailLines(agg, "matched", find.name),
+          `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
+          ...inMemoryPagedTailLines(agg, L, find.name),
           "  }",
         );
       }
@@ -239,7 +241,10 @@ export function renderMikroEventSourcedRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);

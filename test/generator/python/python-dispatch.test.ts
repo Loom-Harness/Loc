@@ -84,9 +84,11 @@ describe("python event dispatch (sagas)", () => {
     );
     // saga.ddd's `Lifecycle` channel is `delivery: broadcast`, so make_dispatcher
     // wraps the in-process dispatcher in the realtime SSE tee (channels.md Part I).
-    expect(dispatch).toContain("def make_dispatcher(session: AsyncSession) -> RealtimeDispatcher:");
     expect(dispatch).toContain(
-      "return RealtimeDispatcher(InProcessDispatcher(session, isolate=True))",
+      "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
+    );
+    expect(dispatch).toContain(
+      "return PostCommitDispatcher(RealtimeDispatcher(InProcessDispatcher(session, isolate=True)))",
     );
     // Handlers take the dispatcher so repo saves drain through it.
     expect(dispatch).toContain("shipments = ShipmentRepository(session, events)");
@@ -134,7 +136,7 @@ describe("python event dispatch (sagas)", () => {
     const { model } = await parseString(source);
     const dispatch = generateSystems(model).files.get("api/app/dispatch.py")!;
     expect(dispatch).toContain(
-      "def make_dispatcher(session: AsyncSession) -> InProcessDispatcher:",
+      "def make_dispatcher(session: AsyncSession) -> PostCommitDispatcher:",
     );
     expect(dispatch).not.toContain("RealtimeDispatcher");
   });

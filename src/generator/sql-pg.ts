@@ -75,6 +75,22 @@ export function renderPgStep(step: MigrationStep): string {
   }
 }
 
+/** Split one rendered migration chunk (a `renderPgStep` result, or several
+ *  joined) into single statements, each `;`-terminated.  For the runners that
+ *  execute ONE statement per call: asyncpg (python) cannot run a
+ *  multi-statement string at all, and the .NET Dapper runner sends each
+ *  statement as its own command so a `CREATE INDEX` is parsed only after the
+ *  `CREATE TABLE` it names exists.  The DDL is Loom-rendered, so a `;` at end
+ *  of line is always a statement boundary (a raw `sql` step is normalised to
+ *  one trailing `;` by `renderPgStep`). */
+export function splitPgStatements(sql: string): string[] {
+  return sql
+    .split(/;\s*\n|;\s*$/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) => `${s};`);
+}
+
 /** The backfill UPDATE without its trailing semicolon — shared with the Ecto
  *  emitter (which wraps it in `execute/1`), so the DML is bit-identical
  *  cross-backend exactly like the DDL out of `renderPgStep`. */
@@ -136,16 +152,7 @@ export function renderRenameIndexSql(step: { from: string; to: string; schema?: 
   return `ALTER INDEX ${qualified(step.schema, step.from)} RENAME TO ${ident(step.to)}`;
 }
 
-/** `renderCreateTable` in its IDEMPOTENT form (`IF NOT EXISTS` on the table and
- *  on every index).  For the self-applying schema bootstraps that run on EVERY
- *  startup instead of through a tracked migration — the .NET Dapper
- *  `DbSchema.cs` — so they can render a shared `TableShape` rather than keeping
- *  a hand-written mirror of it that drifts. */
-export function renderCreateTableIfNotExists(table: TableShape): string {
-  return renderCreateTable(table, true);
-}
-
-function renderCreateTable(table: TableShape, ifNotExists = false): string {
+function renderCreateTable(table: TableShape): string {
   const lines: string[] = [];
   // A value-object array's parent stand-in column is skipped on relational
   // backends — its elements live in the id-less child table, not a column.
@@ -172,9 +179,8 @@ function renderCreateTable(table: TableShape, ifNotExists = false): string {
   // Create the owning context's schema first (idempotent) so the
   // `<schema>.<table>` the EF / Drizzle mappings query actually exists.
   const createSchema = table.schema ? `CREATE SCHEMA IF NOT EXISTS ${ident(table.schema)};\n` : "";
-  const exists = ifNotExists ? "IF NOT EXISTS " : "";
-  let sql = `${createSchema}CREATE TABLE ${exists}${qualified(table.schema, table.name)} (\n${body}\n);`;
-  for (const idx of table.indexes) sql += "\n" + renderAddIndex(idx, table.schema, ifNotExists);
+  let sql = `${createSchema}CREATE TABLE ${qualified(table.schema, table.name)} (\n${body}\n);`;
+  for (const idx of table.indexes) sql += "\n" + renderAddIndex(idx, table.schema);
   return sql;
 }
 
@@ -250,7 +256,7 @@ function renderFkConstraint(fk: FKShape, schema?: string): string {
   );
 }
 
-function renderAddIndex(idx: IndexShape, schema?: string, ifNotExists = false): string {
+function renderAddIndex(idx: IndexShape, schema?: string): string {
   const unique = idx.unique ? "UNIQUE " : "";
   // Partial index (`WHERE …`) — set on a `unique` index derived for a
   // softDeletable aggregate so re-create after soft-delete is allowed.
@@ -263,9 +269,8 @@ function renderAddIndex(idx: IndexShape, schema?: string, ifNotExists = false): 
       return oc ? `${ident(c)} ${oc}` : ident(c);
     })
     .join(", ");
-  const exists = ifNotExists ? "IF NOT EXISTS " : "";
   return (
-    `CREATE ${unique}INDEX ${exists}${ident(idx.name)} ON ${qualified(schema, idx.table)} ` +
+    `CREATE ${unique}INDEX ${ident(idx.name)} ON ${qualified(schema, idx.table)} ` +
     `(${cols})${where};`
   );
 }

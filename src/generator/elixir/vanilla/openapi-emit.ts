@@ -6,7 +6,6 @@ import {
   wireFieldsFor,
 } from "../../../ir/enrich/wire-projection.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
-import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   DeployableIR,
@@ -41,6 +40,8 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -59,15 +60,21 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { isReserved } from "../../../util/target-identifiers.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
 } from "../../_openapi/request-component-names.js";
 import { PROVENANCE_VALUE_FIELD, provenancedEntries } from "../../_payload/provenanced-wire.js";
-import { unionMembers } from "../../_payload/union-wire.js";
+import {
+  type OpUnionErrorArm,
+  opUnionResponses,
+  type UnionMember,
+} from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import type { ApiRoute } from "../api-emit.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
@@ -110,7 +117,7 @@ function withResolvedNotFound(statuses: readonly number[], notFoundStatus: numbe
 //   View response:             <View>Response
 // ---------------------------------------------------------------------------
 
-/** Elixir module alias for an operation-return union schema
+/** Elixir module alias for an operation-return union's 200 schema
  *  (`operation reject(): string or NotFound`).
  *
  *  `unionInstanceName` yields a lower-camel stem whenever the union's FIRST
@@ -121,9 +128,12 @@ function withResolvedNotFound(statuses: readonly number[], notFoundStatus: numbe
  *  `defmodule …Api.Schemas.stringOrNotFound` fails to compile (`invalid module
  *  name`).  Uppercase the first char for the module segment only; the wire
  *  `type` discriminator tags come from `variantTag` and are untouched, so the
- *  serialized union stays byte-identical to every other backend. */
-function unionSchemaAlias(variants: TypeIR[]): string {
-  return upperFirst(unionInstanceName(variants));
+ *  serialized union stays byte-identical to every other backend.
+ *
+ *  The 200 body is the whole union, or `<Union>Success` when the union has an
+ *  error arm (M-FT.24, `opUnionResponses`). */
+function opUnionSuccessAlias(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string {
+  return upperFirst(opUnionResponses(variants, ctx).successName);
 }
 
 export interface OpenApiEmitArgs {
@@ -283,6 +293,27 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     }
   }
 
+  // Sibling-context value objects / enums a hosted declaration references but
+  // no hosted context declares (claims D15): an aggregate in context B typed
+  // `kind: Kind` against `enum Kind` in an unhosted sibling context A.  The
+  // response / request schemas `$ref` them, so the deployable must declare
+  // them — the same shared closure the four typed backends declare foreign
+  // value types through (`src/ir/util/foreign-event-types.ts`).
+  const unhosted = foreignValueTypes(foreignValueTypeSeeds([], contexts), args.sys, {
+    valueObjects: contexts.flatMap((c) => c.valueObjects),
+    enums: contexts.flatMap((c) => c.enums),
+  });
+  for (const vo of unhosted.valueObjects) {
+    if (emittedVOs.has(vo.name)) continue;
+    emittedVOs.add(vo.name);
+    files.set(`${schemaDir}/${snake(vo.name)}.ex`, renderValueObjectSchema(vo, webModule));
+  }
+  for (const en of unhosted.enums) {
+    if (emittedEnums.has(en.name)) continue;
+    emittedEnums.add(en.name);
+    files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
+  }
+
   // Entity parts (deduplication by name)
   const emittedParts = new Set<string>();
   for (const { agg } of allAggregates) {
@@ -357,17 +388,30 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // ProjectNotFound`) — the tagged wire union the op's 200 carries,
   // matching Hono's discriminatedUnion / .NET's Application union DTO.
   // De-duplicated by instance name (one union can back several ops).
+  //
+  // A union with an `error` arm is split (M-FT.24): the 200 carries the
+  // success arms only (`<Union>Success`), and each error arm publishes its
+  // problem body (`<Tag>Problem`) for the status it answers.
   const emittedOpUnions = new Set<string>();
   for (const { ctx, agg } of allAggregates) {
     for (const op of agg.operations.filter((o) => o.visibility === "public")) {
       if (op.returnType?.kind !== "union") continue;
-      const unionName = unionSchemaAlias(op.returnType.variants);
+      const split = opUnionResponses(op.returnType.variants, ctx);
+      const unionName = opUnionSuccessAlias(op.returnType.variants, ctx);
       if (emittedOpUnions.has(unionName)) continue;
       emittedOpUnions.add(unionName);
       files.set(
         `${schemaDir}/${snake(unionName)}.ex`,
-        renderOperationUnionSchema(unionName, op.returnType.variants, ctx, webModule),
+        renderOperationUnionSchema(unionName, split.success, ctx, webModule),
       );
+      for (const arm of split.errors) {
+        if (emittedOpUnions.has(arm.problemName)) continue;
+        emittedOpUnions.add(arm.problemName);
+        files.set(
+          `${schemaDir}/${snake(arm.problemName)}.ex`,
+          renderErrorArmProblemSchema(arm, webModule),
+        );
+      }
     }
   }
 
@@ -448,7 +492,26 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  for (const [path, content] of files) {
+    const fixed = withoutStructOnReservedKey(content);
+    if (fixed !== content) files.replace(path, fixed);
+  }
   return { files, routes };
+}
+
+/** `OpenApiSpex.schema/1` derives a STRUCT from the schema's property keys and
+ *  binds each key as a variable in its own expansion, so a property named after
+ *  an elixir reserved word (`fn`, `do`, `end`) fails `mix compile` inside the
+ *  macro ("fn is not allowed in matches") — the key itself is a legal atom.
+ *  These modules only describe the published document (no controller casts a
+ *  body into the struct), so such a schema opts out of the struct with
+ *  `struct?: false`.  Every schema without a reserved key keeps the default
+ *  and stays byte-identical. */
+function withoutStructOnReservedKey(content: string): string {
+  if (!content.includes("OpenApiSpex.schema(%{")) return content;
+  const keys = [...content.matchAll(/^ {6}([a-z_][a-zA-Z0-9_]*): /gm)].map((m) => m[1] as string);
+  if (!keys.some((k) => isReserved("elixir", k))) return content;
+  return content.replace(/\n {2}\}\)\nend\n$/, "\n  }, struct?: false)\nend\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -478,15 +541,28 @@ function errorResponseEntries(
 /** The same ProblemDetails response-map entries for an explicit status list —
  *  used where the status set isn't a matrix kind (a union find's absent
  *  variant status). */
-function statusResponseEntries(statuses: readonly number[], schemasModule: string): string {
+function statusResponseEntries(
+  statuses: readonly number[],
+  schemasModule: string,
+  /** An operation-return union's error arms by status (M-FT.24): such a
+   *  status declares ProblemDetails OR the arms' problem bodies. */
+  armsByStatus?: ReadonlyMap<number, readonly OpUnionErrorArm[]>,
+): string {
   return statuses
-    .map(
-      (s) => `,
+    .map((s) => {
+      const arms = armsByStatus?.get(s) ?? [];
+      const schema = arms.length
+        ? `%OpenApiSpex.Schema{anyOf: [${[
+            `${schemasModule}.ProblemDetails`,
+            ...arms.map((a) => `${schemasModule}.${a.problemName}`),
+          ].join(", ")}]}`
+        : `${schemasModule}.ProblemDetails`;
+      return `,
             ${s} => %OpenApiSpex.Response{
               description: "${problemTitle(s)}",
-              content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schemasModule}.ProblemDetails}}
-            }`,
-    )
+              content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schema}}}
+            }`;
+    })
     .join("");
 }
 
@@ -522,7 +598,7 @@ function renderApiSpec(
           operationId: "${camelId(opWorkflow(wf.name))}",
           tags: ["workflows"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(wf.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${reqMod}}
             }
@@ -638,7 +714,7 @@ function renderApiSpec(
           operationId: "${camelId(opCreate(agg.name))}",
           tags: ["${aggSlug}"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(createInputFields(agg))},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${createReqMod}}
             }
@@ -780,7 +856,7 @@ ${pagingQueryParams()}
             %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(op.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${opReqMod}}
             }
@@ -804,12 +880,22 @@ ${pagingQueryParams()}
               description: "OK",
               content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${
                 op.returnType.kind === "union"
-                  ? `${schemasModule}.${unionSchemaAlias(op.returnType.variants)}`
+                  ? `${schemasModule}.${opUnionSuccessAlias(op.returnType.variants, ctx)}`
                   : openApiType(op.returnType, schemasModule)
               }}}
             }`
                 : `204 => %OpenApiSpex.Response{description: "No Content"}`
-            }${statusResponseEntries(withResolvedNotFound(entry.errorStatuses, notFoundStatus), schemasModule)}
+            }${statusResponseEntries(
+              withResolvedNotFound(entry.errorStatuses, notFoundStatus),
+              schemasModule,
+              op.returnType?.kind === "union"
+                ? new Map(
+                    opUnionResponses(op.returnType.variants, ctx).errorStatuses.map(
+                      (e) => [e.status, e.arms] as const,
+                    ),
+                  )
+                : undefined,
+            )}
           }
         }
       }`,
@@ -892,9 +978,17 @@ ${pagingQueryParams()}
     }
   }
 
+  // Every path item is built RELATIVE to the `scope "/api"` the router mounts
+  // it under; the published key carries the base itself (M-T6.70 / L1-E E9).
+  // Elixir used to publish `servers: [%Server{url: "/api"}]` with relative
+  // paths instead — the only backend to, since node/dotnet/java/python all
+  // path-embed `/api` — and a client given an explicit base URL (Schemathesis'
+  // `--url`) REPLACES the server base, path included, so every fuzzed request
+  // lost `/api` and landed on the LiveView/HTML routes.  Prefixing here, at
+  // the one place the entries meet, keeps each builder's path literal readable.
   const pathsBlock =
     pathEntries.length > 0
-      ? pathEntries.join(",\n")
+      ? pathEntries.map((e) => e.replace(/^( {6})"\//, `$1"${API_BASE_PATH}/`)).join(",\n")
       : "      # No paths — no aggregates, workflows, or views";
 
   return `# Auto-generated.
@@ -908,7 +1002,7 @@ defmodule ${specModule} do
   Consumed by OpenapiController to serve GET /openapi.json.
   """
 
-  alias OpenApiSpex.{Info, OpenApi, Server}
+  alias OpenApiSpex.{Info, OpenApi}
 
   @behaviour OpenApi
 
@@ -919,7 +1013,6 @@ defmodule ${specModule} do
         title: "${_appModule}",
         version: "1.0.0"
       },
-      servers: [%Server{url: "/api"}],
       paths: %{
 ${pathsBlock}
       }
@@ -1124,6 +1217,12 @@ function wireFieldsToProps(
   return fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional }));
 }
 
+/** Property keys that break the `Jason.Encoder` derive `OpenApiSpex.schema`
+ *  performs (a `key: key` match pattern — see `renderSchemaModule`).  Probed
+ *  against Elixir 1.18 over every Elixir keyword / special form a `.ddd`
+ *  field can be named: only `fn` fails. */
+const JASON_DERIVE_UNSAFE_KEYS: ReadonlySet<string> = new Set(["fn"]);
+
 function renderSchemaModule(
   moduleName: string,
   schemaTitle: string,
@@ -1134,6 +1233,16 @@ function renderSchemaModule(
   const { propsLines, requiredAtoms } = renderProperties(fields, schemasModule, slot);
   const propsBlock = propsLines.length > 0 ? propsLines.join(",\n") : "      # no properties";
   const requiredBlock = requiredAtoms.length > 0 ? `[${requiredAtoms.join(", ")}]` : "[]";
+  // `OpenApiSpex.schema` defines a struct over the property keys and, by
+  // default, `@derive`s `Jason.Encoder` for it — and Jason's deriving builds a
+  // match pattern binding each key to a same-named VARIABLE.  A property named
+  // `fn` (a legal `.ddd` field) makes that pattern `fn: fn`, which Elixir
+  // rejects ("fn is not allowed in matches").  These schema structs are spec
+  // documentation only (never instantiated or encoded), so the derive is
+  // dropped for exactly those modules; every other module stays byte-identical.
+  const deriveOpt = fields.some((f) => JASON_DERIVE_UNSAFE_KEYS.has(f.name))
+    ? ", derive?: false"
+    : "";
 
   return `# Auto-generated.
 defmodule ${moduleName} do
@@ -1148,7 +1257,7 @@ defmodule ${moduleName} do
 ${propsBlock}
     },
     required: ${requiredBlock}
-  })
+  }${deriveOpt})
 end
 `;
 }
@@ -1556,12 +1665,11 @@ function renderWorkflowRequestSchema(
  *  spec's component set + response bodies agree across backends. */
 function renderOperationUnionSchema(
   unionName: string,
-  variants: TypeIR[],
-  ctx: EnrichedBoundedContextIR,
+  members: readonly UnionMember[],
+  _ctx: EnrichedBoundedContextIR,
   webModule: string,
 ): string {
   const schemasModule = `${webModule}.Api.Schemas`;
-  const members = unionMembers(variants, ctx);
   const arms = members.map((m) => {
     const tagProp = `        type: %OpenApiSpex.Schema{type: :string, enum: ["${m.tag}"]}`;
     if (m.shape === "none") {
@@ -1606,6 +1714,39 @@ defmodule ${schemasModule}.${unionName} do
     title: "${unionName}",
     oneOf: [
 ${arms.join(",\n")}
+    ]
+  })
+end
+`;
+}
+
+/** An operation-return union's error-arm problem body (M-FT.24): the shared
+ *  ProblemDetails plus the arm's fields, required — the controller merges the
+ *  arm's whole value into the problem it answers. */
+function renderErrorArmProblemSchema(arm: OpUnionErrorArm, webModule: string): string {
+  const schemasModule = `${webModule}.Api.Schemas`;
+  const { propsLines, requiredAtoms } = renderProperties(
+    arm.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
+    schemasModule,
+  );
+  const indented = propsLines.map((l) => `    ${l}`);
+  return `# Auto-generated.
+defmodule ${schemasModule}.${arm.problemName} do
+  @moduledoc "OpenApiSpex schema for #{__MODULE__}."
+
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "${arm.problemName}",
+    allOf: [
+      ${schemasModule}.ProblemDetails,
+      %OpenApiSpex.Schema{
+        type: :object,
+        properties: %{
+${indented.join(",\n")}
+        },
+        required: [${requiredAtoms.join(", ")}]
+      }
     ]
   })
 end

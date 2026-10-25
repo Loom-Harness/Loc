@@ -6,68 +6,7 @@
 // escaping, dir = package path).
 // ---------------------------------------------------------------------------
 
-/** Java language keywords + literals that can't be used as a package
- *  segment (or any identifier).  A colliding segment gets a `_` suffix. */
-const JAVA_RESERVED = new Set([
-  "abstract",
-  "assert",
-  "boolean",
-  "break",
-  "byte",
-  "case",
-  "catch",
-  "char",
-  "class",
-  "const",
-  "continue",
-  "default",
-  "do",
-  "double",
-  "else",
-  "enum",
-  "extends",
-  "final",
-  "finally",
-  "float",
-  "for",
-  "goto",
-  "if",
-  "implements",
-  "import",
-  "instanceof",
-  "int",
-  "interface",
-  "long",
-  "native",
-  "new",
-  "package",
-  "private",
-  "protected",
-  "public",
-  "return",
-  "short",
-  "static",
-  "strictfp",
-  "super",
-  "switch",
-  "synchronized",
-  "this",
-  "throw",
-  "throws",
-  "transient",
-  "try",
-  "void",
-  "volatile",
-  "while",
-  "true",
-  "false",
-  "null",
-  "var",
-  "record",
-  "yield",
-  "sealed",
-  "permits",
-]);
+import { escapeTargetIdent } from "../../util/target-identifiers.js";
 
 /** Sanitise one name into a legal lowercase Java package segment:
  *  lowercase, strip everything outside `[a-z0-9_]`, prefix `_` when the
@@ -76,7 +15,7 @@ export function javaPackageSegment(name: string): string {
   let s = name.toLowerCase().replace(/[^a-z0-9_]/g, "");
   if (s.length === 0) s = "app";
   if (/^[0-9]/.test(s)) s = `_${s}`;
-  if (JAVA_RESERVED.has(s)) s = `${s}_`;
+  s = escapeTargetIdent("java", s);
   return s;
 }
 

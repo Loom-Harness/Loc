@@ -41,6 +41,7 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
+import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
@@ -59,6 +60,7 @@ import {
   emittableComponentParams,
   renderComponentsFile,
 } from "./component-emit.js";
+import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
 import {
@@ -101,6 +103,7 @@ import {
   usesUrlStores,
 } from "./store-persist.js";
 import { FLUTTER_TOAST_MARKER, renderFlutterToastRuntime } from "./toast-runtime.js";
+import { renderFlutterValueEqualsRuntime } from "./value-equals-runtime.js";
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
@@ -505,6 +508,11 @@ export function generateFlutterForContexts(
   if ([...out.values()].some((content) => usesMoney(content))) {
     out.set("lib/money.dart", renderFlutterMoneyRuntime());
   }
+  // The value-object equality helper — same use-driven, scan-last rule: a
+  // `loomValueEquals(` lands in pages, `components.dart` and `stores.dart`.
+  if ([...out.values()].some((content) => usesValueEquals(content))) {
+    out.set("lib/value_equals.dart", renderFlutterValueEqualsRuntime());
+  }
 
   // The out-of-tree navigation bridge — same use-driven
   // rule and same last-position scan as the money runtime above, and for the
@@ -852,7 +860,7 @@ function renderPage(
       }
     }
   }
-  const derivedLines = derivedBinds.map((d) => `    final ${d.name} = ${d.dart};`);
+  const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
 
   // A page becomes a Riverpod `ConsumerWidget` (bound to `ref`) when it either
   // projects reactive state / actions (Track D) OR issues a QueryView read
@@ -924,7 +932,7 @@ function routeArgBindings(paramNames: readonly string[], needsId: boolean): stri
   const out = ["    final routeArgs = ModalRoute.of(context)?.settings.arguments;"];
   for (const n of names) {
     out.push(
-      `    final ${n} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
+      `    final ${dartMember(n)} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
         `: (routeArgs as String? ?? '');`,
     );
   }
@@ -984,8 +992,10 @@ function storeBindings(
       const local = storeMemberLocal(storeName, member, reserved);
       out.push(
         fields.has(member)
-          ? `    final ${local} = ref.watch(${provider}.select((s) => s.${member}));`
-          : `    final ${local} = ref.read(${provider}.notifier).${member};`,
+          ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
+          : // A store action's method is spelled `dartMember` (`store-builder.ts`),
+            // and the body's call site spells the local the same way.
+            `    final ${dartMember(local)} = ref.read(${provider}.notifier).${dartMember(member)};`,
       );
     }
   }
@@ -1045,6 +1055,7 @@ function renderStatelessPage(
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
   if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
+  if (usesValueEquals(bodyWidget)) imports.push("import '../value_equals.dart';");
   if (opts.usesComponent) imports.push("import '../components.dart';");
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
   // page-body reference to it — so import http + the base-URL helper on demand.
@@ -1193,10 +1204,13 @@ function renderConsumerPage(
       for (const a of [...b.usedActions].sort()) {
         // An async-effect action's method takes the route id; bind it as an
         // id-capturing closure so the button's `<a>()` call stays unchanged.
+        // Spelled `dartMember` (a Dart-reserved action name: `class` → `class_`),
+        // matching the Notifier method and every body call site.
+        const m = dartMember(a);
         bindings.push(
           asyncEffectActions.has(a)
-            ? `    final ${a} = () => notifier.${a}(id);`
-            : `    final ${a} = notifier.${a};`,
+            ? `    final ${m} = () => notifier.${m}(id);`
+            : `    final ${m} = notifier.${m};`,
         );
       }
       for (const { setter } of boundSetters) {
@@ -1240,6 +1254,7 @@ function renderConsumerPage(
   // The money runtime rides the SAME scan: an `action` body doing
   // money arithmetic lands in the Notifier (projSource), not in the markup.
   if (usesMoney(scan)) imports.push("import '../money.dart';");
+  if (usesValueEquals(scan)) imports.push("import '../value_equals.dart';");
   if (scan.includes("jsonDecode") || scan.includes("jsonEncode")) {
     imports.push("import 'dart:convert';");
   }

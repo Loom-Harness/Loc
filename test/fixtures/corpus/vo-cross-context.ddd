@@ -22,56 +22,39 @@
 // The evaluation's F-008 is what the blindness cost: the consuming context
 // emitted ONE column under the unflattened name while the owning context
 // flattened correctly, so the migration and the ORM disagreed on column name AND
-// type and only a live database could tell.  Per-backend state at mint time:
+// type and only a live database could tell.  The root cause is shared by every
+// emitter that materialises a VO: the CALL SITE comes from the aggregate's wire
+// shape (which spans contexts) while the DEFINITION comes from a VO list, which
+// must be the sibling pool (`findValueObjectInScope` / `valueObjectPool`), never
+// the context's own `valueObjects` alone.  Every backend resolves it that way:
 //
-//   node    correct — `shipTo_line1`/`shipTo_geo_lat`/`shipTo_geo_lng` in the
-//           drizzle schema, the migration DDL and both rehydrate paths.
-//   dotnet  correct — `ReceiptConfiguration` nests `OwnsOne` and names
-//           `ship_to_line1` / `ship_to_geo_lat` / `ship_to_geo_lng`.
-//   java    correct — `@AttributeOverride(name = "line1", column = @Column(name
-//           = "ship_to_line1"))`, nested path overridden the same way.
-//   elixir  BROKEN TOO, by the SAME root cause as python.
-//           `receipt_controller.ex` calls `serialize_addr(record.ship_to)` and
-//           defines neither `serialize_addr/1` nor the nested `serialize_geo/1`,
-//           while the OWNING context's `person_controller.ex` defines both —
-//           `** (CompileError) undefined function serialize_addr/1`, so
-//           `mix compile --warnings-as-errors` fails outright.  Excluded with
-//           python in the manifest's `SIBLING_VO_RESOLUTION` set.
+//   node    `shipTo_line1`/`shipTo_geo_lat`/`shipTo_geo_lng` in the drizzle
+//           schema, the migration DDL and both rehydrate paths.
+//   dotnet  `ReceiptConfiguration` nests `OwnsOne` and names `ship_to_line1` /
+//           `ship_to_geo_lat` / `ship_to_geo_lng`.
+//   java    `@AttributeOverride(name = "line1", column = @Column(name =
+//           "ship_to_line1"))`, nested path overridden the same way.
+//   elixir  `receipt_controller.ex` defines `serialize_addr/1` and the nested
+//           `serialize_geo/1` for the sibling-context VO, as the owning
+//           context's controller does.  A VO is one `:map` cell here, so there
+//           is no flattening to get wrong — but a serializer is still an
+//           artifact the VO needs, and only `mix compile --warnings-as-errors`
+//           sees a missing one.  Grade a backend here by COMPILING it, never by
+//           reading its emitted schema.
+//   python  `receipt_repository.py` binds and reads the three flattened columns
+//           `db/schema.py` and the migration create.  `mypy --strict` sees only
+//           the hydrate site (`ReceiptRow` attribute access); the two bind sites
+//           are untyped dict literals, so a regression there passes the compile
+//           tier and fails only against a live database.
 //
-//           This entry first claimed elixir was free, on the reasoning that a VO
-//           is one `:map` (jsonb) cell there so there is no flattening to get
-//           wrong.  The reasoning was sound and the conclusion WRONG: flattening
-//           is not the only artifact a VO needs, and the claim came from
-//           INSPECTING the emitted schema instead of compiling the project.  CI's
-//           `mix compile` found it in minutes.  Do not grade a backend here by
-//           reading its output.
-//   python  BROKEN, and this fixture is why we know.  `db/schema.py` and the
-//           migration both create the three flattened columns, while
-//           `receipt_repository.py` binds `"ship_to": aggregate.ship_to` on
-//           insert, `root["ship_to"]` on upsert, and reads `ship_to=row.ship_to`
-//           on hydrate — a column in NEITHER artifact.  Only the hydrate site is
-//           a type error (`"ReceiptRow" has no attribute "ship_to"`); the two
-//           bind sites are untyped dict literals, so `mypy --strict` catches 1
-//           of the 3 and a live request fails on all 3.  The repository builder
-//           resolves a VO through `ctx.valueObjects` only and falls through to
-//           the scalar path for a sibling-context one.  python is excluded from
-//           this row's `backends:` via the manifest's named
-//           `SIBLING_VO_RESOLUTION` set, which carries this reading — an
-//           exclusion, not a compile-skip, because a cell that only GENERATES is
-//           refused by `gate-ledger.test.ts`.  The key returns when the
-//           resolution lands.
-//
-// COMPILE-TIER ONLY — no `test e2e` block, for the same reason
-// `find-bypass.ddd` and `projection-agg-filters.ddd` have none.  A recorded
-// behavioural case must ship a reviewed wire golden
-// (`test/behavioral/wire-golden/`, gated by `golden-coverage.test.ts`), and a
-// golden can only be captured from a booted stack on every backend — which is
-// impossible while python's and elixir's halves of this shape are broken (above): the
-// recording would either fail or enshrine the defect as the answer key.  What
-// this fixture proves is static and per-backend: the flattened column set the
-// migration creates must equal the one the ORM/repository names, in BOTH
-// contexts.  Add the runtime block, and capture its golden, in the same PR that
-// fixes python.
+// COMPILE-TIER ONLY — no `test e2e` block yet.  A recorded behavioural case must
+// ship a reviewed wire golden (`test/behavioral/wire-golden/`, gated by
+// `golden-coverage.test.ts`) captured from a booted stack on every backend.
+// That block is what would gate python's bind sites and the wire round trip
+// through the sibling-pool lookup; its `gate-ledger.test.ts` entry falls when it
+// lands.  What this fixture proves today is static and per-backend: the
+// flattened column set the migration creates must equal the one the
+// ORM/repository names, in BOTH contexts.
 system VoCrossContext {
   subdomain Commerce {
     context Directory {
@@ -103,6 +86,33 @@ system VoCrossContext {
       }
 
       repository Receipts for Receipt { }
+
+      // The SECOND axis, crossed with the first.  `Shipper` is a TPH concrete
+      // whose OWN required field is `Addr` — a value object declared in the
+      // SIBLING context `Directory`, not here.  The audit matrix measured both
+      // axes and found each covered only ALONE: `inheritance.ddd` puts a VO on
+      // an inheriting aggregate's own field but declares the VO in the SAME
+      // context, so the lookup never reaches `siblingValueObjects`; this file
+      // exercised the sibling pool but had no `extends` at all, so the TPH
+      // column path was never on it.  No corpus fixture crossed them.
+      //
+      // The crossing is what the subtype's column set depends on: a TPH
+      // concrete's own fields become NULLABLE columns on the shared base
+      // table, so the emitter narrows them back on read — and it must narrow
+      // the FLATTENED leaves the sibling pool produces (`ship_line1`,
+      // `ship_geo_lat`, `ship_geo_lng`), not the unflattened field name.  When
+      // the narrowing reads the field and the columns come from the pool, the
+      // two disagree and the row object has no such attribute.
+      abstract aggregate Party inheritanceUsing: sharedTable {
+        label: string
+        derived display: string = label
+      }
+
+      aggregate Shipper extends Party with crudish {
+        ship: Addr
+      }
+
+      repository Shippers for Shipper { }
     }
   }
 

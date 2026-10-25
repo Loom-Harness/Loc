@@ -12,7 +12,8 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
+import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Event-sourced workflows on Hono (workflow-and-applier.md A2-S5b) — the saga
@@ -79,7 +80,7 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
     }
   }
   if (inner.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === inner.name);
+    const e = enumPool(ctx).find((x) => x.name === inner.name);
     const first = e?.values[0];
     return first ? `"${first}"` : `""`;
   }
@@ -194,8 +195,8 @@ export function emitWorkflowFoldHelpers(
   out.push(`  switch (ev.type) {`);
   for (const ap of wf.appliers ?? []) {
     out.push(`    case ${JSON.stringify(ap.event)}: {`);
-    out.push(`      const ${ap.param} = ev as Events.${ap.event};`);
-    out.push(`      void ${ap.param};`);
+    out.push(`      const ${escapeTsIdent(ap.param)} = ev as Events.${ap.event};`);
+    out.push(`      void ${escapeTsIdent(ap.param)};`);
     for (const s of ap.statements) out.push(renderApplierStmt(s, "      "));
     out.push(`      break;`);
     out.push(`    }`);

@@ -1,5 +1,6 @@
+import { type Area, isArea, isPage, isRouteProp } from "../../../language/generated/ast.js";
 import type { Aggregate, BoundedContext, Subdomain, Ui, Workflow } from "../../api/index.js";
-import { aggregatesIn, defineMacro, workflowsIn } from "../../api/index.js";
+import { aggregatesIn, defineMacro, originOf, workflowsIn } from "../../api/index.js";
 import { homePage, workflowIsEventTriggeredOnly, workflowsIndexPage } from "./_pages.js";
 
 /** Top of the scaffold-macro family: takes any combination of
@@ -76,7 +77,12 @@ export default defineMacro({
         (args.aggregates as readonly Aggregate[]).length +
         (args.workflows as readonly Workflow[]).length >
       0;
-    if (hasAnyWork) {
+    // A ui that already routes its own page at `/` (under any name, in any
+    // area) owns the landing page: synthesising Home too would put two routes
+    // at `/` (Vue/Angular) or an unrouted `home.tsx` (React) — M-T1.36 F2.
+    // Override-by-NAME (`page Home { … }`) is the expander's job; this is its
+    // override-by-ROUTE twin.
+    if (hasAnyWork && !declaresRootPage((target as Ui).members)) {
       out.push(
         homePage(
           {
@@ -96,11 +102,31 @@ export default defineMacro({
     // The WorkflowsIndex singleton (and its menu link) is emitted only when at
     // least one command-surfaced workflow exists — a context of purely
     // event-triggered sagas would otherwise produce an empty index linking
-    // nowhere.  Its cards list every workflow, matching the prior expander.
-    if (allWorkflows.some((w) => !workflowIsEventTriggeredOnly(w))) {
-      out.push(workflowsIndexPage(allWorkflows));
+    // nowhere.  Its cards list ONLY the command-surfaced workflows: each card's
+    // "Run →" targets `/workflows/<wf>`, the run form `scaffoldWorkflow` emits
+    // only for a command-startable workflow, so an event-only saga's card would
+    // link to a page that does not exist (claims D12).  The saga keeps its
+    // instance list/detail pages and their nav entry.
+    const runnable = allWorkflows.filter((w) => !workflowIsEventTriggeredOnly(w));
+    if (runnable.length > 0) {
+      out.push(workflowsIndexPage(runnable));
     }
 
     return out as never[];
   },
 });
+
+/** True when a user-declared page (top level or inside any `area`) routes at
+ *  `/`.  Routes are absolute, so an area does not re-prefix them.  A
+ *  macro-synthesised page (it carries an origin token — e.g. this macro's own
+ *  `Home`, already spliced in by an earlier expansion pass) is not a user
+ *  declaration and never suppresses the landing page. */
+function declaresRootPage(
+  members: readonly (Ui["members"][number] | Area["members"][number])[],
+): boolean {
+  return members.some((m) => {
+    if (isArea(m)) return declaresRootPage(m.members);
+    if (!isPage(m) || originOf(m)) return false;
+    return m.props.some((p) => isRouteProp(p) && (p.value === "/" || p.value === ""));
+  });
+}

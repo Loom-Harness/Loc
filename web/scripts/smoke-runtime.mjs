@@ -36,7 +36,7 @@ import os from "node:os";
 import { createDddServices } from "../../out/language/ddd-module.js";
 import { generateTypeScript } from "../../out/platform/hono/v4/emit.js";
 import { API_BASE_PATH } from "../../out/util/api-base.js";
-import { BACKEND_PINS } from "../../out/platform/hono/v4/pins.js";
+import { BACKEND_PINS } from "../../out/platform/hono/v5/pins.js";
 import { generateSystems } from "../../out/system/index.js";
 import {
   devStubEntryFor,

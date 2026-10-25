@@ -40,20 +40,45 @@ import type {
   EnrichedBoundedContextIR,
   EventIR,
   FindIR,
+  InvariantIR,
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { messageCode } from "../../../util/message-code.js";
+import {
+  elixirLocal,
+  elixirOpAction,
+  elixirString,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
+import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
+import {
+  contextAliasLine,
+  contextCallRef,
+  denialOverrides,
+  denialResponse,
+  denialTerm,
+  disallowedTerm,
+} from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 /** Truth-kind predicate — an aggregate whose persistence is its event log. */
@@ -62,19 +87,83 @@ export function isEventSourced(agg: AggregateIR): boolean {
 }
 
 /** Does any event-sourced aggregate in this context declare a command body
- *  (create / operation) with a `precondition` / `requires` guard, or an operation
- *  with a `when` state gate?  All three hoist to an `ensure/2` with-clause, so any
- *  of them drives whether the context module emits the private `ensure/2` helper
+ *  (create / operation) with a `precondition` / `requires` guard, an operation
+ *  with a `when` state gate, or an invariant its commands assert?  All four hoist
+ *  to an `ensure/2` with-clause, so any of them drives whether the context module emits the private `ensure/2` helper
  *  (emitting it unused would fail `mix compile --warnings-as-errors`). */
 export function esContextNeedsEnsure(ctx: BoundedContextIR): boolean {
-  return ctx.aggregates
-    .filter(isEventSourced)
-    .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
-    .some(
-      (op) =>
-        op.when !== undefined ||
-        op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
-    );
+  return (
+    ctx.aggregates
+      .filter(isEventSourced)
+      .flatMap((agg) => [...(agg.creates ?? []), ...agg.operations])
+      .some(
+        (op) =>
+          op.when !== undefined ||
+          op.statements.some((s) => s.kind === "precondition" || s.kind === "requires"),
+      ) ||
+    ctx.aggregates.some(
+      (agg) => isEventSourced(agg) && esHasCommands(agg) && esEnforcedInvariants(agg).length > 0,
+    )
+  );
+}
+
+/** True when the ES aggregate has a command runner the invariants ride: a
+ *  create, or a public operation (the context block's own filter). */
+function esHasCommands(agg: AggregateIR): boolean {
+  return (
+    (agg.creates ?? []).length > 0 ||
+    agg.operations.some((op) => op.visibility === "public" && !CRUD_OP_NAMES.has(op.name))
+  );
+}
+
+/** One aggregate invariant as the event-sourced command path asserts it on the
+ *  FOLDED state, after the command's events are applied and before they are
+ *  appended — node's `_assertInvariants()` after the fold, and the same place
+ *  .NET / java / python check it.  An invariant guards a TRANSITION, so a stored
+ *  stream is never re-checked on load (RS-10).
+ *
+ *  `predicate` is the Elixir boolean (a guarded rule renders as the
+ *  implication `not (guard) or (rule)`); `term` is the denial the runner
+ *  short-circuits to.  The denial rides the `precondition_failed` rung, the
+ *  domain floor (RS-15): 422 "Unprocessable Entity" with the rule's message as
+ *  `detail`, which is what the other four backends' `DomainError` answers.  A
+ *  MESSAGED rule carries its `msg.<hash>` code and pointer in a map detail, so
+ *  ProblemDetails adds the one `errors[]` entry the other backends' coded throw
+ *  gets; a message-less rule's detail is the derived `Invariant violated:
+ *  <source>`, byte-identical to theirs. */
+export interface EsInvariantCheck {
+  readonly predicate: string;
+  readonly term: string;
+  /** The plain message — what a pure-core raise carries. */
+  readonly message: string;
+}
+
+/** The invariants this backend can evaluate against the in-memory folded struct.
+ *
+ *  The judgement is the changeset carrier's (`renderableHere`), with no field
+ *  treated as opaque: an ES aggregate has no association to load, so a
+ *  reference collection (`X id[]`) is the id list the fold built, readable like
+ *  any other field.  What the judgement refuses (a domainService / resource
+ *  call) is reported by `loom.elixir-invariant-unenforced` rather than dropped. */
+function esEnforcedInvariants(agg: AggregateIR): InvariantIR[] {
+  return (agg.invariants ?? []).filter((inv) => renderableHere(inv, new Set()));
+}
+
+export function esInvariantChecks(agg: AggregateIR, rc: RenderCtx): EsInvariantCheck[] {
+  // `this-derived` reads inline their defining expression only when the render
+  // context carries the aggregate's derived index.
+  const ctx: RenderCtx = { ...rc, agg: { derived: agg.derived ?? [] } as RenderCtx["agg"] };
+  return esEnforcedInvariants(agg).map((inv) => {
+    const rule = renderExpr(inv.expr, ctx);
+    const predicate = inv.guard ? `not (${renderExpr(inv.guard, ctx)}) or (${rule})` : rule;
+    const message = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const term = inv.message
+      ? `{:precondition_failed, %{detail: ${elixirString(message)}, code: ${elixirString(
+          messageCode(inv.message.text),
+        )}, pointer: ${elixirString(domainFloorPointer(inv))}}}`
+      : `{:precondition_failed, ${elixirString(message)}}`;
+    return { predicate, term, message };
+  });
 }
 
 /** The private guard helper shared by the ES command runners in a context
@@ -102,6 +191,10 @@ export function emitVanillaEventSourcedFiles(
   channels?: ElixirChannelsCfg,
   /** Wired-but-foreign channels widening the dispatcher-existence check. */
   wiredForeignChannels: ChannelIR[] = [],
+  /** The pure domain core spliced into each aggregate's struct module
+   *  (`domain-core-emit.ts`'s `renderEventSourcedPureCore`); `[]` when no unit
+   *  test reaches the aggregate. */
+  pureCore: (agg: AggregateIR) => readonly string[] = () => [],
 ): void {
   const ctxModule = upperFirst(ctx.name);
   const appSnake = toAppSnake(appModule);
@@ -114,7 +207,7 @@ export function emitVanillaEventSourcedFiles(
     if (!isEventSourced(agg)) continue;
     const aggSnake = snake(agg.name);
     const base = `lib/${appSnake}/${ctxSnake}`;
-    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg));
+    out.set(`${base}/${aggSnake}.ex`, renderStructModule(appModule, ctxModule, agg, pureCore(agg)));
     out.set(
       `${base}/${aggSnake}_event_log.ex`,
       renderEventLogSchema(appModule, ctxModule, agg, ctxSnake, ctxSchema),
@@ -154,15 +247,21 @@ function structFields(agg: AggregateIR): string[] {
 
 // --- `<Agg>` plain struct ---------------------------------------------------
 
-function renderStructModule(appModule: string, ctxModule: string, agg: AggregateIR): string {
+function renderStructModule(
+  appModule: string,
+  ctxModule: string,
+  agg: AggregateIR,
+  pureCore: readonly string[],
+): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const fields = structFields(agg);
+  const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "Event-sourced aggregate — in-memory state folded from its event stream (no state table)."
   defstruct [${fields.map((f) => `:${f}`).join(", ")}]
   @type t :: %__MODULE__{}
-end
+${pureCoreBlock}end
 `;
 }
 
@@ -222,7 +321,7 @@ function renderFoldModule(appModule: string, ctxModule: string, agg: AggregateIR
 
   const clauses = (agg.appliers ?? []).map((ap) => {
     const usesParam = foldStmtsUseParam(ap.statements, ap.param, renderCtx, foldOpts);
-    const bind = usesParam ? snake(ap.param) : `_${snake(ap.param)}`;
+    const bind = usesParam ? escapeElixirIdent(snake(ap.param)) : `_${snake(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx, foldOpts)).join("\n");
     return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
 ${body}
@@ -425,12 +524,19 @@ end
  *  silent degradation. */
 function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => snake(p.name));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   const single = isSingleReturn(f.returnType);
   const ctx: RenderCtx = { thisName: "a", contextModule: aggModule };
   const pred = f.filter
     ? renderExpr(f.filter, ctx)
-    : argNames.map((n) => `a.${n} == ${n}`).join(" and ");
+    : f.params
+        .map((p) => `a.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
+        .join(" and ");
+  // A filterless, param-less find (`find pick(): X`) has no predicate at all:
+  // match every folded row rather than emitting `fn a ->  end` (a syntax
+  // error) or `fn a -> true end` (an unused-variable warning, fatal under
+  // `--warnings-as-errors`).
+  const filterAll = pred ? `Enum.filter(all, fn a -> ${pred} end)` : "all";
   if (pagedReturn(f.returnType)) {
     // Same whitelist the relational/document builders order by; the folded
     // aggregate is a struct, so a whitelisted property reads off it directly
@@ -448,7 +554,7 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     ].join(", ");
     return `  def ${fnName}(${argList}) do
     {:ok, all} = list()
-    matched = Enum.filter(all, fn a -> ${pred} end)
+    matched = ${filterAll}
 
     total = length(matched)
     offset = (page - 1) * page_size
@@ -475,8 +581,10 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
   end`;
   }
   const reduce = single
-    ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
-    : `{:ok, Enum.filter(all, fn a -> ${pred} end)}`;
+    ? pred
+      ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
+      : "{:ok, List.first(all)}"
+    : `{:ok, ${filterAll}}`;
   return `  def ${fnName}(${argNames.join(", ")}) do
     {:ok, all} = list()
     ${reduce}
@@ -521,6 +629,7 @@ export function renderEsContextBlock(
     ? renderCommandRunner({
         kind: "create",
         op: create,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -536,6 +645,7 @@ export function renderEsContextBlock(
       renderCommandRunner({
         kind: "operation",
         op,
+        agg,
         aggName: agg.name,
         aggSnake,
         aggModule,
@@ -560,7 +670,7 @@ export function renderEsContextBlock(
             `dir \\\\ "asc"`,
           ]
         : [];
-      const args = [...f.params.map((p) => snake(p.name)), ...pageArgs].join(", ");
+      const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
@@ -580,15 +690,42 @@ ${findLines.length > 0 ? `${findLines.join("\n")}\n` : ""}${opFns.length > 0 ? `
 
 export function renderEsController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // Fully qualified when `alias <App>.<Ctx>` would shadow the app module.
+  const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  // The list and by-id reads' authorization gates — the author's
+  // `find all(): T[] requires …` / `find byId(id: T id): T? requires …`
+  // (M-T3.19, `read-gates.ts`).  403 BEFORE the load, with the same carrier +
+  // `detail` label the relational controller (`api-emit.ts`) renders.  This
+  // controller used to emit both actions without consulting either gate.
+  const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
+  const gatedReadAction = (head: string, body: string, find: FindIR | undefined): string => {
+    const gate = effectiveGate(find?.requires);
+    if (!gate) return `${head}\n${body}\n  end`;
+    const cuBind = exprUsesCurrentUser(gate)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+    return `${head}
+${cuBind}    if not (${renderGateCondition(gate, (g) => renderExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${find!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${body}
+    end
+  end`;
+  };
 
   // RS-13 — the 201 body is the ID ENVELOPE, not the serialized aggregate; see
   // the matching note in api-emit.ts.  The event-sourced controller shares the
@@ -636,7 +773,7 @@ ${esCreateActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : 
       const esCuBind = esOpActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
       const esCallActor = esOpActor ? ", current_user" : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
 ${esCuBind}    attrs = Map.drop(params, ["id"])
 
     with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
@@ -743,26 +880,29 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   return `# Auto-generated.
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
-  def index(conn, _params) do
-    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
+${gatedReadAction(
+  `  def index(conn, _params) do`,
+  `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
       json(conn, Enum.map(records, &serialize/1))
-    end
-  end
+    end`,
+  listReadFind(repo),
+)}
 
-  def show(conn, %{"id" => id}) do
-    case ${ctxModule}.get_${aggSnake}(id) do
+${gatedReadAction(
+  `  def show(conn, %{"id" => id}) do`,
+  `    case ${ctxModule}.get_${aggSnake}(id) do
       {:ok, record} ->
         json(conn, serialize(record))
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end
+    end`,
+  byIdRouteFind(repo, agg.idValueType),
+)}
 ${findActions}
 ${create}${opActions}
 ${commandError}${problemVariant}
@@ -774,6 +914,8 @@ end
 interface CommandCtx {
   kind: "create" | "operation";
   op: OperationIR;
+  /** The aggregate whose invariants the folded state is checked against. */
+  agg: AggregateIR;
   /** The aggregate's DECLARED name — used verbatim in the `when`-gate denial
    *  message so it reads identically to the other four backends (RS-17). */
   aggName: string;
@@ -802,7 +944,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // by DSL convention, matching the cross-backend wire); the Elixir local is
   // its snake form.
   const paramReads = c.op.params.map(
-    (p) => `    ${snake(p.name)} = Map.get(attrs, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(attrs, ${JSON.stringify(p.name)})`,
   );
   if (c.kind === "create") paramReads.push("    id = UUIDv7.generate()");
 
@@ -856,12 +998,23 @@ function renderCommandRunner(c: CommandCtx): string {
   }
 
   clauses.push(`events = [${eventStructs.join(", ")}]`);
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
 
-  const newState =
+  const fold =
     c.kind === "create"
       ? `${c.foldMod}.from_events(id, events)`
       : `Enum.reduce(events, state, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+  // The aggregate's invariants are asserted on the FOLDED state, before the
+  // append: a command whose events would leave the aggregate invalid is refused
+  // and nothing reaches the log.  With no invariant the fold stays after the
+  // append, so such a runner's output does not change.
+  const invariants = esInvariantChecks(c.agg, { ...exprCtx, thisName: "folded" });
+  let newState = fold;
+  if (invariants.length > 0) {
+    clauses.push(`folded = ${fold}`);
+    for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
+    newState = "folded";
+  }
+  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

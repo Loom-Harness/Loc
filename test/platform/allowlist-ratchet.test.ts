@@ -132,6 +132,16 @@ const REGISTERED: Ratchet[] = [
     kind: "record",
     max: 0,
   },
+  // The same leg's xUnit waivers: corpus projects whose emitted test project
+  // fails `dotnet build /warnaserror` or `dotnet test` while the API project
+  // compiles.  The leg itself fails a waived project that passes (stale), so
+  // this pin and that check ratchet the register from both sides.
+  {
+    file: "test/e2e/corpus-dotnet-build.test.ts",
+    name: "DOTNET_TEST_WAIVERS",
+    kind: "record",
+    max: 0,
+  },
   { file: "test/e2e/corpus-tsc-build.test.ts", name: "TS_COMPILE_SKIP", kind: "record", max: 0 },
   // The .NET Dapper adapter's compile tier.  Lowered 3 -> 2 by M-T6.29, which
   // drained `policy-deny`: the `deny` authz sentinel got its `whereToSql` arm
@@ -327,6 +337,18 @@ const REGISTERED: Ratchet[] = [
   {
     file: "test/e2e/corpus-elixir-build.test.ts",
     name: "ELIXIR_COMPILE_SKIP",
+    kind: "record",
+    max: 0,
+  },
+  // The same leg's ExUnit waivers: corpus projects whose emitted `mix test
+  // --warnings-as-errors` suite fails while the prod build compiles.  Empty —
+  // every project that emits a suite passes it — and pinned at zero so a
+  // failing suite is fixed in the emitter, not waived unseen.  The leg itself
+  // fails a waived suite that passes (stale), so this pin and that check
+  // ratchet the register from both sides.
+  {
+    file: "test/e2e/corpus-elixir-build.test.ts",
+    name: "ELIXIR_TEST_WAIVERS",
     kind: "record",
     max: 0,
   },
@@ -733,7 +755,36 @@ const REGISTERED: Ratchet[] = [
     // three) and 3g's six drains come off that — the merged register holds
     // exactly 20 rows by this file's own counter (26 - 6), mutation-proved
     // both ways (19 fails naming 20; 999 fails as slack).
-    max: 20,
+    //
+    // 20 -> 21 (claims eval D6, PR #3232): a reviewed RAISE of one.
+    // `auth-id-claim-foreign` is the foreign-deployable twin of
+    // `auth-id-claim` — same disposition, and like it NOT a tier gap: the
+    // defect is a missing id-brand DECLARATION, which the corpus compile
+    // tier reads directly (node TS2694, python mypy attr-defined, java/.NET
+    // missing symbol), and nothing in the fixture reads the claim at runtime.
+    //
+    // 21 -> 22 (2026-10-12, claims-eval wave 2; re-derived on merge as main's
+    // 21 + this PR's one): `context-named-like-app`, a
+    // compile-tier witness like `dotnet-bcl-type-collision` — the elixir
+    // controller's `alias Claims.Claims` shadowed the app module, so
+    // `Claims.GuardError` was undefined; `corpus-elixir-build` is the oracle and
+    // the fix (spelling the facade fully qualified) is not observable on the
+    // wire.  NOT a tier gap.  If this merges alongside another raise, re-derive
+    // as base + each side's delta (see the #3024 note above).
+    //
+    // 22 -> 23 (claims eval D18, PR #3250; re-derived on merge as main's 22 + this PR's one): a reviewed RAISE of one.
+    // `foreign-id-field` is the same shape for a hosted `X id` FIELD whose
+    // target aggregate lives in a non-hosted sibling context — a missing
+    // id-brand declaration (node TS2694, python name-defined, .NET CS0246,
+    // javac cannot find symbol) the corpus compile tier reads directly; its
+    // CRUD routes are the ones `core-domain` already boots.
+    //
+    // 23 -> 24 (2026-10-19; re-derived on merge as main's 23 + this PR's one): `target-reserved-words`, the all-targets
+    // identifier-legality fixture.  Like `dotnet-bcl-type-collision` it is not
+    // a tier gap: its defect IS a compile failure, which the five corpus
+    // compile legs read directly, and the escape is invisible on the wire by
+    // ruling D-TARGET-RESERVED-NAMES.
+    max: 24,
   },
 ];
 

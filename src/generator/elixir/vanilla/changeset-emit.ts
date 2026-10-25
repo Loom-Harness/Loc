@@ -13,7 +13,9 @@
 // ---------------------------------------------------------------------------
 
 import {
+  createInputFields,
   createOmissionValue,
+  declaredCreateParamNames,
   isRequiredCreateInput,
   isRequiredUpdateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -23,6 +25,7 @@ import type {
   FieldIR,
   OperationIR,
   SystemIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
 import {
@@ -31,12 +34,14 @@ import {
   tableOwnerName,
   uniqueKeyIndex,
 } from "../../../ir/util/inheritance.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { serverSeededFields } from "../../construction-default.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -55,6 +60,7 @@ import {
   voHasConstraints,
 } from "./changeset-validators.js";
 import { INT32_RANGE_MESSAGE } from "./context-emit.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -245,6 +251,15 @@ function renderChangeset(
       return value === null ? null : `    |> __default(:${snake(f.name)}, ${value})`;
     })
     .filter((l): l is string => l !== null);
+  // A server-owned field (`openedAt: datetime managed`) is off the create input
+  // and carries no default: it takes the language-defined absent value from the
+  // shared seed table, the value every other backend's create factory names.
+  // Without it the insert put a NULL into its `null: false` column (500).
+  for (const { field, seed } of serverSeededFields(agg)) {
+    defaultLines.push(
+      `    |> __default(:${snake(field.name)}, ${elixirServerInitSeed(seed, field.type)})`,
+    );
+  }
   const defaultBlock = defaultLines.length > 0 ? `\n${defaultLines.join("\n")}` : "";
   const defaultHelper =
     defaultLines.length > 0
@@ -773,7 +788,14 @@ ${
   //
   // A single VALUE OBJECT is the one shape neither pass reaches — see
   // `voKeyFields` above.
-  const keyNormalizeHelper = `\n\n${NORMALIZE_KEYS_DEFP}${
+  // A narrowed declared `create(…)`: its parameters are the create input, so
+  // the create seams (repository insert, the context's validate-first clause,
+  // the pure domain core) take ONLY those keys before `base_changeset` casts —
+  // every other field, a `when`-gated `status` included, takes its declared
+  // default.  `base_changeset` itself still casts `@all_fields`, because the
+  // form seed and (absent a dedicated one) the update path share it.
+  const createTakeBlock = createTakeAttrsFn(agg);
+  const keyNormalizeHelper = `${createTakeBlock}\n\n${NORMALIZE_KEYS_DEFP}${
     voKeyFields.length > 0 ? `\n\n${NORMALIZE_VO_KEYS_DEFP}` : ""
   }`;
 
@@ -797,6 +819,25 @@ defmodule ${changesetMod} do
 ${actionHelpers}
 end
 `;
+}
+
+/** The public `take_create_attrs/1` the create seams call on a narrowed
+ *  aggregate; empty otherwise.  Matches both key spellings: wire bodies
+ *  arrive string-keyed (snaked by `__normalize_keys`), in-process callers may
+ *  pass atom keys. */
+function createTakeAttrsFn(agg: AggregateIR): string {
+  if (declaredCreateParamNames(agg) === undefined) return "";
+  const cols = createInputFields(agg).map((f) => `:${snake(f.name)}`);
+  return `
+
+  @create_fields [${cols.join(", ")}]
+
+  @doc "The declared \`create(…)\`'s parameters are the create input: keep only those keys, so every other field takes its declared default."
+  def take_create_attrs(attrs) when is_map(attrs) do
+    attrs
+    |> __normalize_keys()
+    |> Map.take(@create_fields ++ Enum.map(@create_fields, &Atom.to_string/1))
+  end`;
 }
 
 function renderActionHelper(
@@ -850,4 +891,21 @@ function renderActionHelper(
     |> cast(attrs, ${allowList})
     |> validate_required(${allowList})
   end`;
+}
+
+/** The Elixir spelling of a shared server-init seed kind. */
+function elixirServerInitSeed(seed: ServerInitSeed, type: TypeIR): string {
+  switch (seed) {
+    case "now":
+      return normalizeDatetime("DateTime.utc_now()");
+    case "zero":
+      // A `decimal` column holds a `Decimal`, which the serializer reads as one.
+      return type.kind === "primitive" && type.name === "decimal" ? "Decimal.new(0)" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+  }
 }

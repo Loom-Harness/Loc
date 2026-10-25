@@ -55,7 +55,7 @@ export interface TargetDeployable {
   address: string;
   /** The declaration's source slice, verbatim. */
   text: string;
-  /** Raw `platform:` value (`react`, `node@v4`, …). */
+  /** Raw `platform:` value (`react`, `node@v5`, …). */
   platform: string;
   /** Raw `design:` value, or null when the clause is absent. */
   design: string | null;
@@ -130,7 +130,7 @@ export function findClauseValue(
   const m = re.exec(mask);
   if (!m) return null;
   const start = m.index + m[0].length;
-  // The value is either a quoted string (`"node@v4"`) or a bare token
+  // The value is either a quoted string (`"node@v5"`) or a bare token
   // (`react`, `mantine@v9`).  `@`, `.`, `-`, `/` are in the bare set so a
   // pinned ref or a relative custom-pack path round-trips.
   if (mask[start] === '"') {

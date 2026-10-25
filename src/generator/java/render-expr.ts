@@ -25,6 +25,7 @@ import {
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { jid } from "./java-ident.js";
+import { J } from "./java-symbols.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Java / Spring backend.
@@ -63,6 +64,28 @@ export interface JavaRenderContext {
    *  aggregate SERVICE needs no mapping: it already binds each param as a
    *  `var <name> = …` local above the call.)  Unset everywhere else. */
   paramExpr?: (name: string) => string | undefined;
+  /** The Java local a `let`-bound name (`refKind: "let"`) renders as, when
+   *  the binding had to be moved off a name the enclosing generated METHOD
+   *  spells itself (`javaLocals`, java-ident.ts).  The binding sites (the
+   *  statement renderers' `var <name> = …`, the workflow spine's
+   *  repo/factory/for-each/if-let bindings and exit saves) consult the same
+   *  hook, so declaration and use cannot disagree.  Unset — or `undefined` for
+   *  a name — leaves the default spelling, so a model with no collision is
+   *  byte-identical. */
+  letExpr?: (name: string) => string | undefined;
+  /** The Java locals (parameters + `let`s, already in their declared
+   *  spelling) of the METHOD the expression renders in.  A Java lambda
+   *  parameter may not redeclare one ("variable x is already defined"), while
+   *  a Loom lambda parameter legally shadows an outer name — so a lambda whose
+   *  parameter lands here renders under `<name>_` (`lambdaLocal`), and its
+   *  body's lambda-bound refs follow.  Unset → no rename (byte-identical). */
+  lambdaScope?: ReadonlySet<string>;
+  /** Loom lambda param name → the Java binder its innermost enclosing lambda
+   *  declared (`lambdaBodyCtx`).  A `refKind: "lambda"` ref resolves here
+   *  first, so a nested lambda renamed off an enclosing lambda's binder
+   *  (`x -> … x_ -> x_ …`) and the outer body's own refs each name their
+   *  own binder.  Unset outside a lambda body. */
+  lambdaBinders?: ReadonlyMap<string, string>;
   /** Aggregate whose bodies we're lowering — used by `new <Part>` to
    *  order the part's constructor arguments by declared field order. */
   agg?: EnrichedAggregateIR;
@@ -81,6 +104,11 @@ export interface JavaRenderContext {
    *  canonical-constructor parameters carry the values and `this` is not
    *  yet available. */
   bareProps?: boolean;
+  /** With `bareProps`: the local a `this`-rooted property ref renders as,
+   *  overriding the default `jid(name)` — set by the wire validator when a
+   *  field's parse-local had to be renamed off a name the method itself uses
+   *  (`javaLocals`, java-ident.ts).  Unset everywhere else. */
+  propExpr?: (name: string) => string | undefined;
   /** Render `this`-rooted property / id refs through the public
    *  accessors (`a.name()`, `a.id()`).  Needed when the receiver is an
    *  aggregate read from OUTSIDE its package (query-projection reads in the
@@ -123,102 +151,35 @@ export function javaRepoField(aggName: string): string {
 
 const DEFAULT: JavaRenderContext = { thisName: "this" };
 
-/** Imports a rendered domain expression needs beyond `java.lang`.
- *  Pure mirror of the triggers in the leaf table below — file emitters
- *  call it over the same expressions they render to build the import
- *  header (the analog of `collectCsExprUsings`).
- *
- *  Rides `walkExprDeep` (M-T6.50 class, wave-2 packet 2.3): the recursion
- *  and the child enumeration are `walk.ts`'s, exhaustively `never`-checked —
- *  this function only adds side effects per visited kind. The hand-rolled
- *  switch it replaced skipped a block-body lambda's statements (`x => {
- *  … }`), so a `decimal`/`money` literal or `.matches(...)` call hidden
- *  inside one never triggered its import; `walkExprDeep` closes that gap. */
-export function collectJavaExprImports(e: ExprIR, into: Set<string> = new Set()): Set<string> {
-  walkExprDeep(e, (x) => addJavaExprImport(x, into));
-  return into;
+/** The Java spelling of a lambda parameter: `jid(name)`, suffixed `_` until it
+ *  clears the enclosing method's locals (`ctx.lambdaScope`).  Deterministic in
+ *  (name, scope), so the `x ->` binder and every `refKind: "lambda"` use of it
+ *  agree.  (Loom resolves a lambda-bound name to the INNERMOST binder, so a
+ *  ref to the shadowed outer local inside the body is a `param` / `let` ref
+ *  and keeps rendering the outer name — the rename preserves the meaning.) */
+function lambdaLocal(name: string, ctx: JavaRenderContext): string {
+  let local = jid(name);
+  const scope = ctx.lambdaScope;
+  if (scope) while (scope.has(local)) local = `${local}_`;
+  return local;
 }
 
-/** The per-kind side effect `collectJavaExprImports` applies at each node —
- *  factored out (no recursion of its own) so `collectJavaStmtImports` can
- *  drive it from `walkStmtExprsDeep`'s single traversal instead of visiting
- *  every sub-expression twice. */
-export function addJavaExprImport(x: ExprIR, into: Set<string>): void {
-  switch (x.kind) {
-    case "literal":
-      if (x.lit === "now") into.add("java.time.Instant");
-      if (x.lit === "decimal" || x.lit === "money") into.add("java.math.BigDecimal");
-      break;
-    case "method-call":
-      if (isStringMatches(x)) into.add("java.util.regex.Pattern");
-      break;
-    case "binary": {
-      const lt = unwrapOptional(x.leftType);
-      if (isMoneyLike(lt)) {
-        into.add("java.math.BigDecimal");
-        if (x.op === "/") into.add("java.math.MathContext");
-      } else if ((x.op === "==" || x.op === "!=") && needsObjectsEquals(lt, x)) {
-        into.add("java.util.Objects");
-      }
-      // A5 temporal — `datetime - datetime` renders `Duration.between(…)`.
-      if (
-        x.op === "-" &&
-        x.resultType?.kind === "primitive" &&
-        x.resultType.name === "duration" &&
-        lt?.kind === "primitive" &&
-        lt.name === "datetime"
-      ) {
-        into.add("java.time.Duration");
-      }
-      break;
-    }
-    case "object":
-      into.add("java.util.Map");
-      break;
-    case "convert":
-      if (x.target === "decimal" || x.target === "money") into.add("java.math.BigDecimal");
-      break;
-    case "list":
-      into.add("java.util.List");
-      break;
-    case "duration":
-      // A5 temporal — an absolute duration constructor renders
-      // `Duration.ofDays(…)` etc.
-      into.add("java.time.Duration");
-      break;
-    // No import needed for the node ITSELF.  This is a PER-NODE callback, not a
-    // traversal: every call site drives it with `walkExprDeep` /
-    // `walkStmtExprsDeep`, so a `BigDecimal` literal or a `Pattern`-needing
-    // intrinsic nested inside any kind below is delivered here in its own
-    // right.  Named rather than left to a `default:` so a new `ExprIR` kind
-    // that DOES need an import is a `tsc` error here.
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "i18nFormat":
-    case "id":
-    case "lambda":
-    case "match":
-    case "member":
-    case "new":
-    case "paren":
-    case "ref":
-    case "ternary":
-    case "this":
-    case "unary":
-      break;
-    default: {
-      const _exhaustive: never = x;
-      void _exhaustive;
-    }
-  }
+/** `ctx` with `names` (Java local spellings) added to its `lambdaScope`.
+ *  Returns `ctx` itself when `names` is empty. */
+export function withLambdaScope(
+  ctx: JavaRenderContext,
+  names: Iterable<string>,
+): JavaRenderContext {
+  const add = [...names];
+  if (add.length === 0) return ctx;
+  return { ...ctx, lambdaScope: new Set([...(ctx.lambdaScope ?? []), ...add]) };
 }
 
 /** Collect the STRING-LITERAL regex patterns used by `string.matches("…")`
  *  anywhere in `e` (dynamic-arg matches can't be hoisted, so they're skipped).
  *  The entity / validator emitters use this to hoist each distinct pattern into
  *  a `private static final Pattern` field instead of recompiling per evaluation.
- *  Rides `walkExprDeep` (wave-2 packet 2.3) — mirrors `collectJavaExprImports`. */
+ *  Rides `walkExprDeep` (wave-2 packet 2.3). */
 export function collectJavaRegexLiterals(e: ExprIR, into: Set<string> = new Set()): Set<string> {
   walkExprDeep(e, (x) => {
     if (
@@ -247,7 +208,9 @@ export function buildJavaRegexFields(patterns: Iterable<string>): {
     if (fields.has(p)) continue;
     const name = `MATCHES_PATTERN_${fields.size}`;
     fields.set(p, name);
-    decls.push(`private static final Pattern ${name} = Pattern.compile(${JSON.stringify(p)});`);
+    decls.push(
+      `private static final ${J.Pattern} ${name} = ${J.Pattern}.compile(${JSON.stringify(p)});`,
+    );
   }
   return { fields, decls };
 }
@@ -328,10 +291,22 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   call: renderCall,
   domainServiceCall(args, serviceRef) {
     // `Pricing.quote(cart, customer)` — generated static utility class.
-    return `${upperFirst(serviceRef.service)}.${lowerFirst(serviceRef.op)}(${args.join(", ")})`;
+    return `${upperFirst(serviceRef.service)}.${jid(lowerFirst(serviceRef.op))}(${args.join(", ")})`;
   },
-  lambda(param, body) {
-    const p = escapeJavaIdent(param);
+  lambdaBodyCtx(param, ctx) {
+    // The body sees this binder: a nested lambda reusing a name already bound
+    // (by this lambda or any enclosing one) renames off it — Java forbids a
+    // lambda param shadowing an enclosing lambda's ("variable x is already
+    // defined").  Loom resolves a lambda ref to the INNERMOST binder.
+    const binder = lambdaLocal(param, ctx);
+    return {
+      ...ctx,
+      lambdaScope: new Set([...(ctx.lambdaScope ?? []), binder]),
+      lambdaBinders: new Map([...(ctx.lambdaBinders ?? []), [param, binder]]),
+    };
+  },
+  lambda(param, body, ctx) {
+    const p = lambdaLocal(param, ctx);
     if (body !== undefined) return `${p} -> ${body}`;
     return `${p} -> { /* block-body lambda — not Java-renderable */ }`;
   },
@@ -339,7 +314,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   // Bare object literals only appear in e2e / walker contexts; keep total
   // with a Map literal so unexpected uses still compile.
   object: (fields) =>
-    `Map.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
+    `${J.Map}.of(${fields.map((f) => `${JSON.stringify(f.name)}, ${f.value}`).join(", ")})`,
   unary: (op, operand, e) =>
     // money/decimal are `java.math.BigDecimal` here, which has no unary-minus
     // operator — `-this.price` is "bad operand type for unary operator '-'".
@@ -360,11 +335,11 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   duration: (unit, amount) => {
     switch (unit) {
       case "days":
-        return `Duration.ofDays(${amount})`;
+        return `${J.Duration}.ofDays(${amount})`;
       case "hours":
-        return `Duration.ofHours(${amount})`;
+        return `${J.Duration}.ofHours(${amount})`;
       case "minutes":
-        return `Duration.ofMinutes(${amount})`;
+        return `${J.Duration}.ofMinutes(${amount})`;
     }
   },
   match(arms, otherwise) {
@@ -413,7 +388,7 @@ const JAVA_TARGET: ExprTarget<JavaRenderContext> = {
   bindingRefText: (binding) => binding,
   // Union-find repos return a nullable aggregate (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != null`,
-  list: (elements) => `List.of(${elements.join(", ")})`,
+  list: (elements) => `${J.List}.of(${elements.join(", ")})`,
 };
 
 export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): string {
@@ -422,11 +397,11 @@ export function renderJavaExpr(e: ExprIR, ctx: JavaRenderContext = DEFAULT): str
 
 function renderLiteral(lit: string, value: string): string {
   if (lit === "string") return JSON.stringify(value);
-  if (lit === "now") return "Instant.now()";
+  if (lit === "now") return `${J.Instant}.now()`;
   if (lit === "null") return "null";
   // money / decimal are BigDecimal — string-sourced construction keeps
   // the literal's precision exactly (BigDecimal("10.50") ≠ valueOf(10.5)).
-  if (lit === "decimal" || lit === "money") return `new BigDecimal("${value}")`;
+  if (lit === "decimal" || lit === "money") return `new ${J.BigDecimal}("${value}")`;
   if (lit === "long") return `${value}L`;
   return value;
 }
@@ -434,15 +409,17 @@ function renderLiteral(lit: string, value: string): string {
 function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
   switch (e.refKind) {
     case "let":
+      // A body-introduced local; escape keyword collisions so the use matches
+      // the (also-escaped) binding (`let class` → `class_`) — or the
+      // collision-renamed local the binding site declared (`letExpr`).
+      return ctx.letExpr?.(e.name) ?? escapeJavaIdent(e.name);
     case "lambda":
-      // Locals introduced inside the body; escape keyword collisions so the
-      // use matches the (also-escaped) binding (`let class` → `class_`).
-      return escapeJavaIdent(e.name);
+      return ctx.lambdaBinders?.get(e.name) ?? lambdaLocal(e.name, ctx);
     case "param":
       return ctx.paramExpr?.(e.name) ?? jid(e.name);
     case "this-prop":
     case "this-vo-prop":
-      if (ctx.bareProps) return jid(e.name);
+      if (ctx.bareProps) return ctx.propExpr?.(e.name) ?? jid(e.name);
       if (ctx.accessorProps) return `${ctx.thisName}.${jid(e.name)}()`;
       return `${ctx.thisName}.${jid(e.name)}`;
     case "this-derived":
@@ -479,7 +456,9 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
     e.receiver.refKind === "param" &&
     ctx.recordParams?.has(e.receiver.name)
   ) {
-    return jid(e.member);
+    // The flat param may have been collision-renamed (`javaLocals`); the
+    // handler's `paramExpr` knows the local it was declared under.
+    return ctx.paramExpr?.(e.member) ?? jid(e.member);
   }
   // Collections lower to `List<T>` (`.size()`); the DSL admits both
   // `.count` and `.length` on arrays.
@@ -601,7 +580,7 @@ function renderMethodCall(
         : undefined;
     return field
       ? `${field}.matcher(${recv}).find()`
-      : `Pattern.compile(${args[0]}).matcher(${recv}).find()`;
+      : `${J.Pattern}.compile(${args[0]}).matcher(${recv}).find()`;
   }
   if (e.receiverType.kind === "primitive") {
     const intrinsic = JAVA_INTRINSIC_RENDERERS[intrinsicKey(e.receiverType.name, e.member)];
@@ -645,7 +624,7 @@ export const JAVA_COLLECTION_RENDERERS: Record<
     const elem = e ? unwrapOptional(sumElementType(e)) : undefined;
     const stream = args.length === 1 ? `${recv}.stream().map(${args[0]})` : `${recv}.stream()`;
     if (isMoneyLike(elem)) {
-      return `${stream}.reduce(BigDecimal.ZERO, BigDecimal::add)`;
+      return `${stream}.reduce(${J.BigDecimal}.ZERO, ${J.BigDecimal}::add)`;
     }
     if (elem?.kind === "primitive" && elem.name === "long") {
       return args.length === 1
@@ -756,8 +735,8 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       const ref = e.serviceRef!;
       const reading = ctx.serviceReading?.(ref.service, ref.op) ?? false;
       return reading
-        ? `${lowerFirst(ref.service)}.${lowerFirst(ref.op)}(${argList})`
-        : `${upperFirst(ref.service)}.${lowerFirst(ref.op)}(${argList})`;
+        ? `${lowerFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`
+        : `${upperFirst(ref.service)}.${jid(lowerFirst(ref.op))}(${argList})`;
     }
     case "repo-read": {
       // A read-only repository query in a `reading` domain-service body
@@ -830,6 +809,19 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (isIntDivWidenedToDecimal(e)) {
     return `java.math.BigDecimal.valueOf(${l}).divide(java.math.BigDecimal.valueOf(${r}), java.math.MathContext.DECIMAL128)`;
   }
+  // A `money?`/`decimal?` equality must not reach `compareTo`, which throws an
+  // NPE on a null receiver AND on a null argument: `x == null` is a plain null
+  // check, and a nullable side compares through a nulls-first comparator —
+  // both absent → equal, one absent → unequal, both present → compareTo.
+  if (
+    (e.op === "==" || e.op === "!=") &&
+    (isMoneyLike(lt) || isMoneyLike(unwrapOptional(e.rightType)))
+  ) {
+    if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
+    if (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") {
+      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxIntegralForBigDecimal(l, e.leftType)}, ${boxIntegralForBigDecimal(r, e.rightType)}) ${e.op} 0`;
+    }
+  }
   // BigDecimal has no operators — arithmetic + comparisons dispatch
   // through methods.  `equals` is scale-sensitive (1.0 ≠ 1.00), so
   // equality routes through compareTo as well.
@@ -861,7 +853,7 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   if (e.op === "==" || e.op === "!=") {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
     if (needsObjectsEquals(lt, e)) {
-      return e.op === "==" ? `Objects.equals(${l}, ${r})` : `!Objects.equals(${l}, ${r})`;
+      return e.op === "==" ? `${J.Objects}.equals(${l}, ${r})` : `!${J.Objects}.equals(${l}, ${r})`;
     }
     return `${l} ${e.op} ${r}`;
   }
@@ -902,7 +894,7 @@ function renderTemporalBinary(l: string, r: string, e: BinaryExpr): string | nul
     if (lt === "datetime") {
       // datetime − datetime → Duration (Loom `a - b` = a minus b, and
       // `Duration.between(start, end)` = end − start).
-      if (e.op === "-" && rt === "duration") return `Duration.between(${r}, ${l})`;
+      if (e.op === "-" && rt === "duration") return `${J.Duration}.between(${r}, ${l})`;
       if (rt === "datetime") {
         return `${l}.${e.op === "+" ? "plus" : "minus"}(${r})`;
       }
@@ -935,7 +927,7 @@ function renderMoneyBinary(op: BinaryExpr["op"], l: string, r: string): string {
     case "/":
       // DECIMAL128 mirrors C# decimal's ~28-digit precision; a bare
       // BigDecimal.divide throws on non-terminating expansions.
-      return `${l}.divide(${r}, MathContext.DECIMAL128)`;
+      return `${l}.divide(${r}, ${J.MathContext}.DECIMAL128)`;
     case "==":
       return `${l}.compareTo(${r}) == 0`;
     case "!=":
@@ -982,7 +974,7 @@ function renderJavaConvert(target: string, from: string | undefined, v: string):
   }
   if (target === "decimal" || target === "money") {
     if (from === "money" || from === "decimal") return v;
-    return `BigDecimal.valueOf(${v})`;
+    return `${J.BigDecimal}.valueOf(${v})`;
   }
   return v;
 }
@@ -1008,17 +1000,17 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         // BigDecimal is the precise type; money differs from decimal
         // only at the JSON wire boundary (string encoding), handled
         // by the DTO emitter's Jackson config.
-        return "BigDecimal";
+        return J.BigDecimal;
       case "string":
         return "String";
       case "bool":
         return mode === "reference" ? "Boolean" : "boolean";
       case "datetime":
-        return "Instant";
+        return J.Instant;
       case "guid":
-        return "UUID";
+        return J.UUID;
       case "json":
-        return "JsonNode";
+        return J.JsonNode;
       case "File":
         // Passive wire-only leaf — the shared FileRef reference record
         // (emitted once per project; see the wire emitter).
@@ -1026,11 +1018,11 @@ const JAVA_TYPE_TARGET: TypeTarget = {
       case "duration":
         // A5 temporal — absolute duration as java.time.Duration.
         // Expression-only (never a field / wire type).
-        return "Duration";
+        return J.Duration;
     }
   },
   id: (targetName) => `${targetName}Id`,
-  array: (element) => `List<${element}>`,
+  array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.
   optional: (inner) => inner,
@@ -1066,29 +1058,6 @@ export function renderJavaType(t: TypeIR): string {
  *  entry into the shared type dispatch. */
 export function boxedJavaType(t: TypeIR): string {
   return renderTypeWith(t, JAVA_TYPE_TARGET, "reference");
-}
-
-/** Imports `renderJavaType` output needs, per type (the emitters merge
- *  these into the file's import header). */
-export function collectJavaTypeImports(t: TypeIR, into: Set<string> = new Set()): Set<string> {
-  switch (t.kind) {
-    case "primitive":
-      if (t.name === "decimal" || t.name === "money") into.add("java.math.BigDecimal");
-      if (t.name === "datetime") into.add("java.time.Instant");
-      if (t.name === "duration") into.add("java.time.Duration");
-      if (t.name === "guid") into.add("java.util.UUID");
-      if (t.name === "json") into.add("tools.jackson.databind.JsonNode");
-      return into;
-    case "array":
-      into.add("java.util.List");
-      return collectJavaTypeImports(t.element, into);
-    case "optional":
-      return collectJavaTypeImports(t.inner, into);
-    case "genericInstance":
-      return collectJavaTypeImports(t.arg, into);
-    default:
-      return into;
-  }
 }
 
 export function javaValueTypeForId(idValueType: string): string {

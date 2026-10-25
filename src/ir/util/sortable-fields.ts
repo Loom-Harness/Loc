@@ -13,13 +13,11 @@
 // ordering side-channel, not just a useless option.
 //
 // Shared across every backend's route/repo emitter, so the accepted sort keys
-// agree across backends.  The FRONTEND does not read this list: the scaffolded
-// list page marks every rendered column `sortable:` and posts its key straight
-// through, so a column this whitelist excludes emits a header the server
-// rejects.  That mismatch predates the `mask unless` exclusion — the default-on
-// `version` token below already had it — and closing it belongs in the scaffold
-// column builder (src/macros/stdlib/scaffold/_body-builders.ts), not here:
-// widening the whitelist to match the frontend is exactly the leak.
+// agree across backends.  The scaffolded SERVER-paged list page marks only these
+// columns `sortable:` — the macro runs on the AST, so it carries an AST-side twin
+// (`serverSortable` in src/macros/stdlib/scaffold/_body-builders.ts), pinned
+// equal to this list by test/macro/scaffold-sortable-allowlist.test.ts.  Change
+// one, change both; never widen this list to match a frontend — that is the leak.
 
 import { wireFieldsForAggregate } from "../enrich/wire-projection.js";
 import type { AggregateIR } from "../types/loom-ir.js";
@@ -59,4 +57,25 @@ export function sortableFields(agg: AggregateIR): string[] {
   // future wire projection reorders.
   if (!out.includes("id")) out.unshift("id");
   return out;
+}
+
+/** The ORDER a paged find takes its page in when the caller's `sort` key is
+ *  not whitelisted, or `undefined` for the `id` fallback every paged read
+ *  shares.  A find carrying a `defaultSort` (a retrieval's declared `sort:`)
+ *  answers its declared terms, then `id` ascending as the tie-break so a page
+ *  boundary never splits equal keys nondeterministically.  Field names are the
+ *  candidate's own (first path segment — nested sort paths are refused at
+ *  validation); each backend spells the column. */
+export function defaultSortOrder(
+  defaultSort:
+    | readonly { path: readonly { name: string }[]; direction: "asc" | "desc" }[]
+    | undefined,
+): { field: string; direction: "asc" | "desc" }[] | undefined {
+  if (!defaultSort || defaultSort.length === 0) return undefined;
+  const terms = defaultSort.map((t) => ({
+    field: t.path[0]!.name,
+    direction: t.direction,
+  }));
+  if (!terms.some((t) => t.field === "id")) terms.push({ field: "id", direction: "asc" });
+  return terms;
 }

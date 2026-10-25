@@ -139,20 +139,12 @@ const DEAD_PARAMS = new Set(DEAD_PARAM_DEBT.flatMap((d) => d.params));
  *  Pinned by `file :: key` so the rows survive line drift. */
 const VARIABLE_ARG_SITES: { site: string; why: string }[] = [
   {
-    site: "src/ir/validate/checks/migration-checks.ts :: loom.dapper-unsupported#migrations",
-    why: "self-provisioning adapter gate: one `params` hoisted above the dapper/mikroorm arms, which must attach literal codes",
-  },
-  {
     site: "src/ir/validate/checks/migration-checks.ts :: loom.mikroorm-unsupported#migrations",
-    why: "the mikroorm arm of the same hoisted `params` object",
-  },
-  {
-    site: "src/ir/validate/checks/migration-checks.ts :: loom.dapper-unsupported#schema-split",
-    why: "schema split-brain gate: one `params` hoisted above the dapper/mikroorm arms",
+    why: "self-provisioning adapter gate: one `params` hoisted above the push (dapper's arm drained with its migration chain)",
   },
   {
     site: "src/ir/validate/checks/migration-checks.ts :: loom.mikroorm-unsupported#schema-split",
-    why: "the mikroorm arm of the same hoisted `params` object",
+    why: "schema split-brain gate: one `params` hoisted above the push (dapper no longer splits)",
   },
   {
     site: "src/ir/validate/checks/migration-checks.ts :: loom.dapper-unsupported#schema-ignored",
@@ -191,6 +183,10 @@ const PROSE_SAYS_UNDEFINED = [
   // JavaScript.  Listed separately because the gate keys on the full catalog
   // key, `#variant` included.
   "loom.e2e-unknown-response-field#workflow-instance",
+  // The CREATE variant: the read is a member of the parsed `{ id }` envelope
+  // every backend answers a create with, so it evaluates to `undefined` in the
+  // emitted JavaScript — the same content-not-interpolation reason as above.
+  "loom.e2e-unknown-response-field#create",
   // Explains why `first`/`firstOrNull` are refused across the frontends: the
   // JS four answer `undefined` on an empty collection where F#/Dart raise.
   // That divergence IS the refusal's reason, so the word is the message's
@@ -216,9 +212,7 @@ const PROSE_SAYS_UNDEFINED = [
  *  than asserted empty: a new variable-arg key joins the list consciously, and
  *  a key that grows a default drops off it. */
 const INTERPOLATES_UNDEFINED_AT_VARIABLE_ARG_SITES = [
-  "loom.dapper-unsupported#migrations",
   "loom.dapper-unsupported#schema-ignored",
-  "loom.dapper-unsupported#schema-split",
   "loom.default-deny-ungated#denybydefault-handler",
   "loom.default-deny-ungated#denybydefault-handler-extern",
   "loom.mikroorm-unsupported#migrations",

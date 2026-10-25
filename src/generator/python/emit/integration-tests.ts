@@ -8,9 +8,11 @@
 // ships a compose Postgres), applies the generated SQL migrations via
 // `run_migrations(engine)`, wires the context's repositories, and runs the body.
 //
-// A context with workflows wires the SYNCHRONOUS `InProcessDispatcher(session)`
-// so a `save`'s emitted event fires its reactors inline; a workflow-free context
-// uses `NoopDomainEventDispatcher()`.
+// A context with workflows, in a deployable whose `app/dispatch.py` defines the
+// SYNCHRONOUS `InProcessDispatcher(session)`, wires it so a `save`'s emitted
+// event fires its reactors inline; any other context — including one whose
+// deployable emits no `app/dispatch.py` at all — uses
+// `NoopDomainEventDispatcher()`.
 //
 // v1 constraint (`loom.integration-find-must-bind`, shared with node): a
 // repository find must be LET-BOUND, not written inline inside `expect(...)`.
@@ -23,8 +25,8 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
 import { renderPyExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
 
@@ -89,6 +91,9 @@ function findCallOf(
 
 const repoVar = (aggName: string): string => `${snake(aggName)}_repo`;
 
+/** The aggregate class, imported from its domain module. */
+const aggClass = (aggName: string): string => pyRef(`app.domain.${snake(aggName)}`, aggName);
+
 /** Render the RHS of a repository read, folding `findAll`'s paged result down to
  *  the `.items` list so the binding is a `list[<Agg>]` (node's `<Agg>[]`). */
 function renderReadCall(find: { aggName: string; method: string; args: ExprIR[] }): string {
@@ -110,7 +115,7 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, lets: Map<string, stri
       if (create && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
         const input = renderCreateInput(s.expr.args[0], create.agg, ctx);
         return [
-          `    ${snake(s.name)} = ${create.agg.name}.${create.method === "create" ? "create" : snake(create.method)}(${input})`,
+          `    ${snake(s.name)} = ${aggClass(create.agg.name)}.${create.method === "create" ? "create" : snake(create.method)}(${input})`,
           `    await ${repoVar(create.agg.name)}.save(${snake(s.name)})`,
           `    await session.flush()`,
         ];
@@ -155,10 +160,18 @@ function renderStmt(s: TestStmtIR, ctx: BoundedContextIR, lets: Map<string, stri
   }
 }
 
+const mentions = (text: string, name: string): boolean => new RegExp(`\\b${name}\\b`).test(text);
+
+/** One test function.  Its fixture locals are derived from ITS OWN rendered
+ *  body, never pooled across the context's tests: a `<agg>_repo` only when the
+ *  body reads it, `events` only when some repository is constructed, and the
+ *  `session` fixture parameter only when a local or the body touches it.  A
+ *  body that only builds value objects therefore declares nothing — ruff F841
+ *  rejects an unused local, and a session-free test needs no Postgres. */
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  usedAggs: readonly AggregateIR[],
+  repoAggs: readonly AggregateIR[],
   cascade: boolean,
   used: Set<string>,
 ): string[] {
@@ -166,80 +179,75 @@ function renderTest(
   for (const s of t.statements) {
     if (s.kind === "let" && s.type?.kind === "entity") lets.set(s.name, s.type.name);
   }
-  const out: string[] = [`async def ${testFnName(t.name, used)}(session: AsyncSession) -> None:`];
-  out.push(
-    cascade
-      ? "    events = InProcessDispatcher(session)"
-      : "    events = NoopDomainEventDispatcher()",
-  );
-  for (const a of usedAggs) {
-    out.push(`    ${repoVar(a.name)} = ${a.name}Repository(session, events)`);
-  }
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, lets));
+  const bodyStr = body.join("\n");
+  const fixtures: string[] = [];
+  const repos = repoAggs.filter((a) => mentions(bodyStr, repoVar(a.name)));
+  if (repos.length > 0) {
+    fixtures.push(
+      cascade
+        ? `    events = ${pyRef("app.dispatch", "InProcessDispatcher")}(session)`
+        : `    events = ${pyRef("app.domain.events", "NoopDomainEventDispatcher")}()`,
+    );
+    for (const a of repos) {
+      fixtures.push(
+        `    ${repoVar(a.name)} = ${pyRef(`app.db.repositories.${snake(a.name)}_repository`, `${a.name}Repository`)}(session, events)`,
+      );
+    }
+  }
+  const usesSession = mentions([...fixtures, bodyStr].join("\n"), "session");
+  const out: string[] = [
+    `async def ${testFnName(t.name, used)}(${usesSession ? "session: AsyncSession" : ""}) -> None:`,
+    ...fixtures,
+  ];
   out.push(...(body.length > 0 ? body : ["    pass"]));
   return out;
 }
 
 /** Emit `tests/test_<ctx>_integration.py` for a context that declares
- *  integration tests, or null when it declares none. */
-export function renderPyContextIntegrationTest(ctx: BoundedContextIR): string | null {
+ *  integration tests, or null when it declares none.  `inProcessDispatcher` says
+ *  whether the deployable's `app/dispatch.py` defines `InProcessDispatcher` — the
+ *  caller reads it off the emitted module, so the import cannot name a module
+ *  or class that does not exist. */
+export function renderPyContextIntegrationTest(
+  ctx: BoundedContextIR,
+  opts: { inProcessDispatcher: boolean },
+): string | null {
   if (ctx.tests.length === 0) return null;
 
   const used = new Set<string>();
-  const cascade = ctx.workflows.length > 0;
+  const cascade = ctx.workflows.length > 0 && opts.inProcessDispatcher;
 
-  // Render every test body first, then narrow imports to what's referenced.
+  // Render every test first, then narrow imports to what the rendered module
+  // names.
   const testBlocks: string[] = [];
-  // usedAggs: an aggregate with a repository, referenced anywhere in the tests.
-  const allBodies = ctx.tests
-    .flatMap((t) => t.statements)
-    .flatMap((s) => renderStmt(s, ctx, new Map()))
-    .join("\n");
-  const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(allBodies);
-  const usedAggs = ctx.aggregates.filter(
-    (a) => ctx.repositories.some((r) => r.aggregateName === a.name) && refs(a.name),
+  const repoAggs = ctx.aggregates.filter((a) =>
+    ctx.repositories.some((r) => r.aggregateName === a.name),
   );
   for (const t of ctx.tests) {
     testBlocks.push("", "");
-    testBlocks.push(...renderTest(t, ctx, usedAggs, cascade, used));
+    testBlocks.push(...renderTest(t, ctx, repoAggs, cascade, used));
   }
   const bodyStr = testBlocks.join("\n");
 
-  const idNames = [
-    ...new Set(
-      ctx.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]).map((n) => `${n}Id`),
-    ),
-  ]
-    .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
-    .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr))
-    .sort();
-
   const out: string[] = [];
   out.push(`"""Integration tests for ${ctx.name}.  Auto-generated."""`);
-  out.push("");
-  out.push("import os");
-  out.push("from collections.abc import AsyncIterator");
-  out.push("");
-  out.push("import pytest");
   out.push(
-    "from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine",
+    "",
+    // Unconditional — every integration module uses all of these; anything
+    // the body names beyond them rides a marker (M-T9.84).
+    ...[
+      "import os",
+      "from collections.abc import AsyncIterator",
+      "",
+      "import pytest",
+      "from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine",
+      "",
+      "from app.db.migrate import run_migrations",
+    ],
   );
-  out.push("");
-  out.push("from app.db.migrate import run_migrations");
-  if (cascade) {
-    out.push("from app.dispatch import InProcessDispatcher");
-  } else {
-    out.push("from app.domain.events import NoopDomainEventDispatcher");
-  }
-  for (const a of usedAggs) {
+  for (const a of repoAggs.filter((a) => mentions(bodyStr, a.name))) {
     out.push(`from app.domain.${snake(a.name)} import ${a.name}`);
-    out.push(`from app.db.repositories.${snake(a.name)}_repository import ${a.name}Repository`);
-  }
-  if (idNames.length > 0) out.push(`from app.domain.ids import ${idNames.join(", ")}`);
-  if (voEnumNames.length > 0) {
-    out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
   }
   out.push("");
   out.push("");

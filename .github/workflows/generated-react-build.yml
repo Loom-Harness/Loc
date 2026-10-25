@@ -6,67 +6,31 @@ name: Generated React TSX build
 # TSX (missing imports, wrong prop types, JSX namespace issues) —
 # invisible to the IR-level tests but breaks at user time.
 #
-# Matrix policy (configured by the `configure` job below):
+# Case policy:
 #
-#   - `pull_request` events    →  8-cell slice: showcase.ddd against
-#                                  every pack@version.  showcase is
-#                                  the feature-comprehensive
-#                                  conformance fixture (#401) and
-#                                  exercises the broadest generator
-#                                  surface.  Misses per-example drift
-#                                  (storybook-mantine / -shadcn,
-#                                  loom-landing, banking, …) — caught
-#                                  one merge later by:
+#   - `pull_request` and       →  slice: showcase.ddd and
+#     `merge_group`                subform-showcase.ddd × two
+#                                  representative packs (see the
+#                                  `build` step for why those).  The
+#                                  queue runs the slice too: what it exists
+#                                  to catch is two PRs green apart and red
+#                                  together, and pack drift from an
+#                                  unrelated PR is rare and cheap to fix.
 #
-#   - `push: main` /            →  full Cartesian, BATCHED PER EXAMPLE.
-#     `merge_group` /               Heavy, but it's the regression safety
-#     `workflow_dispatch`           net.  The keying is "anything that is
-#                                   not a plain pull_request runs full",
-#                                   so the merge queue gets the full sweep
-#                                   on the rebased candidate — the pre-land
-#                                   half of the tiering in docs/ci-gating.md.
-#                                   `workflow_dispatch` runs full too
-#                                   so a maintainer can force the
-#                                   sweep on a branch if a PR-time
-#                                   slim cell smelled suspicious.
+#   - nightly `schedule` /      →  full Cartesian —
+#     `workflow_dispatch`          the regression net for per-example and
+#                                  per-pack drift.  `workflow_dispatch`
+#                                  forces it on a branch when a slim cell
+#                                  smelled suspicious.
 #
-# Sharding shape — why the full sweep is 18 jobs, not 144.  Every job
-# pays ~4min of fixed cost (checkout + `npm ci` + `npm run build`) before
-# it can run a ~60-90s cell.  One-runner-per-cell therefore spent ~85% of
-# 144 runners on setup, took ~72min of wall clock (the tail is queueing,
-# not work), and starved every other workflow of the org's runner pool —
-# which matters more now that a merge-queue candidate fans out to ~35
-# workflows (docs/ci-gating.md).
-#
-# So the full sweep batches by example: 18 jobs, each running all 8 packs
-# for its one example in a single process via
-# `LOOM_REACT_BUILD_CASE=<ddd>` (no `:pack` suffix = every pack; see
-# test/e2e/generated-react-build.test.ts).  The fixed cost is paid once
-# per 8 cells instead of once per cell, and the 2nd..8th generated-project
-# `npm install`s reuse the tarball cache the first cell warmed.
-# Expect ~4min setup + 8 × ~60-90s ≈ 12-16min per job, and a full sweep of
-# ~15-20min wall clock (18 jobs fit the runner pool in one wave) for the
-# same 144 cells of coverage.
-#
-# Coverage is UNCHANGED: same 18 examples × 8 packs, same assertions.
-# The PR path is untouched — still 2 one-cell jobs, still ~5min.
+# One job runs every selected cell, PARALLELISM (the runner's cores) at a
+# time, plus the extern-component gate.  The checkout, `npm ci` and
+# toolchain build are paid once per run.  The selected cells are the
+# `LOOM_REACT_BUILD_CASE` value below — a `;`-joined list of
+# `<ddd>[:<pack>[,<pack>…]]` specs, or empty for every example × every pack
+# (test/e2e/react-build-cases.ts is the only list of either).
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/**'
-      - 'web/src/examples/**'
-      - 'vite/**'
-      - 'api/**'
-      - 'docker/**'
-      - 'test/e2e/generated-react-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-react-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -79,13 +43,15 @@ on:
       - 'api/**'
       - 'docker/**'
       - 'test/e2e/generated-react-build.test.ts'
+      - 'test/e2e/support/npm-install.ts'
+      - 'test/e2e/support/parallel.ts'
       - 'package.json'
       - 'package-lock.json'
       - 'langium-config.json'
       - '.github/workflows/generated-react-build.yml'
       # A change confined to a non-React backend cannot alter the React
       # bundle — skip this gate per-PR when only that code changed.  The
-      # push:main trigger above keeps the broad `src/**` net post-merge.
+      # nightly sweep keeps the broad net on main.
       - '!src/generator/java/**'
       - '!src/generator/dotnet/**'
       - '!src/generator/python/**'
@@ -99,86 +65,26 @@ on:
       - '!src/platform/hono.ts'
   workflow_dispatch:
   merge_group:
+  # The full example × pack sweep runs nightly on main; PRs and the merge
+  # queue run the slice (see the header).
+  schedule:
+    - cron: '43 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Pick the matrix shape based on the event.  Output is a JSON
-  # `{include: [{case, label}, …]}` consumed by the matrix job below via
-  # `fromJSON`; `case` is the `LOOM_REACT_BUILD_CASE` spec for that job
-  # and `label` is its display name.  Costs ~5 seconds of runner time —
-  # negligible against the 142 cells we skip on a typical PR.
-  configure:
+  build:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - id: set
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Slim PR slice — 4 one-cell jobs.  showcase.ddd (the
-            # feature-comprehensive cross-generator conformance fixture,
-            # #401) × two representative packs: one Mantine (the React
-            # baseline) and one shadcn (the Tailwind/Radix family).  This
-            # catches nearly all pack-template / generator drift; the
-            # remaining packs (mui, chakra, older versions) and per-example
-            # drift are deferred to the push:main sweep below.  Full sweep
-            # is one merge later — or force it with workflow_dispatch.
-            #
-            # `subform-showcase.ddd` is the second PR-slice example, promoted
-            # out of the sweep for the same reason Vue promoted its `scaffold`
-            # case: showcase.ddd carries NO array-of-value-object form, so the
-            # repeatable row group — `field-input-array.hbs`, a per-pack
-            # renderer the single-field templates share nothing with — was
-            # edited per-PR and compiled only post-merge.  That is how the
-            # money row cell (2026-09-10 e-shop audit, P8) shipped writing
-            # strings into a `Decimal` slot.
-            EXAMPLES='["examples/showcase.ddd","web/src/examples/subform-showcase.ddd"]'
-            PACKS='["mantine@v9","shadcn@v4"]'
-            MATRIX=$(jq -cn --argjson ex "$EXAMPLES" --argjson packs "$PACKS" \
-              '{include: [$ex[] as $e | $packs[] as $p | {case: "\($e):\($p)", label: "\($e) × \($p)"}]}')
-          else
-            # Full sweep — push:main, merge_group, workflow_dispatch: every
-            # example × every pack, BATCHED one job per example.  A bare
-            # `<ddd>` case (no `:pack` suffix) means "run all packs for this
-            # example" in the harness, so the pack set lives in exactly one
-            # place — `reactBuildPacks` in test/e2e/react-build-cases.ts —
-            # and cannot drift from a duplicate list here.
-            #
-            # This EXAMPLES list MUST match the `reactBuildExamples` const in
-            # test/e2e/react-build-cases.ts (pinned by the "CI matrix ↔
-            # examples list stay in sync" guard in
-            # test/e2e/react-build-matrix-sync.test.ts).
-            # Single-file examples only: the harness copies one .ddd to
-            # a temp dir, so multi-file examples with `import "./…"`
-            # (erp/main.ddd, fulfillment-newest.ddd) can't be built here
-            # — their coverage lives in playground-feature-examples.
-            EXAMPLES='["examples/acme.ddd","examples/showcase.ddd","web/src/examples/banking-system.ddd","web/src/examples/inventory-system.ddd","web/src/examples/provenance-system.ddd","web/src/examples/sales-system.ddd","web/src/examples/storefront-system.ddd","web/src/examples/inheritance-system.ddd","web/src/examples/storybook-mantine.ddd","web/src/examples/storybook-shadcn.ddd","web/src/examples/storybook-components.ddd","web/src/examples/loom-landing.ddd","web/src/examples/action-showcase.ddd","web/src/examples/store-showcase.ddd","web/src/examples/dashboard-system.ddd","web/src/examples/subform-showcase.ddd","web/src/examples/data-grid-showcase.ddd","web/src/examples/file-upload-system.ddd","web/src/examples/file-scaffold-system.ddd","web/src/examples/expression-showcase.ddd"]'
-            MATRIX=$(jq -cn --argjson ex "$EXAMPLES" \
-              '{include: [$ex[] as $e | {case: $e, label: "\($e) × all packs"}]}')
-          fi
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-
-  matrix:
-    needs: configure
-    runs-on: ubuntu-latest
-    strategy:
-      # Surface every broken cell rather than aborting the matrix on
-      # the first red shard — easier to triage cross-pack regressions
-      # when CI shows the full set.  (Within a batched job the cells are
-      # separate `it`s, so a red pack doesn't hide the other seven either.)
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
-    # Sized for the batched full-sweep job: ~4min setup + 8 cells at
-    # ~60-90s each.  A slim PR job runs one cell and finishes in ~5min.
-    timeout-minutes: 45
-    name: ${{ matrix.label }}
+    # The nightly full sweep is ~160 cells at ~60-90 s each, PARALLELISM at
+    # a time; the PR / queue slice is 4 cells.
+    timeout-minutes: 90
+    name: react build (selected examples × packs)
     steps:
       - uses: actions/checkout@v6
 
@@ -188,52 +94,29 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
-      # Root install runs the `prepare` lifecycle which calls
-      # `langium:generate` to produce src/language/generated/.
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      # Root install runs the `prepare` lifecycle (langium:generate + build).
       - name: Install Loom toolchain
         run: npm ci
 
-      - name: Build toolchain
-        run: npm run build
-
-      - name: Run tsc-react shard
+      - name: tsc + vite build every selected cell
         env:
-          # `<ddd>:<pack>` = one cell (slim PR slice); a bare `<ddd>` = every
-          # pack for that example (full sweep).  A spec that matches nothing
-          # throws — a silently-skipping shard is how this workflow once went
-          # green while testing nothing.
-          LOOM_REACT_BUILD_CASE: ${{ matrix.case }}
+          # PR / merge queue: showcase.ddd (the feature-comprehensive
+          # cross-generator conformance fixture) and subform-showcase.ddd
+          # (the only array-of-value-object form — the per-pack
+          # `field-input-array.hbs` renderer) × one Mantine and one shadcn
+          # pack.  Nightly / dispatch: empty = every example × every pack.
+          LOOM_REACT_BUILD_CASE: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'examples/showcase.ddd:mantine@v9,shadcn@v4;web/src/examples/subform-showcase.ddd:mantine@v9,shadcn@v4' || '' }}
+          LOOM_REACT_BUILD: "1"
         run: npx vitest run test/e2e/generated-react-build.test.ts
 
-  # Extern-component escape-hatch gate (not part of the example × pack
-  # matrix): generate a project with an `extern` component, drop in a
-  # hand-written widget, install + `tsc --noEmit`, and prove the typed
-  # props contract bites — a correct widget compiles, a field-mismatch
-  # one fails.  One runner, ~40s.
-  extern-component:
-    # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
-    # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
-    # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    name: extern component props contract
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: Install Loom toolchain
-        run: npm ci
-
-      - name: Build toolchain
-        run: npm run build
-
-      - name: Run extern-component build gate
+      # Extern-component escape-hatch gate: generate a project with an
+      # `extern` component, drop in a hand-written widget, install +
+      # `tsc --noEmit`, and prove the typed props contract bites — a correct
+      # widget compiles, a field-mismatch one fails.
+      - name: extern component props contract
+        if: ${{ !cancelled() }}
         run: npm run test:tsc-react-extern
 
   # ── Merge-queue / branch-protection rollup ────────────────────────────
@@ -253,7 +136,7 @@ jobs:
     # that is the "cancelled reads as not-failed" trap, kept closed. Same
     # pattern as test.yml's tests-passed.
     if: ${{ !cancelled() }}
-    needs: [configure, matrix, extern-component]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: fail if any needed job failed

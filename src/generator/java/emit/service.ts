@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   emitsRestCreate,
-  forCreateInput,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -26,15 +26,11 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { jid } from "../java-ident.js";
-import {
-  collectJavaExprImports,
-  collectJavaTypeImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { javaLocals, jid, localOf } from "../java-ident.js";
+import { J } from "../java-symbols.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   javaAuditApiPkg,
   javaHistoryFind,
@@ -51,13 +47,7 @@ import {
   unionFindAsOptionalTwin,
 } from "./repository.js";
 import { returnUnionSpec } from "./unions.js";
-import {
-  collectWireImports,
-  collectWireToDomainImports,
-  domainToWire,
-  wireJavaType,
-  wireToDomain,
-} from "./wire.js";
+import { collectWireToDomainImports, domainToWire, wireJavaType, wireToDomain } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Application service per aggregate — the layered style's
@@ -66,6 +56,44 @@ import {
 // the wire-validator call, the load-mutate-save flow for operations,
 // response mapping, and domain-event drainage after save.
 // ---------------------------------------------------------------------------
+
+/** Names a generated service METHOD spells itself — the `request` parameter,
+ *  the injected fields it dereferences, and its own fixed locals.  A request
+ *  field / operation param / finder param whose host identifier lands in the
+ *  method's set binds to a `_`-suffixed local instead (`javaLocals`), so it can
+ *  neither redeclare a local (`var aggregate`, `var result`, `var found`) nor
+ *  shadow a field the method dereferences afterwards (`repository.save(…)`).
+ *  Kept per method shape so a name only moves where it actually collides. */
+const CREATE_METHOD_NAMES: ReadonlySet<string> = new Set([
+  "request",
+  "repository",
+  "aggregate",
+  "currentUser",
+  "currentUserAccessor",
+  "auditRecords",
+  "__after",
+]);
+const OPERATION_METHOD_NAMES: ReadonlySet<string> = new Set([
+  "id",
+  "request",
+  "ifMatch",
+  "repository",
+  "aggregate",
+  "result",
+  "currentUser",
+  "currentUserAccessor",
+  "auditRecords",
+  "__before",
+  "__after",
+]);
+const FIND_METHOD_NAMES: ReadonlySet<string> = new Set(["repository", "found", "result"]);
+const PAGED_FIND_METHOD_NAMES: ReadonlySet<string> = new Set([
+  ...FIND_METHOD_NAMES,
+  "page",
+  "pageSize",
+  "sort",
+  "dir",
+]);
 
 export interface ServiceCtx {
   basePkg: string;
@@ -82,6 +110,9 @@ export interface ServiceCtx {
   /** Event-sourced create-input override: the `create` action's params. */
   esCreateParams?: readonly ParamIR[];
 }
+
+const NULL_NODE = javaRef("tools.jackson.databind.node", "NullNode");
+const OFFSET_DATE_TIME = javaRef("java.time", "OffsetDateTime");
 
 export function renderJavaService(
   agg: EnrichedAggregateIR,
@@ -105,9 +136,7 @@ export function renderJavaService(
   // harmless no-op (the framework always provides the publisher) and keeps the
   // dispatch seam ready for an out-of-process relay (the outbox upgrade path).
   const dispatches = true;
-  const idJava = javaValueTypeForId(agg.idValueType);
-  if (idJava === "UUID") imports.add("java.util.UUID");
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   const eff = (t: TypeIR, optional: boolean): TypeIR =>
     optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
   // A `mask unless` aggregate projects RESPONSE reads through the redacting
@@ -121,7 +150,12 @@ export function renderJavaService(
   const createParams: readonly { name: string; type: TypeIR; optional?: boolean }[] =
     ctx.esCreateParams ?? createInputs;
   for (const f of createParams) collectWireToDomainImports(f.type, imports, ctx.basePkg);
+  const createLocals = javaLocals(
+    createParams.map((f) => f.name),
+    CREATE_METHOD_NAMES,
+  );
   const createLets = createParams.map((f) => {
+    const local = localOf(createLocals, f.name);
     const raw = `request.${jid(f.name)}()`;
     // A create-input field with a declared default (`field: T = <expr>`) is
     // boxed/nullable in the request record (see dto.ts): an omitted key arrives
@@ -132,8 +166,7 @@ export function renderJavaService(
     // the request boundary, because that is where the clock and the principal
     // are — it is not a construction rule the domain could apply.
     if (dflt && isServerSourcedDefault(dflt)) {
-      collectJavaExprImports(dflt, imports);
-      return `        var ${jid(f.name)} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
+      return `        var ${local} = ${raw} != null ? ${wireToDomain(f.type, raw, `/${f.name}`)} : ${renderJavaExpr(dflt)};`;
     }
     // Every OTHER default belongs to the factory (`javaFactoryDefault` in
     // emit/entity.ts), which reads `null` as "the caller omitted this".  The
@@ -141,11 +174,11 @@ export function renderJavaService(
     // places is what produces cross-backend default drift.  So an omittable
     // input passes straight through, null and all.
     if (!ctx.esCreateParams && !isRequiredCreateInput(f as FieldIR)) {
-      return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
+      return `        var ${local} = ${wireToDomain(eff(f.type, true), raw, `/${f.name}`)};`;
     }
-    return `        var ${jid(f.name)} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
+    return `        var ${local} = ${wireToDomain(eff(f.type, !!f.optional), raw, `/${f.name}`)};`;
   });
-  const createArgs = createParams.map((f) => jid(f.name)).join(", ");
+  const createArgs = createParams.map((f) => localOf(createLocals, f.name)).join(", ");
   // A `currentUser.*` create-field default coalesces to the ambient principal
   // (`... : currentUser.<claim>()`), so the create method needs `currentUser`
   // bound off the accessor — the same binding the operations use.  (A bare
@@ -183,15 +216,15 @@ export function renderJavaService(
     ? [
         `        var __after = ${agg.name}Response.from(aggregate);`,
         `        auditRecords.save(new AuditRecord(`,
-        `            UUID.randomUUID().toString(),`,
+        `            ${J.UUID}.randomUUID().toString(),`,
         `            ${JSON.stringify(`create${agg.name}`)},`,
         `            "create",`,
         `            ${JSON.stringify(agg.name)},`,
         `            aggregate.id().value().toString(),`,
         `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
-        `            NullNode.getInstance(),`,
+        `            ${NULL_NODE}.getInstance(),`,
         `            __after,`,
-        `            OffsetDateTime.now(),`,
+        `            ${OFFSET_DATE_TIME}.now(),`,
         `            "ok",`,
         `            RequestContext.correlationId(),`,
         `            RequestContext.scopeId(),`,
@@ -206,9 +239,7 @@ export function renderJavaService(
   // thin dispatch that holds neither.
   const createGates = lifecycleGates(agg.canonicalCreate);
   const destroyGates = lifecycleGates(agg.canonicalDestroy);
-  if (createGates.length > 0 || destroyGates.length > 0) {
-    imports.add(`${ctx.basePkg}.domain.common.ForbiddenException`);
-  }
+  const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
    *  (no instance exists yet — the guard reads the principal only) and the
    *  loaded local for a destroy.  The gate's own expression imports are
@@ -217,15 +248,21 @@ export function renderJavaService(
   const lifecycleGateLines = (
     gates: readonly RequiresStmtIR[],
     thisName?: string,
+    locals?: ReadonlyMap<string, string>,
   ): readonly string[] =>
     gates.map((g) => {
-      collectJavaExprImports(g.expr, imports);
       // No `thisName` for a create: the guard reads the principal only, so
-      // there is nothing to name the (nonexistent) receiver after.
+      // there is nothing to name the (nonexistent) receiver after.  A param
+      // ref reads the (possibly collision-renamed) local.
+      const paramExpr = locals ? (n: string) => locals.get(n) : undefined;
       return `        if (!(${renderJavaExpr(
         g.expr,
-        thisName ? { thisName, accessorProps: true } : undefined,
-      )})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+        thisName
+          ? { thisName, accessorProps: true, paramExpr }
+          : paramExpr
+            ? { thisName: "this", paramExpr }
+            : undefined,
+      )})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
   const createLines = emitsRestCreate(agg)
     ? [
@@ -235,7 +272,7 @@ export function renderJavaService(
           : null,
         // BEFORE the factory: a denied create constructs nothing, saves
         // nothing, and stages no audit row.
-        ...lifecycleGateLines(createGates),
+        ...lifecycleGateLines(createGates, undefined, createLocals),
         ...createLets,
         `        var aggregate = ${agg.name}.create(${createArgs});`,
         // A DOCUMENT root is a plain POJO with no JPA persistence context, so
@@ -310,25 +347,24 @@ export function renderJavaService(
   // predicates INTO THIS FILE (the mapper is a private static on the service),
   // so `Objects.equals` / `Pattern.compile` / `BigDecimal` / `Instant` must be
   // imported here — nothing else scans a history mask predicate.
-  if (historyFind) {
-    for (const f of maskedHistoryFields(agg)) collectJavaExprImports(f.maskUnless!, imports);
-  }
   // RS-27 — every service throws it from the by-id read now, so the import is
   // unconditional rather than history-gated.
   imports.add(`${ctx.basePkg}.domain.common.AggregateNotFoundException`);
-  if (historyFind) {
-    imports.add("java.util.ArrayList");
-  }
   const findLines = declaredFinds(repo)
     .map((f) => unionFindAsOptionalTwin(f, agg.name))
     .flatMap((f) => {
-      const params = f.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-      const args = f.params.map((p) => jid(p.name)).join(", ");
+      const findLocals = javaLocals(
+        f.params.map((p) => p.name),
+        isPagedFind(f) ? PAGED_FIND_METHOD_NAMES : FIND_METHOD_NAMES,
+      );
+      const params = f.params
+        .map((p) => `${renderJavaType(p.type)} ${localOf(findLocals, p.name)}`)
+        .join(", ");
+      const args = f.params.map((p) => localOf(findLocals, p.name)).join(", ");
       // Finder params are DOMAIN-typed (`renderJavaType`) and passed straight
       // through to the repository — collect the domain-type import (BigDecimal
       // for decimal, UUID for a bare guid, …) to match the rendered signature,
       // not the wire→domain collector (which only covers money/datetime).
-      for (const p of f.params) collectJavaTypeImports(p.type, imports);
       if (isPagedFind(f)) {
         const pagedParams = [params, "int page, int pageSize, String sort, String dir"]
           .filter(Boolean)
@@ -371,17 +407,12 @@ export function renderJavaService(
   // enum values resolving to `<Enum>.<Value>` — the same expression the
   // can_<op> companion returns.
   const gatedOps = agg.operations.filter((op) => op.visibility === "public" && !!op.when);
-  if (gatedOps.length > 0) imports.add(`${ctx.basePkg}.domain.common.DisallowedException`);
   // …and the predicate's OWN imports, exactly as the hoisted `requires` gate
   // below collects its own (audit A17): the state gate renders here and in the
   // `can_<op>` companion, so `Objects.equals` / `Pattern.compile` / `Instant`
   // must be imported by THIS file — nothing else scans `op.when`.
-  for (const op of gatedOps) collectJavaExprImports(op.when!, imports);
   // The 403 the hoisted `requires` gate throws now lives HERE rather than in
   // the entity (op-gates.ts), so the service pulls the exception in.
-  if (agg.operations.some((op) => operationGates(op).length > 0)) {
-    imports.add(`${ctx.basePkg}.domain.common.ForbiddenException`);
-  }
   /** The hoisted authorization gate — the leading run of `requires` statements,
    *  evaluated by the SERVICE rather than the aggregate (op-gates.ts).
    *
@@ -389,22 +420,28 @@ export function renderJavaService(
    *  BEFORE the `when` state gate: 403 precedes 409, so an unauthorized caller
    *  never learns the row's state.  Operation params need no remapping here —
    *  the service already binds each one as a `var <name> = …` local above. */
-  const requiresGateLines = (op: (typeof agg.operations)[number]): string[] =>
+  const requiresGateLines = (
+    op: (typeof agg.operations)[number],
+    locals: ReadonlyMap<string, string>,
+  ): string[] =>
     operationGates(op).map((g) => {
       // The gate's own expression imports (`java.util.Objects` for a string
       // comparison, enum/id types, …) are collected HERE, since the gate lives
       // in this file rather than the ENTITY's `collectJavaStmtImports` sweep
       // over `op.statements` — a `tsc`-green emitter can still emit Java that
       // doesn't compile.
-      collectJavaExprImports(g.expr, imports);
       return `        if (!(${renderJavaExpr(g.expr, {
         thisName: "aggregate",
         accessorProps: true,
-      })})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`;
+        paramExpr: (n) => locals.get(n),
+      })})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`;
     });
-  const whenGateLine = (op: (typeof agg.operations)[number]): string | null =>
+  const whenGateLine = (
+    op: (typeof agg.operations)[number],
+    locals: ReadonlyMap<string, string>,
+  ): string | null =>
     op.when
-      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true })})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
+      ? `        if (!(${renderJavaExpr(op.when, { thisName: "aggregate", accessorProps: true, paramExpr: (n) => locals.get(n) })})) throw new ${javaRef(`${ctx.basePkg}.domain.common`, "DisallowedException")}("operation '${op.name}' is not allowed in the current state of ${agg.name}.");`
       : null;
   const anyOpUsesUser =
     !!ctx.authed &&
@@ -416,13 +453,6 @@ export function renderJavaService(
   const anyOpAudited = agg.operations.some((op) => op.visibility === "public" && op.audited);
   const anyLifecycleAudited = auditCreate || auditDestroy;
   const anyAudited = anyOpAudited || anyLifecycleAudited;
-  if (anyAudited) {
-    imports.add("java.time.OffsetDateTime");
-    imports.add("java.util.UUID");
-  }
-  if (anyLifecycleAudited) {
-    imports.add("tools.jackson.databind.node.NullNode");
-  }
   // The audit-record actor reads `currentUserAccessor.user()` on an authed
   // system even when no operation otherwise uses the current user, so the
   // accessor must be injected whenever audit + auth are both present — not only
@@ -447,7 +477,7 @@ export function renderJavaService(
   const versioned = aggregateIsVersioned(agg);
   const ifMatchParam = versioned ? ", Integer ifMatch" : "";
   const ifMatchGuard = versioned
-    ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ObjectOptimisticLockingFailureException(${agg.name}.class, id.value());`
+    ? `        if (ifMatch != null && aggregate.version() != ifMatch) throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, id.value());`
     : null;
   const unionReturnNames = new Set<string>();
   const opLines = agg.operations
@@ -457,9 +487,13 @@ export function renderJavaService(
       const reqType = `${upperFirst(op.name)}${agg.name}Request`;
       const paramSig =
         (hasParams ? `${idClass} id, ${reqType} request` : `${idClass} id`) + ifMatchParam;
+      const opLocals = javaLocals(
+        op.params.map((p) => p.name),
+        OPERATION_METHOD_NAMES,
+      );
       const lets = op.params.map(
         (p) =>
-          `        var ${jid(p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
+          `        var ${localOf(opLocals, p.name)} = ${wireToDomain(p.type, `request.${jid(p.name)}()`, `/${p.name}`)};`,
       );
       for (const p of op.params) collectWireToDomainImports(p.type, imports, ctx.basePkg);
       const usesUser =
@@ -467,7 +501,7 @@ export function renderJavaService(
       // Only what REMAINS of the body still takes the trailing argument.
       const passUser = !!ctx.authed && operationBodyUsesCurrentUser(op);
       const args = [
-        ...op.params.map((p) => jid(p.name)),
+        ...op.params.map((p) => localOf(opLocals, p.name)),
         ...(passUser ? ["currentUser"] : []),
       ].join(", ");
       if (op.extern) {
@@ -483,8 +517,8 @@ export function renderJavaService(
           usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
           `        var aggregate = repository.getById(id);`,
           ifMatchGuard,
-          ...requiresGateLines(op),
-          whenGateLine(op),
+          ...requiresGateLines(op, opLocals),
+          whenGateLine(op, opLocals),
           `        aggregate.${jid(op.name)}(${args});`,
           `        repository.save(aggregate);`,
           `        publishEvents(aggregate);`,
@@ -502,7 +536,6 @@ export function renderJavaService(
       // controller wraps it in `ResponseEntity.ok`).  Void ops (no returnType)
       // stay `void` + discard.
       const scalarReturn = !spec && !!op.returnType;
-      if (scalarReturn) collectWireImports(op.returnType!, imports, "Response");
       const returnsValue = !!spec || scalarReturn;
       const retType = spec
         ? spec.name
@@ -522,8 +555,8 @@ export function renderJavaService(
         usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
         `        var aggregate = repository.getById(id);`,
         ifMatchGuard,
-        ...requiresGateLines(op),
-        whenGateLine(op),
+        ...requiresGateLines(op, opLocals),
+        whenGateLine(op, opLocals),
         audited ? `        var __before = ${agg.name}Response.from(aggregate);` : null,
         returnsValue
           ? `        var result = aggregate.${jid(op.name)}(${args});`
@@ -531,7 +564,7 @@ export function renderJavaService(
         `        repository.save(aggregate);`,
         audited ? `        var __after = ${agg.name}Response.from(aggregate);` : null,
         audited ? `        auditRecords.save(new AuditRecord(` : null,
-        audited ? `            UUID.randomUUID().toString(),` : null,
+        audited ? `            ${J.UUID}.randomUUID().toString(),` : null,
         audited ? `            ${JSON.stringify(`${op.name}${agg.name}`)},` : null,
         audited ? `            ${JSON.stringify(op.name)},` : null,
         audited ? `            ${JSON.stringify(agg.name)},` : null,
@@ -539,7 +572,7 @@ export function renderJavaService(
         audited ? `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},` : null,
         audited ? `            __before,` : null,
         audited ? `            __after,` : null,
-        audited ? `            OffsetDateTime.now(),` : null,
+        audited ? `            ${OFFSET_DATE_TIME}.now(),` : null,
         audited ? `            "ok",` : null,
         audited ? `            RequestContext.correlationId(),` : null,
         audited ? `            RequestContext.scopeId(),` : null,
@@ -579,15 +612,15 @@ export function renderJavaService(
             ? [
                 `        var __before = ${agg.name}Response.from(aggregate);`,
                 `        auditRecords.save(new AuditRecord(`,
-                `            UUID.randomUUID().toString(),`,
+                `            ${J.UUID}.randomUUID().toString(),`,
                 `            ${JSON.stringify(`destroy${agg.name}`)},`,
                 `            "destroy",`,
                 `            ${JSON.stringify(agg.name)},`,
                 `            id.value().toString(),`,
                 `            ${ctx.authed ? "currentUserAccessor.user()" : "null"},`,
                 `            __before,`,
-                `            NullNode.getInstance(),`,
-                `            OffsetDateTime.now(),`,
+                `            ${NULL_NODE}.getInstance(),`,
+                `            ${OFFSET_DATE_TIME}.now(),`,
                 `            "ok",`,
                 `            RequestContext.correlationId(),`,
                 `            RequestContext.scopeId(),`,
@@ -639,8 +672,7 @@ export function renderJavaService(
     ``,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
-    dispatches ? `import org.springframework.context.ApplicationEventPublisher;` : null,
-    versioned ? `import org.springframework.orm.ObjectOptimisticLockingFailureException;` : null,
+    `import org.springframework.context.ApplicationEventPublisher;`,
     ``,
     ctx.entityPkg !== ctx.pkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
     ...(ctx.entityPkg !== ctx.pkg

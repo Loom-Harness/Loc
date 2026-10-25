@@ -1,1 +1,0 @@
-{{#if hasBind}}<TextField{{{labelAttr}}} value={{expr bind}} onChange={(e) => {{setter}}(e.target.value)}{{#if hasError}} error={Boolean( {{{error}}} )} helperText={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{else}}<TextField{{{labelAttr}}}{{#if hasError}} error={Boolean( {{{error}}} )} helperText={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{/if}}

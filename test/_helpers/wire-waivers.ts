@@ -74,4 +74,19 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
         "M-T6.86 — a message-less precondition answers the domain-floor 422 (no errors[]) instead of the wire-validation shape",
     }),
   ),
+  // 2026-10-11 — #3224 armed `transactional-workflow-event-rollback` on the
+  // Dapper and python legs, the first golden to record an optimistic-concurrency
+  // 409 off a non-node backend.  Status, `title` and `type` agree; only the `detail`
+  // sentence differs (node names the aggregate + id, the other four answer one
+  // fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
+  // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
+  {
+    backends: ["dapper", "python", "elixir"],
+    cases: ["transactional-workflow-event-rollback"],
+    request: "POST /api/workflows/debit_twice",
+    path: "$.detail",
+    kinds: ["value"],
+    reason:
+      "M-T6.91 — the concurrency-conflict 409 detail is `<Aggregate> <id> was modified by another request` on node, a fixed sentence on .NET/java/python/elixir",
+  },
 ];

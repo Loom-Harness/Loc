@@ -39,9 +39,7 @@ test("shadcn@v4 preview boots without runtime errors", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
 
-  // Pick the pinned shadcn@v4 storybook.  The bareword shadcn entry
-  // still maps to shadcn@v3 (Tailwind 3) until
-  // `BUILTIN_PACK_LATEST.shadcn` flips in a follow-up promote PR.
+  // Pick the pinned shadcn@v4 storybook.
   await page.getByTestId("workspace-new").click();
   await page.getByRole("textbox", { name: /Choose example/i }).click();
   await page.getByRole("option", { name: /shadcn v4 · aggregate-CRUD storybook/ }).click();

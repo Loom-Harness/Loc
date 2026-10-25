@@ -211,3 +211,44 @@ describe("vanilla provenance — the crudish UPDATE re-captures lineage (RS-18)"
     expect(repo).toContain("|> Repo.update(force: true)");
   });
 });
+
+// The leaf inputs ride the shared `collectLeaves` walk, so a leaf nested in a
+// conversion is recorded — node records `qty` for this write, and an
+// Elixir-only walk that skipped the `convert` node recorded only `ratio`, so
+// the two backends reported different lineage inputs.
+const CONVERTED = `
+system Ordering {
+  subdomain Sales {
+    context Orders {
+      aggregate Order {
+        ratio: decimal
+        total: decimal provenanced = 0
+        create(ratio: decimal) { }
+        operation reprice(qty: int) {
+          total := decimal(qty) * ratio
+        }
+      }
+      repository Orders for Order { }
+    }
+  }
+  api OrdersApi from Sales
+  storage pg { type: postgres }
+  resource orderState { for: Orders, kind: state, use: pg }
+  deployable api {
+    platform: elixir
+    contexts: [Orders]
+    dataSources: [orderState]
+    serves: OrdersApi
+    port: 4000
+  }
+}
+`;
+
+describe("vanilla provenance — leaf inputs", () => {
+  it("records a leaf nested inside a conversion", async () => {
+    const ctx = file(await generateSystemFiles(CONVERTED), "/api/orders.ex");
+    expect(ctx).toContain(
+      'loom_prov_inputs_0 = [%{path: "qty", value: qty}, %{path: "ratio", value: record.ratio}]',
+    );
+  });
+});

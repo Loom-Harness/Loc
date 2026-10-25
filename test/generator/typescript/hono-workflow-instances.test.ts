@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS } from "../../../src/platform/hono/v5/pins.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");

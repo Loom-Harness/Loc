@@ -5,6 +5,7 @@ import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
   errorStatuses,
+  MISSING_FIELD_MESSAGE,
   type OpErrorKind,
   problemTitle,
 } from "../../../ir/util/openapi-errors.js";
@@ -23,6 +24,7 @@ import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
+import { csLocalNamer } from "../local-names.js";
 import { dotnetFindAbsenceThrow } from "./common.js";
 
 /** Controller action method name = PascalCase of the shared operationId,
@@ -144,6 +146,9 @@ export interface ControllerShape {
     /** The derived `kind: "find"` entry — route template + declared error
      *  statuses come from it. */
     apiOp: ApiOperationIR;
+    /** The find's declared param names (the action's own parameters) — the
+     *  action's locals (`result`, `problem`) step aside for a same-named one. */
+    paramNames: readonly string[];
     queryRouteParams: string;
     queryConstructorArgs: string;
     /** Cardinality of the response, derived from the IR find's
@@ -223,6 +228,8 @@ function absentReturnLines(
     | Extract<ControllerShape["finds"][number]["unionAbsent"], { kind: "error" }>
     | { kind: "none" },
   ns: string,
+  /** The action's `problem` local (renamed only on a param collision). */
+  problem = "problem",
 ): string[] {
   // RS-22/RS-27 — a `none` absence THROWS, so `DomainExceptionFilter` renders
   // the envelope.  A bare `return NotFound();` never reaches the filter and is
@@ -237,10 +244,10 @@ function absentReturnLines(
   if (!ua.resource) {
     return [
       "        {",
-      `            var problem = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+      `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
         ua.title,
       )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
-      `            return new ObjectResult(problem) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
+      `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
       "        }",
     ];
   }
@@ -249,11 +256,11 @@ function absentReturnLines(
     // `Instance` set explicitly — this arm builds the ProblemDetails by hand
     // (rather than via ControllerBase.Problem/ProblemDetailsFactory), so nothing
     // fills it in, and the other four backends all send the request path.
-    `            var problem = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+    `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
       ua.title,
     )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
-    `            problem.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
-    `            return new ObjectResult(problem) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
+    `            ${problem}.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
+    `            return new ObjectResult(${problem}) { StatusCode = ${ua.status}, ContentTypes = { "application/problem+json" } };`,
     "        }",
   ];
 }
@@ -293,7 +300,16 @@ export function renderController(
     }),
   );
 
+  // A slot an explicit `route` claims is served by that route's controller
+  // alone (D-EXPLICIT-ROUTE-WINS): the derived action is not rendered, while the
+  // request DTO / command / query it would dispatch stay emitted for the
+  // explicit handler and the rest of the service.
   const findBlocks = shape.finds.flatMap((f) => {
+    if (f.apiOp.claimedByExplicitRoute) return [];
+    // The action's own locals yield to a same-named find param (CS0136): a
+    // `find one(result: string)` binds `result` as a query parameter.
+    const L = csLocalNamer(f.paramNames, ["result", "problem"]);
+    const result = L("result");
     const responseType =
       f.returnShape === "union"
         ? f.responseType!
@@ -318,19 +334,19 @@ export function renderController(
             // (`find byEmail(...): Customer?`) is wire-identical to
             // `Customer option`, so its miss must carry the same five-member
             // envelope rather than ASP.NET's framework-default one.
-            `        if (result is null) ${dotnetFindAbsenceThrow(ns)}`,
-            "        return Ok(result);",
+            `        if (${result} is null) ${dotnetFindAbsenceThrow(ns)}`,
+            `        return Ok(${result});`,
           ]
         : ua
           ? [
               // Union find: the handler yields the success `<Agg>Response` or
               // null; a null maps to the absent variant's status (exception-less
               // §4), a value returns the success variant directly at 200.
-              "        if (result is null)",
-              ...absentReturnLines(ua, ns),
-              "        return Ok(result);",
+              `        if (${result} is null)`,
+              ...absentReturnLines(ua, ns, L("problem")),
+              `        return Ok(${result});`,
             ]
-          : ["        return Ok(result);"];
+          : [`        return Ok(${result});`];
     // Non-nullable success type for [ProducesResponseType] (typeof can't
     // carry a `?` nullable annotation).
     const successType =
@@ -351,7 +367,7 @@ export function renderController(
       ...problemDecls,
       `    public async Task<ActionResult<${responseType}>> ${actionName(opFind(agg.name, f.name))}(${f.queryRouteParams})`,
       "    {",
-      `        var result = await _mediator.Send(new ${upperFirst(f.name)}Query(${f.queryConstructorArgs}));`,
+      `        var ${result} = await _mediator.Send(new ${upperFirst(f.name)}Query(${f.queryConstructorArgs}));`,
       ...returnLines,
       "    }",
       "",
@@ -412,7 +428,7 @@ export function renderController(
       // `createAction` and the derived create op are the same predicate
       // (`emitsRestCreate` on both sides), so the `!` is a type-level
       // formality, not a runtime bet.
-      ...(shape.createAction !== false
+      ...(shape.createAction !== false && !shape.createApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpPost${routeTemplate(shape.createApiOp!)}]`,
             `    [ProducesResponseType(typeof(Create${agg.name}Response), 201)]`,
@@ -438,31 +454,39 @@ export function renderController(
               { name: "id", valueExpr: "id.Value" },
             ])}`,
             `        HttpMetrics.RecordDomainOperation("${agg.name}", "create");`,
-            `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
+            // Location points at the read; when an explicit route serves that
+            // slot there is no derived action to name, so the path is spelled.
+            shape.getByIdApiOp.claimedByExplicitRoute
+              ? `        return Created($"${shape.getByIdApiOp.path.replace("{id}", "{id.Value}")}", new Create${agg.name}Response(id.Value));`
+              : `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
             "    }",
             "",
           ]
         : []),
-      `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
-      `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
-      ...derivedProblemDecls(shape.getByIdApiOp),
-      `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
-      "    {",
-      `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
-      // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
-      // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
-      // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
-      // the history read all `?? throw new AggregateNotFoundException($"…")`).
-      // That made this ONE route answer a different problem body than the rest
-      // of the same service.  Throwing routes it back through the shared filter,
-      // which renders `detail` from the message — the same sentence the other
-      // four backends emit.  `id` is the raw route value; the id record's
-      // `ToString()` is overridden to the raw value, so both spellings of this
-      // message interpolate identically.
-      `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
-      "        return Ok(response);",
-      "    }",
-      "",
+      ...(shape.getByIdApiOp.claimedByExplicitRoute
+        ? []
+        : [
+            `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
+            `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
+            ...derivedProblemDecls(shape.getByIdApiOp),
+            `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
+            "    {",
+            `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
+            // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
+            // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
+            // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
+            // the history read all `?? throw new AggregateNotFoundException($"…")`).
+            // That made this ONE route answer a different problem body than the rest
+            // of the same service.  Throwing routes it back through the shared filter,
+            // which renders `detail` from the message — the same sentence the other
+            // four backends emit.  `id` is the raw route value; the id record's
+            // `ToString()` is overridden to the raw value, so both spellings of this
+            // message interpolate identically.
+            `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
+            "        return Ok(response);",
+            "    }",
+            "",
+          ]),
       // Entity history — GET /{id}/history (docs/audit.md).  Emitted off the
       // enrichment-derived `historyFind`, so it sits beside the declared finds
       // rather than inside their loop.  The three guards (inherited read gate →
@@ -487,7 +511,7 @@ export function renderController(
       // Canonical destroy → DELETE /{id} (hard delete).  Gated; reuses the
       // getById error shape (404).  crudish's destroy is empty-bodied, so
       // the command carries only the id.
-      ...(shape.destroyAction
+      ...(shape.destroyAction && !shape.destroyApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpDelete${routeTemplate(shape.destroyApiOp!)}]`,
             "    [ProducesResponseType(204)]",
@@ -550,22 +574,23 @@ export function renderOperationActionBlock(
   // Hono emits via `Object.keys(body)`.  Keys are lowerCamel
   // (matching the JSON wire under ASP.NET's default
   // JsonNamingPolicy.CamelCase).  Skipped entirely when --trace is off.
+  // Empty arrays need an explicit element type so C# can infer the
+  // `params object[]` overload of LogTrace — `new[] { }` is a compile error.
+  // A non-empty key set is bound to a LOCAL first: passed inline, the
+  // constant `new[] { "p" }` argument trips CA1861 ("prefer static readonly
+  // fields over constant array arguments") under /warnaserror.  The logged
+  // value is the same array either way.
   const wireInLine = shape.emitTrace
-    ? [
-        `        ${renderDotnetLogCall("wireIn", [
-          {
-            name: "keys",
-            // Empty arrays need an explicit element type so C# can
-            // infer the `params object[]` overload of LogTrace —
-            // `new[] { }` is a compile error.  Common case (op with
-            // params) uses the implicit array literal.
-            valueExpr:
-              op.paramNames.length === 0
-                ? "Array.Empty<string>()"
-                : `new[] { ${op.paramNames.map((n) => `"${n}"`).join(", ")} }`,
-          },
-        ])}`,
-      ]
+    ? op.paramNames.length === 0
+      ? [
+          `        ${renderDotnetLogCall("wireIn", [
+            { name: "keys", valueExpr: "Array.Empty<string>()" },
+          ])}`,
+        ]
+      : [
+          `        var __wireInKeys = new[] { ${op.paramNames.map((n) => `"${n}"`).join(", ")} };`,
+          `        ${renderDotnetLogCall("wireIn", [{ name: "keys", valueExpr: "__wireInKeys" }])}`,
+        ]
     : [];
   // Exception-less return-typed op (exception-less.md): the action dispatches
   // the command, then translates the Domain union — an error variant to an
@@ -645,19 +670,21 @@ export function renderOperationActionBlock(
   // The side-effect-free can_<op> companion (criterion.md use site 2):
   // GET → loads the aggregate, evaluates the `when` predicate, returns
   // `{ allowed }` so a UI can enable/disable the action without invoking it.
-  const canBlock = op.whenGated
-    ? [
-        `    [HttpGet${routeTemplate(op.probeOp!)}]`,
-        `    [ProducesResponseType(typeof(CanResponse), 200)]`,
-        ...derivedProblemDecls(op.probeOp!),
-        `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
-        "    {",
-        `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
-        "        return Ok(result);",
-        "    }",
-        "",
-      ]
-    : [];
+  const canBlock =
+    op.whenGated && !op.probeOp?.claimedByExplicitRoute
+      ? [
+          `    [HttpGet${routeTemplate(op.probeOp!)}]`,
+          `    [ProducesResponseType(typeof(CanResponse), 200)]`,
+          ...derivedProblemDecls(op.probeOp!),
+          `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
+          "    {",
+          `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
+          "        return Ok(result);",
+          "    }",
+          "",
+        ]
+      : [];
+  if (op.apiOp.claimedByExplicitRoute) return canBlock;
   return [
     ...canBlock,
     `    [HttpPost${routeTemplate(op.apiOp)}]`,
@@ -1368,6 +1395,19 @@ namespace ${ns}.Api;
 public static class ValidationProblem
 {
     /// <summary>
+    /// The message every backend sends for a REQUIRED request field the body
+    /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
+    /// value-typed member) or DataAnnotations' [Required] did (a reference one).
+    /// </summary>
+    private const string MissingField = ${JSON.stringify(MISSING_FIELD_MESSAGE)};
+
+    /// <summary>[Required]'s own sentence — "The X field is required." —
+    /// recognised so it carries the shared wording instead.</summary>
+    private static bool IsRequiredMessage(string message) =>
+        message.StartsWith("The ", StringComparison.Ordinal)
+        && message.EndsWith(" field is required.", StringComparison.Ordinal);
+
+    /// <summary>
     /// RFC 7807 answer for a request MVC rejected during model binding or
     /// DataAnnotations validation.  Wired in Program.cs via
     /// ApiBehaviorOptions.InvalidModelStateResponseFactory.
@@ -1452,7 +1492,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = "The " + name + " field is required.",
+                            ["message"] = MissingField,
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -1499,7 +1539,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

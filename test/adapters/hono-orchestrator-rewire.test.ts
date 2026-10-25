@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as byLayerModule from "../../src/platform/hono/v4/adapters/by-layer-layout.js";
 import * as layeredStyleModule from "../../src/platform/hono/v4/adapters/layered-style.js";
 import { generateTypeScript } from "../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS } from "../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
 import { generateSystems } from "../../src/system/index.js";
 import { parseValid } from "../_helpers/parse.js";
 

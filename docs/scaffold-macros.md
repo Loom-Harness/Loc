@@ -130,6 +130,36 @@ Notes:
   gate.)
 - Additive: a system that doesn't opt in keeps its welcome page unchanged.
 
+### `scaffoldPaged` / `scaffoldPagedApi` — a named read on the wire
+
+A `criterion` or `retrieval` is a domain declaration with no route of its own.
+This pair is how one reaches a client: `scaffoldPaged` (target `context`) emits
+a paged `queryHandler` over `Repo.run(<read>)`, and `scaffoldPagedApi` (target
+`api`) emits the `GET /<plural>/projections/<read>` route bound to it. `of:` takes
+either kind, and the macro reads the argument's kind. Over a retrieval, the
+`sort:` is the page's default order. `requires: <Policy>` (a parameterless
+function-form policy) gates the handler, the same rule as `crudish(requires:)`:
+
+```ddd
+context Projects with scaffoldPaged(of: TasksInProject, requires: Members) { … }
+api TasksApi with scaffoldPagedApi(of: TasksInProject) from Core { }
+```
+
+expands to (unfold ejects exactly this):
+
+```ddd
+queryHandler ListTaskByTasksInProject(p: Project id): Task paged {
+  requires Members()
+  let r = Tasks.run(TasksInProject(p))
+  return r
+}
+route GET "/tasks/projections/tasks_in_project" -> Projects.ListTaskByTasksInProject
+```
+
+The generated route and repository code for every backend are in
+[language reference §22](language-reference/22-macros.md). The
+`ddd new --template crud` starter uses this pair for `TasksInProject`.
+
 ### Composability
 
 Unfolding one level on `with scaffold(subdomains: [Sales])` reveals one
@@ -261,9 +291,12 @@ operation: a `requires`-gated `approve()` that writes `status` guards only
 column at whatever gate the *update* carries.  `immutable` on the field is the
 fix — it drops the field from the update surface while leaving the operation
 free to assign it (see [`auth.md`](auth.md) → "Guarded state transitions").
-Loom raises the advisory `loom.update-gate-suggestion` when it sees the shape;
-it is a `Suggestions:` hint, not an error, because some models really do want
-the field editable both ways.
+The same holds for a `when`-gated transition (`operation close() when status ==
+Resolved { status := Closed }`) and for a `precondition` that reads the field it
+assigns (and no operation parameter).  Loom raises the warning `loom.update-gate-suggestion` when it sees any
+of these shapes (a counted warning, never an error); `managed = <default>`
+additionally keeps the field off `create` (see [`language.md`](language.md) →
+"Field access modifiers").
 
 Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the

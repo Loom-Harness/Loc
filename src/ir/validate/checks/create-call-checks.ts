@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // `Agg.create({ … })` CALL-SITE checks (`loom.create-call-not-constructible`,
-// `loom.create-call-missing-field`).
+// `loom.create-call-missing-field`, `loom.create-call-field-not-in-create`).
 //
 // Nothing validated the call site against the factory it calls.  Two shapes
 // reached the emitted project and failed its OWN compiler:
@@ -36,10 +36,10 @@
 //          '{ sku: string; onHand: number; }' but required in type
 //          '{ sku: string; binCode: string; onHand: number; }'.
 //
-//    The concept already existed on the DECLARATION side
-//    (`loom.create-params-not-wire`, which warns when a declared `create`'s
-//    parameter list omits a required create-input field).  It was simply never
-//    applied to a call site.
+// 3. A KEY OUTSIDE A NARROWED `create(…)`.  A declared parameter list IS the
+//    factory input (`declaredCreateParamNames`), so `Appointment.create({
+//    status: … })` against `create(doctor, minutes)` names a key the factory
+//    does not take.
 //
 // WHY HERE AND NOT AT THE AST LAYER.  `checkFactoryCreateFields` already gates
 // the call site's UNKNOWN and server-owned keys (src/language/validators/
@@ -60,7 +60,13 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { buildCreateInput, isConstructible } from "../../enrich/wire-projection.js";
+import {
+  buildCreateInput,
+  constructionBlockingInvariants,
+  declaredCreateParamNames,
+  forCreateInput,
+  isConstructible,
+} from "../../enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LoomModel } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { forEachModelExpr } from "../../util/model-exprs.js";
@@ -123,7 +129,7 @@ export function validateCreateCallSites(loom: LoomModel, diags: LoomDiagnostic[]
       if (!isConstructible(agg)) {
         // Name the invariant that blocks it — that is the line the author has
         // to change, and the one the emitted `tsc` error cannot point at.
-        const blocking = agg.invariants.map((inv) => inv.source).filter((s) => s.length > 0);
+        const blocking = constructionBlockingInvariants(agg);
         const key = `nc|${agg.name}|${source}`;
         if (seen.has(key)) return;
         seen.add(key);
@@ -150,6 +156,32 @@ export function validateCreateCallSites(loom: LoomModel, diags: LoomDiagnostic[]
       // `createInput` is the enriched projection; `buildCreateInput` is the same
       // derivation, kept as the fallback for a programmatically-built IR.
       const input = agg.createInput ?? buildCreateInput(agg);
+
+      // --- 3. a key the declared `create(…)` does not list ----------------
+      // A narrowed parameter list IS the factory input, so a field it leaves
+      // out is not a factory key — the factory initialises it.  (Keys naming
+      // no field at all, or a server-owned one, are refused at the AST layer.)
+      const declared = declaredCreateParamNames(agg);
+      if (declared) {
+        const narrowedOut = call.fields.filter(
+          (n) => !declared.has(n) && forCreateInput(agg.fields).some((f) => f.name === n),
+        );
+        const key = `no|${agg.name}|${source}|${narrowedOut.join(",")}`;
+        if (narrowedOut.length > 0 && !seen.has(key)) {
+          seen.add(key);
+          diags.push({
+            severity: "error",
+            code: "loom.create-call-field-not-in-create",
+            message: diagMessage("loom.create-call-field-not-in-create", {
+              agg: agg.name,
+              fields: narrowedOut.map((n) => `\`${n}\``).join(", "),
+              params: [...declared].map((n) => `\`${n}\``).join(", "),
+            }),
+            source,
+          });
+        }
+      }
+
       const supplied = new Set(call.fields);
       const missing = input
         .filter((c) => c.requiredInput && !supplied.has(c.field.name))

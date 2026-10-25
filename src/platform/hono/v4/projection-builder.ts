@@ -22,6 +22,7 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -123,13 +124,13 @@ export function buildProjectionsFile(ctx: EnrichedBoundedContextIR, usingMikro =
     ),
   );
   const bodyAndVos = `${voSchemaDecls.join("\n")}\n${bodyText}`;
-  const enumSchemaDecls = ctx.enums
+  const enumSchemaDecls = enumPool(ctx)
     .filter((e) => bodyAndVos.includes(`${e.name}Schema`))
     .map(
       (e) =>
         `const ${e.name}Schema = z.enum([${e.values.map((v) => `"${v}"`).join(", ")}]).openapi("${e.name}");`,
     );
-  const enumValueImports = ctx.enums
+  const enumValueImports = enumPool(ctx)
     .filter((e) => new RegExp(`\\b${e.name}\\.`).test(bodyText))
     .map((e) => e.name);
   const enumValueImportLine =
@@ -288,7 +289,7 @@ function emitFoldHandler(
   // Key: the `by <expr>` extractor, else the event field name-matching the key.
   const keyExpr = h.correlation
     ? renderTsExpr(h.correlation, { thisName: "state" })
-    : `${h.param}.${corr}`;
+    : `${escapeTsIdent(h.param)}.${corr}`;
   // Allocate for a not-yet-seen key: just the correlation column (every other
   // read-model column is nullable, so a partial row is valid — the fold
   // assignments below populate the carried fields before the upsert).  Under
@@ -303,7 +304,7 @@ function emitFoldHandler(
   const out = [
     `export async function fold${h.event}Into${T}(`,
     `  db: ${projDbType(usingMikro)},`,
-    `  ${h.param}: Events.${h.event},`,
+    `  ${escapeTsIdent(h.param)}: Events.${h.event},`,
     `): Promise<void> {`,
     `  const __key = ${keyExpr};`,
     `  const state = (await load${T}(db, __key)) ?? ${allocate};`,

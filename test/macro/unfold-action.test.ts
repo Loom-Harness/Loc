@@ -312,6 +312,25 @@ capability tenantOwned { archived: bool }
     expect(unfolded).not.toMatch(/tenantId/);
   });
 
+  it("unfolds `scaffoldPaged(of: <retrieval>, requires: <Policy>)` into the gated handler", async () => {
+    const source = `
+context Sales with scaffoldPaged(of: TopInRegion, requires: Staff) {
+  aggregate Order { region: string  rank: int }
+  repository Orders for Order { }
+  policy Staff(): bool = true
+  criterion InRegion(rgn: string) of Order = region == rgn
+  retrieval TopInRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [rank desc] }
+}
+`;
+    const unfolded = await unfold(source, "scaffoldPaged");
+    expect(unfolded).not.toContain("scaffoldPaged");
+    expect(unfolded).toMatch(
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r\s*\}/,
+    );
+    const reparse = await validate(unfolded);
+    expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
+  });
+
   it("does not offer unfold when cursor isn't on a macro call", async () => {
     const source = `
 context Sales {

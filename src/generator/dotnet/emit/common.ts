@@ -27,9 +27,23 @@ export function renderCommon(
   // `msg.<hash>` code and RFC 6901 pointer along with the text, so
   // DomainExceptionFilter answers the same `errors[]` entry the wire rung
   // carries.  Byte-identical without a messaged aggregate rule.
-  const domainException = opts.domainFloorCodes
-    ? `public sealed class DomainException : Exception
+  // Every DomainException carries the refusing rung as `Kind`, apart from the
+  // message an authored `message "..."` replaces.
+  const domainErrorKind = `/// <summary>Which rung of the domain floor refused a call — carried apart
+/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+public enum DomainErrorKind
 {
+    Precondition,
+    Invariant,
+}
+
+`;
+  const domainException = opts.domainFloorCodes
+    ? `${domainErrorKind}public sealed class DomainException : Exception
+{
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
     /// <summary>A messaged rule's <c>msg.&lt;hash&gt;</c> code (the same one the
     /// wire rung carries) and the RFC 6901 pointer its domain-floor
     /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
@@ -40,16 +54,23 @@ export function renderCommon(
     /// with /warnaserror — the same trap WireFormatException.FieldPointer
     /// sidesteps below.
     public string? RulePointer { get; }
-    public DomainException(string message, string? ruleCode = null, string? rulePointer = null) : base(message)
+    public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null) : base(message)
     {
+        Kind = kind;
         RuleCode = ruleCode;
         RulePointer = rulePointer;
     }
 }
 `
-    : `public sealed class DomainException : Exception
+    : `${domainErrorKind}public sealed class DomainException : Exception
 {
-    public DomainException(string message) : base(message) { }
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
+    public DomainException(string message, DomainErrorKind? kind = null) : base(message)
+    {
+        Kind = kind;
+    }
 }
 `;
   // A value object's invariant refused a value a domain BODY built (M-T5.1).
@@ -234,6 +255,68 @@ public interface IDomainEventDispatcher
         System.Data.Common.DbTransaction? transaction = null,
         CancellationToken cancellationToken = default)
         => Task.FromResult(events);
+}
+
+/// <summary>
+/// Buffers the aggregate events a repository would dispatch after its save,
+/// while a CALLER-OWNED transaction is open, and releases them only once that
+/// transaction has committed.  A repository's post-save dispatch is right when
+/// the save owns its commit; inside a <c>transactional</c> workflow the save
+/// only writes into the workflow's open transaction, so dispatching there
+/// would announce a write a later statement can still roll back.  The
+/// workflow handler opens a scope before <c>BeginTransactionAsync</c>, calls
+/// <see cref="FlushAsync"/> after <c>CommitAsync</c>, and disposes it on every
+/// path — a rollback disposes without flushing, discarding the buffer.
+/// Durable capture (<c>RecordDurableAsync</c>) is untouched: the outbox row
+/// still commits with the transaction.  Ambient via <see cref="AsyncLocal{T}"/>
+/// so every repository the handler's scope resolves joins without a new port.
+/// </summary>
+public sealed class DomainEventDeferral : IDisposable
+{
+    private static readonly AsyncLocal<DomainEventDeferral?> _current = new();
+    private readonly DomainEventDeferral? _previous;
+    private readonly List<(IDomainEventDispatcher Dispatcher, IDomainEvent Event)> _buffered = new();
+    private bool _closed;
+
+    private DomainEventDeferral()
+    {
+        _previous = _current.Value;
+        _current.Value = this;
+    }
+
+    public static DomainEventDeferral Begin() => new();
+
+    /// <summary>Dispatch now, or buffer into the innermost open scope.</summary>
+    public static Task DispatchAsync(IDomainEventDispatcher dispatcher, IDomainEvent ev, CancellationToken cancellationToken = default)
+    {
+        var scope = _current.Value;
+        while (scope is { _closed: true }) scope = scope._previous;
+        if (scope is null) return dispatcher.DispatchAsync(ev, cancellationToken);
+        scope._buffered.Add((dispatcher, ev));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Close the scope and dispatch what it buffered, in raise order.</summary>
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        Close();
+        var pending = _buffered.ToArray();
+        _buffered.Clear();
+        foreach (var (dispatcher, ev) in pending) await dispatcher.DispatchAsync(ev, cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        Close();
+        _buffered.Clear();
+    }
+
+    private void Close()
+    {
+        if (_closed) return;
+        _closed = true;
+        if (ReferenceEquals(_current.Value, this)) _current.Value = _previous;
+    }
 }
 
 ${
@@ -518,9 +601,14 @@ export function dotnetNotFoundThrow(ns: string, resource: string, keyExpr: strin
  * answer) AND by Swashbuckle, which publishes `minimum`/`maximum`.  The
  * attribute is fully qualified so no `using` is added under /warnaserror.
  */
-export const CS_PAGED_QUERY_PARAMS: readonly string[] = [
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
-  '[FromQuery] string sort = "id"',
-  '[FromQuery] string dir = "asc"',
-];
+export function csPagedQueryParams(sortDefault = "id"): readonly string[] {
+  return [
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
+    `[FromQuery] string sort = ${JSON.stringify(sortDefault)}`,
+    '[FromQuery] string dir = "asc"',
+  ];
+}
+
+/** The paged controls with the shared `id` sort default. */
+export const CS_PAGED_QUERY_PARAMS: readonly string[] = csPagedQueryParams();

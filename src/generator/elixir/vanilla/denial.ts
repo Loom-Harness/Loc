@@ -186,6 +186,25 @@ export function appModuleOf(contextModule: string): string {
   return contextModule.split(".")[0] ?? contextModule;
 }
 
+/** The reference a controller calls the `<App>.<Ctx>` facade through.  Normally
+ *  the bare `<Ctx>` (under `alias <App>.<Ctx>`), but when the context is named
+ *  like the app (`deployable claims` hosting `context Claims`) that alias would
+ *  rebind `<App>` itself — every `<App>.GuardError` / `<App>.Repo` in the file
+ *  would then resolve to `<App>.<App>.…` and fail to compile.  In that case the
+ *  facade is referenced fully qualified and no alias is emitted
+ *  ({@link contextAliasLine}). */
+export function contextCallRef(appModule: string, ctxModule: string): string {
+  return ctxModule === appModule ? `${appModule}.${ctxModule}` : ctxModule;
+}
+
+/** The `alias <App>.<Ctx>` line (with trailing newline) a controller needs for
+ *  {@link contextCallRef}'s bare `<Ctx>` — empty when the ref is fully qualified. */
+export function contextAliasLine(appModule: string, ctxModule: string): string {
+  return contextCallRef(appModule, ctxModule) === ctxModule
+    ? `  alias ${appModule}.${ctxModule}\n`
+    : "";
+}
+
 /** `<App>.GuardError` — the typed exception a guard raises on the pure paths. */
 export function guardErrorModule(appModule: string): string {
   return `${appModule}.GuardError`;
@@ -226,10 +245,14 @@ defmodule ${guardErrorModule(appModule)} do
   author's \`message "..."\` missed the prefix and reraised into a 500.  With
   the classification out of band, \`:message\` is free text and carries exactly
   what the other four backends put in their \`DomainException\` / \`DomainError\`.
+
+  \`:disallowed\` is an operation's \`when\` state gate refusing, raised only by
+  the pure-core operation form (the domain unit tests' subject); the HTTP path
+  checks the gate in its \`with\` chain and answers 409 from there.
   """
   defexception [:message, :kind]
 
-  @type kind :: :forbidden | :precondition
+  @type kind :: :forbidden | :precondition | :disallowed
 end
 `;
 }
@@ -247,12 +270,28 @@ export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): s
   // answers that map through the same domain-floor entry sender the body-built
   // value object uses.  Every other denial keeps the plain string detail.
   if (wireAvailable !== undefined && s.kind === "precondition" && s.message) {
-    return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
-      messageCode(s.message.text),
-    )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
+    return codedPreconditionTerm(s, s.message.text);
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
+}
+
+/** The denial term for a guard in a WORKFLOW / command-handler body.  An
+ *  orchestration precondition never lifts into a request validator, so a
+ *  MESSAGED one always answers the domain floor WITH its `errors[]` entry —
+ *  the same coded map an operation precondition's domain-floor denial carries
+ *  (banking eval B-02).  The workflow controller hands the detail to
+ *  `ProblemDetails.problem_response/4`, whose map arm the domain-floor gate
+ *  (`hasDomainFloorMessages`, which sees workflow preconditions) switches on. */
+export function workflowDenialTerm(s: GuardStmt): string {
+  if (s.kind === "precondition" && s.message) return codedPreconditionTerm(s, s.message.text);
+  return denialTerm(s);
+}
+
+function codedPreconditionTerm(s: GuardStmt, text: string): string {
+  return `{:precondition_failed, %{detail: ${elixirString(denialMessage(s))}, code: ${JSON.stringify(
+    messageCode(text),
+  )}, pointer: ${JSON.stringify(domainFloorPointer(s))}}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +404,18 @@ export function wireValidationResponse(problemModule = "ProblemDetails"): string
   return `${problemModule}.validation_errors_response(conn, errors)`;
 }
 
+/** The WIRE-VALIDATION 422 for a workflow request that omits a param its body
+ *  reads (L1-E / E7, #3017).  Node's request validator answers this with the
+ *  §3.2 `errors[]` extension — one `{pointer, message}` entry per missing
+ *  field, title "Validation failed" — and so does every other backend; elixir
+ *  answered the DOMAIN-FLOOR rung with the names folded into `detail`, so a
+ *  frontend ACL's `applyServerErrors` bound nothing.  The entries carry no
+ *  `code` (a structural error, like zod's), and go through the same
+ *  `validation_errors_response/2` sender the wire-rung precondition uses. */
+function missingParamsResponse(problemModule = "ProblemDetails"): string {
+  return `${problemModule}.validation_errors_response(conn, Enum.map(missing, &%{pointer: "/" <> &1, message: "Required"}))`;
+}
+
 /** The two ProblemDetails clauses a controller needs to answer a typed denial,
  *  as `<head>` / `<body>` pairs so each call site can wrap them in its own
  *  `def respond(conn, …)` / `def <op>_<agg>_result(conn, …)` shape.
@@ -437,6 +488,17 @@ export function respondErrorTail(
    *  generic "Resource not found".  Gated so a dispatcher that cannot produce
    *  the term carries no arm for it. */
   notFoundDetail = false,
+  /** True when some aggregate this dispatcher can reach is `versioned` or
+   *  event-sourced (`aggregatesNeedConcurrency`) — the same predicate that
+   *  emits `ProblemDetails.conflict_response/1`.  A stale save inside a
+   *  workflow / handler body (`persist_change/1` / the document `update` rescue
+   *  `Ecto.StaleEntryError`, the event-log append rescues the
+   *  `(stream_id, version)` unique_violation, all to `{:error, :conflict}`)
+   *  rolls the transaction back and threads that term here; without the arm it
+   *  fell to the sanitized 500 catch-all where the single-aggregate route and
+   *  the other four backends answer the concurrency 409 (M-T6.92).  Gated so a
+   *  project without concurrency never references a responder it didn't emit. */
+  conflict = false,
 ): string {
   const clause = (head: string, body: string): string =>
     `${indent}${head},\n${indent}  do: ${body}`;
@@ -457,11 +519,7 @@ export function respondErrorTail(
       ? [
           clause(
             `def ${fnName}(conn, {:error, {:invalid_params, missing}})`,
-            denialResponse(
-              "precondition",
-              '"missing required parameter(s): " <> Enum.join(missing, ", ")',
-              overrides,
-            ),
+            missingParamsResponse(),
           ),
         ]
       : []),
@@ -470,6 +528,14 @@ export function respondErrorTail(
           clause(
             `def ${fnName}(conn, {:error, {:validation_failed, errors}})`,
             wireValidationResponse(),
+          ),
+        ]
+      : []),
+    ...(conflict
+      ? [
+          clause(
+            `def ${fnName}(conn, {:error, :conflict})`,
+            "ProblemDetails.conflict_response(conn)",
           ),
         ]
       : []),
