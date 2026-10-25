@@ -377,6 +377,7 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
       return {
         node: {
           kind: "repo-let",
+          op: "load",
           name: "x",
           repoName: "Xs",
           aggName: "X",
@@ -403,6 +404,7 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
       return {
         node: {
           kind: "repo-run",
+          op: "select-many",
           name: "xs",
           repoName: "Xs",
           aggName: "X",
@@ -458,6 +460,7 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
       return {
         node: {
           kind: "if-let",
+          op: "select-one",
           var: "x",
           repoName: "Xs",
           aggName: "X",
@@ -484,7 +487,7 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
     "repo-delete": () => {
       const entity = sent();
       return {
-        node: { kind: "repo-delete", repoName: "Xs", aggName: "X", entity },
+        node: { kind: "repo-delete", op: "remove", repoName: "Xs", aggName: "X", entity },
         exprChildren: [entity],
         wfChildren: [],
       };

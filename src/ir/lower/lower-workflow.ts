@@ -35,6 +35,7 @@ import {
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
 import { upperFirst } from "../../util/naming.js";
+import { isRepoWriteName, namedRepoCallOp } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
 import type {
   AggregateIR,
@@ -58,7 +59,6 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { aggregateOpResolver, type SaveResolver } from "../util/domain-service-tier.js";
-import { isWriteMethod } from "../util/repo-methods.js";
 import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
@@ -688,6 +688,7 @@ function lowerWorkflowStatementInner(
       stmt: {
         kind: "if-let",
         var: stmt.var,
+        op: declaredFind ? "declared-find" : "select-one",
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
@@ -785,6 +786,7 @@ function lowerWorkflowStatementInner(
         stmt: {
           kind: "repo-run",
           name: stmt.name,
+          op: "select-many",
           repoName,
           aggName,
           retrievalName,
@@ -820,6 +822,7 @@ function lowerWorkflowStatementInner(
         stmt: {
           kind: "repo-run",
           name: stmt.name,
+          op: "select-many",
           repoName,
           aggName,
           retrievalName: `findAllBy${findAllCall.criterionName}`,
@@ -867,6 +870,14 @@ function lowerWorkflowStatementInner(
           name: stmt.name,
           repoName: repo.name,
           aggName,
+          // A name that is neither a declared find nor a by-name contract verb
+          // rides `declared-find`; `loom.workflow-unknown-repository-method`
+          // reports it.
+          op:
+            namedRepoCallOp(
+              repoCall.method,
+              repo.finds.some((f) => f.name === repoCall.method),
+            ) ?? "declared-find",
           method: repoCall.method,
           args,
           returnType,
@@ -978,12 +989,13 @@ function lowerWorkflowStatementInner(
         const deleteRepo = reposByName.get(lv.head);
         const method = lv.tail[0]!;
         const deleteArg = (lv.args ?? [])[0];
-        if (deleteRepo && isWriteMethod(method) && deleteArg) {
+        if (deleteRepo && isRepoWriteName(method) && deleteArg) {
           const aggName = deleteRepo.aggregate?.ref?.name ?? "Unknown";
           const entity = lowerExpr(deleteArg, env);
           return {
             stmt: {
               kind: "repo-delete",
+              op: "remove",
               repoName: deleteRepo.name,
               aggName,
               entity,

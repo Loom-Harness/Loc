@@ -6,6 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { repoOpVerb } from "../../../util/repository-contract.js";
 import {
   constructionBlockingInvariants,
   createInputFields,
@@ -351,7 +352,7 @@ function validateWorkflowInlineRepoCalls(
         message: diagMessage("loom.workflow-inline-repository-call", {
           where: `workflow '${wf.name}' ${body.label}`,
           repoName,
-          call: `${repoName}.${method ?? "getById"}(…)`,
+          call: `${repoName}.${method ?? repoOpVerb("load")}(…)`,
           binding: lowerFirst(repoAgg.get(repoName) as string),
         }),
         source: `${ctx.name}/${wf.name}`,
@@ -1505,7 +1506,7 @@ function validateWorkflowStatements(
           });
           break;
         }
-        if (st.method !== "getById" && !repo.finds.some((f) => f.name === st.method)) {
+        if (st.op !== "load" && !repo.finds.some((f) => f.name === st.method)) {
           diags.push({
             severity: "error",
             code: "loom.workflow-unknown-repository-method",
@@ -1514,7 +1515,10 @@ function validateWorkflowStatements(
               repoName: st.repoName,
               method: st.method,
               finds: repo.finds.map((f) => f.name).join(", ") || "(no declared finds)",
-              suggestion: nearestName(st.method, ["getById", ...repo.finds.map((f) => f.name)]),
+              suggestion: nearestName(st.method, [
+                repoOpVerb("load"),
+                ...repo.finds.map((f) => f.name),
+              ]),
             }),
             source: `${ctx.name}/${wf.name}`,
             origin: wf.origin,
@@ -1542,9 +1546,9 @@ function validateWorkflowStatements(
           break;
         }
         // Reject array / nullable returns — workflow body has no
-        // iteration / null-handling vocab in v1.  getById is always
+        // iteration / null-handling vocab in v1.  A `load` is always
         // a single non-nullable aggregate (the impl throws on miss).
-        if (st.method !== "getById") {
+        if (st.op !== "load") {
           if (st.returnType.kind === "array") {
             diags.push({
               severity: "error",

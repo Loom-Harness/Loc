@@ -406,7 +406,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
           repo: read.repo.name,
           aggregate: aggName,
           method: read.method,
-          readKind: read.kind,
+          op: read.op,
           ...(retrievalName ? { retrievalName } : {}),
           ...(read.criterionName ? { synthCriterion: { name: read.criterionName } } : {}),
         },
