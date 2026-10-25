@@ -48,7 +48,7 @@ function methodBody(src: string, name: string): string {
  *  references `<field>: root.<field>` for the wire shape regardless). */
 function whereClause(src: string, name: string): string {
   const body = methodBody(src, name);
-  const m = body.match(/\.where\(([\s\S]*?)\);/);
+  const m = body.match(/\.where\(([\s\S]*?)\)(?:\.orderBy\([^;]*\))?;/);
   return m ? m[1]! : "";
 }
 
@@ -66,7 +66,9 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
     const allRows = methodBody(r, "allRows");
     expect(allRows).not.toContain(".where(");
     // The root select has no filter — bare `from(schema.orders)`.
-    expect(allRows).toContain("this.db.select().from(schema.orders);");
+    expect(allRows).toContain(
+      "this.db.select().from(schema.orders).orderBy(asc(schema.orders.id));",
+    );
   });
 
   it("a non-bypassing find keeps the full capability conjunction", async () => {
@@ -114,7 +116,9 @@ describe("node/Drizzle projection `ignoring` emission", () => {
     const r = await projRepo();
     const allOrders = methodBody(r, "allOrders");
     expect(allOrders).not.toContain(".where(");
-    expect(allOrders).toContain("this.db.select().from(schema.orders);");
+    expect(allOrders).toContain(
+      "this.db.select().from(schema.orders).orderBy(asc(schema.orders.id));",
+    );
   });
 
   it("a projection with no `ignoring` keeps the capability filter", async () => {
