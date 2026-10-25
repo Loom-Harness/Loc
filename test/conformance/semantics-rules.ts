@@ -1423,7 +1423,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     conforms: ["node", "dotnet", "java", "python"],
     targets: ["elixir"],
     provenance: [
-      "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+      "M-T6.95 + M-T6.98, #3285",
       "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
     ],
     tier: "behavioral",
