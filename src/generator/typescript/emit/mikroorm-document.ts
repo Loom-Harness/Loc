@@ -72,8 +72,8 @@ export function renderMikroDocumentRepository(
   // `currentUser` bound in each read's scope, exactly as the drizzle document
   // builder does (`principalBind`).  Pairwise F5: this bind was missing here,
   // so every read named a free `currentUser` (TS2304).
-  const capRec = documentCapabilityBody(agg, "rec");
-  const capX = documentCapabilityBody(agg, "x");
+  const capRec = documentCapabilityBody(agg, ctx, "rec");
+  const capX = documentCapabilityBody(agg, ctx, "x");
   const principalBind = aggregateUsesPrincipalContextFilter(agg)
     ? `    const currentUser = requireCurrentUser();`
     : null;
@@ -104,7 +104,7 @@ export function renderMikroDocumentRepository(
     // drizzle document defect (M-T6.51).  The relational mikro path already
     // threads the bypass (`mikroContextFilters(agg, { bypassAll, bypassCaps })`);
     // the document path now does too.
-    const findCap = documentCapabilityBody(agg, "x", {
+    const findCap = documentCapabilityBody(agg, ctx, "x", {
       bypassAll: f.bypassAll,
       bypassCaps: f.bypassCaps,
     });

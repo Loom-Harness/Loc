@@ -41,7 +41,6 @@ system WfGate {
         create run(ticketId: Ticket id, note: string) requires currentUser.role == "ops" {
           let t = Tickets.getById(ticketId)
           t.close(note)
-          Tickets.save(t)
         }
       }
     }

@@ -92,7 +92,7 @@ end
 
 The record survives as a named type only where the host language has cheap records: node keeps the body schema plus a `cmd` object, .NET emits `PlaceCommand` as a Mediator `ICommand<OrderId>`, while Java, Python and Elixir **flatten the record into positional parameters** (`handle(String code, String region)`) and destructure the JSON at the edge.
 
-Do not write `Orders.save(o)` in the body — the exit save is derived (`computeSaves`), and a bare `<Repo>.<verb>(x)` statement naming any repository write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit` — `src/util/repository-contract.ts`) is lowered as a repository **delete** (`repo-delete`), whatever the verb reads like (see the note in [`../workflow.md`](../workflow.md)). A record parameter always binds to the JSON body, so bind record-param handlers to `POST`/`PUT`/`PATCH` routes.
+There is no `Orders.save(o)` statement — the exit save is derived (`computeSaves`), and an explicit `save` / `insert` / `update` / `add` / `commit` call in a handler or workflow body is refused with `loom.workflow-explicit-save` (see "Save + event drain semantics" in [`../workflow.md`](../workflow.md)). A record parameter always binds to the JSON body, so bind record-param handlers to `POST`/`PUT`/`PATCH` routes.
 
 ### `<Agg>Wire` — the auto-synthesized record
 

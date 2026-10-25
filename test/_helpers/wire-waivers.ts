@@ -68,4 +68,26 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
+  // node/drizzle orders every read with no declared order by `id` (the
+  // read-scope order).  The other legs still answer Postgres's physical order,
+  // which moves a row an `update` rewrote to the end, so the three reads below
+  // that list a row after updating it come back in a different order.  Each
+  // entry goes when that backend's reads take the `id` order.
+  ...(
+    [
+      ["projection-join", "GET /api/projections/order_with_customer"],
+      ["prefix-filter", "GET /api/docs/under?prefix=root"],
+      ["datetime-wire", "GET /api/projections/slot_board"],
+    ] as const
+  ).map(
+    ([c, request]): WireWaiver => ({
+      backends: ["dotnet", "dapper", "java", "python", "elixir", "mikroorm"],
+      cases: [c],
+      request,
+      path: "$",
+      kinds: ["ordering"],
+      reason:
+        "#3438 — only node/drizzle orders an unordered read by `id` yet; the other legs answer physical (heap) order",
+    }),
+  ),
 ];

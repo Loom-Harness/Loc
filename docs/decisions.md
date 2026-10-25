@@ -4772,8 +4772,7 @@ warning fired, but the list did not. `default-deny-checks.ts` had exempted it
 as "compiler-synthesized, no author source line". That reason was weaker
 than the by-id one, because the author can write
 `find all(): T[] requires <expr>`, and all five backends enforce it
-(`src/ir/util/read-gates.ts`). (That spelling is now
-`policy { read T requires <expr> }` — see D-READ-GATE-IN-POLICY.)
+(`src/ir/util/read-gates.ts`).
 
 The ruling is a **warning**, `loom.default-deny-list-ungated`, at the same
 tier as `loom.default-deny-by-id-ungated`. Existing models keep building, and
@@ -4980,6 +4979,85 @@ route on one of those slots still double-registers.
 
 ---
 
+## D-EXACT-PINS — generated project manifests pin every dependency to one exact version
+
+**Status:** DECIDED (owner ruling 2026-10-21, M-T7.11); implemented by #3886.
+
+**Problem.** A range in a generated manifest (`^4.12.0`, `>=0.115,<1`, `~> 1.8`,
+postgrex `>= 0.0.0`) resolves at install time. No lockfile is emitted, so a
+project that built yesterday could fail today when a dependency released inside
+its range — `@hono/zod-openapi` 1.5.2 broke every cross-field invariant's types
+that way, and npm packuments cached before a newer matching version existed
+died with `ETARGET`.
+
+**Decision.** Every dependency in every generated manifest — `package.json`
+(all four JS stacks, every design pack, the Hono backend and its optional
+adapters, the Feliz and e2e projects), `pyproject.toml` (including the
+`[build-system]` requirement), `mix.exs`, `pubspec.yaml`, and the already-exact
+`*.csproj`/`*.fsproj`/`build.gradle.kts` — names one exact version. No lockfile
+is generated; transitive dependencies still float. Environment constraints
+(`engines`, `requires-python`, the Dart/Flutter `sdk` range, the .NET
+`TargetFramework`) are not dependencies and stay ranges.
+
+- **A bump edits the literal**, then re-resolves the whole set. The pins in one
+  manifest are checked together, not one by one: `@opentelemetry/api` had to
+  sit at 1.9.1 because `sdk-trace-base` 2.12 peers `<1.10`, and `ex_aws` at
+  2.6.1 because 2.7 needs `hackney ~> 4` while the adapter pins hackney 1.x.
+  Resolve with `npm install --package-lock-only`, `pip install --dry-run`, and
+  `mix deps.get` before landing (see the `dependency-upgrade` skill).
+- **Waived: Flutter `intl` and `web`.** The SDK pins them (`flutter_localizations`,
+  `flutter_web_plugins`) and the generated image tracks `flutter:stable`, so an
+  exact value is only knowable once the SDK is pinned.
+- **Gate:** `test/system/generated-manifest-pins.test.ts` generates the whole
+  tracked `.ddd` corpus on all five backends plus every built-in design pack and
+  fails on any range specifier; its waivers ratchet.
+
+**Consequences.** Security fixes inside a range no longer arrive on their own;
+they ride the currency sweeps (#3685). The pinned set is the one the
+`generated-*-build` and `test:tsc` gates exercise.
+
+---
+
+## D-INHERITED-CAPABILITIES — a capability on an abstract base applies to every subtype
+
+**Status:** PINNED (owner ruling 2026-10-25, epic #3954).
+
+**Question.** `abstract aggregate Vehicle with softDeletable` + `aggregate Car
+extends Vehicle`. Does `Car` hide soft-deleted rows, and may a `Car` read say
+`ignoring softDeletable`? Before this ruling the base's fields reached the
+subtype but its capability identity did not: the subtype carried `is_deleted`
+and nothing filtered it (node, Python, Java, Elixir, .NET Dapper, .NET EF
+TPC), and `ignoring softDeletable` on the subtype was refused as an unknown
+capability. Tenancy only held because `loom.tenancy-stance-unmarked` forced the
+author to repeat `with tenantOwned` on every concrete.
+
+**Decision.** A `Car` is a `Vehicle`, so everything a capability on the base
+contributes applies to every concrete that `extends` it, transitively: its
+filters and bare `filter` declarations, its stamps, its capability tags and its
+`crossTenant` stance.
+
+- **Where.** Once, in phase ⑥ (`src/ir/enrich/inherited-capabilities.ts`).
+  Every backend reads the merged `contextFilters` / `contextFilterOrigins` /
+  `contextStamps` / `capabilities` and carries no inheritance logic, and the
+  `ignoring` and tenancy validators resolve against the same set.
+- **Order.** Ancestors' filters first (root-most first), then the concrete's
+  own; `inheritedFilterCount` (`src/ir/util/inheritance.ts`) reads that prefix.
+- **Repeats.** A subtype re-applying its base's capability gets that filter once
+  (the inherited entry wins); a stamp assignment the base already makes on the
+  same event is dropped from the subtype's own rules.
+- **.NET EF TPH.** The root config registers the root's filters once,
+  unguarded; a subtype neither re-registers them nor prefixes their names, so
+  `ignoring <rootCap>` on a subtype lifts the root's filter.
+- **Tenancy.** An unmarked subtype of a `tenantOwned` (or `crossTenant`) base
+  has that stance. A subtype declaring the opposite one is
+  `loom.tenancy-inherited-stance-conflict`.
+
+Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
+backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
+`ignoring softDeletable` on Truck drops it.
+
+---
+
 ## D-REPOSITORY-CONTRACT — a repository is a body-less declaration whose surface is one declared verb contract
 
 **Status:** PINNED (owner ruling, 2026-10-25). The foundation — the contract
@@ -5057,7 +5135,8 @@ verb is an edit to the table plus typing/lowering and a codemod — no emitter.
 comparison or set literal keyed on a built-in verb spelling outside the
 contract module and the lowerers fails it, unless waived with a count and a
 reason (the e2e test client's HTTP verbs, which name routes rather than
-repository calls).
+repository calls, and the per-platform reserved find names that a later slice
+removes).
 
 ---
 
@@ -5157,82 +5236,3 @@ to #3951. The emitters' find paths stay: each is still reached by single-row
 finds, `find all`, or the synthesised paged finds. The scaffolded list page's
 filter bar is built from list finds only, so it goes with the hard error
 (#4049).
-
----
-
-## D-EXACT-PINS — generated project manifests pin every dependency to one exact version
-
-**Status:** DECIDED (owner ruling 2026-10-21, M-T7.11); implemented by #3886.
-
-**Problem.** A range in a generated manifest (`^4.12.0`, `>=0.115,<1`, `~> 1.8`,
-postgrex `>= 0.0.0`) resolves at install time. No lockfile is emitted, so a
-project that built yesterday could fail today when a dependency released inside
-its range — `@hono/zod-openapi` 1.5.2 broke every cross-field invariant's types
-that way, and npm packuments cached before a newer matching version existed
-died with `ETARGET`.
-
-**Decision.** Every dependency in every generated manifest — `package.json`
-(all four JS stacks, every design pack, the Hono backend and its optional
-adapters, the Feliz and e2e projects), `pyproject.toml` (including the
-`[build-system]` requirement), `mix.exs`, `pubspec.yaml`, and the already-exact
-`*.csproj`/`*.fsproj`/`build.gradle.kts` — names one exact version. No lockfile
-is generated; transitive dependencies still float. Environment constraints
-(`engines`, `requires-python`, the Dart/Flutter `sdk` range, the .NET
-`TargetFramework`) are not dependencies and stay ranges.
-
-- **A bump edits the literal**, then re-resolves the whole set. The pins in one
-  manifest are checked together, not one by one: `@opentelemetry/api` had to
-  sit at 1.9.1 because `sdk-trace-base` 2.12 peers `<1.10`, and `ex_aws` at
-  2.6.1 because 2.7 needs `hackney ~> 4` while the adapter pins hackney 1.x.
-  Resolve with `npm install --package-lock-only`, `pip install --dry-run`, and
-  `mix deps.get` before landing (see the `dependency-upgrade` skill).
-- **Waived: Flutter `intl` and `web`.** The SDK pins them (`flutter_localizations`,
-  `flutter_web_plugins`) and the generated image tracks `flutter:stable`, so an
-  exact value is only knowable once the SDK is pinned.
-- **Gate:** `test/system/generated-manifest-pins.test.ts` generates the whole
-  tracked `.ddd` corpus on all five backends plus every built-in design pack and
-  fails on any range specifier; its waivers ratchet.
-
-**Consequences.** Security fixes inside a range no longer arrive on their own;
-they ride the currency sweeps (#3685). The pinned set is the one the
-`generated-*-build` and `test:tsc` gates exercise.
-
----
-
-## D-INHERITED-CAPABILITIES — a capability on an abstract base applies to every subtype
-
-**Status:** PINNED (owner ruling 2026-10-25, epic #3954).
-
-**Question.** `abstract aggregate Vehicle with softDeletable` + `aggregate Car
-extends Vehicle`. Does `Car` hide soft-deleted rows, and may a `Car` read say
-`ignoring softDeletable`? Before this ruling the base's fields reached the
-subtype but its capability identity did not: the subtype carried `is_deleted`
-and nothing filtered it (node, Python, Java, Elixir, .NET Dapper, .NET EF
-TPC), and `ignoring softDeletable` on the subtype was refused as an unknown
-capability. Tenancy only held because `loom.tenancy-stance-unmarked` forced the
-author to repeat `with tenantOwned` on every concrete.
-
-**Decision.** A `Car` is a `Vehicle`, so everything a capability on the base
-contributes applies to every concrete that `extends` it, transitively: its
-filters and bare `filter` declarations, its stamps, its capability tags and its
-`crossTenant` stance.
-
-- **Where.** Once, in phase ⑥ (`src/ir/enrich/inherited-capabilities.ts`).
-  Every backend reads the merged `contextFilters` / `contextFilterOrigins` /
-  `contextStamps` / `capabilities` and carries no inheritance logic, and the
-  `ignoring` and tenancy validators resolve against the same set.
-- **Order.** Ancestors' filters first (root-most first), then the concrete's
-  own; `inheritedFilterCount` (`src/ir/util/inheritance.ts`) reads that prefix.
-- **Repeats.** A subtype re-applying its base's capability gets that filter once
-  (the inherited entry wins); a stamp assignment the base already makes on the
-  same event is dropped from the subtype's own rules.
-- **.NET EF TPH.** The root config registers the root's filters once,
-  unguarded; a subtype neither re-registers them nor prefixes their names, so
-  `ignoring <rootCap>` on a subtype lifts the root's filter.
-- **Tenancy.** An unmarked subtype of a `tenantOwned` (or `crossTenant`) base
-  has that stance. A subtype declaring the opposite one is
-  `loom.tenancy-inherited-stance-conflict`.
-
-Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
-backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
-`ignoring softDeletable` on Truck drops it.

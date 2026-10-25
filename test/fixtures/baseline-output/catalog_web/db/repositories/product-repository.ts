@@ -46,7 +46,7 @@ export class ProductRepository implements ProductRepositoryPort {
 
   async findManyByIds(ids: Ids.ProductId[]): Promise<Product[]> {
     if (ids.length === 0) return [];
-    const rootRows = await this.db.select().from(schema.products).where(inArray(schema.products.id, ids));
+    const rootRows = await this.db.select().from(schema.products).where(inArray(schema.products.id, ids)).orderBy(asc(schema.products.id));
     if (rootRows.length === 0) return [];
     return rootRows.map((root) => Product._rehydrate({ id: Ids.ProductId(root.id), sku: root.sku, price: new Money(Number(root.price_amount), root.price_currency), version: root.version }));
   }
@@ -96,7 +96,7 @@ export class ProductRepository implements ProductRepositoryPort {
   }
 
   async bySku(sku: string): Promise<Product | null> {
-    const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).limit(1);
+    const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).orderBy(asc(schema.products.id)).limit(1);
     if (rootRows.length === 0) {
       requestLog().debug({ event: "find_executed", aggregate: "Product", find: "bySku", rows: 0 });
       return null;

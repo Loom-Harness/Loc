@@ -1138,6 +1138,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `'for … in …' is lowered only inside a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/workflow-explicit-save.ts
+  // ----------------------------------------------------------------------
+  "loom.workflow-explicit-save": (p: { repo: unknown; verb: unknown; owner: unknown }) =>
+    `'${p.repo}.${p.verb}(…)' in ${p.owner}: a workflow or handler body persists at its exit — every aggregate it creates, or loads and changes through one of its operations, is saved once on the way out (a 'for' iteration and an 'if let' branch save at their own end). There is no persistence statement. Remove the '${p.verb}' call; to change the aggregate, call one of its operations and the exit save writes it.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
   // --- the M-T9.56 drain of `structural.ts` -------------------------------
@@ -5011,6 +5017,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `create. A create routes by parameter — by name, or by a '${p.corr} := <param>' assignment — ` +
     `and reads no nested field, so this addresses no instance. Add '${p.corr}' as a top-level ` +
     `parameter: 'create(${p.corr}: …, ${p.param}: ${p.payload})'.`,
+  // An uncorrelated workflow (no id-shaped state field) whose command 'create'
+  // assigns state: there is no row key, so no later step could read the write.
+  "loom.workflow-uncorrelated-state-write": (p: { name: unknown; fields: unknown }) =>
+    `workflow '${p.name}': the command 'create' assigns workflow state (${p.fields}), but the ` +
+    `workflow has no id-shaped state field to correlate on, so no instance row is kept and no ` +
+    `later step could ever read the value. Either declare one id-shaped state field (for example ` +
+    `'orderId: Order id') and pass it to the create, or drop the state and the assignment.`,
   // A workflow that declares `on(…)` reactors but no `create(…)` starter.
   // Sibling of `loom.reactor-event-uncarried` above, which performs this class
   // of check for a different cause (no channel carries the event).  Here the

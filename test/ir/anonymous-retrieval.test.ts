@@ -89,7 +89,7 @@ describe("anonymous retrieval — run(retrieval { where, sort, loads })", () => 
         for o in xs { }`),
     );
     const repo = [...files].find(([k]) => /order-repository\.ts$/.test(k))?.[1] ?? "";
-    expect(repo).toContain(".orderBy(desc(schema.orders.code))");
+    expect(repo).toContain(".orderBy(desc(schema.orders.code), asc(schema.orders.id))");
   });
 
   it("dedupes identical shapes, separates distinct ones", async () => {
