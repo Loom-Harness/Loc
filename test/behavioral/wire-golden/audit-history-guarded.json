@@ -1,0 +1,636 @@
+{
+  "case": "audit-history-guarded",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/employees/{id}/rename",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "createdAt": "<timestamp>",
+        "createdBy": "admin",
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ada L",
+        "salary": 1050,
+        "updatedAt": "<timestamp>",
+        "updatedBy": "admin",
+        "version": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/employees",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "createdAt": "<timestamp>",
+            "createdBy": "admin",
+            "grade": 1,
+            "id": "<volatile:key>",
+            "name": "Ada L",
+            "salary": 1050,
+            "updatedAt": "<timestamp>",
+            "updatedBy": "admin",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "grade"
+            },
+            {
+              "after": 1000,
+              "before": null,
+              "field": "salary"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "rename",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada L",
+              "before": "Ada",
+              "field": "name"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "raise",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 1050,
+              "before": 1000,
+              "field": "salary"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/payslips",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/payslips/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "2026-10",
+              "before": null,
+              "field": "period"
+            },
+            {
+              "after": 3000,
+              "before": null,
+              "field": "amount"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/payslips",
+      "status": 200,
+      "body": [
+        {
+          "amount": 3000,
+          "id": "<volatile:key>",
+          "period": "2026-10",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/payslips/{id}",
+      "status": 200,
+      "body": {
+        "amount": 3000,
+        "id": "<volatile:key>",
+        "period": "2026-10",
+        "version": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/desks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/desks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "D-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/desks",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "D-1",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 13,
+      "method": "PATCH",
+      "path": "/api/employees",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/employees",
+        "instance": "/api/employees",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/employees",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "permissions": [],
+        "role": "admin"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/employees/{id}/rename",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/name"
+          }
+        ],
+        "instance": "/api/employees/{id}/rename",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/employees",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ladder",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "grade"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "raise",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ladder",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "grade"
+            },
+            {
+              "after": 10,
+              "before": null,
+              "field": "salary"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "raise",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 15,
+              "before": 10,
+              "field": "salary"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: currentUser.role == \"agent\"",
+        "instance": "/api/employees/{id}/raise",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/employees/{id}/raise",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/payslips",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: find all",
+        "instance": "/api/payslips",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/payslips",
+      "status": 200,
+      "body": [
+        {
+          "amount": 3000,
+          "id": "<volatile:key>",
+          "period": "2026-10",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/payslips",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/payslips/{id}/history",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: find history",
+        "instance": "/api/payslips/{id}/history",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/payslips/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "orgId": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent",
+            "tenantId": "<volatile:key>"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "ladder",
+              "before": null,
+              "field": "period"
+            },
+            {
+              "after": 1,
+              "before": null,
+              "field": "amount"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/payslips/{id}/history",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden: find history",
+        "instance": "/api/payslips/{id}/history",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/payslips/{id}/history",
+      "status": 404,
+      "body": {
+        "detail": "Payslip {id} not found",
+        "instance": "/api/payslips/{id}/history",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/desks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "GET",
+      "path": "/api/desks/{id}/history",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /api/desks/{id}/history",
+        "instance": "/api/desks/{id}/history",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "GET",
+      "path": "/api/desks/{id}/history",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /api/desks/{id}/history",
+        "instance": "/api/desks/{id}/history",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

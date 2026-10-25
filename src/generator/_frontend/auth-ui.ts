@@ -12,6 +12,12 @@
 // the in-browser playground dev stub) and gates the app on a verified
 // session; "Sign in" redirects to the backend's `/auth/login` (→ IdP).
 //
+// The guard renders NO "Sign out" control of its own: an overlay floating
+// over the page would sit on top of table rows and form buttons.  Sign out is
+// app-shell chrome — each design pack's `app-shell.hbs` places it in its
+// header/toolbar (gated on the `authUi` view-model flag), so it lands where
+// that pack's users expect an account action.
+//
 // `session.ts` is shared verbatim by every framework (it only touches the
 // api client + config, whose relative paths are identical across React, Vue,
 // and Svelte).
@@ -109,9 +115,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return (
     <SessionContext.Provider value={{ user: state.user, signOut }}>
       {children}
-      <button type="button" style={signOutButton} onClick={signOut}>
-        Sign out
-      </button>
     </SessionContext.Provider>
   );
 }
@@ -125,14 +128,6 @@ const centered: CSSProperties = {
 const primaryButton: CSSProperties = {
   padding: "8px 20px",
   fontSize: 16,
-  cursor: "pointer",
-};
-const signOutButton: CSSProperties = {
-  position: "fixed",
-  bottom: 12,
-  right: 12,
-  zIndex: 1000,
-  padding: "6px 12px",
   cursor: "pointer",
 };
 `;
@@ -215,14 +210,6 @@ const primaryButton: CSSProperties = {
   fontSize: "16px",
   cursor: "pointer",
 };
-const signOutButton: CSSProperties = {
-  position: "fixed",
-  bottom: "12px",
-  right: "12px",
-  zIndex: 1000,
-  padding: "6px 12px",
-  cursor: "pointer",
-};
 </script>
 
 <template>
@@ -233,10 +220,7 @@ const signOutButton: CSSProperties = {
       <button type="button" :style="primaryButton" @click="signIn">Sign in</button>
     </div>
   </div>
-  <template v-else>
-    <slot />
-    <button type="button" :style="signOutButton" @click="signOut">Sign out</button>
-  </template>
+  <slot v-else />
 </template>
 `;
 
@@ -326,13 +310,6 @@ export const AUTH_GATE_SVELTE = `<!-- Auto-generated.  Do not edit by hand. -->
   </div>
 {:else}
   {@render children()}
-  <button
-    type="button"
-    style="position:fixed;bottom:12px;right:12px;z-index:1000;padding:6px 12px;cursor:pointer"
-    onclick={signOut}
-  >
-    Sign out
-  </button>
 {/if}
 `;
 
@@ -422,8 +399,8 @@ export class SessionService {
 
 /** \`src/app/auth/auth-gate.component.ts\` — the route guard.  Probes the
  *  session on init, shows a spinner while loading, a full-screen Sign in
- *  screen when unauthenticated, and projects the app (\`<ng-content>\`) +
- *  a fixed Sign out button once authenticated.  Pack-agnostic. */
+ *  screen when unauthenticated, and projects the app (\`<ng-content>\`)
+ *  once authenticated.  Pack-agnostic. */
 export const AUTH_GATE_ANGULAR = `// Auto-generated.
 import { Component, type OnInit, inject } from "@angular/core";
 import { SessionService } from "./session.service";
@@ -458,13 +435,6 @@ import { SessionService } from "./session.service";
       }
       @default {
         <ng-content />
-        <button
-          type="button"
-          style="position:fixed;bottom:12px;right:12px;z-index:1000;padding:6px 12px;cursor:pointer"
-          (click)="session.signOut()"
-        >
-          Sign out
-        </button>
       }
     }
   \`,

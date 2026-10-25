@@ -1,17 +1,12 @@
 // Entity history on Elixir/Phoenix (plain Ecto) — the read side of the
 // `audited` trail (docs/audit.md).  The RUNTIME contract is proven by the
-// behavioral leg (`node run-elixir.mjs audit-history` diffs the booted app's
-// responses against the node-minted wire golden), and `mix compile
-// --warnings-as-errors` proves the emitted project is sound.  This suite is the
-// fast per-PR net over the emission SHAPE, and specifically over the guards — a
-// masking or scoping regression should fail here in seconds rather than waiting
-// for a backend boot.
-//
-// Mirrors `test/generator/audit-history-node.test.ts` and
-// `test/generator/python/audit-history-python.test.ts` assertion-for-assertion:
-// the three guards are the same three guards, because the shape, the diff
-// boundary and the masking rule are platform-neutral
-// (`src/ir/util/audit-history.ts`) and only their spelling is per-backend.
+// behavioral leg (`node run-elixir.mjs audit-history audit-history-guarded`
+// diffs the booted app's responses against the node-minted wire goldens), and
+// `mix compile --warnings-as-errors` proves the emitted project is sound.  The
+// controller's guards — mask drop, the inherited gate's 403 ahead of the row
+// lookup, stamps out of the diff, no route when unaudited — are asserted on
+// that wire by `audit-history-guarded`; this suite keeps what it cannot see,
+// chiefly the LiveView seam below, which no behavioural leg drives.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
@@ -105,21 +100,6 @@ describe("entity history — elixir route surface", () => {
 });
 
 describe("entity history — elixir negative authz", () => {
-  it("DROPS a masked field's change entry rather than redacting it", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
-    // Unmasked fields go through the unconditional loop; `salary` must not.
-    expect(controller).toContain('Enum.flat_map(["name"], fn key ->');
-    expect(controller).not.toContain('Enum.flat_map(["name", "salary"], fn key ->');
-    // Its entry is appended only inside the predicate guard, so a caller who
-    // fails the predicate sees no entry at all — a redacted-but-present entry
-    // would still disclose that it changed, when, and by whom.
-    expect(controller).toMatch(
-      /if current_user != nil and \([^\n]*permissions[^\n]*\) do\n(?:.*\n)*?\s+changes \+\+ \[%\{"field" => "salary"/,
-    );
-    // ...and never as a redaction-style nulled entry.
-    expect(controller).not.toContain('%{"field" => "salary", "before" => nil, "after" => nil}');
-  });
-
   it("is fail-closed on an unauthenticated caller", async () => {
     const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
     const mapper = controller.slice(controller.indexOf("defp employee_audit_entry"));
@@ -130,42 +110,13 @@ describe("entity history — elixir negative authz", () => {
     expect(mapper).toContain("current_user = Process.get(:loom_current_user)");
     expect(mapper).toContain("if current_user != nil and (");
   });
-
-  it("inherits the list read's gate — 403 before any query runs", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
-    const handler = controller.slice(controller.indexOf('def history(conn, %{"id" => id})'));
-    expect(handler).toContain('if not (current_user.role == "hr") do');
-    expect(handler).toContain(
-      'ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: history Employee")',
-    );
-    // The gate runs BEFORE the entity read and before the audit table is
-    // touched, so a denied caller cannot even probe for the row's existence.
-    expect(handler.indexOf("403")).toBeLessThan(handler.indexOf("C.get_employee(id)"));
-    expect(handler.indexOf("403")).toBeLessThan(handler.indexOf("Audit.History.for_target"));
-  });
-
-  it("never lets a stamp, the version counter, or the id into the diff", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
-    const mapper = controller.slice(controller.indexOf("defp employee_audit_entry"));
-    const keyLoop = mapper.slice(0, mapper.indexOf('"auditId" =>'));
-    // `auditable` stamps these post-save and `versioned` bumps `version` on
-    // every command — left in, they would be most of the timeline.
-    expect(keyLoop).not.toContain("updatedAt");
-    expect(keyLoop).not.toContain("createdAt");
-    expect(keyLoop).not.toContain('"version"');
-    expect(keyLoop).not.toContain('"id"');
-  });
 });
 
 describe("entity history — aggregates that serve none", () => {
-  it("emits no history route, action or module when nothing is audited", async () => {
+  it("emits no history module, schema or spec path when nothing is audited", async () => {
     const files = await emit(MASKED.replace("aggregate Employee audited", "aggregate Employee"));
     expect([...files.keys()].some((p) => p.endsWith("lib/api/audit/history.ex"))).toBe(false);
     expect([...files.keys()].some((p) => p.endsWith("api/schemas/audit_entry.ex"))).toBe(false);
-    expect(fileEndingWith(files, "lib/api_web/router.ex")).not.toContain("/history");
-    expect(fileEndingWith(files, "controllers/employee_controller.ex")).not.toContain(
-      "def history(conn",
-    );
     expect(fileEndingWith(files, "lib/api_web/api/a_spec.ex")).not.toContain("/history");
   });
 });

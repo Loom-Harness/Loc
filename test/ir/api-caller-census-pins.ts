@@ -608,6 +608,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
   ],
+  "corpus/audit-history-guarded": [
+    "api.employees.history (no derived operation)",
+    "api.payslips.history (no derived operation)",
+  ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
   // a singleton whole-table aggregation and the grouped read models.  The
