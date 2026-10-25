@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BEHAVIOURAL_SKIP,
+  BEHAVIOURAL_XFAIL,
   declaresE2e,
   GOLDEN_OPT_OUT,
   hasBehaviouralBlock,
@@ -55,17 +56,50 @@ export function dapperClauseInRunner(): boolean {
  */
 export const WIRE_GATED_LEGS: readonly {
   readonly runner: string;
+  /** The wire-gate label, which keys `BEHAVIOURAL_XFAIL`. */
+  readonly leg: string;
   readonly backendKey: string;
   readonly platformClause: string;
 }[] = [
-  { runner: "run.mjs", backendKey: "node", platformClause: PLATFORM_CLAUSE.node },
-  { runner: "run-mikroorm.mjs", backendKey: "node", platformClause: PLATFORM_CLAUSE.node },
-  { runner: "run-dotnet.mjs", backendKey: "dotnet", platformClause: PLATFORM_CLAUSE.dotnet },
-  { runner: "run-dapper.mjs", backendKey: "dotnet", platformClause: DAPPER_CLAUSE },
-  { runner: "run-java.mjs", backendKey: "java", platformClause: PLATFORM_CLAUSE.java },
-  { runner: "run-python.mjs", backendKey: "python", platformClause: PLATFORM_CLAUSE.python },
-  { runner: "run-elixir.mjs", backendKey: "vanilla", platformClause: PLATFORM_CLAUSE.vanilla },
+  { runner: "run.mjs", leg: "node", backendKey: "node", platformClause: PLATFORM_CLAUSE.node },
+  {
+    runner: "run-mikroorm.mjs",
+    leg: "mikroorm",
+    backendKey: "node",
+    platformClause: PLATFORM_CLAUSE.node,
+  },
+  {
+    runner: "run-dotnet.mjs",
+    leg: "dotnet",
+    backendKey: "dotnet",
+    platformClause: PLATFORM_CLAUSE.dotnet,
+  },
+  { runner: "run-dapper.mjs", leg: "dapper", backendKey: "dotnet", platformClause: DAPPER_CLAUSE },
+  { runner: "run-java.mjs", leg: "java", backendKey: "java", platformClause: PLATFORM_CLAUSE.java },
+  {
+    runner: "run-python.mjs",
+    leg: "python",
+    backendKey: "python",
+    platformClause: PLATFORM_CLAUSE.python,
+  },
+  {
+    runner: "run-elixir.mjs",
+    leg: "elixir",
+    backendKey: "vanilla",
+    platformClause: PLATFORM_CLAUSE.vanilla,
+  },
 ];
+
+const xfailSetFor = (leg: string): Record<string, unknown> =>
+  (BEHAVIOURAL_XFAIL as Record<string, Record<string, unknown>>)[leg] ?? {};
+
+/** Cases the node ORACLE boots as a tracked expected failure.  A golden is
+ *  captured from node, so while node fails a case there is no answer key to
+ *  capture and none is required; the case's own entry ratchets instead (node
+ *  goes red the day it passes, and the golden lands with that fix). */
+export function oracleExpectedFailures(): string[] {
+  return Object.keys(xfailSetFor("node")).sort();
+}
 
 /** The platform clauses the legs above can be skipped by — every key of
  *  `BEHAVIOURAL_SKIP` must be one of these, or the register is talking about a
@@ -81,10 +115,16 @@ const skipSetFor = (platformClause: string): Record<string, string> =>
  *  declaring `backendKey`, carrying a behavioural block, not skipped on this
  *  platform clause.  (The runner bundles the manifest through esbuild to read it
  *  from `.mjs`; here it is a plain typed import of the same file.) */
-export function featureCaseNames(backendKey: string, platformClause: string): string[] {
+export function featureCaseNames(
+  backendKey: string,
+  platformClause: string,
+  leg?: string,
+): string[] {
   const skip = skipSetFor(platformClause);
+  const xfail = leg ? xfailSetFor(leg) : {};
   return CORPUS.filter((f) => {
-    if (!(f.backends as readonly string[]).includes(backendKey) || f.id in skip) return false;
+    const declared = (f.backends as readonly string[]).includes(backendKey) || f.id in xfail;
+    if (!declared || f.id in skip) return false;
     const src = fs.readFileSync(path.join(CORPUS_DIR, `${f.id}.ddd`), "utf8");
     // A unit-only case (a `test` block but no `test e2e`) runs on every leg but
     // RECORDS no wire — the runners return its unit results and skip the
@@ -146,13 +186,14 @@ export function requiredGoldenCases(): RequiredCase[] {
     else byName.set(name, [runner]);
   };
   for (const leg of WIRE_GATED_LEGS) {
-    for (const n of featureCaseNames(leg.backendKey, leg.platformClause)) add(n, leg.runner);
+    for (const n of featureCaseNames(leg.backendKey, leg.platformClause, leg.leg))
+      add(n, leg.runner);
     for (const n of sharedSystemCaseNames(leg.platformClause)) add(n, leg.runner);
   }
   // Example (broad) systems ride the node runner only.
   for (const n of exampleCaseNames()) add(n, "run.mjs");
 
-  const optedOut = new Set(optedOutCaseNames());
+  const optedOut = new Set([...optedOutCaseNames(), ...oracleExpectedFailures()]);
   return [...byName.entries()]
     .filter(([name]) => !optedOut.has(name))
     .map(([name, runners]) => ({ name, runners: [...new Set(runners)].sort() }))

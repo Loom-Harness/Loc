@@ -32,6 +32,7 @@ import {
   GOLDEN_DIR,
   knownSkipClauses,
   optedOutCaseNames,
+  oracleExpectedFailures,
   requiredGoldenCases,
 } from "../_helpers/golden-coverage.js";
 import { BEHAVIOURAL_SKIP } from "./registers.mjs";
@@ -65,7 +66,13 @@ describe("wire-golden coverage", () => {
   });
 
   it("no golden outlives its case", () => {
-    const claimed = new Set([...REQUIRED.map((c) => c.name), ...optedOutCaseNames()]);
+    // A golden for a case the oracle is EXPECTED to fail is not an orphan: it is
+    // the answer key that case will be compared to once its fix lands.
+    const claimed = new Set([
+      ...REQUIRED.map((c) => c.name),
+      ...optedOutCaseNames(),
+      ...oracleExpectedFailures(),
+    ]);
     const orphans = committedGoldenNames().filter((n) => !claimed.has(n));
     expect(
       orphans,

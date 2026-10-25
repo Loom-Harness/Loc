@@ -6,6 +6,7 @@ import {
   renderLedger,
   skipKeys,
 } from "../_helpers/gate-ledger.js";
+import { expectedFailure } from "../behavioral/registers.mjs";
 import { BACKENDS } from "../fixtures/corpus/backends.js";
 
 // ---------------------------------------------------------------------------
@@ -164,8 +165,11 @@ describe("gate ledger", () => {
     // owns this from the runners' side; asserting it off the LEDGER's own
     // derivation is what keeps the ledger from scoring an uncompared recording
     // as `behavioural` — the "silently-off gate" failure.
+    // A case the node ORACLE is expected to fail has no answer key to capture
+    // yet; its `BEHAVIOURAL_XFAIL` entry fails node the day it passes.
     const uncompared = ledger.cells
       .filter((c) => c.boots && c.declaresE2e && !c.golden)
+      .filter((c) => expectedFailure("node", c.feature) === null)
       .map(cellId);
     expect(uncompared).toEqual([]);
   });

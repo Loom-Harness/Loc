@@ -1,0 +1,194 @@
+// Inheritance × read restrictions — the behavioural fixture of epic #3954, and
+// the answer key every backend's ORM-native rework (#3960–#3965) is proven
+// against.  Each axis is correct alone somewhere in the corpus; this file is
+// where they CROSS, because every crossing below is a read path some backend
+// got wrong (the 2026-10-25 audit, #3955–#3959):
+//
+//   * both storage layouts — a `sharedTable` (TPH) hierarchy, where a
+//     subtype's restriction must be guarded by `kind` so it narrows only its
+//     own rows of the ONE table, and an `ownTable` (TPC) hierarchy, where each
+//     concrete owns its table and its ids;
+//   * a capability on ONE subtype (`softDeletable` + `softDelete` on `Car` and
+//     on `Driver`) next to a sibling (`Truck`, `Dispatcher`) that carries none —
+//     the sibling is the control that says the filter was not hoisted onto the
+//     whole hierarchy;
+//   * a filter over a SUBTYPE-ONLY column (`seats` exists only on `Car`, so on
+//     the shared table it is a nullable column Truck rows leave NULL);
+//   * `ignoring` on both filter shapes — a static one (`softDeletable`) and the
+//     principal one (`tenantOwned`), each of which must drop exactly its own
+//     conjunct and keep every other;
+//   * `tenantOwned` with TWO tenants — the e2e suite runs as tenant `acme`, and
+//     the cross-tenant rungs (test/behavioral/cases.mjs `AUTHZ_LADDERS`) re-read
+//     every surface as tenant `globex`, which must see none of acme's rows:
+//     404 by id, and the seeded row ABSENT from every 2xx collection read.
+//
+// NOT HERE, by design: the crossings that fail on the node ORACLE itself — a
+// capability declared on the ABSTRACT BASE (ruling 1 of #3954; dropped on most
+// read paths, #3956) and the POLYMORPHIC BASE READS (ruling 2; #3959): the
+// base's by-id read `GET /api/vehicles/{id}` is not routed on node, and a
+// projection `from Vehicle` counts rows a subtype's own filter hides.  A case is one golden, and a golden is captured
+// from node, so a case node fails has no answer key; those crossings live in
+// `inheritance-base-reads.ddd`, a tracked expected failure on every leg, and
+// merge back here when they pass.
+//
+// Where a backend gets a crossing wrong today, its cell is a TRACKED expected
+// failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) linked to the
+// issue that fixes it.  The cell still boots on every leg, and it fails the
+// leg the day it starts passing, so the fix deletes its own entry.
+system InheritanceReadRestrictions {
+  user { id: guid  tenantId: string }
+
+  tenancy by user.tenantId of Organization
+
+  subdomain Fleet {
+    context Fleet {
+      // ── TPH: one shared `vehicles` table, discriminated by `kind` ────────
+      abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned {
+        plate: string
+      }
+
+      // The restricted subtype.  `softDelete` owns the destroy, so `crudish`
+      // drops to `updateOnly` and the create is author-declared (the shape
+      // `tph-crossings.ddd` uses, for the same reason).
+      aggregate Car extends Vehicle with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
+        seats: int
+        // A filter over a column only Car has.  On the shared table `seats` is
+        // NULL on every Truck row, so an unguarded predicate empties Truck too.
+        filter this.seats > 0
+        create(plate: string, seats: int) {
+          plate := plate
+          seats := seats
+        }
+      }
+
+      // The control: same table, no capability, no filter of its own.
+      aggregate Truck extends Vehicle with tenantOwned, crudish {
+        payloadKg: int = 0
+      }
+
+      repository Cars for Car {
+        // No clause: every conjunct (kind, seats, not-deleted, tenant).
+        find byPlate(p: string): Car? where this.plate == p
+        // Drops ONLY the not-deleted conjunct.
+        find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
+        // Drops ONLY the tenant conjunct.  Deliberate for this fixture: it is
+        // the one surface where tenant `globex` must SEE acme's row.
+        find byPlateAnyTenant(p: string): Car? where this.plate == p ignoring tenantOwned
+      }
+      repository Trucks for Truck { }
+
+      // ── TPC: one table per concrete, per-concrete ids ─────────────────────
+      abstract aggregate Crew inheritanceUsing: ownTable with tenantOwned {
+        name: string
+      }
+      aggregate Driver extends Crew inheritanceUsing: ownTable with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
+        licence: string
+        create(name: string, licence: string) {
+          name := name
+          licence := licence
+        }
+      }
+      aggregate Dispatcher extends Crew inheritanceUsing: ownTable with tenantOwned, crudish {
+        desk: int = 0
+      }
+      repository Drivers for Driver {
+        find byName(n: string): Driver? where this.name == n
+        find byNameAll(n: string): Driver? where this.name == n ignoring softDeletable
+      }
+      repository Dispatchers for Dispatcher { }
+    }
+
+    // The tenant registry only has to exist for `tenancy … of Organization`;
+    // it serves no route, so the fixture's surface stays the hierarchy's.
+    context Accounts {
+      aggregate Organization {
+        name: string
+      }
+    }
+  }
+
+  api FleetApi from Fleet
+
+  storage pg { type: postgres }
+  resource fleetState { for: Fleet, kind: state, use: pg }
+  resource accountsState { for: Accounts, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Fleet, Accounts]
+    dataSources: [fleetState, accountsState]
+    serves: FleetApi
+    port: 4000
+    auth: required
+  }
+
+  test e2e "TPH: a subtype's restrictions narrow only its own kind" against d {
+    // The registry serves its collection read and nothing can create a row,
+    // so the read is empty for every caller.
+    expect(api.organizations.all().total).toBe(0)
+
+    let car = api.cars.create({ plate: "C-1", seats: 4 })
+    let empty = api.cars.create({ plate: "C-0", seats: 0 })
+    let truck = api.trucks.create({ plate: "T-1", payloadKg: 900 })
+
+    // The subtype-only-column filter hides the zero-seat Car on every Car read…
+    expect(api.cars.all().length).toBe(1)
+    expect(api.cars.getById(empty)).toThrow(404)
+    expect(api.cars.byPlate({ p: "C-0" })).toThrow(404)
+    // …and must not reach Truck, whose rows carry NULL in `seats`.
+    expect(api.trucks.all().length).toBe(1)
+    expect(api.trucks.getById(truck).payloadKg).toBe(900)
+
+
+    // The canonical update on a TPH subtype writes its OWN columns, of its own
+    // kind's row.
+    api.cars.update(car, { seats: 5 })
+    expect(api.cars.getById(car).seats).toBe(5)
+    api.trucks.update(truck, { payloadKg: 950 })
+    expect(api.trucks.getById(truck).payloadKg).toBe(950)
+
+    // Soft delete: the row stays in the shared table, only the filter hides it.
+    api.cars.softDelete(car)
+    expect(api.cars.getById(car)).toThrow(404)
+    expect(api.cars.byPlate({ p: "C-1" })).toThrow(404)
+    expect(api.cars.all().length).toBe(0)
+
+    // `ignoring softDeletable` drops exactly that conjunct: the deleted Car
+    // returns, the zero-seat one (a different filter) stays hidden.
+    expect(api.cars.byPlateAll({ p: "C-1" }).seats).toBe(5)
+    expect(api.cars.byPlateAll({ p: "C-0" })).toThrow(404)
+    // `ignoring tenantOwned` keeps the not-deleted conjunct.
+    expect(api.cars.byPlateAnyTenant({ p: "C-1" })).toThrow(404)
+
+    // `restore()` addresses a row the capability's own read filter hides, and
+    // every backend narrows an operation's load by that filter (RS-27, the
+    // same 404 `tph-crossings` pins).
+    expect(api.cars.restore(car)).toThrow(404)
+
+    // The sibling never saw a filter that reads a column only Car has — and a
+    // hard delete out of the shared table removes exactly its own row.
+    expect(api.trucks.all().length).toBe(1)
+    api.trucks.destroy(truck)
+    expect(api.trucks.getById(truck)).toThrow(404)
+    expect(api.trucks.all().length).toBe(0)
+  }
+
+  test e2e "TPC: a subtype's capability narrows only its own table" against d {
+    let d1 = api.drivers.create({ name: "Ada", licence: "L-1" })
+    let disp = api.dispatchers.create({ name: "Bob", desk: 3 })
+
+    expect(api.drivers.byName({ n: "Ada" }).licence).toBe("L-1")
+    api.drivers.update(d1, { licence: "L-2" })
+    api.drivers.softDelete(d1)
+    expect(api.drivers.getById(d1)).toThrow(404)
+    expect(api.drivers.byName({ n: "Ada" })).toThrow(404)
+    expect(api.drivers.all().length).toBe(0)
+    expect(api.drivers.byNameAll({ n: "Ada" }).licence).toBe("L-2")
+    expect(api.drivers.restore(d1)).toThrow(404)
+
+    expect(api.dispatchers.all().length).toBe(1)
+    api.dispatchers.update(disp, { desk: 4 })
+    expect(api.dispatchers.getById(disp).desk).toBe(4)
+    api.dispatchers.destroy(disp)
+    expect(api.dispatchers.all().length).toBe(0)
+  }
+}
