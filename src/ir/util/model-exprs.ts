@@ -169,6 +169,7 @@ export const SITES = {
     "CreateInputFieldIR.field",
     "CreateIR.correlation",
     "CreateIR.params",
+    "CreateIR.returnValue",
     "CreateIR.statements",
     "CriterionIR.body",
     "CriterionIR.params",
@@ -496,6 +497,7 @@ function visitWorkflow(w: WorkflowIR, src: string, v: ExprVisitor) {
     visitParams(c.params, cs, "CreateIR.params", v);
     expr(c.correlation, cs, "CreateIR.correlation", v);
     stmts(c.statements, cs, "CreateIR.statements", v, walkWorkflowStmtExprsDeep);
+    expr(c.returnValue, cs, "CreateIR.returnValue", v);
   }
   for (const o of w.subscriptions ?? []) {
     const os = `${s}/on(${o.event})`;
