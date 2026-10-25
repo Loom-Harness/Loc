@@ -70,5 +70,3 @@ export type EffectIR =
   | (EffectBase & { kind: "call"; target: CallTargetIR })
   /** The body's result value (`create(…): T` / a handler's `return`). */
   | (EffectBase & { kind: "return"; value: ExprIR });
-
-export type EffectKind = EffectIR["kind"];

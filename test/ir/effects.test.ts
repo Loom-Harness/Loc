@@ -201,8 +201,8 @@ describe("workflow body effects", () => {
 
   it("a command handler's return is its last effect", async () => {
     await expectEffects(
-      `commandHandler touch(id: Item id): Item {
-         let o = Items.getById(id)
+      `commandHandler touch(itemId: Item id): Item {
+         let o = Items.getById(itemId)
          o.bump()
          return o
        }`,
@@ -221,21 +221,21 @@ describe("loom.workflow-explicit-save (#3300)", () => {
            Items.${verb}(i)
          } }`,
       );
-      expect(got).toContain("loom.workflow-explicit-save");
+      expect(got).toStrictEqual(["loom.workflow-explicit-save"]);
     });
   }
 
   it("refuses it in a command handler and inside a nested loop body", async () => {
     expect(
       await codes(
-        `commandHandler touch(id: Item id): Item {
-           let o = Items.getById(id)
+        `commandHandler touch(itemId: Item id): Item {
+           let o = Items.getById(itemId)
            o.bump()
            Items.save(o)
            return o
          }`,
       ),
-    ).toContain("loom.workflow-explicit-save");
+    ).toStrictEqual(["loom.workflow-explicit-save"]);
     expect(
       await codes(
         `workflow sweep { create() {
@@ -243,7 +243,7 @@ describe("loom.workflow-explicit-save (#3300)", () => {
            for o in xs { Items.save(o) }
          } }`,
       ),
-    ).toContain("loom.workflow-explicit-save");
+    ).toStrictEqual(["loom.workflow-explicit-save"]);
   });
 
   it("leaves `Items.delete(i)` and an exit-saved mutation alone", async () => {
@@ -254,7 +254,7 @@ describe("loom.workflow-explicit-save (#3300)", () => {
          Items.delete(i)
        } }`,
     );
-    expect(got).not.toContain("loom.workflow-explicit-save");
+    expect(got).toStrictEqual([]);
   });
 });
 
@@ -272,7 +272,7 @@ describe("loom.workflow-uncorrelated-state-write (#3390)", () => {
            if let b = Items.find(Busy) { total := n }
          } }`,
       ),
-    ).toContain("loom.workflow-uncorrelated-state-write");
+    ).toStrictEqual(["loom.workflow-uncorrelated-state-write"]);
   });
 
   it("admits the correlated and the stateless spellings", async () => {
@@ -280,9 +280,9 @@ describe("loom.workflow-uncorrelated-state-write (#3390)", () => {
       await codes(
         `workflow Tally { itemId: Item id  total: int  create(itemId: Item id, n: int) { total := n } }`,
       ),
-    ).not.toContain("loom.workflow-uncorrelated-state-write");
+    ).toStrictEqual([]);
     expect(
       await codes(`workflow Tally { create(id: Item id) { let i = Items.getById(id)  i.bump() } }`),
-    ).not.toContain("loom.workflow-uncorrelated-state-write");
+    ).toStrictEqual([]);
   });
 });
