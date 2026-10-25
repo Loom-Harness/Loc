@@ -245,6 +245,68 @@ exactly one `platform: node` (Hono) deployable, so dispatch
 Multi-backend systems (`examples/showcase.ddd`, `examples/acme.ddd`)
 stay in the docker `conformance-full` leg.
 
+## Every fixture on every backend — tracked expected failures (#3595)
+
+Every behavioural corpus fixture runs on **all five** backends. A cell a
+backend gets wrong is **booted anyway**, as a tracked expected failure in
+`BEHAVIOURAL_XFAIL` (`registers.mjs`), keyed by runner leg (`node`,
+`mikroorm`, `dotnet`, `dapper`, `java`, `python`, `elixir`) and linked to
+the issue that fixes it. It is never dropped from the leg:
+
+```js
+dotnet: {
+  // refused at generate — `match` pins the error
+  "tph-crossings": { issue: "#3960", expect: "error", match: "loom\\.tph-filter-unsupported", reason: "…" },
+  // runtime — `tests` pins the EXACT failing set, test-name fragment → message regex
+  "inheritance-base-reads": {
+    issue: "#3956, #3959", expect: "fail",
+    tests: { "TPC: a base capability narrows every subtype": "expected the call to reject, but it resolved", … },
+    reason: "…",
+  },
+},
+```
+
+`case-loop.mjs` (the one per-case loop all seven legs share) settles each
+such cell:
+
+| observed | leg |
+|---|---|
+| fails as recorded (same kind; `match` / every `tests` pin claims a failure and every failure is claimed) | green — `⊘ failed as expected (#NNNN)` |
+| **passes** | **red** — `XPASS … delete its BEHAVIOURAL_XFAIL entry` |
+| fails any other way (another kind, another message, a recorded block now passing, a new block failing) | **red** — `MISMATCH …` |
+
+A fix's PR therefore deletes its own entry, and a half-landed fix narrows
+it. A fixture node itself fails has no golden yet (goldens are captured
+from node) and needs none until it passes. When an adapter passes a cell
+its backend's default adapter fails, arm the cell in `ADAPTER_ONLY_CASES`
+instead. The Dapper leg passes the two TPH-filter fixtures EF refuses, and
+the ratchet found that the first time it booted them.
+
+The fast suite (`expected-failures.test.ts`, no boot) pins three things:
+the settling rule; the register's shape (real case, real leg, `#NNNN`
+issue, a well-formed pin); and the matrix itself. A behavioural fixture
+with a backend that neither declares it nor boots it as an expected
+failure fails there by name (`tph-crossings × dotnet`).
+
+**Adding a fixture:** drop the `.ddd`, add a manifest row, capture the
+golden (`LOOM_WIRE_UPDATE=1 node run.mjs <case>`), then boot it on each
+leg. Where a leg fails, add the entry its `MISMATCH` line describes,
+linked to an issue (file one if none exists).
+
+**Running every leg locally.** Docker only needs the SDKs, and the host's
+node is mounted. Give each leg its own database and port when legs run
+side by side (`docs/tools.md` → "Port collision"):
+
+```bash
+docker run -d --name bhpg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+docker exec bhpg createdb -U postgres app        # one db per concurrent leg
+# .NET / Dapper (mcr.microsoft.com/dotnet/sdk:10.0) and Java (gradle:9-jdk25):
+docker run --rm --network host -v $PWD/../..:$PWD/../.. -v /opt/node22:/opt/node22:ro \
+  -e PATH=/opt/node22/bin:/usr/bin:/bin -w $PWD mcr.microsoft.com/dotnet/sdk:10.0 node run-dotnet.mjs <case…>
+# Python and MikroORM run on the host (uv); Elixir runs in hexpm/elixir, behind
+# LOOM_HEX_MIRROR's loopback mirror where the egress proxy fingerprints TLS.
+```
+
 ## Definition-of-Done rollup
 
 After running, each case joins its outcomes onto the generated

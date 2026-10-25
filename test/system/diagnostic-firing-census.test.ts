@@ -4097,6 +4097,12 @@ const LATENT_GATES: ReadonlyArray<{
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const DRIVEN_ELSEWHERE: Record<string, string> = {
+  // `loom_diff`'s refusals: they judge the diff's INPUTS (a previous model
+  // that does not load, a `migrations/` directory that does not read), which
+  // `validate()` of one source never sees.  The pointed-at file drives both
+  // through the tool catalog and asserts each code.
+  "loom.diff-baseline-invalid": "test/tools/catalog.test.ts",
+  "loom.migration-chain-invalid": "test/tools/catalog.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",

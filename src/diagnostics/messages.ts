@@ -5366,6 +5366,10 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ir-internal#evolve-lowering": "Lowering the current source failed.",
   "loom.ir-internal#migration-derivation": (p: { message: unknown }) =>
     `Migration derivation failed: ${p.message}`,
+  "loom.diff-baseline-invalid": (p: { detail: unknown }) =>
+    `The baseline source does not load (${p.detail}), so there is nothing to diff against. Pass the previous model as it was, or omit \`baseline\` for a first-run diff.`,
+  "loom.migration-chain-invalid": (p: { detail: unknown }) =>
+    `The migration chain does not read as one list: ${p.detail}`,
   "loom.no-system":
     "Source has no `system` block — schema migrations and the wire contract are derived per system, so there is nothing to evolve yet.",
 

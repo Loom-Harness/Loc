@@ -502,6 +502,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-block-applied":
     "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
+  "loom.migration-chain-invalid":
+    "../migrations.md#the-migration-chain--migrations-beside-the-source",
+  "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
   "loom.unique-tpc-not-hierarchy-wide":

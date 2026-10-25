@@ -19,6 +19,7 @@ import {
   offsetToPosition,
   validateLoomModel,
 } from "../ir/validate/validate.js";
+import { verifyLoomModel } from "../ir/verify/verify-ir.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -44,8 +45,15 @@ import {
   serializeManifest,
 } from "../system/manifest.js";
 import {
+  EMPTY_CHAIN,
+  entryFileName,
+  kebabName,
+  MIGRATIONS_DIR,
+  type MigrationChain,
   MigrationChainError,
   MigrationDriftError,
+  parseChain,
+  parseForkedChain,
   recordGeneration,
 } from "../system/migration-chain.js";
 import {
@@ -82,6 +90,8 @@ import {
   runI18nSync,
 } from "./i18n/index.js";
 import {
+  deleteChainEntries,
+  readChainFiles,
   readMigrationChain,
   readMigrationChainOrEmpty,
   utcVersionNow,
@@ -601,6 +611,11 @@ interface RunOptions {
    * chart (`helm/`) and the raw manifests it renders to (`k8s/`) alongside
    * `docker-compose.yml`.  See docs/kubernetes.md. */
   emitKubernetes?: boolean;
+  /** `--verify-ir` switch — run the IR verifier over the enriched model before
+   * phase ⑦ and fail the run on a violation.  A violation is a compiler bug
+   * (lowering/enrichment produced an IR the backends cannot consume), not a
+   * model error; off by default.  `generate system` only. */
+  verifyIr?: boolean;
   /** `--sourcemap` switch — when true, `generate system` additionally emits
    * `.loom/sourcemap.json` mapping generated file regions back to `.ddd`
    * spans / macro-call sites.  Off by default (byte-identical output).
@@ -674,6 +689,49 @@ function printMigrationWarnings(migrationWarnings: readonly MigrationWarning[]):
   }
 }
 
+/** Parse, validate and print diagnostics for `file` the way `generate`
+ *  does; `null` when it has errors (already printed). */
+async function loadValidProject(
+  file: string,
+  allWarnings: boolean | undefined,
+): Promise<EnrichedLoomModel | null> {
+  let projectResult: ProjectParseResult;
+  try {
+    projectResult = await parseProject(file);
+  } catch (err) {
+    console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  const ast = printAstDiagnostics(projectResult);
+  if (projectResult.errorCount > 0) {
+    printSummary(ast);
+    return null;
+  }
+  const loom = projectResult.loom;
+  const { errors, warnings } = printIrDiagnostics(
+    validateLoomModel(loom),
+    projectResult.sourceTexts,
+    { allWarnings },
+  );
+  printSummary(ast, { errors: errors.length, warnings: warnings.length });
+  return errors.length > 0 ? null : loom;
+}
+
+/** Run `body`, reporting a migration refusal as a clean failure. */
+async function migrationCommand(file: string, body: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await body();
+  } catch (err) {
+    if (isMigrationRefusal(err)) {
+      console.error(`${file}: ${err.message}`);
+      return false;
+    }
+    throw err;
+  }
+}
+
+const relPath = (p: string): string => path.relative(process.cwd(), p) || p;
+
 /** `ddd migrate add` — diff the model against the chain's head and append
  *  the result.  Returns false on any error (already printed). */
 async function runMigrateAdd(
@@ -681,30 +739,10 @@ async function runMigrateAdd(
   file: string,
   options: { allowDestructive?: boolean; allWarnings?: boolean },
 ): Promise<boolean> {
-  let projectResult: ProjectParseResult;
-  try {
-    projectResult = await parseProject(file);
-  } catch (err) {
-    console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
-    return false;
-  }
-  const ast = printAstDiagnostics(projectResult);
-  if (projectResult.errorCount > 0) {
-    printSummary(ast);
-    return false;
-  }
-  const loom = projectResult.loom;
-  const { errors, warnings } = printIrDiagnostics(
-    validateLoomModel(loom),
-    projectResult.sourceTexts,
-    {
-      allWarnings: options.allWarnings,
-    },
-  );
-  printSummary(ast, { errors: errors.length, warnings: warnings.length });
-  if (errors.length > 0) return false;
-  const migrationWarnings: MigrationWarning[] = [];
-  try {
+  const loom = await loadValidProject(file, options.allWarnings);
+  if (!loom) return false;
+  return migrationCommand(file, async () => {
+    const migrationWarnings: MigrationWarning[] = [];
     const chain = readMigrationChainOrEmpty(file);
     const deltas = pendingMigrations(loom, chain, {
       allowDestructive: options.allowDestructive,
@@ -721,16 +759,173 @@ async function runMigrateAdd(
       return true;
     }
     for (const written of writeChainEntries(file, entries)) {
-      console.log(`  recorded  ${path.relative(process.cwd(), written) || written}`);
+      console.log(`  recorded  ${relPath(written)}`);
     }
     return true;
-  } catch (err) {
-    if (isMigrationRefusal(err)) {
-      console.error(`${file}: ${err.message}`);
+  });
+}
+
+/** One owning module's line in `ddd migrate status`. */
+interface ModuleMigrationStatus {
+  module: string;
+  /** The module's newest recorded entry, if any. */
+  head?: { version: string; name: string };
+  /** Steps the model has that the chain does not record yet. */
+  unrecordedSteps: number;
+}
+
+/** `ddd migrate status` — what the chain records against what the model
+ *  describes.  Fails only when `migrations/` cannot be read as one chain. */
+async function runMigrateStatus(
+  file: string,
+  options: { json?: boolean; allWarnings?: boolean },
+): Promise<boolean> {
+  const loom = await loadValidProject(file, options.allWarnings);
+  if (!loom) return false;
+  return migrationCommand(file, async () => {
+    const files = readChainFiles(file);
+    const fork = files ? parseForkedChain(files) : null;
+    if (fork) {
+      const [a, b] = fork.tails;
+      throw new MigrationChainError(
+        `the chain has two heads: ${entryFileName(a.at(-1)!)} and ${entryFileName(b.at(-1)!)}. ` +
+          "Run `ddd migrate rebase <file.ddd>` to record the later one again on top of the other.",
+      );
+    }
+    const chain = files ? parseChain(files) : EMPTY_CHAIN;
+    const warnings: MigrationWarning[] = [];
+    const deltas = pendingMigrations(loom, chain, { allowDestructive: true, warnings });
+    const modules: ModuleMigrationStatus[] = deltas.map((d) => {
+      const head = chain.entries.filter((e) => e.module === d.module).at(-1);
+      return {
+        module: d.module,
+        ...(head ? { head: { version: head.version, name: head.name } } : {}),
+        unrecordedSteps: d.steps.length,
+      };
+    });
+    const spentBlocks = warnings
+      .filter((w) => w.code === "loom.migration-block-applied")
+      .map((w) => w.message);
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            recorded: files !== undefined,
+            entries: chain.entries.length,
+            head: chain.entries.at(-1)?.version ?? null,
+            modules,
+            spentBlocks,
+          },
+          null,
+          2,
+        ),
+      );
+      return true;
+    }
+    if (!files) {
+      console.log(
+        `No ${MIGRATIONS_DIR}/ yet: \`generate\` derives each module's initial migration from the model. ` +
+          `Run \`ddd migrate add initial ${file}\` to start recording.`,
+      );
+    } else {
+      const head = chain.entries.at(-1);
+      console.log(
+        `${MIGRATIONS_DIR}/: ${chain.entries.length} recorded migration(s)` +
+          (head ? `, head ${head.version} (${head.module} ${head.name})` : ""),
+      );
+    }
+    const width = Math.max(0, ...modules.map((m) => m.module.length));
+    for (const m of modules) {
+      const state =
+        m.unrecordedSteps === 0
+          ? m.head
+            ? `up to date at ${m.head.version} ${m.head.name}`
+            : "no tables"
+          : `${m.unrecordedSteps} unrecorded step(s)${m.head ? "" : " (its Initial)"}`;
+      console.log(`  ${m.module.padEnd(width)}  ${state}`);
+    }
+    if (files && modules.some((m) => m.unrecordedSteps > 0)) {
+      console.log(`Record them with \`ddd migrate add <name> ${file}\`.`);
+    }
+    for (const b of spentBlocks) console.log(`  ${b}`);
+    return true;
+  });
+}
+
+/** `ddd migrate remove` — delete the chain's head entry, so the module's
+ *  previous entry is the baseline again. */
+async function runMigrateRemove(file: string): Promise<boolean> {
+  return migrationCommand(file, async () => {
+    const chain = readMigrationChain(file);
+    const head = chain?.entries.at(-1);
+    if (!chain || !head) {
+      console.error(`${file}: there is no recorded migration to remove.`);
       return false;
     }
-    throw err;
-  }
+    for (const removed of deleteChainEntries(file, [head])) {
+      console.log(`  removed   ${relPath(removed)}`);
+    }
+    const now = chain.entries.at(-2);
+    console.log(
+      now
+        ? `Head is now ${now.version} (${now.module} ${now.name}).`
+        : `${MIGRATIONS_DIR}/ is now empty.`,
+    );
+    console.log(
+      "Remove only a migration no database has applied; an applied one stays, and a fix is a new migration.",
+    );
+    return true;
+  });
+}
+
+/** `ddd migrate rebase` — after a merge leaves two heads, delete one tail and
+ *  record the model's changes again on top of the other. */
+async function runMigrateRebase(
+  file: string,
+  options: { move?: string; name?: string; allWarnings?: boolean },
+): Promise<boolean> {
+  const loom = await loadValidProject(file, options.allWarnings);
+  if (!loom) return false;
+  return migrationCommand(file, async () => {
+    const files = readChainFiles(file) ?? [];
+    const fork = parseForkedChain(files);
+    if (!fork) {
+      parseChain(files);
+      console.log("The chain has one head; there is nothing to rebase.");
+      return true;
+    }
+    const pick = options.move ? fork.tails.findIndex((t) => t[0]!.version === options.move) : 1;
+    if (pick < 0) {
+      throw new MigrationChainError(
+        `--move ${options.move} names no tail's first migration; the tails start at ${fork.tails[0][0]!.version} and ${fork.tails[1][0]!.version}.`,
+      );
+    }
+    const moved = fork.tails[pick]!;
+    const kept: MigrationChain = { entries: [...fork.base, ...fork.tails[1 - pick]!] };
+    const allowDestructive = moved.some((e) => e.allowDestructive);
+    const name =
+      options.name ?? kebabName(moved.find((e) => e.name !== "Initial")?.name ?? "Initial");
+    const warnings: MigrationWarning[] = [];
+    const deltas = pendingMigrations(loom, kept, { allowDestructive, warnings });
+    const entries = recordGeneration(kept, deltas, {
+      name,
+      now: utcVersionNow(),
+      allowDestructive,
+    });
+    printMigrationWarnings(warnings);
+    for (const removed of deleteChainEntries(file, moved)) {
+      console.log(`  removed   ${relPath(removed)}`);
+    }
+    for (const written of writeChainEntries(file, entries)) {
+      console.log(`  recorded  ${relPath(written)}`);
+    }
+    if (entries.length === 0) {
+      console.log(
+        "The other branch's migrations already record every change; nothing to re-record.",
+      );
+    }
+    return true;
+  });
 }
 
 async function runGenerate(
@@ -802,12 +997,19 @@ async function runGenerate(
   // the real warnings under one count — `parse` reports those separately, and
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
+  if (options.verifyIr) {
+    const violations = verifyLoomModel(loom);
+    if (violations.length > 0) {
+      console.error(
+        `${file}: IR verification failed — ${violations.length} violation(s). These are compiler invariants, not model errors; please report them.`,
+      );
+      for (const v of violations) console.error(`  error: ${v}`);
+      if (!options.continueOnError) process.exit(1);
+      return { hadError: true };
+    }
+  }
   const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(
-    loomDiags,
-    sourceTexts,
-    { allWarnings: options.allWarnings },
-  );
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -1950,6 +2152,10 @@ generate
     "also emit a Helm chart (helm/) and raw manifests (k8s/) alongside docker-compose.yml; see docs/kubernetes.md",
   )
   .option(
+    "--verify-ir",
+    "run the IR verifier (compiler self-check of lowering/enrichment output) before validation and exit non-zero on a violation; off by default. See docs/tools.md.",
+  )
+  .option(
     "--sourcemap",
     "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
@@ -1972,6 +2178,7 @@ generate
         json?: boolean;
         trace?: boolean;
         k8s?: boolean;
+        verifyIr?: boolean;
         sourcemap?: boolean;
         inlineSources?: boolean;
         locales?: string;
@@ -1990,6 +2197,7 @@ generate
         dryRun: options.dryRun,
         emitTrace: !!options.trace,
         emitKubernetes: !!options.k8s,
+        verifyIr: !!options.verifyIr,
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
         localesDir: options.locales,
@@ -2022,6 +2230,40 @@ migrate
       options: { allowDestructive?: boolean; allWarnings?: boolean },
     ) => {
       process.exit((await runMigrateAdd(name, file, options)) ? 0 : 1);
+    },
+  );
+migrate
+  .command("status <file>")
+  .description(
+    "Show what the migration chain records against what the model describes: each module's head and any unrecorded schema change. Fails only when migrations/ cannot be read as one chain.",
+  )
+  .option("--json", "print the status as JSON")
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
+  .action(async (file: string, options: { json?: boolean; allWarnings?: boolean }) => {
+    process.exit((await runMigrateStatus(file, options)) ? 0 : 1);
+  });
+migrate
+  .command("remove <file>")
+  .description(
+    "Delete the chain's newest migration, so the next `migrate add` diffs against the one before it. Only for a migration no database has applied.",
+  )
+  .action(async (file: string) => {
+    process.exit((await runMigrateRemove(file)) ? 0 : 1);
+  });
+migrate
+  .command("rebase <file>")
+  .description(
+    "After a merge leaves the chain with two heads, delete the later-recorded branch's migrations and record the model's changes again on top of the other's.",
+  )
+  .option("--move <version>", "move the branch whose first migration has this version instead")
+  .option(
+    "--name <name>",
+    "kebab-case name for the re-recorded migration (default: the moved one's)",
+  )
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
+  .action(
+    async (file: string, options: { move?: string; name?: string; allWarnings?: boolean }) => {
+      process.exit((await runMigrateRebase(file, options)) ? 0 : 1);
     },
   );
 

@@ -32,6 +32,9 @@ ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript pro
 ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
+ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
+ddd migrate remove <file.ddd>                     # delete the newest recorded migration
+ddd migrate rebase <file.ddd>                     # after a merge leaves two heads, re-record one on top of the other
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
@@ -40,6 +43,13 @@ ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model p
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
 ```
+
+`generate system` also accepts `--verify-ir`: it runs the IR verifier
+(`src/ir/verify/verify-ir.ts` — the compiler checking its own lowering/enrichment
+output, e.g. an `enum-value` ref that lost its `enumName`) before phase ⑦ and exits
+non-zero, listing each violation, if any invariant is broken. A violation is a
+compiler bug, never a model error; off by default. The same check is
+`GenerateSystemOptions.verifyIr` for in-process callers (throws).
 
 `generate system` additionally accepts `--sourcemap`, which also emits
 `.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
