@@ -174,6 +174,9 @@ export interface PlatformDescriptor {
    * `Framework` grammar strings (today `react` | `phoenixLiveView`,
    * plus `static` as React's alias). */
   readonly hostableFrameworks: ReadonlySet<string>;
+  /** What this target renders, per construct × position — supported, or
+   *  refused with a stable reason.  The validator refuses a refused construct
+   *  at compile time (`loom.target-unsupported`), so the emitter never meets
    *  it.  Pure data from `src/util/target-capabilities.ts`, shared with the
    *  emitters that pick a path per target. */
   readonly capabilities: TargetCapabilityTable;
