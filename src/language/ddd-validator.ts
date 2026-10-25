@@ -336,7 +336,7 @@ export class DddValidator {
     guard("action-type-position", model, () => checkActionTypePosition(model, accept));
     // Binary operand compatibility: every binary expression's
     // operands must agree with the operator's semantics.
-    // Arithmetic uses `arithmeticResult` (numeric widening, closed
+    // Arithmetic uses the typing pass's fold (numeric widening, closed
     // money rules, string concat); comparison uses `comparable`
     // (same type / numeric-chain / money / optional-unwrap);
     // logical requires bool.  Replaces the per-feature suppression

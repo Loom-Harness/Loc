@@ -257,9 +257,13 @@ user can hand-write — and vice versa.
   (`deployable.ts`, `auth.ts`, `criterion.ts`, `composition.ts`, …),
   barrelled through `validators/index.ts`.  The previous ~2.5k-LOC
   monolith was split here; `ddd-validator.ts` owns no check logic.
-- `src/language/type-system.ts` — `DddType` + AST-walk helpers
+- `src/language/typing/` — the single typing pass: `Ty` (the one type
+  representation), the elaborator that types every expression, and the type
+  relations validators judge with (`relations.ts`: `isAssignable`,
+  `comparable`, `ternaryJoin`, `typeToString`).
+- `src/language/type-system.ts` — AST-walk helpers over `Ty`
   (`typeOf`, `lookupRootMember`, `stepInto`, `findFunction`,
-  `findOperation`, etc.).
+  `findOperation`, etc.), shared by the validators and the LSP.
 
 **Inputs**
 - Linked AST from phase ③ (after macro expansion + linking).

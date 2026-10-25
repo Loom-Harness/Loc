@@ -58,7 +58,6 @@ import {
   isUi,
 } from "../generated/ast.js";
 import {
-  type DddType,
   type Env,
   envForNode,
   findFunction,
@@ -75,11 +74,11 @@ import {
   stepIntoNode,
   suffixType,
   T,
+  type Ty,
   typeOf,
   typeToString,
   withTags,
 } from "../type-system.js";
-import { toDddType } from "../typing/adapt.js";
 import { typingFor } from "../typing/shared.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 import {
@@ -148,7 +147,7 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
   }
 
   // Build env with parameters and walk body
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
+  const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   for (const p of op.params) bindings.set(p.name, { type: paramType(p), origin: p });
   let env: Env = makeEnv(envForAggregate(agg), bindings, { aggregate: agg });
 
@@ -185,7 +184,7 @@ export function checkOperation(op: Operation, agg: Aggregate, accept: Validation
  * checks as `operation`.  The kind tag carries the lifecycle
  * asymmetry; the body discipline is identical. */
 function checkActionBody(node: Create | Destroy, agg: Aggregate, accept: ValidationAcceptor): void {
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
+  const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   for (const p of node.params) bindings.set(p.name, { type: paramType(p), origin: p });
   let env: Env = makeEnv(envForAggregate(agg), bindings, { aggregate: agg });
   for (const stmt of node.body) {
@@ -279,7 +278,7 @@ export function checkStatement(
   }
   if (isLetStmt(stmt)) {
     const t = typeOf(stmt.expr, env);
-    const next = new Map<string, { type: DddType; origin: AstNode }>();
+    const next = new Map<string, { type: Ty; origin: AstNode }>();
     next.set(stmt.name, { type: t, origin: stmt });
     return makeEnv(env, next);
   }
@@ -497,7 +496,7 @@ export function checkExprCallArgs(
       continue;
     }
     // Member-call chain (`recv.method(args)`): thread the running receiver type.
-    let curType: DddType = typeOf(n.head, env);
+    let curType: Ty = typeOf(n.head, env);
     for (const s of n.suffixes) {
       if (isMemberSuffix(s) && s.call && curType.kind !== "unknown") {
         const member = stepIntoNode(curType, s.member);
@@ -773,7 +772,7 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
   const env = envForNode(lv);
   const headSym = env.resolve(lv.head);
   if (!headSym) return; // receiver isn't a typed local (domain service / criterion / …)
-  let recv: DddType = headSym.type;
+  let recv: Ty = headSym.type;
   for (let i = 0; i < lv.tail.length - 1; i++) {
     recv = stepInto(recv, lv.tail[i]!);
     if (recv.kind === "unknown") return;
@@ -925,7 +924,7 @@ export function checkEmit(stmt: EmitStmt, env: Env, accept: ValidationAcceptor):
  *  noise. */
 /** An extra per-argument admission a call site layers over `isAssignable` +
  *  numeric-literal promotion — the test body's literal coercion, below. */
-type ArgAdmit = (arg: Expression, expected: DddType) => boolean;
+type ArgAdmit = (arg: Expression, expected: Ty) => boolean;
 
 /** The language-side mirror of `decideLiteralCoercion`
  *  (`src/generator/_test/arg-coercion.ts` — not importable here, layering): a
@@ -1040,13 +1039,13 @@ export function checkCallStmt(
     // the receiver through the data segments, then require the final segment to
     // name a callable operation/function on that type.
     const headSym = env.resolve(lv.head);
-    const recv0: DddType = headSym ? headSym.type : lookupRootMember(agg, lv.head);
+    const recv0: Ty = headSym ? headSym.type : lookupRootMember(agg, lv.head);
     // When the head isn't a value receiver (a param / let / aggregate member)
     // it names a domain service, criterion, external, or other dotted-call
     // form (`AccountReset.reset(this)`) whose resolution lives elsewhere —
     // leave those to their own checks rather than mis-reporting the head.
     if (recv0.kind === "unknown") return;
-    let recv: DddType = recv0;
+    let recv: Ty = recv0;
     for (let i = 0; i < lv.tail.length - 1; i++) {
       recv = stepInto(recv, lv.tail[i]!);
       if (recv.kind === "unknown") {
@@ -1093,7 +1092,7 @@ export function checkCallStmt(
   });
 }
 
-export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
+export function lvalueType(lv: LValue, accept: ValidationAcceptor): Ty {
   // The target's receiver chain as the single typing pass typed it (M-T5.47):
   // `this`, then the type after each segment.  The head resolves lexically
   // (param, let, …) before the enclosing record's members — except under an
@@ -1127,8 +1126,7 @@ export function lvalueType(lv: LValue, accept: ValidationAcceptor): DddType {
     }
     return T.unknown;
   }
-  // A declared field keeps the declaration view of a generic carrier.
-  return toDddType(steps[segs.length]!, { generic: "arg" });
+  return steps[segs.length]!;
 }
 
 /**
@@ -1145,18 +1143,18 @@ export function lvalueIsDerived(lv: LValue, agg: Aggregate): boolean {
     return false;
   }
   // Walk the path, last segment matters
-  let cur: DddType = lookupRootMember(agg, lv.head);
+  let cur: Ty = lookupRootMember(agg, lv.head);
   for (let i = 0; i < lv.tail.length - 1; i++) {
     cur = stepInto(cur, lv.tail[i]!);
   }
   const lastSegment = lv.tail[lv.tail.length - 1]!;
-  if (cur.kind === "entity" || cur.kind === "aggregate") {
-    for (const m of cur.ref.members) {
+  if (cur.kind === "record" && (cur.shape.of === "aggregate" || cur.shape.of === "part")) {
+    for (const m of cur.shape.ref.members) {
       if (isDerivedProp(m) && m.name === lastSegment) return true;
     }
   }
   if (cur.kind === "valueobject") {
-    for (const m of cur.ref.members) {
+    for (const m of cur.ref?.members ?? []) {
       if (isDerivedProp(m) && m.name === lastSegment) return true;
     }
   }

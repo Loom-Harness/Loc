@@ -7,13 +7,13 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Model, Property } from "../../../src/language/generated/ast.js";
 import {
-  type DddType,
   envForNode,
   isAssignable,
   mergeTags,
   propertySensitivity,
   sensitivityNarrows,
   T,
+  type Ty,
   tagsSubset,
   typeOf,
   typeToString,
@@ -154,9 +154,9 @@ describe("sensitivity — type-system propagation", () => {
   });
 
   it("typeToString surfaces tags for diagnostics", () => {
-    const t: DddType = { kind: "primitive", name: "string", sensitivity: ["pii"] };
+    const t: Ty = { kind: "primitive", name: "string", sensitivity: ["pii"] };
     expect(typeToString(t)).toBe("string!{pii}");
-    const u: DddType = { kind: "primitive", name: "string", sensitivity: ["cred", "pii"] };
+    const u: Ty = { kind: "primitive", name: "string", sensitivity: ["cred", "pii"] };
     expect(typeToString(u)).toBe("string!{cred,pii}");
   });
 });

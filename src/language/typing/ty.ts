@@ -1,10 +1,9 @@
 // The single typing pass's type representation (M-T5.47, design:
 // docs/new-plan/missions/M-T5.47-single-typing-pass-design.md §D2–D3).
 //
-// `Ty` is AST-anchored like the language layer's `DddType`, because the LSP,
-// go-to-definition and sensitivity all need the declaration rather than its
-// name. It adds what only the IR layer could express before: unions, the
-// `option` none, the generic carriers, and one `record` kind whose `shape`
+// `Ty` is AST-anchored, because the validators, the LSP, go-to-definition and
+// sensitivity all need the declaration rather than its name. It carries
+// unions, the `option` none, the generic carriers, and one `record` kind whose `shape`
 // says what the record IS (aggregate, part, event, payload, workflow,
 // projection, principal, resource handle, store). `unknown` is never a
 // placeholder standing in for a type: it carries the reason no type exists.

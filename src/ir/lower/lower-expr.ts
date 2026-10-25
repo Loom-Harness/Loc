@@ -2444,7 +2444,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
 }
 
 /**
- * IR-layer mirror of `type-system.ts`'s `arithmeticResult`/comparison
+ * IR-layer mirror of the typing pass's `arithmetic`/comparison
  * logic, but operating on `TypeIR` and dispatching on the operator.
  *
  * Used to populate `leftType`/`resultType` on binary IR nodes so
@@ -2577,7 +2577,7 @@ function tryPromoteNumericLit(expr: Expression, target: PrimitiveName): ExprIR |
  *  emit the same to-string form they'd produce for an explicit
  *  `string(x)` source-level call.  Used by the lowering binary
  *  handler for implicit `string + X` concat — the validator has
- *  already accepted the combination via `arithmeticResult`.
+ *  already accepted the combination (the typing pass's `arithmetic`).
  *
  *  `from` is derived from the operand's source type — same primitive
  *  name for primitives, `"enum"`/`"id"` sentinels for the non-
@@ -2675,7 +2675,7 @@ function lowerTemplateString(expr: TemplateStr, env: Env): ExprIR {
 }
 
 /** Mirror of `type-system.ts`'s `isImplicitlyStringifiable`, on
- *  `TypeIR` instead of `DddType`.  Same set: numeric primitives,
+ *  `TypeIR` instead of `Ty`.  Same set: numeric primitives,
  *  bool, enum, `X id`, plus aggregates that declare a
  *  `derived display: string`.  Used by the lowering binary handler
  *  to decide whether to inject a `convert` node (primitives / enum /

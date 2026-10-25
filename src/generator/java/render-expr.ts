@@ -842,7 +842,7 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
     return renderMoneyBinary(e.op, l, boxIntegralForBigDecimal(r, e.rightType));
   }
   // The MIRROR case — integral left, BigDecimal-backed right (`qty * this.total`).
-  // `money × scalar` is commutative in `moneyArithmetic`, and plain
+  // `money × scalar` is commutative in the typing pass's `arithmetic`, and plain
   // `int <op> decimal` is ordinary numeric arithmetic, so both spellings reach
   // codegen; with money on the RIGHT the arm above doesn't fire and the fall-
   // through emitted `qty * total` — an `int * BigDecimal` that doesn't compile.

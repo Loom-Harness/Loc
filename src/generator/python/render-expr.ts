@@ -703,8 +703,8 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // (`app/domain/numeric.py`) to keep the cross-backend answer identical.
   //
   // Safe to apply unconditionally: the type system rejects `%` on money
-  // and on the temporal types (`moneyArithmetic` / `temporalArithmetic` in
-  // `src/language/type-system.ts`), so both operands are always
+  // and on the temporal types (the typing pass's `arithmetic` in
+  // `src/language/typing/elaborate.ts`), so both operands are always
   // int / long / decimal — exactly `trunc_mod`'s `int | float` domain.
   // SQL-side `%` never reaches here: `find-predicate.ts` lowers binaries
   // itself and only calls back for value-side leaves (Postgres `%` already
@@ -789,7 +789,7 @@ function datetimeConcatSide(e: Extract<ExprIR, { kind: "binary" }>): "left" | "r
  * Which operand of a money-scaling binary is the `float`-represented `decimal`
  * that must be lifted to `Decimal` — or `undefined` when no lift is needed.
  *
- * `moneyArithmetic` (`src/language/type-system.ts`) admits exactly three mixed
+ * The typing pass's `arithmetic` (`src/language/typing/elaborate.ts`) admits exactly three mixed
  * money/decimal shapes: `money * decimal`, `decimal * money` (scaling is
  * commutative) and `money / decimal` (`decimal / money` is rejected).  `+`/`-`
  * are money-on-both-sides only, and `%` never reaches here, so `*` and `/` are

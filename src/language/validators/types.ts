@@ -61,7 +61,6 @@ import {
   absentRecordMember,
   absentUserClaim,
   comparable,
-  type DddType,
   type Env,
   envForNode,
   isAssignable,
@@ -69,11 +68,11 @@ import {
   resolveTypeRef,
   suffixType,
   T,
+  type Ty,
   ternaryJoin,
   typeOf,
   typeToString,
 } from "../type-system.js";
-import { toDddType } from "../typing/adapt.js";
 import { typingFor } from "../typing/shared.js";
 import {
   canPromoteLiteralTo,
@@ -89,7 +88,7 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // Binary operand-compatibility check.
 //
 // Loom's type-system layer (`typeOf`) already detects invalid
-// binary expressions — `arithmeticResult` returns `T.unknown` for
+// binary expressions — the typing pass's fold types them `unknown` for
 // mixes like `string + int`, `bool + decimal`, `money + decimal` —
 // but every downstream gate that consumes a typed expression
 // (`checkDerived`, `checkAssignOrCall`, etc.) suppresses errors
@@ -104,7 +103,7 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // rejects (rather than letting the unknown propagate into the
 // suppression).  Three classes:
 //
-//   • Arithmetic (`+ - * / %`)  — `arithmeticResult(l, r, op)` is
+//   • Arithmetic (`+ - * / %`)  — the fold's result is
 //     unknown.  Covers numeric / string mismatches, money / non-
 //     money mixes outside the closed rules, etc.
 //   • Comparison (`== != < <= > >=`) — operand types aren't
@@ -455,12 +454,12 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
  *  reported (the caller stops walking the chain). */
 function checkValueObjectEquals(
   ms: MemberSuffix,
-  recvType: DddType,
-  vo: Extract<DddType, { kind: "valueobject" }>,
+  recvType: Ty,
+  vo: Extract<Ty, { kind: "valueobject" }>,
   env: Env,
   accept: ValidationAcceptor,
 ): boolean {
-  const signature = valueObjectEqualsSignature(vo.ref.name);
+  const signature = valueObjectEqualsSignature(vo.name);
   if (!ms.call) {
     accept(
       "error",
@@ -549,6 +548,7 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
       if (
         isMemberSuffix(suffix) &&
         bare.kind === "valueobject" &&
+        bare.ref !== undefined &&
         isValueObjectEqualsIntrinsic(bare.ref.members, (suffix as MemberSuffix).member)
       ) {
         if (checkValueObjectEquals(suffix as MemberSuffix, recvType, bare, env, accept)) break;
@@ -693,9 +693,9 @@ function bareOperandName(e: Expression | undefined): string | undefined {
  *  form (`Status.Open`) the author can always fall back to. */
 function shadowedEnumCase(
   operand: Expression | undefined,
-  other: DddType,
+  other: Ty,
 ): { name: string; enumName: string } | undefined {
-  if (other.kind !== "enum") return undefined;
+  if (other.kind !== "enum" || !other.ref) return undefined;
   const name = bareOperandName(operand);
   if (!name) return undefined;
   return other.ref.values.some((v) => v.name === name)
@@ -733,8 +733,8 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
     const rhsExpr = chain.rest[i]!;
     const fold = folds[i];
     if (!fold) continue;
-    const lt = toDddType(fold.left);
-    const rt = toDddType(fold.right);
+    const lt = fold.left;
+    const rt = fold.right;
     // Cascade suppression — broken upstream already reports.
     if (lt.kind === "unknown" || rt.kind === "unknown") {
       leftExprForPromotion = undefined;
@@ -799,7 +799,7 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       continue;
     }
     // Arithmetic: the fold's result is `unknown` for an invalid combination.
-    const result = toDddType(fold.result);
+    const result = fold.result;
     if (result.kind === "unknown") {
       const isMoney = (t: typeof lt) => t.kind === "primitive" && t.name === "money";
       const moneyHint =
@@ -943,7 +943,7 @@ export function checkSinglePrimitiveConversion(
   // `X id` to its underlying primitive form.  The conversion
   // vocabulary calls these "implicitly stringifiable" sources;
   // they're also the set the `string + X` implicit-concat rule
-  // admits (see `arithmeticResult.isImplicitlyStringifiable`).
+  // admits (see `isImplicitlyStringifiable`).
   if (target === "string" && (valueType.kind === "enum" || valueType.kind === "id")) {
     return;
   }
@@ -951,15 +951,16 @@ export function checkSinglePrimitiveConversion(
   // in `string(x)` — lowers to a member access on the display derived.
   // Without one, the aggregate has no canonical string form and we
   // reject (forces an explicit `derived display` decision).
-  if (target === "string" && valueType.kind === "aggregate") {
-    if (valueType.ref.members.some((m) => isDerivedProp(m) && m.name === "display")) {
+  if (target === "string" && valueType.kind === "record" && valueType.shape.of === "aggregate") {
+    const agg = valueType.shape.ref;
+    if (agg.members.some((m) => isDerivedProp(m) && m.name === "display")) {
       return;
     }
     accept(
       "error",
       diagMessage("loom.convert-aggregate-no-display", {
-        name: valueType.ref.name,
-        lower: valueType.ref.name.toLowerCase(),
+        name: agg.name,
+        lower: agg.name.toLowerCase(),
       }),
       { node, property: "value", code: "loom.convert-aggregate-no-display" },
     );
@@ -1417,7 +1418,7 @@ export function checkFunction(
 function checkFunctionBlock(
   stmts: readonly Statement[],
   fn: FunctionDecl,
-  declared: DddType,
+  declared: Ty,
   env: Env,
   accept: ValidationAcceptor,
   top: boolean,
@@ -1439,7 +1440,7 @@ function checkFunctionBlock(
     }
     if (isLetStmt(stmt)) {
       const t = typeOf(stmt.expr, blockEnv);
-      const next = new Map<string, { type: DddType; origin: AstNode }>();
+      const next = new Map<string, { type: Ty; origin: AstNode }>();
       next.set(stmt.name, { type: t, origin: stmt });
       blockEnv = makeEnv(blockEnv, next);
       continue;
@@ -1497,7 +1498,7 @@ function checkFunctionBlock(
 function checkIfStmt(
   stmt: IfStmt,
   fn: FunctionDecl,
-  declared: DddType,
+  declared: Ty,
   env: Env,
   accept: ValidationAcceptor,
 ): boolean {
@@ -1514,6 +1515,6 @@ function checkIfStmt(
   return thenReturns && elseReturns;
 }
 
-// Re-export DddType so consumers don't have to chase the type-system
+// Re-export Ty so consumers don't have to chase the type-system
 // import surface.
-export type { AstNode, DddType, Env };
+export type { AstNode, Env, Ty };

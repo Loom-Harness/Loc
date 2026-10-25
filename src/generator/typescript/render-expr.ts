@@ -588,7 +588,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   if (e.leftType?.kind === "primitive" && e.leftType.name === "money") {
     return renderMoneyBinary(e.op, left, decimalChainOperand(right, e.right) ?? right);
   }
-  // MIRROR arm (audit F7 / M-T6.44): `moneyArithmetic` admits `money × scalar`
+  // MIRROR arm: the typing pass's `arithmetic` admits `money × scalar`
   // COMMUTATIVELY, so money can arrive on the RIGHT with an integral/decimal
   // left (`qty * price`).  Only `money` maps to a `Decimal` here (plain
   // `decimal` is a native number), so without this arm the expression fell to
