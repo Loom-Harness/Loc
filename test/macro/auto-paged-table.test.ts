@@ -20,11 +20,11 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-const sys = (pageBody: string, repoBody = ""): string => `
+const sys = (pageBody: string, repoBody = "", aggBody = ""): string => `
 system S {
   subdomain D {
     context C {
-      aggregate Task with crudish { title: string  rank: int }
+      aggregate Task with crudish { title: string  rank: int ${aggBody} }
       repository Tasks for Task { ${repoBody} }
     }
   }
@@ -40,8 +40,8 @@ system S {
 }
 `;
 
-const pageTsx = async (pageBody: string, repoBody = ""): Promise<string> => {
-  const files = await generateSystemFiles(sys(pageBody, repoBody));
+const pageTsx = async (pageBody: string, repoBody = "", aggBody = ""): Promise<string> => {
+  const files = await generateSystemFiles(sys(pageBody, repoBody, aggBody));
   return files.get("web/src/pages/task_list.tsx") ?? "";
 };
 
@@ -101,6 +101,23 @@ describe("auto-paged table", () => {
     // `sort` parameter is whitelisted per field — so leaving it unsortable is
     // the correct answer, not a degradation.
     expect(tsx).not.toContain('setSortKey("both")');
+  });
+
+  it("does not make a row-Action column a sort control", async () => {
+    const tsx = await pageTsx(
+      `QueryView {
+      of: T.Task.all,
+      data: rows => Table { rows: rows,
+        Column { "Title", o => Text { o.title } },
+        Column { "Act", o => Action { o.activate } }
+      }
+    }`,
+      "",
+      "operation activate() {}",
+    );
+    // `activate` names an operation, not a field; the sort whitelist is per field.
+    expect(tsx).toContain('setSortKey("title")');
+    expect(tsx).not.toContain('setSortKey("activate")');
   });
 
   // ---- the opt-outs ------------------------------------------------------
