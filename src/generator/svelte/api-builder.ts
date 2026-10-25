@@ -14,6 +14,7 @@ import {
   type EnrichedAggregateIR,
   type RepositoryIR,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
@@ -293,7 +294,7 @@ export function buildSvelteApiModule(
   lines.push(`}`);
   lines.push("");
 
-  if (agg.canonicalDestroy) {
+  if (canonicalDestroy(agg)) {
     lines.push(`export function useDelete${agg.name}() {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return createMutation(() => ({`);

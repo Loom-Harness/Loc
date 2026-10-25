@@ -1742,8 +1742,7 @@ function enrichAggregate(
   // wire shape is NOT stamped — every consumer recomputes it on demand via
   // `wireFieldsForAggregate` (see CLAUDE.md "Derive, don't stamp").
   // Stamp routeSlug on every lifecycle action.  New objects (don't
-  // mutate shared refs); canonicalCreate/Destroy are re-pointed at the
-  // freshly-stamped array entries.
+  // mutate shared refs).
   const stamp = (o: OperationIR): OperationIR => ({ ...o, routeSlug: routeSlugFor(o, urlStyle) });
   const operations = agg.operations.map(stamp);
   const creates = agg.creates?.map(stamp);
@@ -1754,8 +1753,6 @@ function enrichAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate: creates?.find((c) => c.canonical) ?? null,
-    canonicalDestroy: destroys?.find((d) => d.canonical) ?? null,
     parts,
     associations: associationsForAggregate(resolved),
     createInput: buildCreateInput(resolved),

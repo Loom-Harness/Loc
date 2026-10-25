@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ApiIR, EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { diagText } from "../_helpers/diagnostics.js";
@@ -122,15 +123,15 @@ describe("routeSlug — enrichment derivation", () => {
       SYS(`        create(s: string) { subject := s }`, ` { urlStyle: resource }`),
     );
     const agg = aggFrom(model, "Order");
-    expect(agg.canonicalCreate?.canonical).toBe(true);
-    expect(agg.canonicalCreate?.routeSlug).toBeUndefined();
+    expect(canonicalCreate(agg)?.canonical).toBe(true);
+    expect(canonicalCreate(agg)?.routeSlug).toBeUndefined();
     expect(agg.creates?.[0].routeSlug).toBeUndefined();
   });
 
   it("a canonical destroy gets no slug", async () => {
     const { model } = await parseModel(SYS(`        destroy { }`, ` { urlStyle: resource }`));
     const agg = aggFrom(model, "Order");
-    expect(agg.canonicalDestroy?.routeSlug).toBeUndefined();
+    expect(canonicalDestroy(agg)?.routeSlug).toBeUndefined();
   });
 
   it("a named destroy pluralises under resource", async () => {

@@ -11,6 +11,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -158,7 +159,7 @@ export function buildEmbeddedRepositoryFile(
   // `version`, so the guarded path stamps it explicitly (1 on insert, expected
   // + 1 on the CAS update) — mirroring repository-save-builder.ts.
   const versioned = aggregateIsVersioned(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // A versioned aggregate carries `version` as a projected column entry
   // (`version: aggregate.version`); the guarded path stamps version itself, so
   // drop that entry before re-appending the CAS value — else the object

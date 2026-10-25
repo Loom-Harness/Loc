@@ -46,6 +46,7 @@ import {
   type StmtIR,
   type WorkflowStmtIR,
 } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
@@ -1066,7 +1067,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
               });
             }
           }
-          for (const g of lifecycleGates(agg.canonicalCreate)) {
+          for (const g of lifecycleGates(canonicalCreate(agg))) {
             out.push({
               key: `create ${agg.name}`,
               details: [`Forbidden: ${g.source}`],
@@ -1074,7 +1075,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
               owner: agg.name,
             });
           }
-          for (const g of lifecycleGates(agg.canonicalDestroy)) {
+          for (const g of lifecycleGates(canonicalDestroy(agg))) {
             out.push({
               key: `destroy ${agg.name}`,
               details: [`Forbidden: ${g.source}`],

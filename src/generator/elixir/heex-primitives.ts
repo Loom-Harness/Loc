@@ -19,6 +19,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, plural, snake } from "../../util/naming.js";
@@ -1996,7 +1997,7 @@ export function renderDestroyForm(
   const agg = ctx.aggregatesByName.get(ofName);
   if (!agg)
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): aggregate not found`)} -->`;
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`)} -->`;
   }
   const eventName = `destroy_${snake(ofName)}`;

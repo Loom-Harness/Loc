@@ -27,6 +27,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import {
   ancestorUniqueKeySet,
   isTpcBase,
@@ -1882,7 +1883,7 @@ export function validateLifecycleBodyDropped(
       // EVERY create, not just the canonical one.  An event-sourced create is
       // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
       // an event stream IS the emitted one — and reading only
-      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // `canonicalCreate(agg)` here let its guard through untouched: it rendered
       // into the domain `_init` as a free `currentUser`, so `ddd parse` said
       // `0 error(s)` and the generated project then failed to COMPILE (measured
       // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
@@ -1914,8 +1915,8 @@ export function validateLifecycleBodyDropped(
     }
 
     for (const [label, action] of [
-      ["create", agg.canonicalCreate],
-      ["destroy", agg.canonicalDestroy],
+      ["create", canonicalCreate(agg)],
+      ["destroy", canonicalDestroy(agg)],
     ] as const) {
       // ── the guard's READABLE SURFACE ────────────────────────────────────
       // Runs for EVERY lifecycle guard, event-sourced included — deliberately
@@ -2049,11 +2050,11 @@ export function validateNamedLifecycleDropped(
     // stream is emitted and must not be flagged.
     const renderedCreate = aggregateIsEventSourced(agg)
       ? (agg.creates?.[0] ?? null)
-      : (agg.canonicalCreate ?? null);
+      : (canonicalCreate(agg) ?? null);
 
     for (const [label, actions, rendered] of [
       ["create", agg.creates ?? [], renderedCreate],
-      ["destroy", agg.destroys ?? [], agg.canonicalDestroy ?? null],
+      ["destroy", agg.destroys ?? [], canonicalDestroy(agg) ?? null],
     ] as const) {
       for (const action of actions) {
         if (action === rendered) continue;

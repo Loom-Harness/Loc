@@ -9,6 +9,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -157,7 +158,7 @@ export function buildRepositoryFile(
   const saveM = saveMethod(agg, ctx, emitTrace);
   // Hard delete — emitted only when the aggregate has a canonical `destroy`
   // (declared or via `crudish`), so plain aggregates' repos are unchanged.
-  const deleteM = agg.canonicalDestroy ? deleteMethod(agg, ctx) : null;
+  const deleteM = canonicalDestroy(agg) ? deleteMethod(agg, ctx) : null;
   // Find queries — capability filter AND-ed into each read.
   const findMs = (repo?.finds ?? []).map((find) => findQueryMethod(agg, find, ctx, filterPred));
   const viewFindMs = [...projectionFinds].map((find) =>
@@ -311,7 +312,7 @@ function getByIdMethod(
  * `DELETE … WHERE id = …`; containment children and join-table rows are
  * removed by their `ON DELETE CASCADE` foreign keys, so no per-child
  * cleanup is needed here (unlike `save`, which diffs collections).  Only
- * emitted when `agg.canonicalDestroy` is set. */
+ * emitted when `canonicalDestroy(agg)` is set. */
 function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
   // A TPH concrete subtype lives in its abstract base's shared table, so the
   // delete targets the owner's table (`tableOwnerName`) — not the subtype's

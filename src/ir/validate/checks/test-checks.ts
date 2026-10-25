@@ -19,6 +19,7 @@ import type {
   TestStmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import {
   E2E_WORKFLOW_VERBS,
   findWorkflowBySlug,
@@ -771,14 +772,14 @@ function checkMagicCall(
   }
   if (method === "create" || method === "getById") return;
   // The CANONICAL destroy (`DELETE /api/<aggs>/{id}`).  It lives on
-  // `agg.canonicalDestroy`, NOT in `agg.operations` (lowering keeps the
+  // `canonicalDestroy(agg)`, NOT in `agg.operations` (lowering keeps the
   // lifecycle actions in their own arrays), so without this arm the verb the
   // route derivation exposes was rejected as an unknown method — the route
   // existed on all five backends and no `test e2e` body could reach it.
   // Gated on `canonicalDestroy` exactly as `deriveAggregateOperations` gates
   // the DELETE route: a NAMED destroy (`destroy archive { }`) has no route, so
   // it must keep falling through to the unknown-method error below.
-  if (method === "destroy" && agg.canonicalDestroy) return;
+  if (method === "destroy" && canonicalDestroy(agg)) return;
   const isPublicOp = agg.operations.some((o) => o.visibility === "public" && o.name === method);
   if (isPublicOp) return;
   // Find queries — search every context's repositories for one
@@ -823,7 +824,7 @@ function checkMagicCall(
   const knownVerbs = [
     "create",
     "getById",
-    ...(agg.canonicalDestroy ? ["destroy"] : []),
+    ...(canonicalDestroy(agg) ? ["destroy"] : []),
     ...(repo?.historyFind ? ["history"] : []),
     ...ops,
     ...finds,

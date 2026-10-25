@@ -31,6 +31,7 @@ import {
   isConstructible,
 } from "../../src/ir/enrich/wire-projection.js";
 import { allAggregates } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { buildLoomModel, generateSystemFiles } from "../_helpers/index.js";
 
 const FIXTURE = `
@@ -85,7 +86,7 @@ describe("defaulted aggregate — parameterized create (invariant gate)", () => 
   it("crudish aggregate has a canonical create + REST create surface", async () => {
     const loom = await buildLoomModel(FIXTURE);
     const counter = allAggregates(loom).find((a) => a.name === "Counter")!;
-    expect(counter.canonicalCreate ?? null).not.toBe(null);
+    expect(canonicalCreate(counter) ?? null).not.toBe(null);
     expect(isConstructible(counter)).toBe(true);
     expect(hasCreate(counter)).toBe(true);
     expect(emitsRestCreate(counter)).toBe(true);
@@ -96,7 +97,7 @@ describe("defaulted aggregate — parameterized create (invariant gate)", () => 
     const counter = allAggregates(loom).find((a) => a.name === "Counter")!;
     // Constructible (no blocking invariant) — the domain `create(...)` factory
     // seeds/tests call is still emitted…
-    expect(counter.canonicalCreate ?? null).toBe(null);
+    expect(canonicalCreate(counter) ?? null).toBe(null);
     expect(isConstructible(counter)).toBe(true);
     expect(hasCreate(counter)).toBe(true);
     // …but the auto-derived REST create endpoint is gated on an explicit

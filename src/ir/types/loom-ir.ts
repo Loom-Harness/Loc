@@ -586,11 +586,6 @@ export interface AggregateIR {
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
   destroys?: OperationIR[];
-  /** The single unnamed canonical `create`, if declared, else null.
-   * Convenience accessor over `creates`. */
-  canonicalCreate?: OperationIR | null;
-  /** The single unnamed canonical `destroy`, if declared, else null. */
-  canonicalDestroy?: OperationIR | null;
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with

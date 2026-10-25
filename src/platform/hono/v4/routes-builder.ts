@@ -100,6 +100,7 @@ import {
   servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
@@ -479,9 +480,9 @@ export function buildRoutesFile(
   // routes; an ES aggregate's create action is `agg.creates?.[0]`.  A named
   // create has no route, so only the route-driving action's flag matters.
   const auditedCreateAction =
-    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (agg.canonicalCreate ?? null);
+    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (canonicalCreate(agg) ?? null);
   const auditCreate = emitAudit && !!auditedCreateAction?.audited;
-  const auditDestroy = emitAudit && !!agg.canonicalDestroy?.audited;
+  const auditDestroy = emitAudit && !!canonicalDestroy(agg)?.audited;
   const fileHasAudit = auditOps.length > 0 || auditCreate || auditDestroy;
   // A provenanced write needs the same save+flush transaction: the
   // operation's `provenance_records` history rows must commit atomically
@@ -1056,14 +1057,14 @@ export function buildRoutesFile(
     // the canonical create's `requires` gate, and ONE binding serves both.
     if (
       serverDefaulted.some((f) => !(f.default!.kind === "literal" && f.default!.lit === "now")) ||
-      lifecycleGatesUseCurrentUser(agg.canonicalCreate)
+      lifecycleGatesUseCurrentUser(canonicalCreate(agg))
     ) {
       lines.push(currentUserBindLine("      "));
     }
     // The gate runs BEFORE the factory — a create guard has no `this` to read,
     // and denying after construction would already have run the invariants and
     // (on an audited create) staged a row.
-    lines.push(...lifecycleGateLines(agg.canonicalCreate, "      "));
+    lines.push(...lifecycleGateLines(canonicalCreate(agg), "      "));
     // Wrap each wire-shape field into the typed factory argument (brand
     // ids, instantiate value objects).  Avoids `as never` and lets
     // strict tsc catch shape drift between Zod and the domain class.
@@ -1326,7 +1327,7 @@ export function buildRoutesFile(
     lines.push(`    }),`);
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
-    const destroyGates = lifecycleGates(agg.canonicalDestroy);
+    const destroyGates = lifecycleGates(canonicalDestroy(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1339,17 +1340,17 @@ export function buildRoutesFile(
       // A principal-only gate reads no field of the row, so the load is not
       // BOUND there — it still runs (it is the 404 probe), it just has no
       // receiver to name.
-      const readsRow = lifecycleGatesReadRow(agg.canonicalDestroy);
+      const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
         readsRow
           ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
           : `      await repo.getById(Ids.${agg.name}Id(id));`,
       );
-      if (lifecycleGatesUseCurrentUser(agg.canonicalDestroy)) {
+      if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
       }
       lines.push(
-        ...lifecycleGateLines(agg.canonicalDestroy, "      ", readsRow ? "__loaded" : undefined),
+        ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation

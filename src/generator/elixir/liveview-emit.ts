@@ -35,6 +35,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../ir/util/op-gates.js";
 import {
@@ -799,9 +800,9 @@ function buildActionHandlers(
     // `socket.assigns`, since the LiveView runs in its own process and cannot
     // see the HTTP request's ambient one.
     const destroyGated =
-      b.byId && lifecycleGates(aggregatesByName.get(b.agg)?.canonicalDestroy).length > 0;
+      b.byId && lifecycleGates(canonicalDestroy(aggregatesByName.get(b.agg))).length > 0;
     const destroyUsesUser =
-      destroyGated && lifecycleGatesUseCurrentUser(aggregatesByName.get(b.agg)?.canonicalDestroy);
+      destroyGated && lifecycleGatesUseCurrentUser(canonicalDestroy(aggregatesByName.get(b.agg)));
     // A `requires currentUser.…` / `currentUser`-reading operation gets a
     // trailing `current_user \\ nil` arity on its context bang fn (context-emit
     // decides that with this same predicate).  The HTTP action threads
@@ -2080,8 +2081,8 @@ function renderCreateEventClauses(
   // still on screen.  Without the clause it would be a CaseClauseError — the
   // LiveView crash the plan's A1 warns about.
   const createAgg = aggregatesByName.get(fb.name);
-  const gated = lifecycleGates(createAgg?.canonicalCreate).length > 0;
-  const usesUser = lifecycleGatesUseCurrentUser(createAgg?.canonicalCreate);
+  const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
+  const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
   return `\n  @impl true
   def handle_event("save_${aggSnake}", %{"${aggSnake}" => params}, socket) do
 ${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
