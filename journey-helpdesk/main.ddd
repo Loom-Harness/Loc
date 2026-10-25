@@ -280,7 +280,6 @@ system Helpdesk {
       repository SlaSweeps for SlaSweep {}
       policy { read SlaSweep requires currentUser.role == "agent" }
       repository Tickets for Ticket {
-        find byNumber(number: string): Ticket?
         find myQueue(): Ticket[]
           where assignee == currentUser.agentId && status != Resolved && status != Closed
         find unassigned(): Ticket[]

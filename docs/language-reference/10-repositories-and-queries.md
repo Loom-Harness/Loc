@@ -1,14 +1,14 @@
 # 10. Repositories, queries & projections
 
-Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
+Reading data: the `repository` container and its `find` operations, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repository-find-deprecated`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.repository-find-deprecated`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
 ## `repository` & `find`
 
-A `repository` binds reads to one aggregate (`repository Name for Agg`). It contains `find` operations — each `find name(params): T [where <expr>] [ignoring …]`. The return type `T` is an ordinary [type reference](04-type-system.md): a single aggregate, an option `T?`, a collection `T[]`, or a transport carrier (`T paged` / `T envelope` / `T option`). Every repository also gets two reads for free without declaring them: a by-primary-key lookup (`findById` / `getById`) and a **paged, sortable** load-all (`all(page, pageSize, sort, dir)` — auto-`findAll` is derived in enrichment, phase ⑥, and is paged by default), so a bare `repository Foo for Foo { }` is already queryable. A declared find may not take the name of a built-in repository verb of the language — `getById`, `findById`, `findAll`, `run`, or a write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit`) — because `Repo.<name>(…)` already means the built-in (`loom.find-reserved-name`); nor may it repeat itself (`loom.duplicate-find`). A declared `find all` is allowed and replaces the auto-paged load-all. No name is reserved because of a target backend: each emitter escapes a find whose rendered method would collide with one it emits itself (on .NET, `getByIdAsync` → `GetByIdAsyncFind`).
+A `repository` binds reads to one aggregate (`repository Name for Agg`). It contains `find` operations — each `find name(params): T [where <expr>] [ignoring …]`. The return type `T` is an ordinary [type reference](04-type-system.md): a single aggregate, an option `T?`, a collection `T[]`, or a transport carrier (`T paged` / `T envelope` / `T option`). Every repository also gets two reads for free without declaring them: a by-primary-key lookup (`findById` / `getById`) and a **paged, sortable** load-all (`all(page, pageSize, sort, dir)` — auto-`findAll` is derived in enrichment, phase ⑥, and is paged by default), so a bare `repository Foo for Foo { }` is already queryable. A declared find may not take the name of a built-in repository verb of the language — `getById`, `findById`, `getBy`, `findBy`, `findAll`, `run`, or a write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit`) — because `Repo.<name>(…)` already means the built-in (`loom.find-reserved-name`); nor may it repeat itself (`loom.duplicate-find`). A declared `find all` is allowed and replaces the auto-paged load-all. No name is reserved because of a target backend: each emitter escapes a find whose rendered method would collide with one it emits itself (on .NET, `getByIdAsync` → `GetByIdAsyncFind`).
 
 ```ddd
 aggregate Product with crudish { sku: string  name: string  price: money }
@@ -118,6 +118,101 @@ async bySku(sku: string): Promise<Product | null> {
 `pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — declare a 'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a bespoke list finder on the repository, and put it on the wire with 'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a client must call it." Every find returning `T[]` or `T paged` gets it, in every context ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine — provided the key really is unique: a single-row find keyed by equality on fields that no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` (declare `unique (number)` beside `find byNumber(number: string): Ticket?`). The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
 
 `node scripts/codemod-list-find-to-criterion.mjs <path>` makes that migration ([D-LIST-FIND-REMOVED](../decisions.md)): one criterion per list find beside its repository, named `<Plural><Find>`, with the find's `where` as its body (or, for a find written without `where`, the parameter-name convention spelled out — `this.customerId == customerId`); each `Repo.<find>(args)` call becomes `Repo.run(<Criterion>(args))`.  A parameterless, filterless list find read every row, so it becomes the repository's `find all`.  When a `test e2e` reads the find's route (`api.<plural>.<find>(…)`), the codemod keeps it on the wire as a routed `queryHandler List<Criterion>` over `Repo.run` on the same path (each parameter a `{token}`), and repoints the read to `api.<context>.list<Criterion>(…)`.  What it cannot rewrite — a page reading the route, a find with no api in the same source — it lists.
+
+## Natural-key reads — `getBy` / `findBy`
+
+A read by a natural key needs no `find`. When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions.md)):
+
+```ddd
+aggregate Product with crudish, softDeletable {
+  sku: string  region: string  name: string
+  unique (sku)
+  unique (region, name)
+}
+repository Products for Product { }
+
+let p = Products.getBy(sku: s)                        // Product — a miss answers the standard 404
+if let q = Products.findBy(name: n, region: r) { … }  // Product? — any argument order
+let a = Products.getBy(sku: s) ignoring *             // past the softDeletable filter
+Products.findBy(name: n)        // loom.repo-key-incomplete: (region, name) misses 'region'
+Products.findBy(price: x)       // loom.repo-key-not-unique, with a did-you-mean over the declared keys
+```
+
+The rules:
+
+- The **named** arguments must equal one declared `unique (…)` tuple of the aggregate (inherited tuples count), in any order — every column present. A subset of a tuple is `loom.repo-key-incomplete` (so is a positional argument); a set no tuple covers is `loom.repo-key-not-unique`, which lists the declared keys and suggests the closest one.
+- `getBy` yields the row: a miss raises not-found, answered as the standard ProblemDetails 404 (`"not_found"`). `findBy` yields `T?`: it is an `if let` source (bound by a plain `let` it is the nullable-load refusal, like any `T?` read).
+- Capability filters (soft-delete, tenancy) apply as on every read; a trailing `ignoring …` widens one call, on a `let` or an `if let` source.
+
+Each backend emits **one repository method per used (verb, tuple, `ignoring` stance)**, named from the tuple's columns in declared order — `getBySku`, `findByRegionAndName`, `getBySkuIgnoringAll` — with a `WHERE` on exactly those columns. The method is derived from the calls in enrichment (phase ⑥), not declared, and has no HTTP route of its own; expose it with a routed `queryHandler`. Each backend renders the name through its own escaping (`GetBySku` on .NET, `get_by_sku` on Python and Elixir):
+
+::: tabs backend
+== node
+```ts
+// db/repositories/product-repository.ts
+async getBySku(sku: string): Promise<Product> {
+  const rootRows = await this.db.select().from(schema.products).where(and(eq(schema.products.sku, sku), not(eq(schema.products.isDeleted, true)))).orderBy(asc(schema.products.id)).limit(1);
+  if (rootRows.length === 0) throw new AggregateNotFoundError("not_found");
+  // …rehydrate
+}
+async findByRegionAndName(region: string, name: string): Promise<Product | null> { /* …returns null on a miss */ }
+async getBySkuIgnoringAll(sku: string): Promise<Product> {
+  const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).orderBy(asc(schema.products.id)).limit(1);
+  // …
+}
+// http/workflows.ts — the call site
+const p = await products.getBySku(sku);
+```
+== dotnet
+```csharp
+// Infrastructure/Repositories/ProductRepository.cs — the soft-delete filter is EF's HasQueryFilter
+public async Task<Product> GetBySku(string sku, CancellationToken cancellationToken = default)
+{
+    var result = await _db.Products.Where(x => x.Sku == sku).FirstOrDefaultAsync(cancellationToken) ?? throw new AggregateNotFoundException("not_found");
+    return result;
+}
+public async Task<Product> GetBySkuIgnoringAll(string sku, CancellationToken cancellationToken = default)
+{
+    var result = await _db.Products.IgnoreQueryFilters().Where(x => x.Sku == sku).FirstOrDefaultAsync(cancellationToken) ?? throw new AggregateNotFoundException("not_found");
+    return result;
+}
+```
+== java
+```java
+// ProductJpaRepository.java
+@Query("select e from Product e where e.sku = :sku")
+Product getBySku(@Param("sku") String sku);
+// ProductRepositoryImpl.java
+public Product getBySku(String sku) {
+    var result = jpa.getBySku(sku);
+    if (result == null) throw new AggregateNotFoundException("not_found");
+    return result;
+}
+```
+== python
+```python
+# app/db/repositories/product_repository.py
+async def get_by_sku(self, sku: str) -> Product:
+    row = (await self._session.execute(select(ProductRow).where(and_((ProductRow.sku == sku), not_(ProductRow.is_deleted))))).scalars().first()
+    if row is None:
+        raise AggregateNotFoundError("not_found")
+    return await self._hydrate(row)
+```
+== elixir
+```elixir
+# lib/elixir_api/catalog/product_repository.ex
+def get_by_sku(sku) do
+  query = from(record in ElixirApi.Catalog.Product, where: (record.sku == ^sku) and (not record.is_deleted))
+
+  case Repo.one(query) do
+    nil -> {:error, :not_found}
+    found -> {:ok, found}
+  end
+end
+```
+::: end
+
+`node scripts/codemod-find-to-findby.mjs [--add-unique] <path>` migrates the finds this replaces: a single-row find (`T?` / `T option` → `findBy`; `T` / `T envelope` → `getBy`) whose `where` is an equality conjunction over a declared `unique (…)` tuple — or a clause-less find whose parameters bind fields by name — is deleted, and each `Repo.<find>(args)` call becomes `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring`. A find over an undeclared key is reported, or with `--add-unique` gets its `unique (…)` added. It also reports, instead of rewriting, a `T or <Error>` find (dropped: a miss is `T?`, a `getBy` miss the standard 404), a by-id find, a find whose `where` is a query rather than a key, and a find whose route a client reads.
 
 ## The queryable subset
 

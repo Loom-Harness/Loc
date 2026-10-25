@@ -5281,3 +5281,59 @@ to #3951. The emitters' find paths stay: each is still reached by single-row
 finds, `find all`, or the synthesised paged finds. The scaffolded list page's
 filter bar is built from list finds only, so it goes with the hard error
 (#4049).
+
+## D-REPO-KEY-LOOKUP — a natural-key read is `getBy` / `findBy` over a declared `unique (…)` tuple
+
+**Status:** PINNED (owner ruling on #3949, 2026-10-25; slice 3 of #3949, #3951).
+The two verbs, their diagnostics, the emission on all five backends and the
+codemod hold now. Removing `FindDecl` from the grammar follows once the list
+finds are gone (#4049).
+
+**Question.** A single-row lookup by a natural key was a repository `find`
+the author wrote by hand — `find bySku(s: string): Product? where this.sku ==
+s` — one method per key, with nothing tying the key to a uniqueness rule. A
+key no `unique (…)` covered returned whichever duplicate the database yielded
+first (`loom.single-row-find-not-unique` was only advisory). And
+`T or <Error>` finds let one lookup answer a declared error body on a miss.
+
+**Decision.**
+
+- `Repo.getBy(<col>: v, …)` yields the row; `Repo.findBy(<col>: v, …)` yields
+  `T?`. Their named arguments must equal one declared `unique (…)` tuple of
+  the aggregate (inherited tuples count) exactly, in any order:
+  `loom.repo-key-not-unique` when no tuple covers the names (with a
+  did-you-mean over the declared tuples), `loom.repo-key-incomplete` for part
+  of a tuple or a positional argument. The tuple rule is one function,
+  `resolveKeyTuple` in `src/util/repository-contract.ts`, read by the
+  validator and the lowerer alike; the contract rows are `getBy` →
+  `load-by-key` and `findBy` → `load-by-key-optional`.
+- A `getBy` miss answers the standard ProblemDetails 404 (`"not_found"`) on
+  every backend. `findBy` is an `if let` source; bound by a plain `let` it is
+  the nullable-load refusal every `T?` read gets.
+- Capability filters apply as on any read. A trailing `ignoring …` widens one
+  call — on a `let` or an `if let` source, the two positions that bind a read.
+- Each backend emits one repository method per used (verb, tuple, `ignoring`
+  stance), named from the columns in declared order (`findBySku`,
+  `getByRegionAndName`, `getBySkuIgnoringAll`, `keyLookupMethodName`) with a
+  `WHERE` on exactly those columns. The method is DERIVED from the calls in
+  enrichment (`src/ir/enrich/key-lookup-finds.ts`) as a `synthesized` find,
+  so it rides each backend's existing find emitter and escaping and has no
+  HTTP route; `findRaisesNotFound` (`src/ir/util/key-lookup.ts`) is the one
+  predicate the java / python / elixir repository emitters read to raise
+  not-found where node and .NET already did for a `T` find.
+- `T or <Error>` finds are dropped: a miss is `T?`, and a `getBy` miss is the
+  standard 404. `T option` maps like `T?`, `T envelope` like `T`.
+- `scripts/codemod-find-to-findby.mjs` deletes each single-row find whose
+  `where` is an equality conjunction over a declared tuple (a clause-less find
+  binding its parameters by name counts) and rewrites its call sites,
+  carrying the find's `ignoring`. A find over an undeclared key is reported,
+  or with `--add-unique` gets its `unique (…)`. `T or <Error>` finds, by-id
+  finds, query-shaped `where`s and finds whose route a client reads are
+  reported, never guessed.
+
+**Consequences.** A natural-key read no longer needs a repository body. The
+synthesised method is not on the wire: a client that read a find's route
+needs a routed `queryHandler` over `getBy`. Most single-row finds in the
+corpus key on fields no `unique (…)` covers; they stay finds until their
+authors declare the key (or the codemod runs with `--add-unique`), and the
+`FindDecl` removal has to settle them.
