@@ -1395,7 +1395,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // event-sourced CREATE arm, whose conflict has no id in the path.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+      "M-T6.91 (#3858), found by #3224's `transactional-workflow-event-rollback` golden",
       "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
     ],
     tier: "behavioral",
