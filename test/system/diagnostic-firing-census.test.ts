@@ -2632,6 +2632,25 @@ system S {
   }
 }`,
 
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
+  }
+}`,
+
   // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
   // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
   // because a routed handler's arguments bind POSITIONALLY, the miscount does

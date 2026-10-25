@@ -11,6 +11,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -1325,7 +1326,7 @@ export function renderEventSourcedRepositoryImpl(
       "            catch (Microsoft.EntityFrameworkCore.DbUpdateException __ex)",
       '                when (__ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })',
       "            {",
-      '                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("The resource was modified by another request; reload and retry.", __ex);',
+      `                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"${agg.name} {__sid} ${CONCURRENCY_CONFLICT_SUFFIX}", __ex);`,
       "            }",
       "        }",
       `        ${renderDotnetLogCall("repositorySave", [

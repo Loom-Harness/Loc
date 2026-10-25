@@ -19,6 +19,7 @@ import {
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -1447,7 +1448,7 @@ function saveMethod(
     out.push("        )");
     out.push("        if _guarded.first() is None:");
     out.push(
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {${aggVar}.id} was modified concurrently")`,
+      `            raise ${R.ConcurrencyError}(f"${agg.name} {${aggVar}.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push("        await self._session.execute(");
