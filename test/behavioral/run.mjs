@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
+import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
@@ -308,7 +309,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Feature cases — DERIVED from the typed corpus manifest: every feature that
 // declares the `node` backend AND carries a behavioural block. One source of
 // truth (manifest.ts + the `.ddd`), swapped to `node` in-process. No allowlist.
-const features = await featureCases("node", "node", WORK);
+const features = await featureCases("node", "node", WORK, "node");
 
 // Shared tokenized systems (systems/*.ddd) — run on every backend.  ALL of them
 // run here, `sales` included: node is the ORACLE the wire goldens are captured
@@ -343,64 +344,46 @@ if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
 // Both tiers gate: `api` (emitted `test e2e`) and `unit` (emitted
 // aggregate `test`). A boot/infra error, or a FAILING requirement in the
 // Definition-of-Done rollup, fails the case.
-let pass = 0, fail = 0, errored = 0, reqFailing = 0, skipped = 0;
+let reqFailing = 0;
+/** The Definition-of-Done rollup of one case: printed, and each FAILING
+ *  requirement returned as a failure the case loop settles like a test's. */
+function requirementFailures(out) {
+  const v = out.verification;
+  if (!v || v.summary.total === 0) return [];
+  const s = v.summary;
+  reqFailing += s.failing;
+  process.stdout.write(
+    `  ⟐ requirements: ${s.verified}/${s.total} verified` +
+      `${s.failing ? `, ${s.failing} FAILING` : ""}` +
+      `${s.unverified ? `, ${s.unverified} unverified` : ""}` +
+      `${s.untested ? `, ${s.untested} untested` : ""}\n`,
+  );
+  const failing = [];
+  for (const [id, r] of Object.entries(v.requirements)) {
+    if (r.verdict !== "FAILING") continue;
+    process.stdout.write(`      ✗ ${id} FAILING (${r.failingTestCaseIds.join(", ")})\n`);
+    failing.push(`requirement ${id} FAILING`);
+  }
+  return failing;
+}
 // Cross-backend runtime wire differential (M-T9.11): every request this tier
 // makes is recorded at the dispatch chokepoint and compared to the committed
 // canonical golden.  node is the ORACLE the goldens are captured from, so here
 // the gate doubles as "the golden still describes the reference backend".
 const wire = makeWireGate("node", WORK);
+const loop = makeCaseLoop("node", wire);
 for (const c of corpus) {
-  process.stdout.write(`\n▶ ${c.name}\n`);
-  let out;
-  try {
-    out = await runCase(c);
-  } catch (err) {
-    errored++;
-    process.stdout.write(`  ERROR booting/running: ${err?.message ?? err}\n`);
-    continue;
-  }
-  for (const r of out.results) {
-    // `skip` is a THIRD outcome, not a quiet pass: the authz ladder reports an
-    // arm its auth flavour cannot express (a dev-stub system has no anonymous
-    // caller) as skipped, so the gap stays visible in the log instead of being
-    // counted as a rung that held.
-    if (r.status === "skip") {
-      skipped++;
-      process.stdout.write(`  ○ [${r.tier}] ${r.name}\n`);
-      continue;
-    }
-    const ok = r.status === "pass";
-    ok ? pass++ : fail++;
-    process.stdout.write(`  ${ok ? "✓" : "✗"} [${r.tier}] ${r.name}\n`);
-    if (!ok && r.error) process.stdout.write(`      ${String(r.error).split("\n")[0]}\n`);
-  }
-  const v = out.verification;
-  if (v && v.summary.total > 0) {
-    const s = v.summary;
-    reqFailing += s.failing;
-    process.stdout.write(
-      `  ⟐ requirements: ${s.verified}/${s.total} verified` +
-        `${s.failing ? `, ${s.failing} FAILING` : ""}` +
-        `${s.unverified ? `, ${s.unverified} unverified` : ""}` +
-        `${s.untested ? `, ${s.untested} untested` : ""}\n`,
-    );
-    for (const [id, r] of Object.entries(v.requirements)) {
-      if (r.verdict === "FAILING") process.stdout.write(`      ✗ ${id} FAILING (${r.failingTestCaseIds.join(", ")})\n`);
-    }
-  }
   // A unit-only case (a `test` block, no `test e2e`) stays OUT of the wire
-  // differential: the oracle's auto probes above still exercise it, but
-  // recording them would demand a node-only golden no other leg compares —
-  // every other runner skips unit-only cases entirely (their `declaresE2e`
-  // arm), and the static coverage gates require goldens only of e2e-declaring
-  // cases.  One rule, all seven legs.
-  if (declaresE2e(c.source)) await wire.check(c.name, out.wire, out.results);
+  // differential: the oracle's auto probes still exercise it, but recording
+  // them would demand a node-only golden no other leg compares — every other
+  // runner skips unit-only cases entirely (their `declaresE2e` arm), and the
+  // static coverage gates require goldens only of e2e-declaring cases.  One
+  // rule, all seven legs.
+  await loop.run(c, runCase, { header: "node", compareWire: declaresE2e(c.source), extra: requirementFailures });
 }
 
 await oidc?.stop();
 
 const wireBad = await wire.finish();
 
-const reqTail = reqFailing ? `, ${reqFailing} requirement(s) FAILING` : "";
-process.stdout.write(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped` : ""}${reqTail}${errored ? `, ${errored} cases errored` : ""}\n`);
-process.exit(fail > 0 || errored > 0 || reqFailing > 0 || wireBad > 0 ? 1 : 0);
+process.exit(loop.finish(wireBad, reqFailing ? `, ${reqFailing} requirement(s) FAILING` : ""));

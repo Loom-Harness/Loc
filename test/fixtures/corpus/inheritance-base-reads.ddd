@@ -1,0 +1,183 @@
+// Inheritance × the BASE — the half of epic #3954's behavioural fixture that no
+// backend passes yet, kept apart from `inheritance-read-restrictions.ddd`
+// because a case is one wire golden and a golden is captured from the node
+// oracle: while node fails a crossing there is no answer key to capture.
+//
+// Two owner rulings of #3954, each asserted at runtime:
+//
+//   1. A capability on an ABSTRACT BASE applies to every subtype (#3956).
+//      `Vehicle` is `archivable`, so `Car` and `Truck` are too — an archived
+//      Truck is gone from every Truck read, on both layouts.  On main the
+//      subtypes get the `archived` column and no filter on it.
+//   2. A polymorphic BASE read is one read over the hierarchy that applies
+//      every concrete's restrictions (#3959) — here a TPH base's by-id read
+//      `GET /api/equipment/{id}` (not routed on node) and a query-time
+//      projection `from Equipment` (which counts rows the restrictions hide).
+//
+// Every leg boots this case as a TRACKED expected failure
+// (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs), pinned to the
+// assertion it fails on.  The day a leg passes it, that leg goes red until the
+// entry is deleted — and when node passes, its golden is captured and these
+// assertions move into `inheritance-read-restrictions.ddd`.
+//
+// NOT HERE: `find … ignoring archivable` on a subtype.  It is refused at
+// validation today (`loom.filter-bypass-unknown-capability`, #3956), and a
+// refusal would stop the whole case generating and hide the runtime half
+// below; #3956's acceptance adds it with the fix.
+system InheritanceBaseReads {
+  capability archivable {
+    archived: bool = false
+    filter !this.archived
+  }
+
+  subdomain Fleet {
+    context Fleet {
+      // ── TPH ────────────────────────────────────────────────────────────
+      abstract aggregate Vehicle inheritanceUsing: sharedTable with archivable {
+        plate: string
+      }
+      aggregate Car extends Vehicle with crudish {
+        seats: int
+        operation archive() {
+          archived := true
+        }
+      }
+      aggregate Truck extends Vehicle with crudish {
+        payloadKg: int = 0
+        operation archive() {
+          archived := true
+        }
+      }
+      repository Cars for Car { }
+      repository Trucks for Truck { }
+
+      // A second TPH hierarchy, read ONLY by the polymorphic-read block below:
+      // the booted legs share one database across a case's blocks, so a
+      // hierarchy of its own is what lets that block count from zero.
+      abstract aggregate Equipment inheritanceUsing: sharedTable with archivable {
+        tag: string
+      }
+      aggregate Crane extends Equipment with crudish {
+        reachM: int
+      }
+      aggregate Forklift extends Equipment with crudish {
+        liftKg: int = 0
+        operation archive() {
+          archived := true
+        }
+      }
+      repository Cranes for Crane { }
+      repository Forklifts for Forklift { }
+
+      projection EquipmentCount {
+        n: int
+        from Equipment as e
+        select n = count()
+      }
+
+      // ── TPC ────────────────────────────────────────────────────────────
+      abstract aggregate Crew inheritanceUsing: ownTable with archivable {
+        name: string
+      }
+      aggregate Driver extends Crew inheritanceUsing: ownTable with crudish {
+        licence: string
+        operation archive() {
+          archived := true
+        }
+      }
+      aggregate Dispatcher extends Crew inheritanceUsing: ownTable with crudish {
+        desk: int = 0
+      }
+      repository Drivers for Driver { }
+      repository Dispatchers for Dispatcher { }
+    }
+  }
+
+  api FleetApi from Fleet
+
+  storage pg { type: postgres }
+  resource fleetState { for: Fleet, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Fleet]
+    dataSources: [fleetState]
+    serves: FleetApi
+    port: 4000
+  }
+
+  test e2e "TPH: a base capability narrows every subtype" against d {
+    let car = api.cars.create({ plate: "C-1", seats: 4 })
+    let truck = api.trucks.create({ plate: "T-1", payloadKg: 900 })
+    api.trucks.archive(truck)
+    expect(api.trucks.getById(truck)).toThrow(404)
+    expect(api.trucks.all().length).toBe(0)
+    // The sibling's row was never archived.
+    expect(api.cars.all().length).toBe(1)
+    expect(api.cars.getById(car).seats).toBe(4)
+  }
+
+  test e2e "TPC: a base capability narrows every subtype" against d {
+    let d1 = api.drivers.create({ name: "Ada", licence: "L-1" })
+    let disp = api.dispatchers.create({ name: "Bob", desk: 3 })
+    expect(api.dispatchers.all().length).toBe(1)
+    api.drivers.archive(d1)
+    expect(api.drivers.getById(d1)).toThrow(404)
+    expect(api.drivers.all().length).toBe(0)
+    expect(api.dispatchers.getById(disp).desk).toBe(3)
+  }
+
+  test e2e "TPH: the polymorphic base reads apply every subtype's restrictions" against d {
+    let crane = api.cranes.create({ tag: "CR-1", reachM: 40 })
+    let lift = api.forklifts.create({ tag: "FL-1", liftKg: 2000 })
+    expect(api.cranes.all().length).toBe(1)
+    expect(api.forklifts.all().length).toBe(1)
+    expect(api.equipment.getById(crane).tag).toBe("CR-1")
+    expect(api.equipment.getById(lift).tag).toBe("FL-1")
+    expect(api.equipmentCount.list().n).toBe(2)
+    api.forklifts.archive(lift)
+    expect(api.equipment.getById(lift)).toThrow(404)
+    expect(api.equipmentCount.list().n).toBe(1)
+  }
+
+  // Every subtype's own routes, none of them reading a row the base
+  // capability would hide — so this block passes before #3956 and after it.
+  test e2e "every subtype's own routes round-trip" against d {
+    let car = api.cars.create({ plate: "C-9", seats: 1 })
+    api.cars.update(car, { seats: 2 })
+    expect(api.cars.getById(car).seats).toBe(2)
+    api.cars.destroy(car)
+    expect(api.cars.getById(car)).toThrow(404)
+    let shelved = api.cars.create({ plate: "C-8", seats: 1 })
+    api.cars.archive(shelved)
+
+    let truck = api.trucks.create({ plate: "T-9", payloadKg: 1 })
+    api.trucks.update(truck, { payloadKg: 5 })
+    expect(api.trucks.getById(truck).payloadKg).toBe(5)
+    api.trucks.destroy(truck)
+    expect(api.trucks.getById(truck)).toThrow(404)
+
+    let drv = api.drivers.create({ name: "Cy", licence: "L-9" })
+    api.drivers.update(drv, { licence: "L-10" })
+    expect(api.drivers.getById(drv).licence).toBe("L-10")
+    api.drivers.destroy(drv)
+    expect(api.drivers.getById(drv)).toThrow(404)
+
+    let disp = api.dispatchers.create({ name: "Di", desk: 1 })
+    api.dispatchers.update(disp, { desk: 2 })
+    expect(api.dispatchers.getById(disp).desk).toBe(2)
+    api.dispatchers.destroy(disp)
+    expect(api.dispatchers.getById(disp)).toThrow(404)
+
+    let crane = api.cranes.create({ tag: "CR-9", reachM: 10 })
+    api.cranes.update(crane, { reachM: 12 })
+    expect(api.cranes.getById(crane).reachM).toBe(12)
+    api.cranes.destroy(crane)
+    expect(api.cranes.getById(crane)).toThrow(404)
+
+    let lift = api.forklifts.create({ tag: "FL-9", liftKg: 10 })
+    api.forklifts.update(lift, { liftKg: 20 })
+    expect(api.forklifts.getById(lift).liftKg).toBe(20)
+    api.forklifts.destroy(lift)
+    expect(api.forklifts.getById(lift)).toThrow(404)
+  }
+}

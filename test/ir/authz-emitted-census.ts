@@ -46,6 +46,7 @@ import {
   type StmtIR,
   type WorkflowStmtIR,
 } from "../../src/ir/types/loom-ir.js";
+import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
@@ -113,6 +114,13 @@ export interface ReadFact {
 export interface AggFacts {
   readonly context: string;
   readonly name: string;
+  /** The aggregate whose table this one's rows live in — itself, except for a
+   *  TPH (`sharedTable`) concrete, whose rows live in the hierarchy root's. */
+  readonly table: string;
+  /** An `abstract` base owns no repository and no by-id route of its own; its
+   *  rows are read through its concretes (and, where one exists, the base's
+   *  polymorphic reader, which the sweep still checks). */
+  readonly abstract: boolean;
   readonly filters: readonly FilterFact[];
   /** `writeScopeFilter` — narrows the command load below the read scope. */
   readonly writeScope: FilterFact | undefined;
@@ -190,6 +198,8 @@ function contextFacts(ctx: BoundedContextIR): AggFacts[] {
     out.push({
       context: ctx.name,
       name: agg.name,
+      table: tableOwnerName(agg, ctx.aggregates),
+      abstract: agg.isAbstract === true,
       filters,
       writeScope,
       shape: (agg as AggregateIR & { shape?: string }).shape,
@@ -933,6 +943,7 @@ export function uncoveredReads(
       if (!mine.some((s) => s.read === r.name)) out.push(`${agg.name}.${r.name}`);
     }
     if (
+      !agg.abstract &&
       !mine.some(
         (s) => (s.kind === "root" || s.kind === "commandLoad") && /byid/.test(norm(s.scope)),
       )
@@ -955,7 +966,19 @@ export function scopeFilterSweep(
   const findings: Finding[] = [];
   const raw = readSites(variant, files);
   for (const site of raw) {
-    const agg = facts.find((a) => storageNames(site.storage, a.name));
+    // Every TPH concrete reads the hierarchy root's ONE table, so a storage
+    // token naming the table names a family, not an aggregate: the concrete is
+    // the one whose repository file the read sits in, and the root keeps its
+    // own reader's.  (An ORM with native inheritance — JPA — names the
+    // concrete's entity instead, which the aggregate's own name matches.)
+    const owners = facts.filter(
+      (a) => storageNames(site.storage, a.name) || storageNames(site.storage, a.table),
+    );
+    const fileOwner = norm(site.fileLabel);
+    const agg =
+      owners.find((a) => a.name !== a.table && fileOwner.startsWith(norm(a.name))) ??
+      owners.find((a) => a.name === a.table) ??
+      owners[0];
     if (!agg) continue; // an unfiltered aggregate's read — not this census's subject
     const c = classifySite(variant, site, agg);
     sites.push(c);

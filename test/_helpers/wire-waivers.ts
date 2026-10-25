@@ -89,4 +89,30 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "M-T6.91 — the concurrency-conflict 409 detail is `<Aggregate> <id> was modified by another request` on node, a fixed sentence on .NET/java/python/elixir",
   },
+  // 2026-10-25 — #3595's #3954 fixture: java's `softDelete` does not bump
+  // `version`, visible through the `ignoring softDeletable` read-back (RS-20).
+  ...(["GET /api/cars/by_plate_all?*", "GET /api/drivers/by_name_all?*"] as const).map(
+    (request): WireWaiver => ({
+      backends: ["java"],
+      cases: ["inheritance-read-restrictions"],
+      request,
+      path: "$.version",
+      kinds: ["value"],
+      reason: "#4035 — RS-20: a soft delete leaves java's version counter where the create put it",
+    }),
+  ),
+  // 2026-10-25 — #3595 booted `projection-valueobject-row` on elixir for the
+  // first time: the read model round-trips, but a nested value object's keys
+  // reach the wire in their column spelling (`at_time`), not camelCase (RS-1).
+  ...(["**.atTime", "**.at_time"] as const).map(
+    (path): WireWaiver => ({
+      backends: ["elixir"],
+      cases: ["projection-valueobject-row"],
+      request: "GET /api/projections/order_board/*",
+      path,
+      kinds: ["key-set"],
+      reason:
+        "#4023 — RS-1: a value object nested in a folded projection's read model keeps its snake_case leaf keys on elixir",
+    }),
+  ),
 ];

@@ -147,8 +147,181 @@ export const ADAPTER_ONLY_CASES = {
     // lands, `dotnet` joins the manifest set and this entry goes.
     "transactional-workflow-event-rollback":
       "M-T6.90 — EF's identity map makes the duplicate-handle conflict unreachable on the default .NET adapter; Dapper gates #3224's atomicity fix",
+    // EF refuses a TPH subtype filter over a non-root column at validation
+    // (`loom.tph-filter-unsupported`, lifted by #3960); Dapper's explicit SQL
+    // guards every read by `kind` and passes both.
+    "tph-crossings":
+      "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
+    "inheritance-read-restrictions":
+      "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
   },
 };
+
+/** The behavioural runner LEGS — the wire-gate backend labels, one per runner
+ *  (`run.mjs` is `node`, `run-mikroorm.mjs` is `mikroorm`, …).  The two
+ *  persistence-adapter legs are legs of their own because an adapter can fail
+ *  a case its backend's default adapter passes. */
+export const LEGS = ["node", "mikroorm", "dotnet", "dapper", "java", "python", "elixir"];
+
+/** The manifest backend key each leg boots (cases.mjs `featureCases`). */
+export const LEG_BACKEND = {
+  node: "node",
+  mikroorm: "node",
+  dotnet: "dotnet",
+  dapper: "dotnet",
+  java: "java",
+  python: "python",
+  elixir: "vanilla",
+};
+
+/** `.NET` refuses a TPH subtype filter over a column the root does not
+ *  declare — at validation, on both adapters (EF Core hosts query filters on
+ *  the root entity only).  #3960 lifts the refusal with root-hosted,
+ *  type-guarded named filters. */
+const TPH_FILTER_REFUSED = {
+  issue: "#3960",
+  expect: "error",
+  match: "loom\\.tph-filter-unsupported",
+  reason: "`loom.tph-filter-unsupported` refuses the TPH subtype-only-column filter at generate",
+};
+
+/** A folded projection's `valueobject` field: the migration spreads it into
+ *  leaf columns, the response nests it, and only node bridges the two.  How
+ *  each backend breaks is pinned per leg. */
+const projectionVoRow = (pin) => ({
+  issue: "#4023",
+  ...pin,
+  reason: "the read model does not bridge the flat VO leaf columns to the nested wire shape",
+});
+
+/** The blocks of `inheritance-base-reads` and how a leg that has not been
+ *  fixed fails each one. */
+const BASE_READS_TESTS = {
+  tphBaseCap: ["TPH: a base capability narrows every subtype", "expected the call to reject, but it resolved"],
+  tpcBaseCap: ["TPC: a base capability narrows every subtype", "expected the call to reject, but it resolved"],
+  polymorphic: ["TPH: the polymorphic base reads", "GET \\S+/api/equipments/\\S+ → 404 .*no route for GET"],
+};
+
+/** `inheritance-base-reads` — the base capability (#3956) and the polymorphic
+ *  base reads (#3959) of epic #3954, as each leg's EXACT failing set, so a leg
+ *  where half the fix lands goes red and narrows its own entry.  `passes`
+ *  names the blocks a leg already gets right; `pins` overrides a block's
+ *  message regex where that leg fails it differently. */
+function baseReads({ passes = [], pins = {} } = {}) {
+  const tests = {};
+  for (const [key, [name, re]] of Object.entries(BASE_READS_TESTS)) {
+    if (!passes.includes(key)) tests[name] = pins[key] ?? re;
+  }
+  return {
+    issue: "#3956, #3959",
+    expect: "fail",
+    tests,
+    reason:
+      "a capability on the abstract base is not inherited by its subtypes (#3956), and the TPH base by-id read is not routed (#3959)",
+  };
+}
+
+/**
+ * TRACKED EXPECTED FAILURES — per (leg, case) cells that are BOOTED on that leg
+ * and known to fail there, each linked to the issue that fixes it.
+ *
+ * This is how a corpus fixture runs on ALL five backends (#3595) while some of
+ * them are still wrong: the cell is not dropped from the leg (the shape
+ * `BEHAVIOURAL_SKIP` and a backend missing from a manifest row both have), it
+ * runs, and `case-loop.mjs` settles it:
+ *
+ *   - it fails as recorded → the leg stays green.  `expect` is the outcome
+ *     kind: `error` (refused at generate, failed to build or boot — `match`
+ *     must find the error message), `fail` (tests or ladder rungs failed —
+ *     `tests` maps a test-name fragment to a message regex and must claim
+ *     EXACTLY the failing set), or `wire` (every test passed, the recording
+ *     diverged from the golden);
+ *   - it PASSES → the leg goes red until the entry is deleted (the fix's PR
+ *     deletes its own entry, like every waiver register here);
+ *   - it fails any OTHER way — another kind, another message, one more or one
+ *     fewer failing test → the leg goes red: an entry vouches for one known
+ *     defect, not for whatever else breaks in the same case.
+ *
+ * Cases enter a leg from here even when the manifest row does not declare that
+ * backend — a backend that REFUSES a crossing at generate is absent from the
+ * row (the generation gate requires every declared cell to generate cleanly)
+ * and still owes the crossing; this is where the debt is booted.  A case node
+ * fails has no golden (node is the oracle it is captured from), and needs none
+ * until it passes.
+ *
+ * `test/behavioral/expected-failures.test.ts` (fast suite) keeps the register
+ * honest without booting: every entry names a real case and leg, an `#NNNN`
+ * issue and a well-formed pin, and every behavioural corpus fixture is
+ * accounted for on every one of the five backends.
+ */
+export const BEHAVIOURAL_XFAIL = {
+  node: {
+    "inheritance-base-reads": baseReads(),
+  },
+  mikroorm: {
+    "inheritance-base-reads": baseReads(),
+  },
+  dotnet: {
+    "inheritance-read-restrictions": TPH_FILTER_REFUSED,
+    "tph-crossings": TPH_FILTER_REFUSED,
+    // EF hosts the base's filter on the TPH root entity, so it reaches every
+    // concrete there — the one path #3956's audit found correct.
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap"] }),
+    "transactional-workflow-event-rollback": {
+      issue: "#3858",
+      expect: "fail",
+      tests: { "a rolled-back transactional workflow": "expected the call to reject, but it resolved" },
+      reason:
+        "M-T6.90 — two `getById` loads of one row are one tracked EF entity, so `debitTwice` never conflicts (fixed by #3249)",
+    },
+    // EF maps the VO as a scalar onto a column the migration never creates; the
+    // emitted project does not build.
+    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+  },
+  dapper: {
+    "inheritance-base-reads": baseReads(),
+    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+  },
+  java: {
+    "inheritance-base-reads": baseReads(),
+    "transactional-workflow-event-rollback": {
+      issue: "#4022",
+      expect: "fail",
+      tests: { "a rolled-back transactional workflow": "expected the call to reject, but it resolved" },
+      reason:
+        "M-T6.93 — JPA's persistence context hands both `getById` loads one managed entity, so the second save is never stale",
+    },
+  },
+  python: {
+    "inheritance-base-reads": baseReads(),
+    // `{"st": row.st}` against a model whose only attributes are the leaves.
+    "projection-valueobject-row": projectionVoRow({
+      expect: "fail",
+      tests: { "a value object on a folded read model": "/place → 500" },
+    }),
+  },
+  elixir: {
+    // The TPH base controller calls `list_vehicles(current_user)` against a
+    // `list_vehicles/0` delegate: the arity half of the #3955 base-reader leak.
+    "inheritance-read-restrictions": {
+      issue: "#3955",
+      expect: "error",
+      match: "mix compile --warnings-as-errors",
+      reason: "the principal-filtered TPH base controller calls the context's base readers with an arity they do not have",
+    },
+    // Elixir is the one leg that ROUTES the TPH base by-id read — and it serves
+    // an archived subtype row through it: the unfiltered `Repo.get(<Base>, id)`
+    // of #3955, observed on the wire.
+    "inheritance-base-reads": baseReads({
+      pins: { polymorphic: "expected the call to reject, but it resolved" },
+    }),
+  },
+};
+
+/** The expected-failure entry for one cell, or null. */
+export function expectedFailure(leg, caseName) {
+  return BEHAVIOURAL_XFAIL[leg]?.[caseName] ?? null;
+}
 
 /** The shared `systems/*.ddd` cases, DERIVED from the directory rather than a
  *  hand-list — a new shared system is gated the moment it lands, and a golden
