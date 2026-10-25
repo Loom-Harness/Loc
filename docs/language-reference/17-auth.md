@@ -2,7 +2,7 @@
 
 Identity and access for a Loom system, in one place: the system-scope `user` claim shape, the `auth { … }` OIDC config that generates a real verifier, the per-subdomain `permissions` catalogue (with `implies` grant hierarchy), the `requires` gate (HTTP 403), named `policy` functions, the `policy { … }` read/write ladder and its `deny` carve-outs, `mask unless` field redaction, the magic `currentUser`, and `sensitive(...)` tagging. Reach for this chapter when a request must be checked against *who the caller is* — distinct from `precondition`, which checks *what state the aggregate is in* (403 vs 422). Loom owns no auth runtime: declaring this surface generates the typed principal, the middleware, the verifier, the gates and the query filters; the IdP owns credentials, MFA and consent.
 
-> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.find-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework`, `loom.orgpath-without-tenancy` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
+> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework`, `loom.orgpath-without-tenancy` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
 
 All five backends emit auth files. The middleware, verifier seam, `requires`→403 mapping, `permissions.<name>` lowering, the read/write ladder and `mask unless` redaction are structurally identical across them — the divergence is host-language syntax and, for Elixir, the topology (a plug plus context-function guards rather than route-level throws). The frontends consume only the session probe; the `auth: ui` page gate is covered in [UI pages](15-ui-pages-structure.md) and [`../auth.md`](../auth.md#ui-gate--page--requires-expr-).
 
@@ -59,7 +59,7 @@ system Helpdesk {
 
       repository Tickets for Ticket {
         find mine(): Ticket[] where assignee == currentUser.id
-        find open(): Ticket[] requires currentUser.role == "agent" where status == Open
+        find open(): Ticket[] where status == Open
       }
       repository Secrets for Secret { }
       repository Plans for Plan { }
@@ -68,6 +68,7 @@ system Helpdesk {
       policy {
         allow deep on Ticket
         deny on Secret
+        read Ticket requires currentUser.role == "agent"
       }
     }
   }
@@ -323,7 +324,7 @@ It is admissible in five positions, all of them **declaration headers** or a lea
 ```ddd
 operation close() requires IsAgent() || CanClose(priority) { … }   // header (post-load: sees `this` + params)
 operation reassign(to: string) { requires currentUser.permissions.contains(permissions.ticketsReassign)  … }
-find open(): Ticket[] requires currentUser.role == "agent" where status == Open   // before `where`
+policy { read Ticket requires currentUser.role == "agent" }      // every read of Ticket (see below)
 projection Backlog requires currentUser.role == "agent" { … }
 workflow Fulfil requires currentUser.role == "ops" { create open(...) requires … { … } handle retry(...) requires … { … } }
 page Admin { requires currentUser.role == "admin"  … }            // client-side guard, see ch. 15
@@ -397,17 +398,17 @@ end
 ```
 ::: end
 
-**Read-side gates are `currentUser`-only.** A `find`, a `projection` and a workflow's header gate all run *before* any row is loaded, so referencing an aggregate field is a compile error — `loom.find-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user` respectively (each names the offending reference and points at the alternative). A find gate emits an in-handler 403 at the top of its route:
+**Read-side gates are `currentUser`-only.** An aggregate's policy read gate, a `projection`'s gate and a workflow's header gate all run *before* any row is loaded, so referencing an aggregate field is a compile error — `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user` respectively (each names the offending reference and points at the alternative). The policy read gate (see [below](#read--who-may-read-an-aggregate)) emits an in-handler 403 at the top of every read route of its aggregate:
 
 ```ts
-// http/ticket.routes.ts — GET /open
+// http/ticket.routes.ts — GET /open, under `policy { read Ticket requires currentUser.role == "agent" }`
 if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find open");
 const result = await repo.open();
 ```
 
 **Default-deny.** `auth { enforcement: denyByDefault }` makes every client-reachable surface without a `requires` gate an error — `loom.default-deny-ungated`, raised separately for operations, creates, destroys, finds, projections, workflows, workflow-instance reads and command/query handlers, plus `loom.audit-history-ungated` for an `audited` aggregate's `GET /<agg>/{id}/history`. `requires true` is the explicit "intentionally public" escape. This is the **default** for an `auth { … }` block that writes no `enforcement:` (M-T3.1); an explicit `enforcement: opt` leaves ungated surfaces open, and a system with no `auth` block has no enforcement posture at all.
 
-The aggregate list read (`GET /api/<plural>`, the auto-injected `find all`) is a **warning** when ungated — `loom.default-deny-list-ungated` (ruling D5) — whose remedy is a declared `find all(): T paged requires <expr>` (or `requires true`) — `paged`, because that is the shape the injected read answers; a declared `T[]` answers a bare array instead, and the warning spells whichever type keeps the current response shape. Two more surfaces are **warnings**, on one rule: an arm is an error only where the author can write a `requires` to satisfy it. The synthesised by-id read (`loom.default-deny-by-id-ungated`) is compiler-derived and has no gate surface at all; an event-sourced `create` (`loom.default-deny-es-create-ungateable`) has one that is refused on the four backends that render its body into a domain `_init` where no principal is in scope (`loom.lifecycle-guard-event-sourced`) — `elixir` hoists the gate to its context function and binds a principal, so there the gate is accepted and a missing one stays a hard error. Erroring on either would make the model unbuildable with nothing the author could do — for the event-sourced case it made `denyByDefault` and `persistedAs: eventLog` mutually exclusive for any aggregate with a creation endpoint. Both warnings name their remedies; see [`../auth.md`](../auth.md).
+The two compiler-derived reads — the list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}` — are **warnings** when ungated (`loom.default-deny-list-ungated`, `loom.default-deny-by-id-ungated`; refused at runtime with 403 either way), whose remedy is the policy line `read T requires <expr>` (or `requires true`). One more surface is a **warning**, on one rule: an arm is an error only where the author can write a `requires` to satisfy it. An event-sourced `create` (`loom.default-deny-es-create-ungateable`) has one that is refused on the four backends that render its body into a domain `_init` where no principal is in scope (`loom.lifecycle-guard-event-sourced`) — `elixir` hoists the gate to its context function and binds a principal, so there the gate is accepted and a missing one stays a hard error. Erroring there would make the model unbuildable with nothing the author could do — it made `denyByDefault` and `persistedAs: eventLog` mutually exclusive for any aggregate with a creation endpoint. Every warning names its remedy; see [`../auth.md`](../auth.md).
 
 **No principal, no gate.** A `requires` gate (or a principal-reading lifecycle stamp such as `with auditable`'s `createdBy := currentUser`) on a deployable without `auth: required` would emit an unbound identifier and fail to compile — so it is caught first: `loom.guard-principal-without-auth` / `loom.stamp-principal-without-auth`.
 
@@ -502,6 +503,56 @@ select(TicketRow).where(or_(and_(TicketRow.data_key.isnot(None),
 | A `deny` that shadows an `allow` for the same aggregate (the allow is dead) | `loom.policy-deny-shadows-allow` |
 
 Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy.md`](../tenancy.md) and [`../auth.md`](../auth.md#deny-carve-outs-phase-4).
+
+### `read` — who may read an aggregate
+
+The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, and the scaffolded List page. It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.
+
+```ddd
+repository Orders for Order { }
+policy {
+  read Order requires currentUser.role == "clerk"
+  read Product requires true          // intentionally public
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/order.routes.ts — GET /orders/{id}
+if (!(currentUser.role === "clerk")) throw new ForbiddenError("Forbidden: find byId");
+```
+== dotnet
+```csharp
+// Application/Orders/Queries/GetOrderByIdHandler.cs
+if (!(currentUser.Role == "clerk")) throw new ForbiddenException("Forbidden: find byId");
+```
+== elixir
+```elixir
+# lib/<app>_web/controllers/order_controller.ex — show/2
+if not (current_user.role == "clerk") do
+```
+== python
+```python
+# app/http/order_routes.py — GET /orders/{id}
+if not (current_user.role == "clerk"):
+```
+== java
+```java
+// features/orders/OrdersController.java — getOrderById
+if (!(Objects.equals(currentUser.role(), "clerk"))) throw new ForbiddenException("Forbidden: find byId");
+```
+::: end
+
+| Situation | Diagnostic |
+| --- | --- |
+| The gate reads a row field (or anything but `currentUser` / constants) | `loom.policy-read-gate-not-current-user` |
+| Two `read` rules for one aggregate | `loom.policy-duplicate-target` |
+| The target is not an aggregate of this context | `loom.policy-unknown-aggregate` |
+| The gate is not `bool` | `loom.requires-not-bool` |
+| A rule starts with a word other than `allow` / `deny` / `read` | `loom.policy-unknown-rule` |
+
+`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#migration-find--requires-moved-to-the-policy-block)).
 
 ## `mask unless` — field read redaction
 
@@ -731,7 +782,7 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | `policy { … }` rule problems (unknown target, non-tenant-owned, duplicate, missing hierarchy, `write global`, write wider than read, dead allow) | `loom.policy-unknown-aggregate`, `loom.policy-deny-unknown-aggregate`, `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`, `loom.policy-deny-duplicate`, `loom.policy-level-requires-hierarchy`, `loom.policy-write-global-invalid`, `loom.policy-write-wider-than-read`, `loom.policy-deny-shadows-allow` |
 | `mask unless` references a row field / an unsupported backend / a projection source | `loom.field-mask-not-current-user` / `loom.field-mask-unsupported` / `loom.field-mask-projection-source` |
 | `currentUser` in an invariant / derived / function body | `loom.currentuser-not-in-request-scope` |
-| A read gate (find / projection / workflow header) references a row field | `loom.find-gate-not-current-user` / `loom.projection-gate-not-current-user` / `loom.workflow-gate-not-current-user` |
+| A read gate (policy `read` / projection / workflow header) references a row field | `loom.policy-read-gate-not-current-user` / `loom.projection-gate-not-current-user` / `loom.workflow-gate-not-current-user` |
 | Workflow body calls a `currentUser`-bound find | `loom.workflow-currentuser-find` |
 | Ungated client-reachable surface under `denyByDefault` / ungated `audited` history | `loom.default-deny-ungated` / `loom.audit-history-ungated` |
 | A gate or a principal stamp on a deployable without auth | `loom.guard-principal-without-auth` / `loom.stamp-principal-without-auth` |

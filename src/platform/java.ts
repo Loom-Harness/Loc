@@ -40,12 +40,6 @@ const javaPlatform: PlatformSurface = {
   // dotnet-fable stage for Feliz) into the serving dir.  EMBEDDABLE_FRAMEWORKS,
   // not static-only.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-  // The java repository auto-emits `save`, `findById`, `getById`,
-  // `delete`, and `findAll` (Spring Data conventions).  All but
-  // `findAll` are already reserved by the Hono surface; the union
-  // across platforms (see `validateFindNameCollisions`) picks up the
-  // difference.
-  reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete", "findAll"]),
   capabilities: TARGET_CAPABILITIES.java,
   emitProject({
     contexts,

@@ -42,11 +42,12 @@
 // Exit code is non-zero if any case errors or any assertion fails.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
 
@@ -172,6 +173,21 @@ const PROBES = [
   },
 ];
 
+/** The money-comparison probe (#3263) for a `textProbe: "money-compare"` case:
+ *  `money-compare-ui.ddd` computes every comparison from its own page `state`,
+ *  so there is no seed and no backend read — `api: null` — and the verdict is
+ *  `judgeMoneyCompare` (every right `<name>=yes|no` token present, no wrong
+ *  one) over the accessibility tree. */
+const MONEY_COMPARE_PROBES = [
+  {
+    name: `the money comparison page (${MONEY_COMPARE_ROUTE}) compares money by value and an absent money? as false`,
+    route: `#${MONEY_COMPARE_ROUTE}`,
+    api: null,
+    expect: moneyCompareExpected(),
+    judge: judgeMoneyCompare,
+  },
+];
+
 /** Load a hash route, turn the semantics tree on, and return what the app
  *  actually rendered (accessible text) once it settles.
  *
@@ -221,11 +237,19 @@ async function runCase(c) {
   let browser;
   const results = [];
   try {
-    execFileSync(
-      "node",
-      [join(REPO, "bin/cli.js"), "generate", "system", join(REPO, c.ddd), "-o", genDir],
-      { stdio: "pipe" },
-    );
+    // A `frontend` case swaps its fixture's `__FRONTEND__` placeholder.
+    let dddPath = join(REPO, c.ddd);
+    if (c.frontend) {
+      mkdirSync(workDir, { recursive: true });
+      dddPath = join(workDir, "case.ddd");
+      writeFileSync(
+        dddPath,
+        readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
+      );
+    }
+    execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", dddPath, "-o", genDir], {
+      stdio: "pipe",
+    });
     const flutterDir = findFlutterDeployable(genDir);
     const deplDir = findNodeDeployable(genDir);
 
@@ -246,7 +270,8 @@ async function runCase(c) {
     const origin = `http://127.0.0.1:${server.port}`;
     process.stdout.write(`    stack on :${server.port}\n`);
 
-    await seed(origin);
+    const probes = c.textProbe === "money-compare" ? MONEY_COMPARE_PROBES : PROBES;
+    if (!c.textProbe) await seed(origin);
 
     // Fetch the browser build THIS playwright expects (run-ui.mjs does the same
     // in the generated e2e dir).  A no-op once cached; without it a harness
@@ -262,7 +287,7 @@ async function runCase(c) {
       channel: "chromium",
       args: ["--no-sandbox", "--enable-unsafe-swiftshader"],
     });
-    for (const probe of PROBES) {
+    for (const probe of probes) {
       const page = await browser.newPage();
       const api = [];
       const errors = [];
@@ -313,11 +338,14 @@ async function runCase(c) {
       });
       try {
         const text = await renderRoute(page, origin, probe.route, probe.expect);
-        const missing = probe.expect.filter((e) => !text.includes(e));
+        const missing = probe.judge ? [] : probe.expect.filter((e) => !text.includes(e));
         const read = api.find((r) => r.method === "GET" && r.path === probe.api);
         const bad = api.filter((r) => r.status >= 400);
         const why = [];
-        if (!read) why.push(`the app never issued GET ${probe.api} (saw: ${api.map((r) => `${r.method} ${r.path}`).join(", ") || "nothing"})`);
+        if (probe.judge) {
+          const wrong = probe.judge(text);
+          if (wrong.length) why.push(`${wrong.join(", ")} — accessible text was ${JSON.stringify(text.slice(0, 400))}`);
+        } else if (!read) why.push(`the app never issued GET ${probe.api} (saw: ${api.map((r) => `${r.method} ${r.path}`).join(", ") || "nothing"})`);
         else if (read.status >= 300) why.push(`GET ${probe.api} -> ${read.status}`);
         if (bad.length) why.push(`api errors: ${bad.map((r) => `${r.method} ${r.path} -> ${r.status}`).join(", ")}`);
         if (missing.length)

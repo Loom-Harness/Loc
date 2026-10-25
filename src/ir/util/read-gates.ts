@@ -1,13 +1,14 @@
-// The aggregate's canonical LIST read and the `requires` gate on it.
+// The aggregate's canonical LIST and BY-ID reads, and the gate on them.
 //
 // Every aggregate serves one list endpoint (`GET /<aggs>`), backed by the
 // repository find named `all`.  That find is USUALLY the one enrichment injects
-// (`ensureFindAll`), but an author may declare their own — and theirs wins,
-// gate included:
+// (`ensureFindAll`), but an author may declare their own — and theirs wins.
+// Who may read the aggregate is declared once, in the context's policy block:
 //
-//     repository Orders for Order {
-//       find all(): Order[] requires currentUser.role == "admin"
-//     }
+//     policy { read Order requires currentUser.role == "admin" }
+//
+// and enrichment (`applyPolicyReadGates`) puts that gate on `all` (and on every
+// declared find), so every route reads it from the one carrier, `requires`.
 //
 // Node and .NET picked the gate up for free because they emit a route per
 // repository find and `all` is just another entry in that list.  Java, Python
@@ -36,37 +37,30 @@ export function listReadFind(repo: RepositoryIR | undefined): FindIR | undefined
   return repo?.finds.find((f) => f.name === "all");
 }
 
-/** The authorization gate on the list endpoint, when the author declared one.
+/** The authorization gate on the list endpoint: the aggregate's
+ *  `policy { read X requires … }` gate, when its context declares one.
  *
- *  `undefined` for the enrichment-injected `all` (which carries no gate — it is
- *  compiler-synthesized and has no author source line) — EXCEPT under
- *  `enforcement: denyByDefault` on an `auth: required` backend, where
- *  enrichment stamps the deny gate on it (`defaultDenied`, M-T3.19) and the
- *  validator warns `loom.default-deny-list-ungated` until the author declares
- *  a gated one).  The emitted route must evaluate
- *  this BEFORE the query and answer 403 on failure, exactly as a named find's
- *  gate does. */
+ *  `undefined` when there is none — EXCEPT under `enforcement: denyByDefault`
+ *  on an `auth: required` backend, where enrichment stamps the deny gate on
+ *  `all` (`defaultDenied`) and the validator warns
+ *  `loom.default-deny-list-ungated` until the author writes the policy line.
+ *  The emitted route must evaluate this BEFORE the query and answer 403 on
+ *  failure, exactly as a named find's gate does. */
 export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
   return listReadFind(repo)?.requires;
 }
 
-// ── The by-id read (M-T3.19) ────────────────────────────────────────────────
+// ── The by-id read ──────────────────────────────────────────────────────────
 //
-// Every non-abstract aggregate also serves `GET /<aggs>/{id}`, and until
-// M-T3.19 nothing could gate it: the route is compiler-derived, so there was
-// no declaration to hang a `requires` on.  The surface is the one the list
-// read already uses — a repository `find` — spelled with the by-id SHAPE:
-//
-//     repository Secrets for Secret {
-//       find byId(id: Secret id): Secret? requires currentUser.role == "admin"
-//     }
-//
-// The gate is NAMED AT THE DECLARATION (the #2877 ruling: no inherited
-// aggregate-level default read gate).  Recognition is by name AND shape, so a
-// `find byId(oid: Order id): Order[] where …` (a different read that merely
-// shares the name) stays an ordinary find.  When the author writes no
-// `where`, lowering supplies the only filter the shape can mean
-// (`where this == <param>`), so the find's own `GET /<aggs>/by_id` route and
+// Every non-abstract aggregate also serves `GET /<aggs>/{id}`.  The route is
+// compiler-derived, and it is gated by the same policy line as the list read:
+// `policy { read X requires … }` covers every read of X.  An author may still
+// DECLARE the by-id read on the repository (`find byId(id: T id): T?`) — it then
+// also serves its own `GET /<aggs>/by_id` route, under the same gate.
+// Recognition is by name AND shape, so a `find byId(oid: Order id): Order[]
+// where …` (a different read that merely shares the name) stays an ordinary
+// find.  When the author writes no `where`, lowering supplies the only filter
+// the shape can mean (`where this == <param>`), so the find's own route and
 // repository method return THE row — not the table's first one.
 
 /** True when `find` has the by-id read shape for aggregate `aggName`:
@@ -91,17 +85,12 @@ export function byIdReadFind(repo: RepositoryIR | undefined): FindIR | undefined
   return repo.finds.find((f) => !f.synthesized && isByIdReadShape(f, repo.aggregateName));
 }
 
-/** The authorization gate on `GET /<aggs>/{id}`, when the author declared one.
- *  Every backend's by-id route evaluates it BEFORE the load and answers 403 on
- *  failure — the same place and the same carrier as a named find's gate. */
-export function byIdReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
-  return byIdReadFind(repo)?.requires;
-}
-
 /** The find that carries `GET /<aggs>/{id}`'s gate: the author's declared
- *  by-id read, or — when the repository is `readsDefaultDenied` and the author
- *  declared none — a synthesised by-id find whose gate is the DENY literal, so
- *  the route fails closed (403) on every backend (M-T3.19).  The synthesised
+ *  by-id read; else, when the aggregate has a `policy { read X requires … }`
+ *  gate, a synthesised by-id find carrying it (read off the list read `all`,
+ *  which enrichment gave the same gate); else, when the repository is
+ *  `readsDefaultDenied`, a synthesised by-id find whose gate is the DENY
+ *  literal, so the route fails closed (403) on every backend.  A synthesised
  *  one is never in `repo.finds`: it owns no route or repository method of its
  *  own, it only carries the by-id route's gate. */
 export function byIdRouteFind(
@@ -109,15 +98,18 @@ export function byIdRouteFind(
   idValueType: IdValueType,
 ): FindIR | undefined {
   const declared = byIdReadFind(repo);
-  if (declared || !repo?.readsDefaultDenied) return declared;
+  if (declared || !repo) return declared;
+  const listRead = listReadFind(repo);
+  const policyGate = listRead?.defaultDenied ? undefined : listRead?.requires;
+  if (!policyGate && !repo.readsDefaultDenied) return undefined;
   const idType = { kind: "id", targetName: repo.aggregateName, valueType: idValueType } as const;
   return {
     name: "byId",
     params: [{ name: "id", type: idType }],
     returnType: { kind: "optional", inner: { kind: "entity", name: repo.aggregateName } },
-    requires: DEFAULT_DENY_GATE(),
+    requires: policyGate ? structuredClone(policyGate) : DEFAULT_DENY_GATE(),
     synthesized: true,
-    defaultDenied: true,
+    ...(policyGate ? {} : { defaultDenied: true }),
   };
 }
 

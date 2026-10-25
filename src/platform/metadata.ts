@@ -158,7 +158,6 @@ const reactDescriptor: PlatformDescriptor = {
   mountsUi: true,
   isFrontend: true,
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.react,
 };
 
@@ -170,7 +169,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(["saveAsync", "getByIdAsync"]),
     capabilities: TARGET_CAPABILITIES.dotnet,
   },
   node: {
@@ -180,7 +178,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: false,
     isFrontend: false,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
     capabilities: TARGET_CAPABILITIES.node,
   },
   react: reactDescriptor,
@@ -193,7 +190,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(),
     capabilities: TARGET_CAPABILITIES.svelte,
   },
   vue: {
@@ -203,7 +199,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(),
     capabilities: TARGET_CAPABILITIES.vue,
   },
   angular: {
@@ -213,7 +208,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(),
     capabilities: TARGET_CAPABILITIES.angular,
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
@@ -226,7 +220,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: new Set(["feliz"]),
-    reservedRepositoryFindNames: new Set(),
     capabilities: TARGET_CAPABILITIES.feliz,
   },
   // Flutter (Dart/Material) mobile+web target — a self-hosting frontend built
@@ -241,7 +234,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: new Set(["flutter"]),
-    reservedRepositoryFindNames: new Set(),
     capabilities: TARGET_CAPABILITIES.flutter,
   },
   elixir: {
@@ -259,7 +251,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
       "angular",
       "feliz",
     ]),
-    reservedRepositoryFindNames: new Set(["get", "read", "create", "update", "destroy"]),
     capabilities: TARGET_CAPABILITIES.elixir,
   },
   python: {
@@ -269,7 +260,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
     capabilities: TARGET_CAPABILITIES.python,
   },
   java: {
@@ -279,7 +269,6 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     mountsUi: true,
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-    reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete", "findAll"]),
     capabilities: TARGET_CAPABILITIES.java,
   },
 };

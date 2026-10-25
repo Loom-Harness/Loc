@@ -272,11 +272,12 @@ SELECT string_agg(line, E'\\n' ORDER BY line) FROM (
 }
 
 // ---------------------------------------------------------------------------
-// Codegen — write the fixture with the platform substituted and `generate
-// system` into an output tree.  The v1 generation writes the baseline snapshot;
-// the v2 generation over the SAME tree diffs against it to derive the forward
-// migration.  A FRESH tree generation of v2 has no baseline, so it emits the
-// full Initial(v2) — the fresh-create side of CHECK 1.
+// Codegen — write the fixture with the platform substituted, record it with
+// `ddd migrate add` into the migration chain beside it (`migrations/`), then
+// `generate system` into an output tree.  The v1 generation records the
+// initial migrations; the v2 generation over the SAME tree records the forward
+// migration on top of them.  A FRESH tree's chain starts at Initial(v2) — the
+// fresh-create side of CHECK 1.
 // ---------------------------------------------------------------------------
 
 /** What `__PLATFORM__` expands to for a driver's `platform`.  A driver names
@@ -302,9 +303,18 @@ export function generate(
 ): void {
   const dddPath = path.join(outDir, "app.ddd");
   fs.writeFileSync(dddPath, source.replaceAll("__PLATFORM__", platformClause(platform)));
+  // One recorded generation per call, named by its position in the chain (a
+  // call that changes nothing records nothing and leaves the name free).
+  const recorded = fs.existsSync(chainDir(outDir))
+    ? fs.readdirSync(chainDir(outDir)).filter((f) => f.endsWith(".json")).length
+    : 0;
   try {
     const flag = opts.allowDestructive ? " --allow-destructive" : "";
-    execSync(`node ${cli} generate system ${dddPath} -o ${outDir}${flag}`, {
+    execSync(`node ${cli} migrate add gen-${recorded + 1} ${dddPath}${flag}`, {
+      stdio: "pipe",
+      cwd: repoRoot,
+    });
+    execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
       stdio: "pipe",
       cwd: repoRoot,
     });
@@ -319,6 +329,11 @@ export function generate(
 // ---------------------------------------------------------------------------
 // Boot readiness + REST assertion sequences (backend-agnostic).
 // ---------------------------------------------------------------------------
+
+/** The migration chain `generate` records into, beside `app.ddd`. */
+export function chainDir(outDir: string): string {
+  return path.join(outDir, "migrations");
+}
 
 export async function waitForReady(
   base: string,
@@ -523,7 +538,7 @@ export async function runMigrationEvolutionGate(driver: BackendDriver): Promise<
     v1.stop();
     await settle();
 
-    generate(evolved, driver.platform, treeA); // diff against the v1 baseline snapshot
+    generate(evolved, driver.platform, treeA); // records the v1 → v2 delta on the chain
     driver.rebuild?.(appA);
     const v2 = await boot(appA, chain);
     await assertForwardMigrated(v2.base, id); // CHECK 2
@@ -594,13 +609,13 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
     psql(server, "catchup", initialSql.replaceAll("DECIMAL(19, 4)", "DECIMAL"));
 
     // …and the matching pre-#2575 baseline: strip the bounds from the money
-    // column in the committed snapshot (schema/table/column discovered from
-    // the snapshot itself, not hard-coded).
-    const snapDir = path.join(tree, ".loom", "snapshots");
-    const snapFile = fs.readdirSync(snapDir).find((f) => f.endsWith(".snapshot.json"));
-    if (!snapFile) throw new Error(`no baseline snapshot under ${snapDir}`);
-    const snapPath = path.join(snapDir, snapFile);
-    const snap = JSON.parse(fs.readFileSync(snapPath, "utf8"));
+    // column in the recorded chain entry's schema (schema/table/column
+    // discovered from the entry itself, not hard-coded).
+    const entryFile = fs.readdirSync(chainDir(tree)).find((f) => f.endsWith(".json"));
+    if (!entryFile) throw new Error(`no recorded migration under ${chainDir(tree)}`);
+    const entryPath = path.join(chainDir(tree), entryFile);
+    const entry = JSON.parse(fs.readFileSync(entryPath, "utf8"));
+    const snap = entry.schema;
     let stripped = 0;
     let moneyTable = "";
     let moneyColumn = "";
@@ -618,7 +633,7 @@ export async function runMoneyBoundsCatchUpGate(): Promise<void> {
     }
     if (stripped !== 1)
       throw new Error(`expected exactly one bounded money column, saw ${stripped}`);
-    fs.writeFileSync(snapPath, JSON.stringify(snap, null, 2));
+    fs.writeFileSync(entryPath, JSON.stringify(entry, null, 2));
     const qualifiedTable = moneySchema ? `"${moneySchema}"."${moneyTable}"` : `"${moneyTable}"`;
 
     // A row only the unbounded column can hold: 6 fractional digits.
@@ -1140,119 +1155,6 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
-// M-T2.17 — the TRANSITION gate for `persistence: dapper`.
-//
-// Before Dapper applied the migration chain, its `DbSchema.EnsureAsync` ran
-// `CREATE TABLE IF NOT EXISTS` in `public` on every boot and kept no history;
-// its output tree carried a module snapshot but no migration files.  This gate
-// rebuilds that world and upgrades it:
-//
-//   1. the old DATABASE — the old bootstrap's DDL, verbatim
-//      (`dapper-legacy-bootstrap.sql`), plus one row;
-//   2. the old TREE — a v1 generate with its `Migrations/` removed (the old
-//      toolchain wrote none; its `DbSchema.cs` is replaced by the regenerate);
-//   3. regenerate v2 with the migration-aware toolchain — the tree is
-//      RE-ROOTED: the v1 Initial is re-emitted from the snapshot, then the
-//      v1 → v2 delta;
-//   4. boot — the runner BASELINES the database (moves `public.products` into
-//      `catalog`, records the Initial as applied without running it) and then
-//      applies the delta on top.
-//
-// The row must come out the other side exactly as CHECK 2 expects, the table
-// must live where the migrations put it, both ids must be in the history, and
-// a second boot must change nothing.  Dapper-only: no other backend ever had a
-// boot-time bootstrap to migrate away from.
-// ---------------------------------------------------------------------------
-
-/** The seeded row's id in the legacy database (inserted by SQL — the old app
- *  that would have written it through REST is the thing being upgraded). */
-const LEGACY_ROW_ID = "3f0c8a52-5b1e-4c1e-9d55-0a4f2f1b7e11";
-
-export async function runDapperLegacyBaselineGate(driver: BackendDriver): Promise<void> {
-  if (driver.platform !== "dapper") {
-    throw new Error(`legacy-baseline gate is Dapper-only, got driver '${driver.platform}'`);
-  }
-  if (!driver.toolchain.check()) {
-    throw new Error(`legacy-baseline: \`${driver.toolchain.name}\` not on PATH.`);
-  }
-  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-dapper-legacy-"));
-  const appDir = path.join(tree, "d");
-  const migrationsDir = path.join(appDir, "Migrations");
-  let server: PgServer | undefined;
-  const boots: BootHandle[] = [];
-  const DB = "legacy";
-  const boot = async (pg: PgConn): Promise<BootHandle> => {
-    const port = await freePort();
-    const h = driver.boot(appDir, pg, port);
-    boots.push(h);
-    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
-    return h;
-  };
-  const history = (s: PgServer) =>
-    psql(s, DB, "SELECT string_agg(tag, ',' ORDER BY tag) FROM public.__loom_migrations");
-
-  try {
-    server = await startPgServer();
-    resetDatabase(server, DB);
-    const pg = connFor(server, DB);
-
-    // 1. The database the old bootstrap provisioned, holding one v1 row.
-    psql(server, DB, readFixtureFile("dapper-legacy-bootstrap.sql"));
-    psql(
-      server,
-      DB,
-      `INSERT INTO products (id, name, price, status, version) ` +
-        `VALUES ('${LEGACY_ROW_ID}', '${SEED.name}', ${SEED.price}, '${SEED.status}', 1)`,
-    );
-    expect(
-      psql(server, DB, "SELECT to_regclass('public.__loom_migrations') IS NULL"),
-      "a pre-migration database has no history table",
-    ).toBe("t");
-
-    // 2. The tree the old toolchain left: snapshot + history, no migration files.
-    generate(readFixture("base"), driver.platform, tree);
-    fs.rmSync(migrationsDir, { recursive: true, force: true });
-
-    // 3. The migration-aware regenerate re-roots the module.
-    generate(readFixture("evolved"), driver.platform, tree);
-    const files = fs.readdirSync(migrationsDir).sort();
-    expect(files.length, `re-rooted tree: ${files.join(", ")}`).toBe(2);
-    expect(files[0], "the re-emitted v1 Initial comes first").toMatch(/_Initial\.cs$/);
-    const ids = files.map((f) => f.replace(/\.cs$/, ""));
-    driver.install(appDir);
-
-    // 4. First migration-aware boot: baseline, then the delta.
-    const v2 = await boot(pg);
-    await assertForwardMigrated(v2.base, LEGACY_ROW_ID);
-    expect(
-      psql(
-        server,
-        DB,
-        "SELECT to_regclass('public.products') IS NULL AND to_regclass('catalog.products') IS NOT NULL",
-      ),
-      "the legacy table moved into the schema the migrations own",
-    ).toBe("t");
-    expect(history(server), "the Initial is baselined and the delta applied").toBe(ids.join(","));
-    v2.stop();
-    await settle();
-
-    // Idempotent: a second boot applies nothing and changes nothing.
-    const again = await boot(pg);
-    await assertForwardMigrated(again.base, LEGACY_ROW_ID);
-    expect(history(server), "a reboot records nothing new").toBe(ids.join(","));
-    again.stop();
-  } finally {
-    for (const b of boots) b.stop();
-    server?.stop();
-    try {
-      fs.rmSync(tree, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Unique-index evolution gate (#3229) — `unique (…)` keys that the per-table
 // derivation has to carry across a capability flip and across inheritance.
 // One tree, one database, three generations (fixture: unique-evo-base.ddd):
@@ -1290,28 +1192,30 @@ export async function runDapperLegacyBaselineGate(driver: BackendDriver): Promis
 
 const ACCOUNT_V1 = "aggregate Account with crudish {";
 
-/** Remove one column from the committed baseline snapshot under `tree` — the
- *  "this database predates the column" half of a catch-up scenario (the other
- *  half is dropping it from the database itself). */
+/** Remove one column from the recorded baseline under `tree` — the head
+ *  migration-chain entry whose schema has `table` — the "this database
+ *  predates the column" half of a catch-up scenario (the other half is
+ *  dropping it from the database itself). */
 function dropBaselineColumn(tree: string, table: string, column: string): void {
-  const snapDir = path.join(tree, ".loom", "snapshots");
-  let dropped = 0;
-  for (const f of fs.readdirSync(snapDir).filter((n) => n.endsWith(".snapshot.json"))) {
-    const p = path.join(snapDir, f);
-    const snap = JSON.parse(fs.readFileSync(p, "utf8")) as {
-      tables?: { name: string; columns?: { name: string }[] }[];
-    };
-    for (const t of snap.tables ?? []) {
-      if (t.name !== table || !t.columns) continue;
-      const before = t.columns.length;
-      t.columns = t.columns.filter((c) => c.name !== column);
-      dropped += before - t.columns.length;
+  const entries = fs
+    .readdirSync(chainDir(tree))
+    .filter((n) => n.endsWith(".json"))
+    .sort((a, b) => (BigInt(a.split("_")[0]!) < BigInt(b.split("_")[0]!) ? -1 : 1));
+  type Entry = { schema: { tables?: { name: string; columns?: { name: string }[] }[] } };
+  for (const f of [...entries].reverse()) {
+    const p = path.join(chainDir(tree), f);
+    const entry = JSON.parse(fs.readFileSync(p, "utf8")) as Entry;
+    const t = entry.schema.tables?.find((x) => x.name === table);
+    if (!t?.columns) continue;
+    const before = t.columns.length;
+    t.columns = t.columns.filter((c) => c.name !== column);
+    if (before - t.columns.length !== 1) {
+      throw new Error(`expected one ${table}.${column} in the head entry ${f}`);
     }
-    fs.writeFileSync(p, JSON.stringify(snap, null, 2));
+    fs.writeFileSync(p, JSON.stringify(entry, null, 2));
+    return;
   }
-  if (dropped !== 1) {
-    throw new Error(`expected one ${table}.${column} in the baseline snapshot, dropped ${dropped}`);
-  }
+  throw new Error(`no recorded migration has table ${table}`);
 }
 const ACCOUNT_SOFT = "aggregate Account with softDeletable, crudish {";
 

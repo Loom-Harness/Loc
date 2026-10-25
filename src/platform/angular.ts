@@ -34,7 +34,6 @@ const angularPlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Angular generator only emits API call services — no per-aggregate
   // repository class.  No find-name collisions are possible.
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.angular,
   emitProject({
     contexts,

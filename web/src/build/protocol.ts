@@ -150,7 +150,6 @@ export interface MigrationView {
   /** `"Initial"` when the baseline is empty, else the derived PascalCase
    *  name (`"AddOrderStatus"`). */
   name: string;
-  version: string;
   /** Each step carries the bare table name it targets (when the op has one —
    *  `sqlComment` / `sqlExec` / `renameIndex` don't), so the Migrations tab
    *  can tint the schema diagram per table without re-parsing the SQL. */

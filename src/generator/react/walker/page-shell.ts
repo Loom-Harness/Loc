@@ -1550,7 +1550,9 @@ function stateTypeAsTsString(type: TypeIR): string {
   }
   if (type.kind === "id" || type.kind === "enum") return "string";
   if (type.kind === "optional") {
-    return `${stateTypeAsTsString(type.inner)} | undefined`;
+    // `| null` too: an optional cell initialised `= null` (the absent value a
+    // `.ddd` author writes) holds `null`, not `undefined`.
+    return `${stateTypeAsTsString(type.inner)} | null | undefined`;
   }
   // `string[]` / `int[]` state — without this arm an array-typed field widened
   // to `any`, which silently disables type-checking on every read of it (the

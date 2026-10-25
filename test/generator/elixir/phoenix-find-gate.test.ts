@@ -1,5 +1,5 @@
-// Find `requires` gate on Phoenix (D-AUTH-OIDC / default-deny).  A
-// `find f(): T[] requires <expr> where <pred>` emits a 403 gate at the top of
+// The policy read gate on a find route, Phoenix (D-AUTH-OIDC / default-deny).  A
+// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
 // the find's controller action — the read-side twin of the view gate —
 // evaluated against `conn.assigns.current_user` before the query.  A failure
 // returns an RFC-7807 403 ProblemDetails; an ungated find emits no gate.
@@ -16,7 +16,7 @@ system Acme {
     context Tickets {
       aggregate Ticket { subject: string  open: bool }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] ${findClause}where open == true
+        find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
       }
     }
   }

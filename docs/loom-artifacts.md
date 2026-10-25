@@ -36,7 +36,6 @@ consumption.
     ├── verification.md          # written by `ddd verify`
     ├── sourcemap.json           # opt-in, only under `generate system --sourcemap`
     └── snapshots/
-        ├── <Subdomain>.snapshot.json                  # migration baselines
         └── <ts>-<guid>.loomsnap.json               # provenance rule captures
 ```
 
@@ -98,29 +97,22 @@ populates these.
 
 ## Snapshots
 
-`snapshots/` carries two kinds of file, both immutable:
+`snapshots/` carries the immutable provenance captures:
 
 | Pattern | Producer | What it is |
 |---|---|---|
-| `<Subdomain>.snapshot.json` | `src/system/snapshot.ts` + `src/system/migrations-builder.ts` (phase ⑨) | Migration baseline.  One file per subdomain that owns a database schema; written on every `generate system` run.  Diffed against the previous file on the next regen by `buildMigrations` to derive the next migration step; per-backend emitters (`src/generator/typescript/emit/migrations.ts`, `dotnet/emit/migrations.ts`, `python/emit/migrations.ts`, `java/emit/migrations.ts`, and `elixir/migrations-emit.ts`) translate the resulting `MigrationsIR` to platform-specific files — see [`migrations.md`](migrations.md). |
 | `<ts>-<guid>.loomsnap.json` | `ddd snapshot` (`src/system/loomsnap.ts`) | Provenance rule snapshot.  One immutable timestamped+GUID file per system; captures the rule snapshots for every `provenanced` field.  The latest such file is the one the generated runtime loads at startup.  See [`provenance.md`](provenance.md). |
 
-Migration snapshots are derived from the IR and written on every
-regen.  Provenance snapshots are only written by the explicit
-`ddd snapshot` sub-command — never by `generate`.
+They are only written by the explicit `ddd snapshot` sub-command — never
+by `generate`.
 
-### The one `.loom/` file that is NOT under `-o`
+### Migration state is not under `-o`
 
-`generate system` also writes `<source-dir>/.loom/<source>.migration-history.json` —
-beside the `.ddd`, not under the output directory.  It is the migration-history
-**ledger**: which versions each module has emitted, plus a fingerprint of that
-module's schema.  It is deliberately not a second baseline (nothing diffs
-against it, and the SQL is not in it); its only job is to let the baseline
-guard refuse a re-baseline into an output tree that carries no history — which
-the output-tree guards structurally cannot see.  A clean `-o` has no snapshot
-**and** no migration files, and that is exactly what a genuine first run looks
-like.  Produced by `src/system/migration-ledger.ts`; commit it with the model.
-See [`migrations.md`](migrations.md) § Baseline safety.
+`.loom/` holds no migration state.  The migration history is the
+committed `migrations/` directory beside the `.ddd` — recorded by
+`ddd migrate add`, rendered by every `generate system` — so an output
+tree can be deleted and regenerated anywhere.  See
+[`migrations.md`](migrations.md) § The migration chain.
 
 ## Source map (opt-in)
 
@@ -162,8 +154,8 @@ addition to the emission is `sourcemap.json` itself.
 
 ## Cross-references
 
-- [`generators.md` § Migrations](generators.md) — what
-  `<Subdomain>.snapshot.json` diffs become at backend emission time
+- [`generators.md` § Migrations](generators.md) — what the
+  migration chain's entries become at backend emission time
   (per-platform output table and `MigrationsIR` plumbing).
 - [`provenance.md`](provenance.md) — the `ddd snapshot` capture
   step and the runtime trace SDK.

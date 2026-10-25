@@ -19,7 +19,6 @@ const reactPlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // React generator only emits API hooks — no per-aggregate
   // repository class.  No find-name collisions are possible.
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.react,
   emitProject({
     contexts,

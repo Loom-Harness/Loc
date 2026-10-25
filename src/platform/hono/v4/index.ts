@@ -36,12 +36,6 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // Static-asset host (static middleware): serves any static-bundle
     // framework.  D-PHOENIX-SURFACE.
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    // Hono repository auto-emits these per aggregate — see
-    // src/generator/typescript/repository-builder.ts (`async save`,
-    // `async findById`, `async getById`).  A user-declared find with
-    // one of these names would compile-error with TS2393 "Duplicate
-    // function implementation".
-    reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
     capabilities: TARGET_CAPABILITIES.node,
     emitProject({
       contexts,

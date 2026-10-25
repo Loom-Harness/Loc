@@ -63,6 +63,7 @@ import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -2461,7 +2462,7 @@ export function renderDapperDocumentRepository(
       }).join("\n");
     }
     return lines(
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParams(f.params, [], usesUser)})`,
       "    {",
       ...loadAllLines.map((l) => `        ${l}`),
       `        return __all${filter}${projection};`,
@@ -2674,7 +2675,7 @@ export function renderDapperEventSourcedRepository(
       });
     }
     return [
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
       "    {",
       `        var __all = await _LoadAllAsync(${ct});`,
       `        return __all${filter}${projection};`,

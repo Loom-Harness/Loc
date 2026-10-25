@@ -34,7 +34,6 @@ const flutterPlatform: PlatformSurface = {
   // Flutter hosts ONLY flutter — its SDK build is not the vite-only pipeline
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["flutter"]),
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.flutter,
   emitProject({ contexts, sys, deployable, sourcemap }): Map<string, string> {
     // `sourcemap` is forwarded exactly as react/vue/svelte/angular forward it —

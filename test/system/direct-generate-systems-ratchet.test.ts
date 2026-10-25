@@ -240,7 +240,6 @@ const PINNED: readonly string[] = [
   "test/system/keycloak-compose.test.ts",
   "test/system/kubernetes-helm.test.ts",
   "test/system/launch-config.test.ts",
-  "test/system/migration-artifacts.test.ts",
   "test/system/multifile-regression.test.ts",
   "test/system/node-debug.test.ts",
   "test/system/playground-feature-examples.test.ts",

@@ -13,7 +13,6 @@ const APP_MODULE = "PhoenixApp";
 
 const EMPTY_SNAP: SchemaSnapshot = {
   schemaVersion: 1,
-  lastVersion: "20260101000000",
   tables: [],
 };
 
@@ -41,10 +40,10 @@ describe("phoenix migrations-emit — delta path", () => {
       name: "AddNoteToOrders",
     };
     const files = emit(ir);
-    const path = "priv/repo/migrations/20260101000001_add_note_to_orders.exs";
+    const path = "priv/repo/migrations/20260101000001_sales_add_note_to_orders.exs";
     expect(files.has(path)).toBe(true);
     const body = files.get(path)!;
-    expect(body).toMatch(/defmodule PhoenixApp\.Repo\.Migrations\.AddNoteToOrders do/);
+    expect(body).toMatch(/defmodule PhoenixApp\.Repo\.Migrations\.SalesAddNoteToOrders do/);
     expect(body).toMatch(/alter table\(:orders\) do/);
     expect(body).toMatch(/add :note, :text, null: true/);
   });
@@ -67,7 +66,7 @@ describe("phoenix migrations-emit — delta path", () => {
       name: "AddCustomerToOrders",
     };
     const files = emit(ir);
-    const body = files.get("priv/repo/migrations/20260101000002_add_customer_to_orders.exs")!;
+    const body = files.get("priv/repo/migrations/20260101000002_sales_add_customer_to_orders.exs")!;
     expect(body).toMatch(
       /add :customer, references\(:customers, type: :uuid, on_delete: :restrict\), null: false/,
     );
@@ -91,7 +90,7 @@ describe("phoenix migrations-emit — delta path", () => {
       name: "Cleanup",
     };
     const files = emit(ir);
-    const body = files.get("priv/repo/migrations/20260101000003_cleanup.exs")!;
+    const body = files.get("priv/repo/migrations/20260101000003_sales_cleanup.exs")!;
     expect(body).toMatch(/remove :legacy_note/);
     expect(body).toMatch(/drop table\(:old_table\)/);
     expect(body).toMatch(/create index\(:orders, \[:status\]\)/);
@@ -111,7 +110,7 @@ describe("phoenix migrations-emit — delta path", () => {
       name: "RenameOrdersToPurchaseOrders",
     };
     const body = emit(ir).get(
-      "priv/repo/migrations/20260101000004_rename_orders_to_purchase_orders.exs",
+      "priv/repo/migrations/20260101000004_sales_rename_orders_to_purchase_orders.exs",
     )!;
     expect(body).toMatch(/rename table\(:orders\), to: table\(:purchase_orders\)/);
     // Schema-qualified rename carries the prefix on both ends.
@@ -143,7 +142,7 @@ describe("phoenix migrations-emit — delta path", () => {
       version: "20260101000020",
       name: "RetypeOrderCode",
     };
-    const body = emit(ir).get("priv/repo/migrations/20260101000020_retype_order_code.exs")!;
+    const body = emit(ir).get("priv/repo/migrations/20260101000020_sales_retype_order_code.exs")!;
     expect(body).toContain(
       String.raw`execute("ALTER TABLE \"orders\" ALTER COLUMN \"code\" TYPE INTEGER USING \"code\"::INTEGER")`,
     );
@@ -172,7 +171,7 @@ describe("phoenix migrations-emit — delta path", () => {
       version: "20260101000010",
       name: "MakeTotalOptional",
     };
-    const body = emit(ir).get("priv/repo/migrations/20260101000010_make_total_optional.exs")!;
+    const body = emit(ir).get("priv/repo/migrations/20260101000010_sales_make_total_optional.exs")!;
     expect(body).toMatch(/modify :total, :integer, null: true/);
   });
 

@@ -23,7 +23,6 @@ const base = (over: Partial<EvolutionOk>): EvolutionOk => ({
 const mig = (steps: MigrationView["steps"], destructive = false): MigrationView => ({
   module: "sales",
   name: "Change",
-  version: "1",
   steps,
   destructive,
 });

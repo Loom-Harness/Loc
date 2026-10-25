@@ -1777,13 +1777,15 @@ export interface WalkerTarget {
    *  shape as `exprTemporalBinary` above and for a sharper version of the same
    *  reason: `money` is not the host language's numeric type on every target.
    *
-   *  Where money IS a numeric-ish object (a `decimal.js` `Decimal` on the four
-   *  JSX targets, an F# `decimal` on Feliz) the host's operators already mean
-   *  the right thing and those targets leave this seam undefined — byte-identical
-   *  output.  Where money is a STRING (Flutter, whose Dart has no decimal type
-   *  and holds the wire's digits verbatim), the host's operators are
-   *  not merely unavailable, they are SILENTLY WRONG: `+` concatenates and `==`
-   *  compares text, so `'1.5'` and `'1.5000'` — the same amount — differ.
+   *  The host's operators are wrong on every target whose money is not a
+   *  host numeric.  On the four JSX targets money is a `decimal.js` `Decimal`:
+   *  `===` compares references and `<`/`>` order `valueOf()` STRINGS
+   *  lexicographically, so the shared `jsExprLeaves` routes comparisons through
+   *  `Decimal.sub(…)` (`renderJsMoneyBinary`).  On Flutter money is a STRING
+   *  (Dart has no decimal type and holds the wire's digits verbatim): `+`
+   *  concatenates and `==` compares text, so `'1.5'` and `'1.5000'` — the same
+   *  amount — differ.  On Feliz money is an F# `decimal`, whose operators are
+   *  right by value; its seam only lifts a `money?` side (`decimal option`).
    *
    *  Consulted by `emitExpr` for EVERY operator, after `exprTemporalBinary` and
    *  before `exprBinary`, with the lowered node's `leftType`/`rightType` stamps

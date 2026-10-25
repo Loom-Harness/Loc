@@ -12,7 +12,6 @@ import { parseString } from "../../_helpers/index.js";
 
 const EMPTY_SNAP: SchemaSnapshot = {
   schemaVersion: 1,
-  lastVersion: "20260101000000",
   tables: [],
 };
 

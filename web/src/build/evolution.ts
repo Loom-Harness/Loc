@@ -210,7 +210,6 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
       migrations.push({
         module: mig.module,
         name: mig.name,
-        version: mig.version,
         steps: mig.steps.map((s) => ({ op: s.op, sql: renderPgStep(s), table: stepTable(s) })),
         destructive: isDestructive,
         destructiveMessage: destructiveByModule.get(mig.module),

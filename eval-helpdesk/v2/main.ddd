@@ -142,21 +142,21 @@ system Helpdesk {
         }
       }
       repository InternalNotes for InternalNote {
-        find all(): InternalNote paged requires currentUser.permissions.contains(permissions.ticketsWork)
-        find forTicket(t: Ticket id): InternalNote[] requires IsAgent() where ticket == t
+        find forTicket(t: Ticket id): InternalNote[] where ticket == t
       }
+      policy { read InternalNote requires currentUser.permissions.contains(permissions.ticketsWork) }
 
       repository Customers for Customer { }
       repository Agents for Agent { }
       repository Tickets for Ticket {
-        find all(): Ticket paged requires currentUser.permissions.contains(permissions.ticketsWork)
-        find mine(): Ticket[] requires currentUser.customerId != null
+        find mine(): Ticket[]
           where requester == currentUser.customerId
-        find myQueue(): Ticket[] requires currentUser.agentId != null
+        find myQueue(): Ticket[]
           where assignee == currentUser.agentId && status != Closed && status != Resolved
-        find unassigned(): Ticket[] requires currentUser.permissions.contains(permissions.ticketsWork)
+        find unassigned(): Ticket[]
           where assignee == null && status != Closed
       }
+      policy { read Ticket requires currentUser.permissions.contains(permissions.ticketsWork) }
 
       // A customer opens a ticket for themselves; an agent may open on behalf of a customer.
       workflow openTicket {

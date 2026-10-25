@@ -240,7 +240,7 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
 
       // --- Negative-authz runtime gate (M-T3.13): the emitted `requires` filter
       // must ENFORCE at runtime, not merely compile.  The demo user's realm
-      // roles are [user, agent] (no admin), so the two gated finds split:
+      // roles are [user, agent] (no admin), so the two gated reads split:
       // Authorized (role present) → 200 — the gate-satisfied control that proves
       // the gate isn't always-deny.
       expect((await fetch(`${apiBase}/api/tickets/agent_scoped`, { headers: bearer })).status).toBe(
@@ -248,12 +248,12 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
       );
       // Authenticated but UNauthorized (role absent) → 403 — the deny half; a
       // forgetful backend emitting a no-op gate would return 200 here.
-      expect((await fetch(`${apiBase}/api/tickets/admin_scoped`, { headers: bearer })).status).toBe(
-        403,
-      );
+      expect(
+        (await fetch(`${apiBase}/api/projections/admin_scoped`, { headers: bearer })).status,
+      ).toBe(403);
       // Unauthenticated hitting the gated route → 401 (authn precedes authz; the
       // unscoped call is rejected before the gate is even reached).
-      expect((await fetch(`${apiBase}/api/tickets/admin_scoped`)).status).toBe(401);
+      expect((await fetch(`${apiBase}/api/projections/admin_scoped`)).status).toBe(401);
 
       // --- Realtime stream authentication (M-T4.12), the two rules the shared
       // realtime plan states (src/ir/util/realtime-rooms.ts), run against the

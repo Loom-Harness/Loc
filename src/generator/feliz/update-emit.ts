@@ -81,6 +81,18 @@ function decimalLit(rendered: string, type: StateFieldIR["type"]): string {
   return /^-?\d+(\.\d+)?$/.test(rendered) ? `${rendered}m` : rendered;
 }
 
+/** A `state {}` initialiser in its field's F# type.  An OPTIONAL field
+ *  (`present: money? = money("10.0")`) is an F# `option`, so a present value is
+ *  `Some (…)` — the bare value (`10.0m` for a `decimal option`) is a type error.
+ *  The `null` literal already renders as `None`.  The decimal-literal coercion
+ *  applies to the inner type. */
+function optionalInit(f: StateFieldIR, rendered: string): string {
+  if (f.type.kind !== "optional") return decimalLit(rendered, f.type);
+  const init = f.init;
+  if (init?.kind === "literal" && init.lit === "null") return rendered;
+  return `Some (${decimalLit(rendered, f.type.inner)})`;
+}
+
 /** The `Set<Field>` Msg case a two-way-bound input contributes.  A `bool` state
  *  (a `Toggle` / controlled `Modal`) carries the bool directly; every other
  *  state (`Field`/`NumberField`/`SelectField`/…) carries the raw input `string`
@@ -382,7 +394,7 @@ export function renderInit(
       const v =
         override ??
         (f.init && paramValues !== null
-          ? decimalLit(renderFsExpr(f.init, ctx), f.type)
+          ? optionalInit(f, renderFsExpr(f.init, ctx))
           : stateFieldZero(f));
       return `      ${modelField} = ${v}`;
     }),

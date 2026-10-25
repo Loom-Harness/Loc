@@ -354,11 +354,14 @@ const gateBadge = (gate: HasCst | undefined): VBadge | undefined =>
 const maskBadges = (p: Property): VBadge[] | undefined =>
   badgesOf(p.maskUnless ? { label: "mask", detail: `unless ${cstText(p.maskUnless)}` } : undefined);
 
-/** `allow write deep on Order` / `deny on Invoice` — one policy ladder rung. */
+/** `allow write deep on Order` / `deny on Invoice` — one policy ladder rung —
+ *  or `read Order requires …`, the aggregate's read gate. */
 const policyRuleText = (r: PolicyReadRule): string =>
-  [r.effect, r.verb, r.effect === "allow" ? r.level : undefined, "on", r.target]
-    .filter((part): part is string => Boolean(part))
-    .join(" ");
+  r.effect === "read"
+    ? `read ${r.target} requires ${r.gate ? cstText(r.gate) : ""}`
+    : [r.effect, r.verb, r.effect === "allow" ? r.level : undefined, "on", r.target]
+        .filter((part): part is string => Boolean(part))
+        .join(" ");
 
 /** Monotonic per-kind counter, so the unnamed constructs (`filter`, `stamp`,
  *  a block-form `policy`, `seed`, `unique`, a hoisted `test`) get collision-free
@@ -2030,9 +2033,6 @@ function repositoryView(ast: Model, name: string): ViewGraph {
     id: nid("find", f.name),
     kind: "find" as const,
     name: f.name,
-    // A `find … requires <expr>` gate is the read-side authorization check —
-    // chip it so a gated read is visibly distinct from an open one.
-    badges: badgesOf(gateBadge(f.gate)),
   }));
   return withRoot(
     { title: `repository ${name}`, nodes: layout(items, ["find"]), edges: [] },

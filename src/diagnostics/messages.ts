@@ -372,6 +372,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `criterion '${p.name}' is impure: it calls the operation '${p.headName}'. Criteria are pure predicates — call a 'function' (pure) instead of an 'operation' (mutating).`,
   "loom.criterion-cycle": (p: { name: unknown }) =>
     `criterion '${p.name}' is part of a reference cycle. A criterion may not (transitively) reference itself.`,
+  "loom.criterion-retrieval-name-clash": (p: { name: unknown; context: unknown }) =>
+    `retrieval '${p.name}' has the same name as a criterion in context '${p.context}'. ` +
+    `A criterion and a retrieval may not share a name — rename one (e.g. the retrieval ` +
+    `to '${p.name}Sorted').`,
   "loom.criterion-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -858,8 +862,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
     `bespoke list finder on the repository, and put it on the wire with ` +
     `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
-    `when a client must call it. (A unique-key reconstitution find returning a single ` +
-    `'T' / 'T?' stays fine.)`,
+    `when a client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' ` +
+    `rewrites it. (A unique-key reconstitution find returning a single 'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -1390,8 +1394,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
     `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
-    `Choose a different find name (e.g. 'persist', 'fetchById').`,
+    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
+    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
   "loom.find-param-unbound": (p: {
     name: unknown;
     findName: unknown;
@@ -2201,7 +2205,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `If this is a rename, declare it explicitly so the data is preserved. Add this block at the TOP LEVEL of the .ddd file — outside \`system { … }\`, as a sibling of it (inside it is a parse error):\n` +
     `  migration "<name>" { <Aggregate>.<oldField> -> <newField> }\n` +
     `(one line per renamed field; this handles both a rename that also changes type and two renames at once.)\n` +
-    `If you really mean to drop the old column and add a new empty one — losing the data — re-run \`generate system\` with --allow-destructive.`,
+    `If you really mean to drop the old column and add a new empty one — losing the data — record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\`.`,
 
   /** A declared backfill whose column is arriving in THIS migration, yet no
    *  step consumed it — the silent-discard shape (F-018). A backfill is
@@ -2551,15 +2555,15 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.retrieval-loads-unsupported": (p: { name: unknown }) =>
     `retrieval '${p.name}': explicit 'loads:' is not supported yet — ` +
     `retrievals load the whole aggregate. (Per-operation autoload is planned.)`,
-  "loom.find-gate-not-current-user": (p: {
+  "loom.policy-read-gate-not-current-user": (p: {
     name: unknown;
-    findName: unknown;
+    aggregate: unknown;
     offending: unknown;
   }) =>
-    `find '${p.name}.${p.findName}': a \`requires\` gate runs before the query (no row ` +
-    `exists yet), so it may only reference \`currentUser\` (and constants) — \`${p.offending}\` ` +
-    "is not available here. Use `where` to scope which rows return; use `requires` to " +
-    "allow / deny the caller.",
+    `policy in context '${p.name}': \`read ${p.aggregate} requires …\` runs before the load ` +
+    `(no row exists yet), so it may only reference \`currentUser\` (and constants) — ` +
+    `\`${p.offending}\` is not available here. Scope which rows return with a capability ` +
+    "`filter` or a criterion; use the read gate to allow / deny the caller.",
   "loom.projection-gate-not-current-user": (p: { name: unknown; offending: unknown }) =>
     `projection '${p.name}': a \`requires\` gate runs before the query (no row exists ` +
     `yet), so it may only reference \`currentUser\` (and constants) — \`${p.offending}\` is not ` +
@@ -3185,35 +3189,27 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.default-deny-ungated#denybydefault-find-is-reachable": (p: {
     name: unknown;
     findName: unknown;
+    aggregate: unknown;
   }) =>
-    `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
-  // The SYNTHESISED by-id read (F-009 / M-T3.19).  Since M-T3.19 the route is
-  // REFUSED AT RUNTIME (403) under denyByDefault unless the author declares
-  // `find byId(id: T id): T? requires <expr>`.  A WARNING for one release
-  // (owner decision 2026-10-11) so existing models keep building; promoted to
-  // an error in a later release.
+    `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but '${p.aggregate}' has no read gate. Add \`policy { read ${p.aggregate} requires <expr> }\` to its context — it gates every read of '${p.aggregate}' (use \`requires true\` to allow anonymous access).`,
+  // The SYNTHESISED by-id read under denyByDefault: REFUSED AT RUNTIME (403)
+  // unless the aggregate has a `policy { read X requires <expr> }` gate.  A
+  // WARNING for one release (owner decision 2026-10-11) so existing models
+  // keep building; promoted to an error in a later release.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
-    `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
-    `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, declare the by-id read in ` +
-    `'${p.name}'s repository with a gate: \`find byId(id: ${p.name} id): ${p.name}? requires <expr>\` ` +
-    `(use \`requires true\` to make it intentionally public), or set \`enforcement: opt\`. A gate ` +
-    `elsewhere (an admin-only \`find all\`, gated operations) does not cover it. This warning ` +
-    `becomes an error in a later release.`,
-  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5;
-  // runtime gate M-T3.19).  Same tier and same promotion plan as the by-id
-  // read above.
-  "loom.default-deny-list-ungated": (p: {
-    name: unknown;
-    path: unknown;
-    repo: unknown;
-    listType: unknown;
-  }) =>
-    `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
-    `\`requires\` gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, ` +
-    `declare the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
-    `${p.listType} requires <expr> }\` — which replaces the compiler-injected one (use ` +
-    `\`requires true\` to mark it intentionally public), or set \`enforcement: opt\`. This ` +
-    `warning becomes an error in a later release.`,
+    `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no read gate, ` +
+    `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, add ` +
+    `\`policy { read ${p.name} requires <expr> }\` to its context — it gates every read of ` +
+    `'${p.name}' (use \`requires true\` to make it intentionally public), or set ` +
+    `\`enforcement: opt\`. This warning becomes an error in a later release.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).
+  // Same tier and same promotion plan as the by-id read above.
+  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown }) =>
+    `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' has no read ` +
+    `gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, add ` +
+    `\`policy { read ${p.name} requires <expr> }\` to its context — it gates every read of ` +
+    `'${p.name}' (use \`requires true\` to mark it intentionally public), or set ` +
+    `\`enforcement: opt\`. This warning becomes an error in a later release.`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
   // a surface): the author cannot gate this one — a body `requires` here is refused outright by
@@ -3256,13 +3252,8 @@ export const DIAGNOSTIC_MESSAGES = {
     path: unknown;
   }) =>
     `denyByDefault: ${p.kind} '${p.ctx}.${p.handler}' is \`extern\` — it has no body, so it cannot carry a \`requires\` gate — yet it is bound to \`route ${p.method} "${p.path}"\` on an 'auth: required' deployable. Give it a body (drop \`extern\`) so it can declare a gate, or remove the route binding.`,
-  "loom.audit-history-ungated": (p: {
-    aggregateName: unknown;
-    aggregateName2: unknown;
-    name: unknown;
-    listType: unknown;
-  }) =>
-    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but its list read declares no \`requires\` gate — the change history is reachable by any authenticated caller. Declare \`find all(): ${p.listType} requires <expr>\` on '${p.name}'; history inherits that gate (use \`requires true\` to allow anonymous access).`,
+  "loom.audit-history-ungated": (p: { aggregateName: unknown; aggregateName2: unknown }) =>
+    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but '${p.aggregateName}' has no read gate — the change history is reachable by any authenticated caller. Add \`policy { read ${p.aggregateName} requires <expr> }\` to its context; history is one of the reads it gates (use \`requires true\` to allow anonymous access).`,
   "loom.ui-id-ref-unknown-aggregate": (p: {
     deployableName: unknown;
     source: unknown;
@@ -4475,6 +4466,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `policy in context '${p.name}' selects a read level for '${p.aggregate}' more ` +
     `than once (\`${p.source}\`); keep exactly one \`allow … on ${p.aggregate}\`.`,
+  "loom.policy-duplicate-target#read-gate": (p: { name: unknown; aggregate: unknown }) =>
+    `policy in context '${p.name}' declares \`read ${p.aggregate} requires …\` more than ` +
+    `once; keep exactly one read gate per aggregate (combine the conditions with \`||\` / \`&&\`).`,
   "loom.policy-duplicate-target#write": (p: {
     name: unknown;
     aggregate: unknown;
@@ -4490,6 +4484,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `policy in context '${p.name}': \`${p.source}\` names '${p.aggregate}', which ` +
     `is not an aggregate in this context.  A read level scopes a tenant-owned aggregate ` +
     `declared in the same context.`,
+  "loom.policy-unknown-rule": (p: { word: unknown }) =>
+    `'${p.word}' does not start a policy rule — a \`policy { }\` block holds \`allow …\`, ` +
+    `\`deny …\` and \`read <Aggregate> requires <expr>\` rules.`,
+  "loom.policy-unknown-aggregate#read-gate": (p: { name: unknown; aggregate: unknown }) =>
+    `policy in context '${p.name}': \`read ${p.aggregate} requires …\` names ` +
+    `'${p.aggregate}', which is not an aggregate in this context.  A read gate covers the ` +
+    `reads of an aggregate declared in the same context.`,
   "loom.policy-unknown-aggregate#write": (p: {
     name: unknown;
     source: unknown;
@@ -5494,6 +5495,13 @@ export const DIAGNOSTIC_MESSAGES = {
   // below.  Say the order (`src/language/parse-errors.ts`).
   "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
     `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
+  // A `requires` gate on a repository find — the clause moved to the policy
+  // block (`src/language/parse-errors.ts`).
+  "loom.parse-error#find-requires-moved": (p: { aggregate: unknown }) =>
+    `A repository find carries no \`requires\` gate: who may read an aggregate is ` +
+    `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
+    `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
+    `does it for a whole project).`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

@@ -458,6 +458,29 @@ export function fieldAccessKeywords(): ReadonlySet<string> {
 }
 
 /**
+ * A `requires` gate on a repository find — `find all(): T[] requires G`.  The
+ * clause is gone: who may read an aggregate is `policy { read T requires G }`.
+ * Chevrotain only says it wanted the repository's `}`; name the new home (and
+ * the codemod) at the stray `requires`.  `undefined` for every other failure.
+ */
+export function findRequiresMoved(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset) || token.image !== "requires") return undefined;
+  const before = text.slice(0, token.startOffset);
+  if (!/\bfind\s+[A-Za-z_]\w*\s*\([^)]*\)\s*:[^{}=;]*$/.test(before)) return undefined;
+  const repos = [...before.matchAll(/\brepository\s+[A-Za-z_]\w*\s+for\s+([A-Za-z_]\w*)\s*\{/g)];
+  const aggregate = repos[repos.length - 1]?.[1] ?? "<Aggregate>";
+  return {
+    offset: token.startOffset,
+    length: token.image.length,
+    message: diagMessage("loom.parse-error#find-requires-moved", { aggregate }),
+  };
+}
+
+/**
  * An access modifier written AFTER the field's default — `status: S = Draft
  * managed`.  `Property` is `name ':' type <modifiers> ('=' default)?`, so the
  * property ends at the default and the modifier (a soft keyword) is read as

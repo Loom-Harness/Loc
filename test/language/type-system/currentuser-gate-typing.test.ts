@@ -50,8 +50,9 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
       `repository Tickets for Ticket {
-        find secure(): Ticket[] requires currentUser.permissions.contains(permissions.manage) where status == "open"
-      }`,
+        find secure(): Ticket[] where status == "open"
+      }
+      policy { read Ticket requires currentUser.permissions.contains(permissions.manage) }`,
     );
     expect(e.filter((s) => /requires/.test(s)).join("\n")).toBe("");
   });
@@ -68,8 +69,9 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
       `repository Tickets for Ticket {
-        find secure(): Ticket[] requires 42 where status == "open"
-      }`,
+        find secure(): Ticket[] where status == "open"
+      }
+      policy { read Ticket requires 42 }`,
     );
     expect(e.some((s) => /'requires' must be of type 'bool', got 'int'/.test(s))).toBe(true);
   });

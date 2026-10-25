@@ -31,7 +31,6 @@ const sveltePlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Svelte generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.svelte,
   emitProject({
     contexts,

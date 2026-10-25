@@ -26,7 +26,6 @@ const felizPlatform: PlatformSurface = {
   // Feliz hosts ONLY feliz — its Fable build is not the vite-only pipeline
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["feliz"]),
-  reservedRepositoryFindNames: new Set(),
   capabilities: TARGET_CAPABILITIES.feliz,
   emitProject({ contexts, sys, deployable, sourcemap }): Map<string, string> {
     return generateFelizForContexts(contexts, sys, deployable, { sourcemap });

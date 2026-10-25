@@ -123,7 +123,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.file-upload-not-file-field",
   "loom.filter-bypass-no-filter",
   "loom.filter-bypass-unknown-capability",
-  "loom.find-gate-not-current-user",
   "loom.find-reserved-name",
   "loom.findall-criterion-arity",
   "loom.findall-criterion-mismatch",

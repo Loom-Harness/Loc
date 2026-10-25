@@ -33,12 +33,12 @@ async function allDiags(
   }));
 }
 
-/** The two compiler-derived aggregate reads (`GET /<aggs>` and
- *  `GET /<aggs>/{id}`), declared with a gate — under denyByDefault each is
- *  otherwise a warning of its own (M-T3.19), which would drown the arm a case
- *  is about. */
+/** The aggregate's read gate — under denyByDefault each ungated read is
+ *  otherwise a warning of its own, which would drown the arm a case is about.
+ *  Spliced as a repository BODY (`repository R for T { ${reads("T")} }`): it
+ *  closes the repository and opens the `policy` block the trailing `}` closes. */
 const reads = (agg: string, gate = "requires true"): string =>
-  `find all(): ${agg}[] ${gate}\n        find byId(id: ${agg} id): ${agg}? ${gate}`;
+  `}\n      policy { read ${agg} ${gate}`;
 
 function sys(opts: { enforcement: string; authRequired: boolean; gate: string }): string {
   return `
@@ -120,8 +120,8 @@ system Helpdesk {
         create register(s: string) { ${gate}subject := s open := true }
       }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] ${findGate}where open == true
-        ${reads("Ticket")}
+        find openOnes(): Ticket[] where open == true
+        ${findGate ? reads("Ticket", findGate) : ""}
       }
       workflow openTicket {
         create(s: string) { ${gate}let t = Ticket.register(s) }
@@ -165,12 +165,10 @@ system Helpdesk {
   });
 
   it("flags the auto-`findAll` list read and the by-id read (M-T3.19, Commons F-006)", async () => {
-    // Both reads are compiler-derived, and both used to be exempt — the list
-    // read silently, the by-id read with a warning.  Each now has a surface
-    // named at the declaration (a repository `find all` / `find byId` with a
-    // `requires`); under denyByDefault an ungated one is refused at runtime
-    // (403) and WARNS — non-breaking for one release (owner decision
-    // 2026-10-11), then an error.
+    // Both reads are compiler-derived and gated by the aggregate's
+    // `policy { read T requires … }`; under denyByDefault an ungated one is
+    // refused at runtime (403) and WARNS — non-breaking for one release (owner
+    // decision 2026-10-11), then an error.
     const src = (repoBody: string): string => `
 system Helpdesk {
   user { id: string role: string }
@@ -201,10 +199,10 @@ system Helpdesk {
     ).toEqual(["loom.default-deny-by-id-ungated", "loom.default-deny-list-ungated"]);
     const list = warnings.find((d) => d.code === "loom.default-deny-list-ungated")!;
     expect(list.message).toContain("/api/tickets");
-    expect(list.message).toContain("find all(): Ticket paged requires <expr>");
+    expect(list.message).toContain("policy { read Ticket requires <expr> }");
     const byId = warnings.find((d) => d.code === "loom.default-deny-by-id-ungated")!;
     expect(byId.message).toContain("/api/tickets/{id}");
-    expect(byId.message).toContain("find byId(id: Ticket id): Ticket? requires <expr>");
+    expect(byId.message).toContain("policy { read Ticket requires <expr> }");
     // A DECLARED-but-ungated `find all` is the same hole: reported once.
     const declared = await allDiags(src("find all(): Ticket[]"));
     expect(declared.filter((d) => d.code === "loom.default-deny-list-ungated")).toHaveLength(1);
