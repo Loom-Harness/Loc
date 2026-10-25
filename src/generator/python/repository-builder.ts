@@ -417,7 +417,7 @@ export function buildPyRepositoryFile(
     `        rows = (await self._session.execute(${R.select}(${root})${rootWhere(
       { expr: `${root}.id.in_(list(ids))`, ops: new Set() },
       root,
-      undefined,
+      kind,
       filterPred,
     )})).scalars().all()`,
     `        return ${hydrateListExpr(agg)}`,
