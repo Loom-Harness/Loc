@@ -185,7 +185,14 @@ export function unfoldMacro(document: LangiumDocument, call: MacroCall): UnfoldR
  * sibling-document capability declarations and the override-by-name
  * member merge are not replicated here — the printed members land
  * verbatim and any collision surfaces as an ordinary validator
- * diagnostic on the unfolded source. */
+ * diagnostic on the unfolded source.
+ *
+ * A capability is not a one-shot macro: the aggregate keeps its NAME as a tag,
+ * and a read's `ignoring <cap>` clause is keyed on it.  Unfolding drops the tag,
+ * so a document that names the capability in an `ignoring` clause is refused —
+ * the unfolded source would fail `loom.filter-bypass-unknown-capability`.
+ * (`implements <cap>` is a synonym of `with <cap>`, not a marker: it re-applies
+ * the capability, so it cannot stand in for the tag.) */
 function unfoldCapability(
   document: LangiumDocument,
   call: MacroCall,
@@ -195,6 +202,7 @@ function unfoldCapability(
   if (hostKind === "ui") return undefined;
   const cap = resolveCapabilityForUnfold(document, call.name);
   if (!cap) return undefined;
+  if (capabilityNameIsReferenced(document, call.name)) return undefined;
   const members = [...(cap.members ?? [])];
   if (members.length === 0) return undefined;
   const targets: Aggregate[] =
@@ -211,6 +219,18 @@ function unfoldCapability(
   const clauseEdit = buildHostClauseRewriteEdit(document, host, call, []);
   if (clauseEdit) edits.push(clauseEdit);
   return { title: `Unfold capability '${call.name}'`, edits };
+}
+
+/** True when any `ignoring <name>` clause in the document is keyed on the
+ * capability `name`. */
+function capabilityNameIsReferenced(document: LangiumDocument, name: string): boolean {
+  const model = document.parseResult?.value as Model | undefined;
+  if (!model) return false;
+  for (const node of AstUtils.streamAllContents(model)) {
+    const bypass = (node as { bypass?: unknown }).bypass;
+    if (Array.isArray(bypass) && bypass.includes(name)) return true;
+  }
+  return false;
 }
 
 /** Resolve a capability name the way the expander's inventory does:

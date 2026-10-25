@@ -101,6 +101,15 @@ export function ownFieldsOf(concrete: AggregateIR, base: AggregateIR): FieldIR[]
   return concrete.fields.filter((f) => !baseNames.has(f.name));
 }
 
+/** How many of `agg`'s leading `contextFilters` it inherited from `ancestor`.
+ *  The enrichment merge (`inheritBaseCapabilities`) puts every ancestor's
+ *  filters before the concrete's own, so the inherited entries are exactly the
+ *  ancestor's (already merged) filter list, in order.  0 when `ancestor` is
+ *  `agg` itself or carries no filter. */
+export function inheritedFilterCount(agg: AggregateIR, ancestor: AggregateIR): number {
+  return ancestor === agg ? 0 : (ancestor.contextFilters?.length ?? 0);
+}
+
 // ---------------------------------------------------------------------------
 // TPH (`sharedTable`) predicates — the whole hierarchy lives in ONE table
 // named for the abstract base, with a `kind` discriminator column and the
