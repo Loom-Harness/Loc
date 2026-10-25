@@ -94,7 +94,7 @@ const CEILINGS: Record<string, number> = {
   hono: 500,
   i18n: 200,
   imports: 200,
-  java: 2000,
+  java: 1900,
   python: 1800,
   react: 1600,
   svelte: 600,
