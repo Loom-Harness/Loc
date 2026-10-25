@@ -53,19 +53,18 @@ describe("codemod-list-find-to-criterion", () => {
     const src = `context C {
   aggregate T { n: string }
   repository Ts for T {
-    find all(): T[] requires currentUser.role == "x"
-    find gated(): T[] requires currentUser.role == "y" where this.n == "a"
+    find all(): T[]
+    find named(): T[] where this.n == "a"
     find everything(): T[]
   }
 }
 `;
     const { text, report } = migrateSource(src);
-    expect(text).toContain('find all(): T[] requires currentUser.role == "x"');
-    expect(text).toContain('criterion TsGated of T = this.n == "a"');
+    expect(text).toContain("find all(): T[]");
+    expect(text).toContain('criterion TsNamed of T = this.n == "a"');
     // A filterless find with no field-named parameter read every row: there is
     // no criterion to write, so it stays and is reported.
     expect(text).toContain("find everything(): T[]");
-    expect(report.some((r) => r.includes("Ts.gated") && r.includes("requires"))).toBe(true);
     expect(report.some((r) => r.includes("Ts.everything") && r.includes("every row"))).toBe(true);
   });
 
@@ -110,13 +109,13 @@ describe("codemod-list-find-to-criterion", () => {
     expect(text).toContain("return Ts.all().count");
   });
 
-  it("keeps a route a test e2e reads: a routed handler on the same path, gate included", async () => {
+  it("keeps a route a test e2e reads: a routed handler on the same path", async () => {
     const src = `system S {
   subdomain Sales {
     context Shop {
       aggregate Order with crudish { code: string  region: string }
       repository Orders for Order {
-        find inRegion(region: string): Order[] requires currentUser.role == "clerk" where this.region == region
+        find inRegion(region: string): Order[] where this.region == region
       }
     }
   }
@@ -138,7 +137,6 @@ describe("codemod-list-find-to-criterion", () => {
     expect(text).toContain(
       [
         "queryHandler ListOrdersInRegion(region: string): Order[] {",
-        '        requires currentUser.role == "clerk"',
         "        let r = Orders.run(OrdersInRegion(region))",
         "        return r",
         "      }",

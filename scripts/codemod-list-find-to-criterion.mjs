@@ -38,16 +38,14 @@
 // A `test e2e` that reads a find's route (`api.<plural>.<find>(…)`) keeps it:
 // the codemod adds a routed `queryHandler List<Criterion>` over `Repo.run`,
 // bound by a `route GET` on the same path in the api serving the context (each
-// parameter a `{token}` — a GET carries no body), with the find's `requires`
-// gate as the handler's first statement, and repoints the read to
-// `api.<context>.list<Criterion>(…)`.
+// parameter a `{token}` — a GET carries no body), and repoints the read to
+// `api.<context>.list<Criterion>(…)`.  A find carries no `requires` gate: read
+// gates live in `policy { read X requires … }` (run
+// `scripts/codemod-find-gate-to-policy.mjs` first on an older source).
 //
 // What it cannot do is reported, not guessed:
 //   - a page reading a find's route (`<Ctx>.<Agg>.<find>` in `QueryView of:`),
 //     or a route read with no api in the same source;
-//   - a find with a `requires` gate and no route read: the gate guarded a
-//     route that is gone — gate an exposure with `scaffoldPaged(of: …,
-//     requires: <Policy>)` if a client needs it;
 //   - a filterless find whose parameters match no field, or a second
 //     every-row find on a repository that already has a `find all`.
 //
@@ -219,8 +217,7 @@ function planFinds(ast, text, shift, known, report, where, routeReads) {
           : [`criterion ${name}${params ? `(${params})` : ""} of ${aggName} = ${filter}`];
         // A client reads the find's route: keep it on the wire as a routed
         // queryHandler over the criterion, on the same path with each
-        // parameter as a `{token}` (a GET carries no body), and the find's
-        // `requires` gate as the handler's first statement.
+        // parameter as a `{token}` (a GET carries no body).
         const routeKey = `${slugKey(plural(aggName))}.${fd.name}`;
         const api = routeReads.has(routeKey)
           ? apis.find((a) => a.source?.$refText && a.source.$refText === ctx.$container?.name)
@@ -232,7 +229,6 @@ function planFinds(ast, text, shift, known, report, where, routeReads) {
           const paged = (fd.returnType.ctors ?? []).includes("paged");
           const argNames = fd.params.map((p) => p.name);
           const body = [
-            ...(fd.gate ? [`  requires ${fd.gate.$cstNode.text}`] : []),
             `  let r = ${repo.name}.run(${name}(${argNames.join(", ")}))${entry.ignoring ? ` ${entry.ignoring}` : ""}`,
             "  return r",
           ];
@@ -249,10 +245,6 @@ function planFinds(ast, text, shift, known, report, where, routeReads) {
           routesByApi.set(api, lines);
           entry.expose = { ctxName: ctx.name, handler, params: argNames };
           known.set(`route:${routeKey}`, entry);
-        } else if (fd.gate) {
-          report.push(
-            `${label} — its 'requires ${fd.gate.$cstNode.text}' gate guarded the find's route, which is gone; gate the exposure with scaffoldPaged(of: ${name}, requires: <Policy>) if a client needs it`,
-          );
         } else if (routeReads.has(routeKey)) {
           report.push(
             `${label} — a client reads its route, but no api in this source serves its context; expose ${name} by hand`,

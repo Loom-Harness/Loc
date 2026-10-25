@@ -5083,9 +5083,8 @@ silently picked one meaning.
   with `Repo.run(<it>(args))` and put on the wire with `scaffoldPaged(of: …)` +
   `scaffoldPagedApi(of: …)` or a routed `queryHandler`.
 - Two finds stay legal: a single-row find (`T` / `T?` and the single-row
-  carriers), and a declared `find all(): T[] / T paged`, which is how a
-  `requires` gate reaches the derived list route until read gates move to
-  `policy { read X requires … }` (#3952). The finds the compiler synthesises
+  carriers), and a declared `find all(): T[] / T paged`. Read gates live in
+  `policy { read X requires … }` (D-READ-GATE-IN-POLICY), not on a find. The finds the compiler synthesises
   in enrichment (auto-`findAll`, the paged find behind `scaffoldPaged`,
   projection sources, `findAllBy<Criterion>`) are not author-declared and are
   unaffected.
@@ -5099,7 +5098,7 @@ silently picked one meaning.
   becomes the repository's `find all`. A `test e2e` read of the find's route
   keeps the route: the codemod adds a routed `queryHandler List<Criterion>`
   over `Repo.run` on the same path (parameters as `{token}`s, a GET carries no
-  body), with the find's `requires` gate as its first statement. What it
+  body). What it
   cannot rewrite (a page reading the route, a find whose api lives in another
   file) it lists.
 
