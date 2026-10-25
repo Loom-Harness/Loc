@@ -42,7 +42,7 @@ export function bodyEffects(body: EffectBodyIR): EffectIR[] {
 
 /** The effects of one statement (and everything nested in it), appended to
  *  `out` under `scope`. */
-export function collectStmtEffects(
+function collectStmtEffects(
   st: WorkflowStmtIR,
   scope: readonly EffectScopeIR[],
   out: EffectIR[],
