@@ -15,16 +15,13 @@ import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
+import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
 import { javaLocals, localOf } from "../java-ident.js";
-import {
-  collectJavaExprImports,
-  type JavaRenderContext,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
 import {
@@ -38,6 +35,9 @@ import {
 } from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
+
+const ARRAY_LIST = javaRef("java.util", "ArrayList");
+const JDBC_TEMPLATE = javaRef("org.springframework.jdbc.core", "JdbcTemplate");
 
 // ---------------------------------------------------------------------------
 // In-process saga dispatcher (Java / Spring) — `<Ctx>Dispatcher`, a
@@ -178,7 +178,6 @@ function renderProjectionFold(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   sub: EventSubscriptionIR,
-  imports: Set<string>,
 ): string[] {
   const corr = proj.correlationField as string;
   const cls = projectionRowClass(proj);
@@ -203,14 +202,13 @@ function renderProjectionFold(
   const keyExpr = on.correlation
     ? renderJavaExpr(on.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (on.correlation) collectJavaExprImports(on.correlation, imports);
 
   const body: string[] = [
     `        var __key = ${keyExpr};`,
     `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
   ];
   for (const stmt of on.statements) {
-    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx, imports));
+    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx));
   }
   body.push(`        ${repo}.save(state);`);
   return [
@@ -247,12 +245,8 @@ function renderProjectionFoldStmt(
   on: ProjectionOnIR,
   corr: string,
   renderCtx: Parameters<typeof renderJavaExpr>[1],
-  imports: Set<string>,
 ): string[] {
-  const expr = (e: ExprIR): string => {
-    collectJavaExprImports(e, imports);
-    return renderJavaExpr(e, renderCtx);
-  };
+  const expr = (e: ExprIR): string => renderJavaExpr(e, renderCtx);
   const field = (): string => {
     const segs =
       stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove"
@@ -328,7 +322,8 @@ function renderProjectionFoldStmt(
  *  nullable while a primitive one cannot be. */
 function accumulateJava(proj: ProjectionIR, field: string, op: "+" | "-", value: string): string {
   const t = proj.stateFields.find((f) => f.name === field)?.type;
-  const spelling = t ? renderJavaType(t) : "int";
+  // Compared as SPELLED text: the type renderer writes import markers (M-T9.86).
+  const spelling = t ? spellMarkers(renderJavaType(t)) : "int";
   const cur = `state.${field}()`;
   if (spelling === "BigDecimal") {
     const verb = op === "+" ? "add" : "subtract";
@@ -457,7 +452,7 @@ export function renderJavaDispatcher(
       pushHandler(
         `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
         sub.event,
-        renderProjectionFold(proj, on, sub, imports),
+        renderProjectionFold(proj, on, sub),
       );
       if (!touchedProjections.some((p) => p.name === proj.name)) touchedProjections.push(proj);
       continue;
@@ -485,7 +480,6 @@ export function renderJavaDispatcher(
           createResolved,
           onSub,
           onResolved,
-          imports,
           dctx.contextSchema,
           construct,
           opFragments,
@@ -501,17 +495,8 @@ export function renderJavaDispatcher(
       handlerName(sub),
       sub.event,
       wf.eventSourced
-        ? renderEsHandler(
-            ctx,
-            wf,
-            sub,
-            resolved,
-            imports,
-            construct,
-            dctx.contextSchema,
-            opFragments,
-          )
-        : renderHandler(ctx, wf, sub, resolved, imports, construct, opFragments),
+        ? renderEsHandler(ctx, wf, sub, resolved, construct, dctx.contextSchema, opFragments)
+        : renderHandler(ctx, wf, sub, resolved, construct, opFragments),
       true,
     );
   }
@@ -549,7 +534,7 @@ export function renderJavaDispatcher(
   const fields = [
     `    private final ApplicationEventPublisher events;`,
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
-    ...(esPresent ? [`    private final JdbcTemplate jdbc;`] : []),
+    ...(esPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
     ...stateWfs.map(
       (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
     ),
@@ -560,7 +545,7 @@ export function renderJavaDispatcher(
   const ctorParams = [
     "ApplicationEventPublisher events",
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
-    ...(esPresent ? ["JdbcTemplate jdbc"] : []),
+    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
     ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
     ...touchedProjections.map((p) => `${projectionRowClass(p)}Repository ${projRepoField(p)}`),
   ].join(", ");
@@ -602,8 +587,6 @@ export function renderJavaDispatcher(
   // Dedup (an aggregate can be both a repo target and a factory target).
   const uniqueImports = [...new Set(importLines)].sort();
 
-  if (methods.some((m) => m.includes("new ArrayList<"))) imports.add("java.util.ArrayList");
-  if (esPresent) imports.add("org.springframework.jdbc.core.JdbcTemplate");
   // Workflow reactors open a per-dispatch child frame via RequestContext
   // .openChild(); a projection-only dispatcher (pure folds) never does, so gate
   // the import on actual use to keep a folds-only file free of a dead import.
@@ -719,7 +702,6 @@ function renderHandler(
   wf: WorkflowIR,
   sub: EventSubscriptionIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
   construct: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
@@ -748,7 +730,6 @@ function renderHandler(
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (resolved.correlation) collectJavaExprImports(resolved.correlation, imports);
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const stateClass = workflowStateClass(wf);
@@ -782,7 +763,7 @@ function renderHandler(
     body.push(`            return; // already processed — at-least-once redelivery`);
     body.push(`        }`);
   }
-  if (hasEmit) body.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) body.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   // Handler body — emit appends to __events; the spine threads the 8-space base.
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way, but the
@@ -791,7 +772,6 @@ function renderHandler(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
@@ -861,7 +841,6 @@ function renderEsHandler(
   wf: WorkflowIR,
   sub: EventSubscriptionIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
   construct: string,
   schema?: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
@@ -884,7 +863,6 @@ function renderEsHandler(
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (resolved.correlation) collectJavaExprImports(resolved.correlation, imports);
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const cls = esWorkflowStateClass(wf);
@@ -903,7 +881,6 @@ function renderEsHandler(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
@@ -925,7 +902,7 @@ function renderEsHandler(
   const usesState = bodyLines.some((l) => /\bstate\b/.test(l));
 
   const loadFold = [
-    `        var __loaded = new ArrayList<DomainEvent>();`,
+    `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
     `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
     `        var state = ${cls}._fromEvents(__key, __loaded);`,
   ];
@@ -959,7 +936,7 @@ function renderEsHandler(
     );
     body.push(...loadFold);
   }
-  if (hasEmit) body.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) body.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   body.push(...bodyLines);
   if (opFragments) {
     // `body` gets re-indented +4 below (`body.map((l) => \`    ${l}\`)`) when
@@ -1019,7 +996,6 @@ function esMergedBranchLines(
   ctx: EnrichedBoundedContextIR,
   wf: WorkflowIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
   /** The merged method's (collision-safe) event-param local. */
   methodParam: string,
   /** This branch's `.ddd` event binding name … */
@@ -1054,7 +1030,6 @@ function esMergedBranchLines(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
       branchCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
@@ -1078,7 +1053,7 @@ function esMergedBranchLines(
   if (branchLocal !== methodParam) {
     out.push(`        var ${branchLocal} = ${methodParam};`);
   }
-  if (hasEmit) out.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) out.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   out.push(...bodyLines);
   for (const s of resolved.saves) {
     const local = boundLocal(branchCtx, s.name);
@@ -1114,7 +1089,6 @@ function renderEsMergedHandler(
   createResolved: ResolvedHandler,
   onSub: EventSubscriptionIR,
   onResolved: ResolvedHandler,
-  imports: Set<string>,
   schema: string | undefined,
   construct: string,
   /** Source-map — forwarded to `esMergedBranchLines` for BOTH
@@ -1138,13 +1112,11 @@ function renderEsMergedHandler(
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (createResolved.correlation) collectJavaExprImports(createResolved.correlation, imports);
 
   const createBranch = esMergedBranchLines(
     ctx,
     wf,
     createResolved,
-    imports,
     param,
     createSub.param,
     param,
@@ -1157,7 +1129,6 @@ function renderEsMergedHandler(
     ctx,
     wf,
     onResolved,
-    imports,
     param,
     onSub.param,
     onLocal,
@@ -1178,7 +1149,7 @@ function renderEsMergedHandler(
     // Fold once; both branches read the same folded snapshot.  An empty stream
     // folds from zero (the create branch), a non-empty one replays it (on).
     body.push(
-      `        var __loaded = new ArrayList<DomainEvent>();`,
+      `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
       `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
       `        var state = ${cls}._fromEvents(__key, __loaded);`,
     );

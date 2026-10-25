@@ -153,6 +153,12 @@ describe("workflow create(…): T — every backend answers 200 with the value",
       expect(t).toContain("respond(conn, D.Banking.Workflows.TopUp.run(params))");
     },
   };
+  it("java: the controller's `UUID` result type derives its own import", async () => {
+    const files = await generateCorpusCase(FEATURE, "java");
+    const ctl = [...files].find(([p]) => p.endsWith("WorkflowsController.java"))?.[1] ?? "";
+    expect(ctl).toContain("public UUID openAccount(");
+    expect(ctl).toContain("import java.util.UUID;");
+  });
   for (const [backend, check] of Object.entries(cases) as [Backend, (t: string) => void][]) {
     it(backend, async () => {
       const text = all(await generateCorpusCase(FEATURE, backend));
