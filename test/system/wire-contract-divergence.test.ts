@@ -85,6 +85,10 @@ const BASELINE: Record<string, Divergence> = {
   // not the record.  Drain with the A1 class fix.
   "audit-history.ddd Ordering.Memo": "missing-in-record",
   "stamps-principal.ddd Desk.Ticket": "missing-in-record",
+  // audit-history-guarded's `Employee with auditable` — the same A1 class (the
+  // mixin's `createdAt`/`createdBy`/`updatedAt`/`updatedBy`), a new-fixture
+  // witness rather than a regression.
+  "audit-history-guarded.ddd Staff.Employee": "missing-in-record",
   // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
   // carries the `softDeletable` mixin — one more instance of THIS class, not
   // a new divergence.
@@ -101,6 +105,21 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
+  // capability on the abstract base (whose fields the record walk also misses).
+  "inheritance-base-reads.ddd Fleet.Vehicle": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Equipment": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crew": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
   // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
   // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
   // `label`, so enrichment merges it into the concrete's wire shape and the
@@ -129,6 +148,8 @@ const BASELINE: Record<string, Divergence> = {
   "embedded.ddd Shop.Order": "containment-response-suffix",
   "field-mask.ddd Staff.Employee": "containment-response-suffix",
   "single-containment.ddd Shop.Order": "containment-response-suffix",
+  // (M-T6.90 two-handles fixture — a containment, the same deliberate B1 shape.)
+  "workflow-two-handles-containment.ddd Carts.Cart": "containment-response-suffix",
   // B2. as B1, plus: an OPTIONAL single containment is `optional<MemoResponse>`
   //     in the record and `Memo` + the `optional` FLAG in the derived shape —
   //     the same fact in two representations.

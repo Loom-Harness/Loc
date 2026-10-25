@@ -49,7 +49,7 @@ system Denials {
         }
 
         // The third rung: a when STATE GATE.  Rejected -> 409, and its detail
-        // must name the operation and aggregate (RS-17).
+        // must name the operation, the aggregate and the predicate (RS-17).
         operation reopen() when status != "open" {
           status := "open"
         }
@@ -99,10 +99,13 @@ const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
  *  could not carry an authored message at all; it is pinned by its own
  *  `describe` at the bottom of this file (M-T6.20 path 2). */
 const AUTHORED_DETAIL = "Repricing needs a positive amount";
-/** RS-17 — the 409 rung.  Elixir used to answer a fixed sentence with title
- *  "Conflict"; the denial reason is now a tuple carrying this message, and the
- *  title is the ERROR NAME (`errorTitle` humanises `Disallowed`) on all five. */
-const DISALLOWED_DETAIL = "operation 'reopen' is not allowed in the current state of Order.";
+/** RS-17 — the 409 rung.  The detail names the operation, the aggregate AND
+ *  the failed `when` predicate's source, and the title is the ERROR NAME
+ *  (`errorTitle` humanises `Disallowed`) on all five.  This predicate DOES
+ *  carry a string literal, on purpose: all five embed the detail with the same
+ *  JSON-style `\"` escaping, so the expectation is that escaped form. */
+const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order (when status != "open").`;
+const DISALLOWED_DETAIL_EMBEDDED = JSON.stringify(DISALLOWED_DETAIL).slice(1, -1);
 
 async function emit(platform: string): Promise<string> {
   const files = await generateSystemFiles(SOURCE(platform));
@@ -129,7 +132,7 @@ describe("RS-15 — domain-floor denials are 422 with an occurrence-specific det
 
     it(`${platform}: a refused when-gate names the operation it refused`, async () => {
       const out = await emit(platform);
-      expect(out).toContain(DISALLOWED_DETAIL);
+      expect(out).toContain(DISALLOWED_DETAIL_EMBEDDED);
       // …and the state-gate arm's 7807 title is the ERROR NAME, not the 409
       // reason phrase.  Asserted POSITIVELY: "Conflict" is a legitimate title
       // on the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict), so

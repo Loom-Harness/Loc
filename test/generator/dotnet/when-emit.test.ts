@@ -31,7 +31,7 @@ describe("dotnet generator — when canCommand gate", () => {
   it("gates the command handler with DisallowedException before the method call", async () => {
     const h = (await files()).get("Application/Orders/Commands/CancelHandler.cs")!;
     expect(h).toContain(
-      "if (!(aggregate.Status != OrderStatus.Shipped && aggregate.Status != OrderStatus.Cancelled)) throw new DisallowedException(\"operation 'cancel' is not allowed in the current state of Order.\");",
+      "if (!(aggregate.Status != OrderStatus.Shipped && aggregate.Status != OrderStatus.Cancelled)) throw new DisallowedException(\"operation 'cancel' is not allowed in the current state of Order (when this.status != Shipped && this.status != Cancelled).\");",
     );
   });
 

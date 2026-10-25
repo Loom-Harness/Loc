@@ -46,6 +46,17 @@ aggregate or query marked `unpaged` (small reference lists — the
 `Paged<T>` with a synthetic page block. The `page` object's defaults
 (offset 0, limit 25) are pinned in `pagination-design-note.md`.
 
+**As shipped, the declared return type is the switch.** The compiler-injected
+list read is `find all(): T paged` (the envelope, served as `{ items, page,
+pageSize, total, totalPages }` with `page`/`pageSize`/`sort`/`dir` query
+params on all five backends), except on the aggregate shapes whose rows cannot
+page (event-sourced, `document`/`embedded`, `extends` subtypes), where it is a
+bare `T[]`. An author who declares `find all(...)` — typically to add a
+`requires` gate — gets exactly the type they write: `T paged` keeps the
+envelope, `T[]` is the bare-array opt-out. `loom.default-deny-list-ungated`
+therefore suggests the type the read already has, so following it adds the
+gate without changing the shape clients parse.
+
 ## 3 — ProblemDetails (exception-less.md)
 
 [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807) application/problem+json:

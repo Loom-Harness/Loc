@@ -31,6 +31,23 @@ export function plural(input: string): string {
   return input + "s";
 }
 
+/** The deterministic name of the DB unique index a `unique (…)` key derives:
+ *  `<table>_<cols>_uq`.  A TPH concrete's OWN key (declared on the concrete,
+ *  not inherited from the base) is scoped by its discriminator —
+ *  `<table>_<kind>_<cols>_uq` — because the shared table may carry the same
+ *  column list for a base key or for a sibling concrete's key, and each of
+ *  those is a different index.  Shared by the migration builder (which emits
+ *  the index) and the Ecto changeset (which names it in `unique_constraint/3`),
+ *  so the two cannot drift. */
+export function uniqueIndexName(
+  tableName: string,
+  columns: readonly string[],
+  discriminator?: string,
+): string {
+  const scope = discriminator === undefined ? "" : `${snake(discriminator)}_`;
+  return `${tableName}_${scope}${columns.join("_")}_uq`;
+}
+
 /** SQL table name of a workflow's persisted correlation (saga) state row.
  *
  *  A workflow name is a verb phrase (`fulfillOrder`, `replicatePolicies`), so

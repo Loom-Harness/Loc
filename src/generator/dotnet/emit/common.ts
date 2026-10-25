@@ -10,6 +10,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 
 export function renderCommon(
@@ -129,7 +130,8 @@ public sealed record FileRef(string Url, string Key, string ContentType, long Si
 /// <c>DbUpdateConcurrencyException</c>.</summary>
 public sealed class ConcurrencyConflictException : Exception
 {
-    public ConcurrencyConflictException(string message) : base(message) { }
+    // RS-40: the message IS the 409 detail ("<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}").
+    public ConcurrencyConflictException(string aggregate, object id) : base($"{aggregate} {id} ${CONCURRENCY_CONFLICT_SUFFIX}") { }
 }
 
 `

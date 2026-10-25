@@ -50,7 +50,7 @@ private recompute(): void {
   this._assertInvariants();
 }
 public confirm(): void {
-  if (!(this._status === Status.Draft)) throw new DisallowedError("operation 'confirm' is not allowed in the current state of Order.");
+  if (!(this._status === Status.Draft)) throw new DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
   if (!(this.isMutable())) throw new DomainError("Precondition failed: isMutable()");
   this.recompute();
   if (!(this._lines.length > 0)) throw new DomainError("Precondition failed: lines.count > 0");
@@ -64,7 +64,7 @@ public confirm(): void {
 // Domain/Orders/Order.cs
 public void Confirm()
 {
-    if (!(this.Status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order.");
+    if (!(this.Status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
     if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
     this.Recompute();
     if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0");
@@ -77,7 +77,7 @@ public void Confirm()
 ```java
 // features/orders/Order.java
 public void confirm() {
-    if (!(this.status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order.");
+    if (!(this.status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
     if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");
     this.recompute();
     if (!(this.lines.size() > 0)) throw new DomainException("Precondition failed: lines.count > 0");
@@ -91,7 +91,7 @@ public void confirm() {
 # app/domain/order.py
 def confirm(self) -> None:
     if not (self._status == Status.Draft):
-        raise DisallowedError("operation 'confirm' is not allowed in the current state of Order.")
+        raise DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).")
     if not (self._is_mutable()):
         raise DomainError("Precondition failed: isMutable()")
     self._recompute()
@@ -107,7 +107,7 @@ def confirm(self) -> None:
 # assignments rebuild the struct, the persist goes through a forced changeset,
 # and the event is broadcast over Phoenix.PubSub after the save.
 def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
-  with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order."}),
+  with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft)."}),
        :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
        :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
     record = __op_recompute(record)  # the private op as a module-local pure transform
@@ -172,7 +172,7 @@ aggregate Order {
 }
 ```
 
-`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may carry `message "…"` to replace the derived `Precondition failed: <source>` text. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
+`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may carry `message "…"` to replace the derived `Precondition failed: <source>` text. A refused `when` names its predicate the same way — `operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).` — identically on all five backends. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
 
 **Where each gate runs.** `when` is a property of the **domain method**: every backend emits the predicate as the first line of the generated operation, so every caller evaluates it (the route, a workflow step, a handler). The **leading run of `requires`** is deliberately *hoisted* out of the entity to the calling handler (`src/ir/util/op-gates.ts`), because authorization needs a principal the domain layer does not carry; a `requires` further down the body stays where it is. The hoisted gate, one level up on each backend:
 
@@ -900,6 +900,90 @@ aggregate Order {
 The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
+
+## Choosing a callable kind
+
+Pick by *what the body must be allowed to touch*, not by what feels natural to write. Each row is a different capability set; the validators below enforce the "no" cells.
+
+| Kind | Purpose | May mutate? | Transaction scope | Routed (HTTP)? | May call resources? | Emits events? | Minimal example |
+|---|---|---|---|---|---|---|---|
+| aggregate `operation` | A state change on one aggregate | `this` only | One aggregate save (its own request) | `POST /api/<aggs>/{id}/<op>`; none when `private` | No (`loom.resource-op-outside-workflow`) | Yes (`emit`) | `operation place() { status := Status.Placed }` |
+| aggregate `create` / `destroy` | Factory / terminator of the root | `create`: the new instance; `destroy`: nothing | One aggregate save | `POST /api/<aggs>` / `DELETE /api/<aggs>/{id}` | No | `create`: yes; `destroy`: no (body is `requires` only) | `create(total: int) { emit OrderPlaced { order: id } }` |
+| aggregate `apply` (`persistedAs: eventLog` only) | Pure fold of one emitted event into state | `this`; assignments and `let` only | None — runs when events are appended and replayed | No | No | No | `apply(e: OrderPlaced) { status := Status.Placed }` |
+| `function` (aggregate / entity / workflow / value object) | Reusable pure calculation | No | None | No | No | No | `function isDraft(): bool = status == Status.Draft` |
+| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base / 5 }` |
+| workflow `create` / `handle` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
+| workflow `on(e: Event)` | React to an event (saga step) | As `handle` | As `handle` | No — driven by the event | As `handle` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
+| `commandHandler` | One-aggregate use-case without a workflow | One aggregate (`loom.command-handler-multi-aggregate`); save is implied | The one aggregate save | Only through an explicit `api { route … -> Ctx.Name }` | Yes | Yes | `commandHandler PlaceOrder(orderId: Order id): Order { … }` |
+| `queryHandler` | One-aggregate read with a typed result | No (`loom.query-handler-saves`) | None | Only through an explicit `route` | Yes | No | `queryHandler GetOrder(orderId: Order id): Order { … }` |
+| page / component `action` | Client-side event handler | Page `state` / `store` only | None — it runs in the browser | No (it *calls* routes, via `match await`) | No | No (UI effects such as `navigate` / `toast`) | `action bump() { count += 1 }` |
+
+Rules of thumb: a rule about one aggregate's own state belongs in its `operation`; a calculation that reads two aggregates but writes none is a `domainService`; the moment a use-case needs a second aggregate, a resource, an inbound event or an explicit transaction it is a `workflow`; a single-aggregate endpoint that needs a custom route or a resource is a `commandHandler` / `queryHandler`. Everything the table calls pure can be called from anywhere; everything that mutates is reachable only from the kinds that may mutate. All the kinds below parse and validate together:
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      enum Status { Draft, Placed }
+      event OrderPlaced { order: Order id }
+
+      aggregate Order {
+        total: int
+        status: Status = Draft
+
+        function isDraft(): bool = status == Status.Draft
+        create(total: int) { emit OrderPlaced { order: id } }
+        operation place() when status == Status.Draft {
+          status := Status.Placed
+          emit OrderPlaced { order: id }
+        }
+        destroy() { }
+      }
+      repository Orders for Order { }
+
+      domainService Pricing {
+        operation withTax(base: int): int { return base + base / 5 }
+      }
+
+      workflow checkout transactional {
+        orderId: Order id
+        create(target: Order id) by target {
+          let o = Orders.getById(target)
+          o.place()
+        }
+      }
+
+      commandHandler PlaceOrder(orderId: Order id): Order {
+        let o = Orders.getById(orderId)
+        o.place()
+        return o
+      }
+      queryHandler GetOrder(orderId: Order id): Order {
+        let o = Orders.getById(orderId)
+        return o
+      }
+    }
+  }
+  api ShopApi from Sales {
+    route POST "/orders/{orderId}/place" -> Orders.PlaceOrder
+  }
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  ui Web {
+    api Shop: ShopApi
+    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { count += 1 }
+      body: Button { "+", onClick: bump }
+    }
+  }
+  deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
+  deployable web { platform: react targets: api ui: Web { Shop: api } port: 3001 }
+}
+```
+
+The modifiers each kind accepts (`private`, `extern`, `audited`, `requires`, `when`) are in [the callable modifier surface](#the-callable-modifier-surface) below; the per-kind detail lives in [Workflows](13-workflows.md), [Domain services & seeds](23-domain-services-and-seeds.md), [Handler bodies](#handler-bodies--commandhandler--queryhandler) and [Actions](../actions.md).
 
 ## The callable modifier surface
 

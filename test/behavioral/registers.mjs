@@ -139,14 +139,6 @@ export const BEHAVIOURAL_SKIP = {
  */
 export const ADAPTER_ONLY_CASES = {
   "dotnet { persistence: dapper }": {
-    // #3224: a `transactional` Dapper workflow commits atomically.  Pre-fix the
-    // Dapper leg fails this case (`expected 80 to be 90` — the first handle's
-    // save had committed on its own connection); post-fix it passes.  The EF leg
-    // fails it for a different reason (two `getById` loads are one tracked
-    // entity, so `debitTwice` never conflicts), filed as M-T6.90; when that
-    // lands, `dotnet` joins the manifest set and this entry goes.
-    "transactional-workflow-event-rollback":
-      "M-T6.90 — EF's identity map makes the duplicate-handle conflict unreachable on the default .NET adapter; Dapper gates #3224's atomicity fix",
     // EF refuses a TPH subtype filter over a non-root column at validation
     // (`loom.tph-filter-unsupported`, lifted by #3960); Dapper's explicit SQL
     // guards every read by `kind` and passes both.
@@ -267,13 +259,6 @@ export const BEHAVIOURAL_XFAIL = {
     // EF hosts the base's filter on the TPH root entity, so it reaches every
     // concrete there — the one path #3956's audit found correct.
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap"] }),
-    "transactional-workflow-event-rollback": {
-      issue: "#3858",
-      expect: "fail",
-      tests: { "a rolled-back transactional workflow": "expected the call to reject, but it resolved" },
-      reason:
-        "M-T6.90 — two `getById` loads of one row are one tracked EF entity, so `debitTwice` never conflicts (fixed by #3249)",
-    },
     // EF maps the VO as a scalar onto a column the migration never creates; the
     // emitted project does not build.
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
@@ -284,6 +269,13 @@ export const BEHAVIOURAL_XFAIL = {
   },
   java: {
     "inheritance-base-reads": baseReads(),
+    "workflow-two-handles-containment": {
+      issue: "#4022",
+      expect: "fail",
+      tests: { "two handles on one row keep their own child graph": "expected the call to reject, but it resolved" },
+      reason:
+        "M-T6.93 — JPA's persistence context hands both `getById` loads one managed entity, so two handles adding a child never conflict",
+    },
     "transactional-workflow-event-rollback": {
       issue: "#4022",
       expect: "fail",
@@ -308,6 +300,12 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "error",
       match: "mix compile --warnings-as-errors",
       reason: "the principal-filtered TPH base controller calls the context's base readers with an arity they do not have",
+    },
+    "workflow-two-handles-containment": {
+      issue: "#4081",
+      expect: "fail",
+      tests: { "two handles on one row keep their own child graph": "expected 2 to be 1" },
+      reason: "M-T6.94 — removing a contained part (`lines -= …`) in an operation does not persist",
     },
     // Elixir is the one leg that ROUTES the TPH base by-id read — and it serves
     // an archived subtype row through it: the unfiltered `Repo.get(<Base>, id)`

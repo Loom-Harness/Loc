@@ -825,7 +825,7 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   # rescued to {:error, :conflict}.  Map to the distinct 409 conflict responder
   # (parity with the \`versioned\` capability's stale-write → 409).
   defp command_error(conn, :conflict) do
-    ProblemDetails.conflict_response(conn)
+    ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])
   end
 
   defp command_error(conn, _reason) do
@@ -957,7 +957,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // Only an operation carries `when` (a create has no prior state to gate on).
   if (c.kind === "operation" && c.op.when) {
     clauses.push(
-      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op.name)})`,
+      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op)})`,
     );
   }
   const lets: string[] = [];

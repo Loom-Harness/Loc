@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import React, { useState } from "react";
 {{#if navUsesSession}}import { useSession } from "./auth/AuthGate";
+{{/if}}{{#if authUi}}import { signOut } from "./auth/session";
 {{/if}}{{#each imports}}import {{specifier}} from "{{from}}";
 {{/each}}{{#if hasRealtimeHandlers}}import { RealtimeHandlers } from "./components/RealtimeHandlers";
 {{/if}}{{#each lazyPages}}const {{specifier}} = React.lazy(() => import("{{from}}"));
@@ -154,7 +155,8 @@ function AppShellLayout() {
           <div className="h-7 w-7 rounded-md bg-primary" aria-hidden="true" />
           <span className="text-lg font-semibold tracking-tight">{{systemNameHuman}}</span>
         </RouterLink>
-      </header>
+{{#if authUi}}        <Button variant="outline" size="sm" className="ml-auto" onClick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</Button>
+{{/if}}      </header>
       <div className="flex flex-1">
         <nav
           data-testid="nav-sidebar"

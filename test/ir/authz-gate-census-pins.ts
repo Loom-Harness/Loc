@@ -259,6 +259,19 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "history GET /api/employees/{id}/history": R.maskIsNotAStatus,
   },
 
+  // The history read behind its guards.  Employee's reads are UNGATED, so the
+  // mask is their only authz surface; the ladder reads Employee's history with
+  // both principals and the golden pins the two bodies (salary's entries kept
+  // for `ops.manage`, dropped for `ops.none`) — the mask's witness, as a body
+  // and not a status.  Payslip's gated reads are refused by the ladder; only
+  // its by-id read (ungated, masked) is pinned.
+  "corpus/audit-history-guarded": {
+    "find GET /api/employees": R.maskIsNotAStatus,
+    "getById GET /api/employees/{id}": R.maskIsNotAStatus,
+    "history GET /api/employees/{id}/history": R.maskIsNotAStatus,
+    "getById GET /api/payslips/{id}": R.maskIsNotAStatus,
+  },
+
   // ── `policy { deny … }` + the tenant floor around it ─────────────────────
   // `Secret` / `Note` are read-denied and `Account` is write-denied: all three
   // sentinels are principal-free, so the fixture's own `test e2e` is the
@@ -454,7 +467,7 @@ export const NON_PARSING_SOURCES: readonly string[] = [
  * when it recurs.
  */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
-  maskIsNotAStatus: 4,
+  maskIsNotAStatus: 8,
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,

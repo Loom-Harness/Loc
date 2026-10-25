@@ -25,7 +25,7 @@ shape of the compiler pipeline that turns these features into code.
 | 3 | [Domain modeling](03-domain-modeling.md) | `aggregate`, `valueobject`, `entity` parts, `event`, `enum`, fields, access modifiers, containment. |
 | 4 | [The type system](04-type-system.md) | Primitives, `money`, `X id` refs, collections, options, the `paged`/`envelope`/`option` carriers. |
 | 5 | [Expressions](05-expressions.md) | Literals, operators & precedence, member access, calls, collection ops, `match`, lambdas, conversions, `this`/`currentUser`. |
-| 6 | [Behavior & statements](06-behavior-and-statements.md) | `operation`, `create`/`destroy`, `apply`, `precondition`/`requires`, `let`, `emit`, `for`, `if let`, `return`, assignment. |
+| 6 | [Behavior & statements](06-behavior-and-statements.md) | **Choosing a callable kind** (decision table), `operation`, `create`/`destroy`, `apply`, `precondition`/`requires`, `let`, `emit`, `for`, `if let`, `return`, assignment. |
 | 7 | [Invariants, derived fields & functions](07-invariants-derived-functions.md) | `invariant` (+ guards, `private`), `derived` (`display`/`inspect`), pure `function`. |
 | 8 | [Inheritance & polymorphism](08-inheritance-and-polymorphism.md) | `abstract aggregate`, `extends`, `inheritanceUsing` (TPH vs TPC), `find all <Base>`. |
 | 9 | [Payloads, records & unions](09-payloads-and-unions.md) | `payload`/`command`/`query`/`response`/`error`, anonymous `or`, named unions, the tagged wire. |

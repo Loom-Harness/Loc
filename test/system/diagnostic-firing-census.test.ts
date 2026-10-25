@@ -506,6 +506,19 @@ system S {
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // `create(…): T` — a result needs a caller.  An event-triggered starter has
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
@@ -873,6 +886,19 @@ system UpdateGate {
   storage pg { type: postgres }
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account { }
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
 }`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -1660,6 +1686,25 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
+  // the aggregate's own function: the document write seam has no record to
+  // evaluate it against.
+  "loom.stamp-reads-aggregate-unsupported": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for
@@ -1697,6 +1742,23 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // Declared names differ only in case, so the namespace gate above passes —
+  // but both derive the table `sweeps`.
+  // `count` takes no column; the grouped select passes one.
+  "loom.projection-aggregate-arity":
+    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
+    repository Tickets for Ticket { }
+    projection ByQueue { queue: string  breached: int
+      from Ticket as t
+      group by t.queue
+      select queue = t.queue, breached = count(t.breached) }`),
+  // A single-row find on `number`, which no `unique (number)` covers.
+  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
+    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
+  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
+    repository Sweeps for Sweep { }
+    event Tick { sweep: Sweep id }
+    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
   // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
   // it neither way: `oid` does not name-match `orderId`, and the body never
   // assigns `orderId := oid` either — so the body would render against an
@@ -2616,6 +2678,25 @@ system S {
   test e2e "t" against d {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
   }
 }`,
 
@@ -3842,11 +3923,22 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨ again: "this block is spent" is a judgement against a BASELINE
+  // SNAPSHOT (the schema and the applied-data ledger), which `validate()` does
+  // not have. The pointed-at file drives two generations and asserts it fires
+  // on the second, and stays silent on the first run, on the generation that
+  // runs the block, and while one sql step is still unledgered.
+  "loom.migration-block-applied": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, same reason (B-20b): a unique index added to a table the
   // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
+  // catalog entries are the capability-column lines (a `tenantOwned` /
+  // `auditable` column added to a populated table); the pointed-at file drives
+  // both refusals and asserts the code and the wording.
+  "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",

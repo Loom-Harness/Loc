@@ -102,6 +102,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -287,11 +288,13 @@ function emitHistoryRoute(
     );
   }
   if (find.requires) {
-    // Audit-history's 403 `detail` stays bare `Forbidden` for now: unlike the
-    // plain read gates below, the descriptive backends disagree on its LABEL
-    // (java/python `find history` vs elixir `history <Agg>`), so unifying it is
-    // #2540's audit-history mission, not this read-gate fix.
-    out.push(`    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError("Forbidden");`);
+    // The history read is a find like any other, so its 403 `detail` carries
+    // the same source label every read gate does (`Forbidden: find <name>`) —
+    // the five backends agree on it, pinned by the `audit-history-guarded`
+    // wire golden.
+    out.push(
+      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+    );
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
@@ -1830,7 +1833,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )});`,
   ];
 }
