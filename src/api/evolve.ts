@@ -29,6 +29,7 @@ import type { SchemaSnapshot } from "../ir/types/migrations-ir.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { captureSnapshots } from "../system/loomsnap.js";
+import { headSnapshots, MigrationChainError, parseChain } from "../system/migration-chain.js";
 import { buildMigrations, MigrationDestructiveError } from "../system/migrations-builder.js";
 import type { SnapshotStore } from "../system/snapshot.js";
 import { buildWireSpec } from "../system/wire-spec.js";
@@ -188,35 +189,50 @@ export async function snapshot(source: string): Promise<SnapshotReport> {
 }
 
 /** Derive the pending schema migrations + wire changes a `current` system
- *  implies against an optional `baseline` system.  Pure; never throws. */
+ *  implies against an optional `baseline` system.  The schema baseline is
+ *  `chainHeads` when a migration chain was given, else the baseline system's
+ *  own schema.  Pure; throws only on a derivation refusal other than the
+ *  destructive gate. */
 function diffSystems(
+  cur: EnrichedLoomModel,
   curSys: EnrichedSystemIR,
   baseSys: EnrichedSystemIR | null,
+  chainHeads: SnapshotStore | null,
 ): { migrations: MigrationView[]; wireChanges: WireChangeView[]; breaking: boolean } {
   const migrations: MigrationView[] = [];
   const wireChanges: WireChangeView[] = [];
   let breaking = false;
 
   // -- schema migration -----------------------------------------------------
-  // Seed a memory store from the baseline's stamped `.next` snapshots (empty
-  // store ⇒ the baseline itself is "Initial"); the steps that come back
-  // deriving the current source against it ARE the pending migration.
-  const seed: Record<string, SchemaSnapshot> = {};
-  if (baseSys) {
-    for (const bm of buildMigrations(baseSys, memStore())) seed[bm.module] = bm.next;
+  // The baseline's schema comes from the chain's heads, or from deriving the
+  // baseline source from scratch (empty store ⇒ the baseline itself is
+  // "Initial"); the steps that come back deriving the current source against
+  // it ARE the pending migration — what `ddd migrate add` would record.
+  let store = chainHeads;
+  if (!store) {
+    const seed: Record<string, SchemaSnapshot> = {};
+    if (baseSys) {
+      for (const bm of buildMigrations(baseSys, memStore())) seed[bm.module] = bm.next;
+    }
+    store = memStore(seed);
   }
-  const store = memStore(seed);
+  const intents = {
+    renameIntents: cur.renameIntents,
+    tableRenameIntents: cur.tableRenameIntents,
+    backfillIntents: cur.backfillIntents,
+    sqlSteps: cur.sqlMigrationSteps,
+  };
   const destructiveByModule = new Map<string, string>();
   let migs: ReturnType<typeof buildMigrations>;
   try {
-    migs = buildMigrations(curSys, store);
+    migs = buildMigrations(curSys, store, intents);
   } catch (err) {
     if (err instanceof MigrationDestructiveError) {
       destructiveByModule.set(err.module, err.message);
       breaking = true;
       // Re-derive with the gate OFF so the caller still sees the (safe-
       // sequence) steps the change implies, not just the refusal.
-      migs = buildMigrations(curSys, store, { allowDestructive: true });
+      migs = buildMigrations(curSys, store, { ...intents, allowDestructive: true });
     } else {
       throw err;
     }
@@ -260,11 +276,18 @@ function diffSystems(
  * playground's Migrations dock tab, at single-source granularity.
  *
  * `baseline` omitted/empty ⇒ every system reads "Initial" (`hasBaseline: false`,
- * wire diff skipped).  A baseline that fails to parse/lower is treated as
- * absent rather than failing the whole diff.  A broken `current` source returns
- * `ok: false` with its diagnostics — use `loom_validate` to repair it first.
+ * wire diff skipped).  `migrations` — the files of a committed `migrations/`
+ * directory — makes the chain's heads the schema baseline instead, so the
+ * migrations reported are exactly what `ddd migrate add` would record (the
+ * wire diff still needs `baseline`).  A broken `current` source, a `baseline`
+ * that does not load, or a chain that does not read returns `ok: false` with
+ * diagnostics: a gate must never answer `breaking: false` against nothing.
  */
-export async function diff(current: string, baseline?: string): Promise<DiffReport> {
+export async function diff(
+  current: string,
+  baseline?: string,
+  migrationFiles?: ReadonlyArray<{ name: string; content: string }>,
+): Promise<DiffReport> {
   const cur = await parseSource(current);
   const curJson = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
   if (!cur.model || hasErrors(cur.diagnostics)) {
@@ -306,23 +329,69 @@ export async function diff(current: string, baseline?: string): Promise<DiffRepo
     };
   }
 
-  // Load the baseline if given; a baseline that no longer loads is absent.
+  const refused = (diagnostics: JsonDiagnostic[]): DiffReport => ({
+    ok: false,
+    hasBaseline: true,
+    migrations: [],
+    wireChanges: [],
+    breaking: false,
+    diagnostics: [...curJson, ...diagnostics],
+  });
+
+  // Load the baseline if given.  One that does not load is an error, never
+  // "no baseline": the diff against nothing reads every change as additive.
   let baseSystemsByName = new Map<string, EnrichedSystemIR>();
   if (baseline && baseline.trim().length > 0) {
     const base = await parseSource(baseline);
-    if (base.model && !hasErrors(base.diagnostics)) {
-      const baseLoom = lowerEnriched(base.model);
-      if (baseLoom) baseSystemsByName = new Map(baseLoom.systems.map((s) => [s.name, s]));
+    const baseLoom = base.model && !hasErrors(base.diagnostics) ? lowerEnriched(base.model) : null;
+    if (!baseLoom) {
+      const errors = base.diagnostics
+        .filter((d) => d.severity === 1)
+        .map((d) => langiumDiagnosticToJson(d, base.doc).message);
+      return refused([
+        {
+          code: "loom.diff-baseline-invalid",
+          severity: "error",
+          phase: "ir-validate",
+          message: diagMessage("loom.diff-baseline-invalid", {
+            detail: errors.length > 0 ? errors.slice(0, 3).join(" | ") : "it does not lower",
+          }),
+        },
+      ]);
+    }
+    baseSystemsByName = new Map(baseLoom.systems.map((s) => [s.name, s]));
+  }
+
+  // The committed chain, when given, is the schema baseline.
+  let chainHeads: SnapshotStore | null = null;
+  if (migrationFiles !== undefined) {
+    try {
+      chainHeads = headSnapshots(parseChain(migrationFiles));
+    } catch (err) {
+      if (!(err instanceof MigrationChainError)) throw err;
+      return refused([
+        {
+          code: "loom.migration-chain-invalid",
+          severity: "error",
+          phase: "ir-validate",
+          message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
+        },
+      ]);
     }
   }
-  const hasBaseline = baseSystemsByName.size > 0;
+  const hasBaseline = baseSystemsByName.size > 0 || chainHeads !== null;
 
   const migrations: MigrationView[] = [];
   const wireChanges: WireChangeView[] = [];
   let breaking = false;
   try {
     for (const curSys of curLoom.systems) {
-      const r = diffSystems(curSys, baseSystemsByName.get(curSys.name) ?? null);
+      const r = diffSystems(
+        curLoom,
+        curSys,
+        baseSystemsByName.get(curSys.name) ?? null,
+        chainHeads,
+      );
       migrations.push(...r.migrations);
       wireChanges.push(...r.wireChanges);
       if (r.breaking) breaking = true;

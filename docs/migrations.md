@@ -611,8 +611,8 @@ transaction on Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the
 python runner's `__loom_migrations`), so a failure leaves no history row — and
 it is therefore safe to **replace it**, as long as no database has applied it:
 
-1. Delete the failed generation's file(s) from `migrations/` (the newest
-   entries — the chain refuses a gap).
+1. `ddd migrate remove app.ddd` — once per entry the failed generation
+   recorded (one per module it changed); each run deletes the newest.
 2. Amend the `.ddd` (e.g. add the `sql before` dedupe).
 3. `ddd migrate add <name>` again, then `ddd generate system`.
 
@@ -678,6 +678,9 @@ migrations/
 ```bash
 ddd migrate add initial app.ddd             # first recorded generation: each module's Initial
 ddd migrate add rename-order-qty app.ddd    # every later schema change, kebab-case name
+ddd migrate status app.ddd [--json]         # each module's head, and what is not recorded yet
+ddd migrate remove app.ddd                  # delete the newest entry (one no database has applied)
+ddd migrate rebase app.ddd                  # after a merge leaves two heads, re-record one on top of the other
 ddd generate system app.ddd -o out          # renders the chain; never records anything
 ```
 
@@ -701,14 +704,20 @@ modules and strictly increasing along the chain, and every backend's migrator
 (Drizzle's watermark, Flyway's out-of-order refusal, Ecto's per-file versions)
 sees a new generation above everything it already applied.
 
-**One list.** Every entry names its parent — the entry recorded just before it,
-of any module. Two entries naming the same parent are **two heads**: what two
-branches that each recorded a migration look like once merged. The chain then
-refuses to be read (`MigrationChainError`) until one of them is deleted and
-recorded again with `migrate add` on top of the other. The same error covers a
-missing parent, an entry numbered at or below its parent, a file name that does
-not match its contents, two entries of one module sharing a name, and
-unparseable JSON (an unresolved merge conflict).
+**One list.** Every entry names the entry recorded just before it, of any
+module, by id (`<version>_<module>_<name>`, its file name without `.json`) —
+an id rather than a version, because two branches recording on top of the same
+head can draw the same version. Two entries naming the same predecessor are
+**two heads**: what two branches that each recorded a migration look like once
+merged. `generate system` and `migrate status` then refuse the chain
+(`MigrationChainError`) and point at `ddd migrate rebase`, which deletes the
+later-recorded branch's entries (`--move <version>` picks the other) and
+records the merged model's changes again on top of the remaining head, under the
+moved migration's name (`--name` to change it) and with its
+`--allow-destructive` decision. The same error covers a missing predecessor, an
+entry numbered at or below the one it follows, a file name that does not match
+its contents, two entries of one module sharing a name, and unparseable JSON (an
+unresolved merge conflict).
 
 ## `migrationsOwner` — one backend per module owns schema
 

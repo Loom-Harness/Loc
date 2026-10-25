@@ -89,7 +89,7 @@ node bin/cli.js parse <file.ddd>                       # parse + validate (AST +
 node bin/cli.js generate ts     <file.ddd> -o <out>    # single Hono project (legacy single-context mode)
 node bin/cli.js generate dotnet <file.ddd> -o <out>    # single .NET project (legacy)
 node bin/cli.js generate system <file.ddd> -o <out>    # full multi-deployable tree + docker-compose.yml
-node bin/cli.js migrate add     <name> <file.ddd> [--allow-destructive]  # record the model's schema changes as the next entry of the migration chain (migrations/ beside the .ddd, committed) — like `ef migrations add`; `generate system` renders the chain and refuses unrecorded changes
+node bin/cli.js migrate add     <name> <file.ddd> [--allow-destructive]  # record the model's schema changes as the next entry of the migration chain (migrations/ beside the .ddd, committed) — like `ef migrations add`; `generate system` renders the chain and refuses unrecorded changes.  `migrate status` / `remove` / `rebase` inspect, drop the newest entry, and resolve two heads after a merge
 node bin/cli.js snapshot        <file.ddd> -o <out>    # capture immutable .loom/snapshots/<ts>-<guid>.loomsnap.json (provenance rule snapshot, run deliberately)
 node bin/cli.js verify          <file.ddd> (--results <results.json> | --from-vitest <report.json>) [--out <dir>] [--allow-missing]  # join an existing test-results JSON onto the requirements graph → .loom/verification.{json,md} (gates the exit code — a declared test with NO result fails it unless --allow-missing; does NOT run the suites itself)
 node bin/cli.js trace           <logfile>                              # translate a runtime stack-trace back to .ddd source via .loom/sourcemap.json

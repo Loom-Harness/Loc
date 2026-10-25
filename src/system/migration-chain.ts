@@ -13,8 +13,8 @@ import { canonicalSnapshot, memorySnapshotStore, type SnapshotStore } from "./sn
 // reads it, rendering every backend's migration files from the whole chain,
 // so the output tree carries no state of its own and can be thrown away.
 //
-// The chain is ONE linear list across all modules.  Every entry names its
-// parent; two entries naming the same parent are two heads — what two
+// The chain is ONE linear list across all modules.  Every entry names the
+// entry before it; two entries naming the same parent are two heads — what two
 // branches that each recorded a migration look like after a merge — and the
 // chain refuses to be read until one is re-recorded on top of the other.
 //
@@ -45,8 +45,10 @@ export interface ChainEntry {
   format: typeof CHAIN_FORMAT;
   /** Decimal integer; strictly greater than the parent's. */
   version: string;
-  /** Version of the entry recorded immediately before this one (any module);
-   *  `null` for the first entry of the chain. */
+  /** Id ({@link entryId}) of the entry recorded immediately before this one
+   *  (any module); `null` for the first entry of the chain.  An id, not a
+   *  version: two branches recording on top of the same head can draw the
+   *  same version, and the link still has to say which entry it follows. */
   parent: string | null;
   module: string;
   /** PascalCase migration name — `Initial` for the module's first entry. */
@@ -87,9 +89,15 @@ export class MigrationDriftError extends Error {
   }
 }
 
+/** An entry's identity: `<version>_<module>_<name>`, its file name without
+ *  `.json`. */
+export function entryId(e: Pick<ChainEntry, "version" | "module" | "name">): string {
+  return `${e.version}_${snake(e.module)}_${snake(e.name)}`;
+}
+
 /** File name of an entry inside `migrations/`. */
 export function entryFileName(e: Pick<ChainEntry, "version" | "module" | "name">): string {
-  return `${e.version}_${snake(e.module)}_${snake(e.name)}.json`;
+  return `${entryId(e)}.json`;
 }
 
 export function serializeEntry(e: ChainEntry): string {
@@ -112,6 +120,62 @@ export function serializeEntry(e: ChainEntry): string {
 export function parseChain(
   files: ReadonlyArray<{ name: string; content: string }>,
 ): MigrationChain {
+  return { entries: orderChain(readEntries(files)) };
+}
+
+/** A chain whose list splits in two after `base`: what a merge of two
+ *  branches that each recorded migrations leaves in `migrations/`.  Each tail
+ *  is in chain order; `tails[1]` is the one whose first entry was recorded
+ *  later (the higher version). */
+export interface ForkedChain {
+  base: ChainEntry[];
+  tails: [ChainEntry[], ChainEntry[]];
+}
+
+/** Read `migrations/` as a fork: the files split into one shared list and two
+ *  tails after it.  `null` when they form one list (no fork).  Throws
+ *  `MigrationChainError` on anything else — a broken file, a missing parent,
+ *  or more than one fork. */
+export function parseForkedChain(
+  files: ReadonlyArray<{ name: string; content: string }>,
+): ForkedChain | null {
+  const entries = readEntries(files);
+  const children = linkEntries(entries);
+  const forks = [...children].filter(([, kids]) => kids.length > 1);
+  if (forks.length === 0) return null;
+  const [forkParent, kids] = forks[0]!;
+  if (forks.length > 1 || kids.length > 2) {
+    throw new MigrationChainError(
+      `the chain in ${MIGRATIONS_DIR}/ splits more than two ways; resolve it by hand, keeping one list.`,
+    );
+  }
+  const walk = (from: ChainEntry | undefined): ChainEntry[] => {
+    const out: ChainEntry[] = [];
+    for (let e = from; e; e = children.get(entryId(e))?.[0]) out.push(e);
+    return out;
+  };
+  const base: ChainEntry[] = [];
+  for (let e = children.get(null)?.[0]; e; e = children.get(entryId(e))?.[0]) {
+    base.push(e);
+    if (entryId(e) === forkParent) break;
+  }
+  const [a, b] = [...kids].sort((x, y) =>
+    x.version !== y.version
+      ? BigInt(x.version) < BigInt(y.version)
+        ? -1
+        : 1
+      : entryId(x) < entryId(y)
+        ? -1
+        : 1,
+  );
+  const tails: [ChainEntry[], ChainEntry[]] = [walk(a), walk(b)];
+  if (base.length + tails[0].length + tails[1].length !== entries.length) {
+    throw new MigrationChainError(`the chain in ${MIGRATIONS_DIR}/ does not form one list.`);
+  }
+  return { base, tails };
+}
+
+function readEntries(files: ReadonlyArray<{ name: string; content: string }>): ChainEntry[] {
   const entries: ChainEntry[] = [];
   for (const f of files) {
     if (!f.name.endsWith(".json")) continue;
@@ -133,37 +197,40 @@ export function parseChain(
     }
     entries.push(e);
   }
-  return { entries: orderChain(entries) };
+  return entries;
 }
 
-function orderChain(entries: ChainEntry[]): ChainEntry[] {
-  if (entries.length === 0) return [];
-  const byVersion = new Map<string, ChainEntry>();
-  for (const e of entries) {
-    if (byVersion.has(e.version)) {
-      throw new MigrationChainError(`two migrations share version ${e.version}.`);
-    }
-    byVersion.set(e.version, e);
-  }
+/** Check every entry's parent link and numbering; return each entry id's
+ *  children (`null` keys the root). */
+function linkEntries(entries: readonly ChainEntry[]): Map<string | null, ChainEntry[]> {
+  const byId = new Map<string, ChainEntry>();
+  for (const e of entries) byId.set(entryId(e), e);
   const children = new Map<string | null, ChainEntry[]>();
   for (const e of entries) {
-    if (e.parent !== null && !byVersion.has(e.parent)) {
+    const parent = e.parent === null ? null : byId.get(e.parent);
+    if (parent === undefined) {
       throw new MigrationChainError(
-        `${entryFileName(e)} names parent ${e.parent}, which is not in ${MIGRATIONS_DIR}/.`,
+        `${entryFileName(e)} follows ${e.parent}, which is not in ${MIGRATIONS_DIR}/.`,
       );
     }
-    if (e.parent !== null && BigInt(e.parent) >= BigInt(e.version)) {
+    if (parent !== null && BigInt(parent.version) >= BigInt(e.version)) {
       throw new MigrationChainError(
-        `${entryFileName(e)} is numbered ${e.version}, not above its parent ${e.parent}.`,
+        `${entryFileName(e)} is numbered ${e.version}, not above ${entryFileName(parent)}.`,
       );
     }
     (children.get(e.parent) ?? children.set(e.parent, []).get(e.parent)!).push(e);
   }
+  return children;
+}
+
+function orderChain(entries: ChainEntry[]): ChainEntry[] {
+  if (entries.length === 0) return [];
+  const children = linkEntries(entries);
   for (const [parent, kids] of children) {
     if (kids.length > 1) {
       throw new MigrationChainError(
-        `the chain has two heads: ${kids.map(entryFileName).join(" and ")} both follow ${parent === null ? "the start of the chain" : parent}. ` +
-          "Two branches each recorded a migration; delete the one from your branch and record it again with `ddd migrate add` on top of the other.",
+        `the chain has two heads: ${kids.map(entryFileName).join(" and ")} both follow ${parent === null ? "the start of the chain" : `${parent}.json`}. ` +
+          "Two branches each recorded a migration; run `ddd migrate rebase <file.ddd>` to record the later one again on top of the other.",
       );
     }
   }
@@ -171,13 +238,15 @@ function orderChain(entries: ChainEntry[]): ChainEntry[] {
   let next = children.get(null)?.[0];
   while (next) {
     ordered.push(next);
-    next = children.get(next.version)?.[0];
+    next = children.get(entryId(next))?.[0];
   }
   // Every parent resolves and no entry has two children, so a shortfall here
   // can only be a cycle the version ordering already rules out.
   if (ordered.length !== entries.length) {
     throw new MigrationChainError(`the chain in ${MIGRATIONS_DIR}/ does not form one list.`);
   }
+  // One list, so every entry is above the one before it and no two can share
+  // a version — which the files in one backend migration directory rely on.
   const names = new Set<string>();
   for (const e of ordered) {
     const key = `${e.module}\u0000${e.name}`;
@@ -187,6 +256,11 @@ function orderChain(entries: ChainEntry[]): ChainEntry[] {
     names.add(key);
   }
   return ordered;
+}
+
+/** The kebab-case `migrate add` name a recorded PascalCase name came from. */
+export function kebabName(pascal: string): string {
+  return snake(pascal).replaceAll("_", "-");
 }
 
 /** Each module's schema at the chain's head — the baseline the next
@@ -252,7 +326,7 @@ export function recordGeneration(
     const entry: ChainEntry = {
       format: CHAIN_FORMAT,
       version,
-      parent: prev?.version ?? null,
+      parent: prev ? entryId(prev) : null,
       module: d.module,
       name,
       storageName: d.storageName,
