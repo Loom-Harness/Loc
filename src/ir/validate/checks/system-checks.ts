@@ -74,6 +74,7 @@ export {
   validateFormLocalCollisions,
   validateFrontendPropTypes,
   validateHeexComponentHostState,
+  validateLambdaParamTypes,
   validateLiveViewHoisting,
   validatePageGateExprs,
   validateUiBodyStatementKinds,

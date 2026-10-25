@@ -29,6 +29,7 @@ import {
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
+import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../../util/unresolved-lambda-param.js";
 import {
   walkExprDeep,
   walkExprStmtsDeep,
@@ -983,6 +984,57 @@ function stmtsUseThis(stmts: readonly StmtIR[]): boolean {
     });
   }
   return found;
+}
+
+/** A member read off a lambda parameter no source typed (`UNRESOLVED_LAMBDA_PARAM_SHAPE`):
+ *  the member would type as a guessed `string`, which selects string
+ *  concatenation for `r.qty + 1` and renders a typo'd field verbatim. */
+function unresolvedParamReads(visit: (f: (e: ExprIR) => void) => void): string[] {
+  const names: string[] = [];
+  visit((n) => {
+    const recv = n.kind === "member" || n.kind === "method-call" ? n.receiver : undefined;
+    if (
+      recv?.kind === "ref" &&
+      recv.refKind === "lambda" &&
+      recv.type?.kind === "entity" &&
+      recv.type.name === UNRESOLVED_LAMBDA_PARAM_SHAPE
+    ) {
+      names.push(recv.name);
+    }
+  });
+  return names;
+}
+
+export function validateLambdaParamTypes(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const ui of sys.uis) {
+    const flag = (where: string, visit: (f: (e: ExprIR) => void) => void): void => {
+      for (const param of new Set(unresolvedParamReads(visit))) {
+        diags.push({
+          severity: "warning",
+          code: "loom.lambda-param-type-unknown",
+          message: diagMessage("loom.lambda-param-type-unknown", { param, where, uiName: ui.name }),
+          source: `${ui.name}/${where}`,
+        });
+      }
+    };
+    const exprIn = (e: ExprIR | undefined) => (f: (e: ExprIR) => void) => walkExprDeep(e, f);
+    const stmtsIn = (stmts: readonly StmtIR[]) => (f: (e: ExprIR) => void) => {
+      for (const st of stmts) walkStmtExprsDeep(st, f);
+    };
+    const hosts = [
+      ...ui.pages.map((p) => ({ label: `page '${p.name}'`, h: p })),
+      ...ui.components.map((c) => ({ label: `component '${c.name}'`, h: c })),
+    ];
+    for (const { label, h } of hosts) {
+      flag(`${label} body`, exprIn(h.body));
+      for (const a of h.actions) flag(`${label} action '${a.name}'`, stmtsIn(a.body));
+      for (const dv of h.derived) flag(`${label} derived '${dv.name}'`, exprIn(dv.expr));
+      for (const f of h.state) flag(`${label} state '${f.name}'`, exprIn(f.init));
+    }
+    for (const st of ui.stores) {
+      for (const a of st.actions) flag(`store '${st.name}' action '${a.name}'`, stmtsIn(a.body));
+    }
+  }
 }
 
 export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {

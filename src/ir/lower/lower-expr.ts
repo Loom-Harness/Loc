@@ -89,6 +89,7 @@ import type {
 } from "../types/loom-ir.js";
 import { lit } from "../types/loom-ir.js";
 import { snapshotIdFor } from "../util/prov-id.js";
+import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
   cstText,
@@ -1169,8 +1170,8 @@ export function isErrorVariantTag(tag: string, env: Env): boolean {
 }
 
 /** Lower a lambda body, binding its parameter at `paramType` in a fresh
- *  local scope.  `paramType` is the string placeholder for a bare lambda
- *  and the receiver's ELEMENT type for a collection-op lambda arg
+ *  local scope.  `paramType` is the unresolved-param marker for a bare lambda
+ *  the pass could not type, and the receiver's ELEMENT type for a collection-op lambda arg
  *  (`lines.any(l => l.price > total)` → `l` typed at the line element), so
  *  member accesses and binaries inside the body get the right
  *  receiver/member/left types — backends never re-resolve. */
@@ -1211,6 +1212,7 @@ function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
 
 function collectionElementType(t: TypeIR): TypeIR | undefined {
   const unwrapped = t.kind === "optional" ? t.inner : t;
+  if (unwrapped.kind === "genericInstance" && unwrapped.ctor === "paged") return unwrapped.arg;
   return unwrapped.kind === "array" ? unwrapped.element : undefined;
 }
 
@@ -1341,15 +1343,20 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     };
   }
   if (isLambda(expr)) {
-    // A bare lambda outside a collection-op call site has no known param
-    // type — the string placeholder matches the legacy behaviour.  The
-    // collection-op path lowers its lambda arg through `lowerLambda`
-    // directly with the receiver's element type (see `applySuffixToRecv`).
-    // Inside a row-shaped walker primitive (`For`/`Table`/`DataGrid`) the ROW
-    // element type is known and threaded on the env, so the item lambda —
-    // and a nested `Column { field: r => … }` — binds at the real type
-    // instead (Env.rowElem).
-    return lowerLambda(expr, env, env.rowElem ?? { kind: "primitive", name: "string" });
+    // A bare lambda outside a collection-op call site takes its parameter type
+    // from the typing pass (see `lowerLambda`).  The collection-op path lowers
+    // its lambda arg through `lowerLambda` directly with the receiver's element
+    // type (see `applySuffixToRecv`).  Inside a row-shaped walker primitive
+    // (`For`/`Table`/`DataGrid`) the ROW element type is threaded on the env, so
+    // the item lambda — and a nested `Column { field: r => … }` — binds at the
+    // real type (Env.rowElem).  With no source at all the parameter is typed by
+    // the unresolved-param marker, never a guessed `string`; reading a member of
+    // it is rejected at IR validation (`loom.lambda-param-type-unknown`).
+    return lowerLambda(
+      expr,
+      env,
+      env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE },
+    );
   }
   if (isMatchExpr(expr)) {
     // Variant form (`match SUBJECT { VariantType binding => value }`,

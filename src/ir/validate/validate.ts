@@ -109,6 +109,7 @@ import {
   validateGuardPrincipalWithoutAuth,
   validateHeexComponentHostState,
   validateInheritanceStorage,
+  validateLambdaParamTypes,
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerShape,
@@ -275,6 +276,7 @@ export function validateLoomModel(
     validateUiBodyRules(sys, diags);
     validateUiBodyVocabulary(sys, diags);
     validateUiThisUnbound(sys, diags);
+    validateLambdaParamTypes(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
