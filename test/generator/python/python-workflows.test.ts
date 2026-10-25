@@ -33,7 +33,7 @@ describe("python workflows", () => {
     expect(wf).toContain("class RenameCustomerRequest(BaseModel):");
     // The 404 is there because THIS body reads: `get_by_id` below raises the
     // shared not-found carrier on an absent row, so the route answers it (F10 —
-    // docs/audits/schemathesis-findings-2026-08.md).  The header of this very
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).  The header of this very
     // file recorded the behaviour — "Verified live (rename persisted, 404
     // propagation)" — while the set asserted here omitted it; a workflow whose
     // body touches no repository still declares no 404.

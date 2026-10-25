@@ -488,20 +488,12 @@ describe("--json verbs keep stdout parseable", () => {
   });
 
   // ---------------------------------------------------------------------
-  // `--help` sends you to docs the project itself disclaims.
+  // Every doc `--help` names must exist.
   //
-  // `docs/old/` is, in CLAUDE.md's own words, "the frozen design record …
-  // Do not treat archived docs as authoritative for what ships today" — and
-  // `--help` was routing users into it from eight different option and verb
-  // descriptions (`ai-authoring-loop.md`, `ai-diagnostics-contract.md`,
-  // `observability.md`, `source-map-and-debugging.md §6B/§6E`,
-  // `source-map-debug-kickoff.md`).  Every one of them has a LIVE reference
-  // doc covering the same surface, so the first thing a new user is told to
-  // read was the superseded version.
-  //
-  // Code COMMENTS naming a design-record doc are fine and are not swept:
-  // provenance is exactly what `docs/old/**` is for.  This is about what the
-  // CLI prints.
+  // `--help` once routed users into superseded design docs from eight option
+  // and verb descriptions, while a LIVE reference doc covered each surface, so
+  // the first thing a new user was told to read was the superseded version.
+  // This is about what the CLI prints, not about code comments.
   // ---------------------------------------------------------------------
   const VERBS = [
     [],
@@ -517,8 +509,7 @@ describe("--json verbs keep stdout parseable", () => {
     ["i18n"],
   ];
 
-  it("no `--help` text points at the frozen design record, and every doc it names exists", () => {
-    const offenders: string[] = [];
+  it("every doc a `--help` text names exists", () => {
     const named = new Set<string>();
     for (const verb of VERBS) {
       const r = run([...verb, "--help"]);
@@ -528,13 +519,9 @@ describe("--json verbs keep stdout parseable", () => {
       // exactly the long references it exists to catch.
       const flat = text.replace(/\s+/g, " ");
       for (const m of flat.matchAll(/docs\/[A-Za-z0-9/._-]+\.md/g)) {
-        const ref = m[0];
-        if (ref.startsWith("docs/old/")) offenders.push(`${verb.join(" ") || "(root)"}: ${ref}`);
-        else named.add(ref);
+        named.add(m[0]);
       }
     }
-    expect(offenders, "`--help` names archived docs").toEqual([]);
-    // The repoint is only an improvement if the new targets resolve.
     expect(
       named.size,
       "the sweep found no doc references at all — it is not reaching the help text",

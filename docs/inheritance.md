@@ -6,7 +6,7 @@ base; concrete aggregates `extends` it; the `inheritanceUsing: …` header modif
 picks how the hierarchy maps to tables.
 
 > Design rationale, the full strategy comparison, and the deferred patterns live
-> in [`proposals/aggregate-inheritance.md`](old/proposals/aggregate-inheritance.md).
+> in [`proposals/aggregate-inheritance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/aggregate-inheritance.md).
 > This page is the reference for what ships today.
 
 ## Declaration surface

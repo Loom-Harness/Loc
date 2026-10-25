@@ -934,7 +934,7 @@ migration "rename-qty" { Order.qty -> quantity }
     expect(out[0]!.steps).toEqual([]);
   });
 
-  // Regression (docs/audits/repo-code-review-2026-07.md S1): a TPH concrete owns
+  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md S1): a TPH concrete owns
   // NO table of its own — its columns live on the TPH root's shared table.  A
   // `rename Concrete.x -> y` must target the BASE table (`parties`), not a
   // nonexistent `<concrete>s` table; otherwise diffTable never sees the intent
@@ -1522,7 +1522,7 @@ describe("A8.3 — destructive-change gate", () => {
     ).toThrow(MigrationDestructiveError);
   });
 
-  // Regression (docs/audits/repo-code-review-2026-07.md S2): a same-column TYPE
+  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md S2): a same-column TYPE
   // change emits `alterColumnType` (`ALTER ... TYPE t USING col::t`), which can
   // fail at apply time (`string -> int` on a non-numeric row) or truncate
   // (`decimal -> int`).  It must be gated by the destructive policy — previously

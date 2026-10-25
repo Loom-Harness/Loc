@@ -32,7 +32,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 //      currentUser.tenantId`).  Binding the request principal into the
 //      always-on read path is deferred (Hono: thread through findById +
 //      callers; Phoenix: an actor-bound Ecto `where:`) — see
-//      docs/old/proposals/criterion-everywhere.md.
+//      https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion-everywhere.md.
 //   2. Non-relational shapes (`shape: document` / `shape: embedded`).
 //      Fields live inside a jsonb column, so `this.isDeleted` is not a
 //      top-level column the predicate can reference without JSON-path

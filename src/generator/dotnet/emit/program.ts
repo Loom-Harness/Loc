@@ -1523,8 +1523,7 @@ export function renderCsproj(
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>${ns}</RootNamespace>
-    <!-- Roslyn analyzer level — see docs/old/proposals/cross-stack-static-analysis.md.
-         latest-recommended brings in ~200 high-signal CA-prefixed rules
+    <!-- Roslyn analyzer level: latest-recommended brings in ~200 high-signal CA-prefixed rules
          on top of the compiler warnings the existing CI /warnaserror gates. -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <!-- CA1707: \`_Create\` factory uses an underscore prefix intentionally
@@ -1653,7 +1652,7 @@ export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, st
   if (!("MailKit" in resourceNugetDeps)) return "";
   return `\n  <ItemGroup>
     <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+         version; SMTP send path only. -->
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
   </ItemGroup>`;

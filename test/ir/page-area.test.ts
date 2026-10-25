@@ -6,7 +6,7 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 
 // ---------------------------------------------------------------------------
-// `area { }` page grouping (docs/old/proposals/unfoldable-page-scaffolding.md,
+// `area { }` page grouping (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md,
 // v1).  Grouping is by containment: a page inside one or more `area` blocks
 // lands at `src/pages/<area-path>/<page>.tsx`, the path joining down the
 // nesting.  Area-less pages stay flat.

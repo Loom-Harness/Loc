@@ -620,7 +620,7 @@ const REGISTERED: Ratchet[] = [
     // in the same packet but was never here — its domain `test` block already
     // scored it behavioural.)  Six more blocks were written and booted and are
     // HELD here on the runtime defects they found — the hand-off note
-    // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
+    // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md` carries each block
     // and its repro, and each row's reason above now names its defect.
     // 25 -> 27, SECOND raise at this merge (#3024 — `dotnet-bcl-type-collision`).
     //
@@ -693,7 +693,7 @@ const REGISTERED: Ratchet[] = [
     // register holds exactly 23 rows by this file's own counter (27 - 3 - 1),
     // so the bound is that count, mutation-proved both ways (22 fails naming
     // 23; 999 fails as slack).
-    // 27 -> 30 (fixture-shape audit, docs/audits/2026-09-29-fixture-shape-coverage.md)
+    // 27 -> 30 (fixture-shape audit, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md)
     // — a RAISE of three, and the reviewed line this ratchet exists to force.
     // Three new corpus fixtures (`vo-cross-context`, `vo-root-kernel`,
     // `vo-regex-invariant`) carry value-object shapes NO model in the repo had:

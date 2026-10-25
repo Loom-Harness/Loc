@@ -10,7 +10,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // four backends publish a route-derived document either way.  Both shared
 // schemathesis fixtures declare `contexts:` only, which is why the elixir leg
 // has to run its own `ELIXIR_CASES` fixture set
-// (`docs/audits/schemathesis-findings-2026-08.md`, F15).
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md`, F15).
 //
 // The document's CONTENT is derived from the hosted contexts, never from the
 // `api` declaration, so the fallback must change the NAME and nothing else.

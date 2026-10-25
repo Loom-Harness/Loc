@@ -11,7 +11,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // Validating value-object constructor (Ecto/Phoenix)
-// — F5 in docs/audits/test-parity-generated-backends.md.
+// — F5 in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md.
 //
 // A value object is stored as a plain `:map` (JSONB) for wire-shape
 // parity, so its `invariant`s were enforced nowhere — a bad VO (e.g. a negative

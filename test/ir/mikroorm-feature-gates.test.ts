@@ -11,7 +11,7 @@
 // project with the feature SILENTLY absent — the model validated clean, the CLI
 // reported success, and the emitted tree simply had no `scheduler.ts` /
 // `http/channels.ts` / `http/realtime.ts` / `http/query-projections.ts` / outbox
-// wiring.  `docs/old/proposals/integrity-audit-2026-07-residue.md` R1 recorded
+// wiring.  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/integrity-audit-2026-07-residue.md` R1 recorded
 // the projection case; the other four were unrecorded.
 //
 // This suite pins BOTH directions of each gate: the mikroorm deployable is

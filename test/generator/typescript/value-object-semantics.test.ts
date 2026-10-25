@@ -1,6 +1,6 @@
 // S9 · Value objects are VALUES on Hono — `equals()` + DomainError.
 //
-// From `docs/audits/generated-code-ddd-review-2026-07.md` §S9: the Hono VO
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md` §S9: the Hono VO
 // class was immutable but had no `equals()` (reference identity — the one
 // property a VO must not have) and its invariant violations threw a bare
 // `Error`, surfacing as an unclassified 500 instead of routing through the

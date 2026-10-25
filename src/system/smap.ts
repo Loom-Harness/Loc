@@ -3,8 +3,8 @@ import { offsetToLineCol } from "../generator/_trace/sourcemap.js";
 import { resolveToSource } from "../ir/types/origin.js";
 
 // ---------------------------------------------------------------------------
-// JSR-45 SMAP sidecars — docs/old/proposals/source-map-
-// and-debugging.md.  Java sibling of sourcemap-v3.ts: instead of a
+// JSR-45 SMAP sidecars —
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md.  Java sibling of sourcemap-v3.ts: instead of a
 // browser/Node Source Map v3 JSON document, JDWP debuggers (and `javap`)
 // understand the JSR-045 "Debugging support for other languages" TEXT
 // format, carried on a compiled class's `SourceDebugExtension` attribute.

@@ -1,6 +1,6 @@
 // Feature: state-controlled `Modal { open: <state> }` on the Vue packs
 // (vuetify <v-dialog v-model>, shadcnVue <Dialog v-model:open>).
-// See docs/old/proposals/state-controlled-modal.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/state-controlled-modal.md.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

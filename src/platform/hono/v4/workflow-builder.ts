@@ -917,7 +917,7 @@ function emitWorkflowRoute(
   // workflow → 400 (domain) + 422 (validation, ProblemDetails with §3.2
   // `errors[]` extension emitted by the shared defaultHook), per the
   // openapi-errors matrix.  See
-  // docs/old/proposals/validation-error-extension.md.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
   out.push(
     `      400: { description: "Bad Request", content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
@@ -1354,7 +1354,7 @@ function emitInstanceRoutes(
   // The param schema derives from the correlation id's value type — guid →
   // uuid-format string, int/long → coerced integer, string → plain — so the
   // parity gate's path-param dimension agrees with .NET / Java / Python /
-  // Phoenix by construction (docs/old/plans/non-guid-id-http-params.md).
+  // Phoenix by construction (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
   const corrVt = workflowCorrIdValueType(wf);
   const idParamZod =
     corrVt === "guid"

@@ -868,7 +868,7 @@ function renderFormOpWiring(
       parts.push("handleSubmit");
       // setError is required by the catch-block `applyServerErrors` call
       // emitted by the pack's form-op-module template (see
-      // docs/old/proposals/frontend-acl.md).  Always included.
+      // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md).  Always included.
       parts.push("setError");
       if (useController) parts.push("control");
       if (usesErrors) parts.push("formState: { errors }");

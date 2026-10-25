@@ -3,14 +3,13 @@ name: status-refresh
 description: >-
   Re-verify Loom's DOCUMENTATION against fresh `main` and fix the drift —
   docs-only. Use this whenever the task is about whether the prose still matches
-  the code: "the docs are stale", "refresh the trackers / the proposals status
-  table", "audit the proposals against main", "is this doc still true?", "bump
-  the last-refreshed line", or picking up `docs/old/proposals/README.md` or
-  `docs/old/proposals/global-implementation-plan.md`. ALSO use it after any
+  the code: "the docs are stale", "audit the reference docs against main", "is
+  this doc still true?", "bump the last-refreshed line", or a docs-drift issue.
+  ALSO use it after any
   rename/removal/refactor to scrub the references that outlive the deleted thing:
   "scrub the stale references to X", "I removed `origin`/`source`/`⑤c`, find what
   still mentions it", "this concept was renamed, sweep the docs/comments". Two
-  modes: a broad scoped doc audit (a doc set: `docs/`, `docs/old/proposals/`,
+  modes: a broad scoped doc audit (a doc set: `docs/`,
   `CLAUDE.md`, code comments) and a post-refactor concept scrub (one renamed/
   removed concept, grepped across `src/`/`test/`/`docs/`). The single highest-yield
   pattern is the "N-backend-era freeze" — prose frozen at "three/four backends"
@@ -36,8 +35,7 @@ never picked up. **#1441 /
 `source`/`origin`/`⑤c` references after a single removal (#1408) — the code was
 clean on the first PR; the docs and comments took three more passes to catch up.
 **#1443** had to write *guardrails* (`experience_gathered.md` §15) so the debt
-class "doesn't re-accrete." And the proposals `README.md` says of *itself*: "This
-README is hand-maintained and was previously stale."
+class "doesn't re-accrete."
 
 This is the documentation twin of CLAUDE.md's "Sync with `main` constantly — a
 stale base lies twice" discipline. There it's about not rebuilding merged work;
@@ -89,11 +87,11 @@ from memory. The code wins, every time.
 
 ### Mode A — scoped doc audit
 
-The scope is a doc set: `docs/old/proposals/README.md` (the status table — the canonical
-drift surface), `docs/old/proposals/global-implementation-plan.md` (the gap inventory),
-a reference doc under `docs/`, `CLAUDE.md`, or a `docs/audits/*` snapshot. Walk each
-claim, find the code that proves it, classify, fix. The README table and the
-global-implementation-plan are **meant to agree** — refresh them together.
+The scope is a doc set: a reference doc under `docs/` (or `docs/language-reference/`),
+`CLAUDE.md`, a skill, or code comments. Walk each claim, find the code that proves
+it, classify, fix. Status tables do not live in the tree — work state is GitHub
+issues — so a doc that still carries a status/backlog table is itself drift:
+replace the table with a pointer to the issues rather than refreshing it.
 
 ### Mode B — concept-removal scrub
 
@@ -153,10 +151,10 @@ via `dotnet fable`+vite). Any doc saying "three
 backends", "four targets", "the React frontend" (singular), or listing
 "node/dotnet/phoenix/react" as if that's the whole set is a freeze artifact.
 
-Live example found this session: `global-implementation-plan.md:39` still opens "The
-ten-phase pipeline, **three DB backends** … and **the React frontend** are mature" —
-a 2026-06-10 snapshot frozen before java/python landed as DB backends and before
-vue/svelte/angular. That's a textbook freeze line.
+Live example: a since-retired plan opened "The ten-phase pipeline, **three DB
+backends** … and **the React frontend** are mature" — a 2026-06-10 snapshot frozen
+before java/python landed as DB backends and before vue/svelte/angular. That's a
+textbook freeze line.
 
 Grep for the pattern, then check each hit against the registry:
 
@@ -167,24 +165,18 @@ rg -n "three (DB )?backends|four (backends|frontends|targets)|the React frontend
 `references/drift-hotspots.md` has the worked examples and the other recurring claim
 shapes (status tags, per-feature target lists).
 
-## Refresh the trackers together, bump the date
+## Status lives on the issue, not in the doc
 
-The README status table and `global-implementation-plan.md` are a matched pair — the
-README owns per-proposal status, the plan owns ordering/gap-inventory, and the README
-literally says "If you spot drift … update both the entry and `global-implementation-plan.md`."
-The plan's own maintenance rule says: when work lands, update *three* places in one PR
-— the plan item, the proposal's own status header, and the README row. So when you flip
-a status:
+Work state (open/done/blocked, who is on it) is GitHub issues; the tree carries no
+status tables or trackers to refresh. So when a doc's claim turns out stale:
 
-- Update the README table row **and** the matching plan entry **and** the proposal
-  doc's own status header. A header that says "not yet started" while the emitter
-  exists costs the next agent hours — that asymmetry is exactly the failure mode this
-  skill exists to kill.
-- **Bump the "Last refreshed: YYYY-MM-DD" line** in the README (and note the audit was
-  code-verified, matching the existing `**Last refreshed: 2026-06-10**` block's shape).
-  An un-bumped date makes the next reader trust stale rows.
-- Where a doc has dated annotation blocks (the audits' `[2026-06-20 audit]` style),
-  add one saying what moved rather than silently overwriting — the history is useful.
+- Fix the prose to describe what the code does now. If the doc still carries a
+  status/backlog table or a "not yet started" header, that is drift itself — replace
+  it with a pointer to the issue(s), don't refresh the numbers.
+- When the drift reveals open work (a feature the doc promises that the code lacks),
+  file it as an issue (`found-in-flight`) instead of recording it in the doc.
+- Where a reference doc has a "Last refreshed: YYYY-MM-DD" line, bump it and note the
+  pass was code-verified.
 
 ## Report
 

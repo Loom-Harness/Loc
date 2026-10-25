@@ -3,7 +3,7 @@
 //
 // Plain Phoenix + Ecto.  Called from `../index.ts`.
 //
-// Per docs/old/plans/vanilla-foundation-tdd-plan.md.  What it emits: the
+// Per https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md.  What it emits: the
 // project shell; per-aggregate schema + repository + context module + read
 // controllers + spliced router routes; the changeset module + the
 // create/update/destroy controller actions + write-path routes.

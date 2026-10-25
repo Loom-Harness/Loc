@@ -13,7 +13,7 @@ import { parseDdd } from "../../web/src/builder/parse.js";
 // carry its OWN copy of the same four safety rails (source-change ticks, the
 // read gate on a recovered AST, the write gate, the refusal line).  The copies
 // drifted: `SystemBuilderV2Pane` shipped with no read gate at all — audit
-// defect #6, `docs/audits/playground-file-mgmt-review-2026-07.md` — so #2287
+// defect #6, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md` — so #2287
 // had to fix the same class of bug twice.
 //
 // Two halves are pinned here:

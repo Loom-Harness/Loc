@@ -1,5 +1,4 @@
-// Migration-block checks (M-T2.1, docs/new-plan/missions/
-// M-T2.1-migration-surface-design.md).
+// Migration-block checks (M-T2.1, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T2.1-migration-surface-design.md).
 //
 // A top-level `migration "<name>" { rename Agg.old -> new }` block is a
 // permanent, ledger-style record whose `rename` steps disambiguate the derived

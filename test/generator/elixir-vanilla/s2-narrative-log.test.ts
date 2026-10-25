@@ -3,7 +3,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // S2 — info-narrative log events on the vanilla foundation
-// (docs/audits/domain-seam-log-parity.md).  The vanilla controller +
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/domain-seam-log-parity.md).  The vanilla controller +
 // context module emit the three catalog `info` events at the create /
 // operation / dispatch seams via `renderPhoenixLogCall` (Logger.info), with
 // `require Logger` in the host module — matching Hono/.NET/Java/Python so the

@@ -1,4 +1,4 @@
-// A1 pilot for the scalar-intrinsic catalogue (docs/old/plans/stdlib.md):
+// A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the .NET backend — in-memory rendering in
 // domain bodies AND the LINQ `Where` lambda in a queryable `find … where`
 // position (EF Core translates `.Trim()` to SQL natively, so no separate

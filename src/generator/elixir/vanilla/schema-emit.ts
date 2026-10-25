@@ -510,7 +510,7 @@ function renderFieldLine(
   // `default:` so a fresh `%Agg{}` carries it — `base_changeset` then
   // satisfies `validate_required` even when the caller omits the field, and
   // `create/1`'s `apply_action` returns the defaulted value (F6 in
-  // docs/audits/test-parity-generated-backends.md).
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md).
   const def = field.default ? renderEctoDefault(field.default) : null;
   return `    field :${snake(field.name)}, ${ectoType}${def ? `, default: ${def}` : ""}`;
 }

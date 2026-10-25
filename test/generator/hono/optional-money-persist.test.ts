@@ -6,7 +6,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // conversion: an unguarded `aggregate.cost.toString()` fails `tsc --strict`
 // (TS18047) and `String(null)` would persist the literal string "null".
 // Caught by the showcase tsc gate (S3 of
-// docs/audits/generated-code-ddd-review-2026-07.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md).
 const FIXTURE = `system Shop {
   subdomain Sales {
     context Billing {

@@ -1,5 +1,5 @@
 // An id-typed `user { … }` claim — `customerId: Customer id?` — across all
-// five backends.  D6/P2 of `docs/audits/2026-09-10-eshop-dev-experience.md`.
+// five backends.  D6/P2 of `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md`.
 //
 // One `.ddd` line broke FOUR of five backends, four different ways, and the
 // four symptoms are two independent bugs:
@@ -200,7 +200,7 @@ describe("NON-optional id claim — the dev-stub principal CONSTRUCTS the id", (
 
 // ---------------------------------------------------------------------------
 // The FOREIGN twin — `agentId: Agent id?` on a deployable that does NOT host
-// `Agent` (D6 of `eval-claims/FIX-PLAN.md`).  The `user { … }` shape is
+// `Agent`.  The `user { … }` shape is
 // system-wide, so `payments` emits the same `User` type as `agents`, naming the
 // `AgentId` brand — which its ids module only declared for HOSTED aggregates.
 // node TS2694, python ImportError at boot, java/.NET missing symbol.  The claim

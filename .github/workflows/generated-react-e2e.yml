@@ -10,7 +10,7 @@ name: Generated React e2e
 #
 # TIERING — per-PR on the React blast radius, post-merge on everything
 # else.  Wave G1 packet 1.2 of
-# docs/new-plan/verification-waves-2026-09.md: a gate that runs only on
+# https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/verification-waves-2026-09.md: a gate that runs only on
 # `push: main` catches its regressions on a red `main`, so the cheap
 # docker-free SPA smokes are promoted per-PR behind a narrow `paths:`.
 #

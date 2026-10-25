@@ -1,7 +1,7 @@
 // Phase 2-lite: implicit conversion of sensitive values is permitted at
 // the type level (so existing code keeps working), but the validator
 // emits a warning at each flow boundary where sensitivity tags are
-// dropped.  See `docs/old/proposals/sensitivity-and-compliance.md`.
+// dropped.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.
 
 import { describe, expect, it } from "vitest";
 import { parseString } from "../../_helpers/index.js";

@@ -1,7 +1,7 @@
 // `loom.unknown-name` — a bare identifier (`NameRef` head) in an executable
 // domain expression that resolves to nothing in scope is an error.
 //
-// Finding 1 of docs/audits/full-code-review-2026-07.md: `NameRef` is not a
+// Finding 1 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/full-code-review-2026-07.md: `NameRef` is not a
 // cross-reference, so an unresolvable head types as `T.unknown` and every
 // downstream gate suppresses on it (assuming an upstream reporter that never
 // existed).  `checkUnknownMemberAccess` closes the hole for member suffixes

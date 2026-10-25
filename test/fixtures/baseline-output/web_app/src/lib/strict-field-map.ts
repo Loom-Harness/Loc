@@ -1,5 +1,4 @@
 // Auto-generated.  Do not edit by hand.
-// See docs/old/proposals/frontend-acl.md.
 
 type NestedPaths<T> = T extends object
   ? {

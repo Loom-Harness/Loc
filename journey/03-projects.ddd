@@ -77,7 +77,7 @@ system Todo {
           // NOTE: `createdAt` is `managed` (server-stamped) so it is NOT a
           // member of the generated `.create()` input — passing it here
           // compiles the .ddd fine but emits a test that fails `tsc`
-          // (FINDINGS Friction #4). Omit managed fields from `.create()`.
+          // (build-journal Friction #4). Omit managed fields from `.create()`.
           let t = Task.create({ project: "00000000-0000-0000-0000-000000000001",
                                 title: "ship it", status: Open, priority: High })
           t.complete()
@@ -91,7 +91,7 @@ system Todo {
       // referenceable from retrievals and views.
       // NOTE: a *parameterised* criterion is queryable inside a retrieval;
       // a zero-arg one (`StillOpen()`) is currently mis-classified as a free
-      // call and rejected — see FINDINGS Friction #3 — so the open-check is
+      // call and rejected — see build-journal Friction #3 — so the open-check is
       // inlined below rather than factored into its own criterion.
       criterion InProject(projectId: Project id) of Task = this.project == projectId
 

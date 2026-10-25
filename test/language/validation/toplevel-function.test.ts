@@ -1,4 +1,4 @@
-// Phase B — top-level (ambient) helper `function` (docs/old/plans/stdlib.md).
+// Phase B — top-level (ambient) helper `function` (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md).
 // A pure, expression-form function declared at file root / inside `system {}`,
 // visible workspace-wide, that INLINES at every call site during lowering.
 // Gates:

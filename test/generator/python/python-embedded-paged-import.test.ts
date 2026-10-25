@@ -9,7 +9,7 @@
 // `ruff check` with two × F821 and did not run.  Found by the pairwise compile
 // oracle (`versioned-embedded-none-tph-paged-default`), red on `main` for a
 // week; recorded as the live half of F13 in
-// docs/audits/pairwise-corpus-findings-2026-08.md.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md.
 //
 // The crossing is independent of inheritance — `embedded × paged` alone
 // reproduces it, which is what this fixture pins.

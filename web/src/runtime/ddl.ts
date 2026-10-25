@@ -140,7 +140,7 @@ function columnSql(c: DrizzleColumn): string {
       // carried one yet, so the harness had never synthesised it: the first
       // `test e2e` written over one (wave C3, `collection-op-shapes` — held in
       // the E2E-less register on a node wire defect, block in
-      // `docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md`) died here with
+      // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3a-e2eless.md`) died here with
       // `unsupported drizzle column type "PgArray"` before its first request.
       if (!c.baseColumn) {
         throw new Error(`PgArray "${c.name}" missing its element column`);

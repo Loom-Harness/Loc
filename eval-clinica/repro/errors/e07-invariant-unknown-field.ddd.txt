@@ -1,1 +1,0 @@
-context C { aggregate A { qty: int  invariant quantity > 0 } repository As for A { } }

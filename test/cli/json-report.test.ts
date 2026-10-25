@@ -6,7 +6,7 @@ import type { ValidateReport } from "../../src/diagnostics/contract.js";
 
 // ---------------------------------------------------------------------------
 // `ddd parse --json` — the structured-diagnostics contract
-// (docs/old/proposals/ai-diagnostics-contract.md).  Asserts on stable `loom.*`
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md).  Asserts on stable `loom.*`
 // codes (not message prose, per the contract's design goal §2), the
 // always-valid envelope on a bad model, and byte-identical determinism.
 // ---------------------------------------------------------------------------

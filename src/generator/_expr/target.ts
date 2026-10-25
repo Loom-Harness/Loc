@@ -622,7 +622,7 @@ export function refuseOutOfVocabulary(mode: QueryEmissionMode, what: string): ne
 
 // ---------------------------------------------------------------------------
 // Span-tracking emission — the marks-carrying twin of `renderExprWith`
-// (docs/old/plans/span-tracking-emission.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/span-tracking-emission.md).
 //
 // LEVEL-WISE ANCHORING: `renderExprWith` already renders every child via its
 // local `r` BEFORE handing the child STRINGS to the leaf method, so the

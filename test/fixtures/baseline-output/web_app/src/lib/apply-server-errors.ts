@@ -1,5 +1,4 @@
 // Auto-generated.  Do not edit by hand.
-// See docs/old/proposals/frontend-acl.md.
 
 import type { UseFormSetError, FieldValues, Path } from "react-hook-form";
 import type { StrictFieldMap } from "./strict-field-map";
