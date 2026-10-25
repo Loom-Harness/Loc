@@ -107,7 +107,9 @@ describe("a value-object field default renders in the WIRE shape", () => {
     // (no-default) collection arm already used `new ArrayList<>()`; the
     // explicit `= []` arm rendered the literal straight through.
     const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Invoice.java");
-    expect(src).toContain("e.tags = tags != null ? tags : new ArrayList<>(List.of());");
+    expect(src).toContain(
+      "e.tags = tags != null ? new ArrayList<>(tags) : new ArrayList<>(List.of());",
+    );
     expect(src).toContain("import java.util.ArrayList;");
   });
 
