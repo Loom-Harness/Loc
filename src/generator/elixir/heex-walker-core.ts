@@ -58,6 +58,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
@@ -414,6 +415,16 @@ export interface WalkContext {
    *  cannot call one `handle_event` clause from another, so a parameterised
    *  sibling action is inlined with its arguments substituted. */
   actionArgSubst?: ReadonlyMap<string, string>;
+  /** Parameters of a component INLINED into its caller (see
+   *  `renderInlinedComponent`): param name -> the caller's argument expression
+   *  with the caller's context.  A `ref` to the param re-renders that argument
+   *  in the CURRENT position (template `@x` vs handler `socket.assigns.x`), so a
+   *  query/form argument built from a component param stays valid inside the
+   *  host's `handle_params` and `handle_event` bodies. */
+  inlineParams?: ReadonlyMap<string, { expr: ExprIR; ctx: WalkContext }>;
+  /** Renders the children of an INLINED component call, in the caller's scope,
+   *  for the component's `Slot()`. */
+  inlineSlot?: () => string;
   /** Shared box flag set by `Slot()` rendering — boxed so the mutation
    *  survives the `{...ctx}` shallow copies nested renders make (like the
    *  Set/array accumulators above). */
@@ -639,6 +650,35 @@ export function walkBodyToHeex(
     i18nPrefix,
   };
 
+  seedHoistedHandlers(ctx, page, body);
+
+  const heex = body ? renderExpr(body, ctx) : `<!-- empty body -->`;
+
+  return {
+    heex,
+    handlers: ctx.handlers,
+    formBindings: ctx.formBindings,
+    queryBindings: ctx.queryBindings,
+    actionBindings: ctx.actionBindings,
+    usedComponents: [...ctx.usedComponents],
+    componentUses: ctx.componentUses,
+    usesSlot: ctx.slotUsed.value,
+    usesChart: ctx.chartUsed.value,
+    usesTableHelpers: ctx.tableHelpersUsed.value,
+    idOptionsBindings: [...ctx.idOptionsBindings],
+    refLabelBindings: [...ctx.refLabelBindings],
+    usedStores: [...ctx.usedStores],
+    uploadBindings: ctx.uploadBindings,
+    tableControls: ctx.tableControls,
+  };
+}
+
+/** Pre-hoist the handlers a body's markup refers to by name: its declared
+ *  `action`s and its bare store-action handler refs.  Runs before the body
+ *  renders so synthesized lambda events number after them: a component walked
+ *  standalone and the same component inlined into a page therefore name their
+ *  lambda handlers identically. */
+function seedHoistedHandlers(ctx: WalkContext, page: PageIR, body: ExprIR | undefined): void {
   // Hoist named page `action`s (named-actions-and-stores.md, Proposal A
   // Stage 1) into `handle_event` clauses named `snake(action.name)`, so a
   // bare `onClick: next` reference — lowered to an `action-ref` ExprIR that
@@ -686,26 +726,6 @@ export function walkBodyToHeex(
       ],
     });
   }
-
-  const heex = body ? renderExpr(body, ctx) : `<!-- empty body -->`;
-
-  return {
-    heex,
-    handlers: ctx.handlers,
-    formBindings: ctx.formBindings,
-    queryBindings: ctx.queryBindings,
-    actionBindings: ctx.actionBindings,
-    usedComponents: [...ctx.usedComponents],
-    componentUses: ctx.componentUses,
-    usesSlot: ctx.slotUsed.value,
-    usesChart: ctx.chartUsed.value,
-    usesTableHelpers: ctx.tableHelpersUsed.value,
-    idOptionsBindings: [...ctx.idOptionsBindings],
-    refLabelBindings: [...ctx.refLabelBindings],
-    usedStores: [...ctx.usedStores],
-    uploadBindings: ctx.uploadBindings,
-    tableControls: ctx.tableControls,
-  };
 }
 
 /** The `handle_event` name of a bare store-action handler (`onClick:
@@ -836,6 +856,8 @@ function renderRef(expr: Extract<ExprIR, { kind: "ref" }>, ctx: WalkContext): st
   // so substituting an operator expression into a larger one stays safe.
   const subst = ctx.actionArgSubst?.get(expr.name);
   if (subst !== undefined) return `(${subst})`;
+  const inlined = ctx.inlineParams?.get(expr.name);
+  if (inlined) return `(${renderExpr(inlined.expr, { ...inlined.ctx, position: ctx.position })})`;
   // Store-field read — `Cart.count` (Stage 5).  Resolved at lowering into a
   // `ref` carrying `refKind: "store-field"` + the declaring `storeName`.  In a
   // page/component body it reads the store's per-page assign
@@ -1010,6 +1032,107 @@ function renderMethodCall(
   return `${recv}.${snake(expr.member)}(${args.join(", ")})`;
 }
 
+/** Record a host-LiveView binding (form / query / upload / table control).
+ *
+ *  Inside an INLINED component every instance of the component registers the
+ *  same bindings again; an identical one is dropped so the host emits one
+ *  assign, one load and one `handle_event` clause per distinct binding rather
+ *  than a duplicated clause head (which Elixir rejects).  Page-level
+ *  registration is untouched. */
+export function registerBinding<T>(ctx: WalkContext, list: T[], item: T): void {
+  if (ctx.inlineParams) {
+    const key = JSON.stringify(item);
+    if (list.some((x) => JSON.stringify(x) === key)) return;
+  }
+  list.push(item);
+}
+
+/** Bind a component call's arguments to its params: a named argument binds by
+ *  name; a positional one binds to the next param NOT already bound by name;
+ *  a positional with no param left is a child (the component's `Slot()`). */
+function bindCallArgs(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  comp: ComponentIR,
+): { params: Map<string, ExprIR>; children: ExprIR[] } {
+  const named = new Set((expr.argNames ?? []).filter((n): n is string => !!n));
+  const free = comp.params.map((p) => p.name).filter((n) => !named.has(n));
+  const params = new Map<string, ExprIR>();
+  const children: ExprIR[] = [];
+  let pos = 0;
+  for (let i = 0; i < expr.args.length; i++) {
+    const argName = expr.argNames?.[i];
+    const paramName = argName ?? free[pos++];
+    if (!paramName) children.push(expr.args[i]!);
+    else params.set(paramName, expr.args[i]!);
+  }
+  return { params, children };
+}
+
+/** A call to a component whose body needs host-LiveView state, rendered INLINE.
+ *
+ *  The component body is walked again under a context that shares the caller's
+ *  binding accumulators (`formBindings`, `queryBindings`, `uploadBindings`,
+ *  `tableControls`, option/label sets, the chart/table/tab counters), so the
+ *  assigns, `allow_upload/3` and `handle_event` clauses its primitives need land
+ *  in the host page's LiveView by construction.  What stays per-walk is what the
+ *  component-level hoisting already owns (`handlers`, `actionBindings`,
+ *  `usedComponents`, `usedStores`, `slotUsed`): those reach the host through
+ *  `ComponentActionInfo`, and a fresh set here makes the lambda handler names this
+ *  walk mints match the ones that hoisting emits.
+ *
+ *  Params are substituted by the caller's argument expressions (re-rendered per
+ *  position, see `WalkContext.inlineParams`), and the `Slot()` renders the call's
+ *  children in the caller's scope.  Rendering a component twice registers its
+ *  bindings twice; the emitters dedupe identical bindings. */
+function renderInlinedComponent(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  comp: ComponentIR,
+  ctx: WalkContext,
+): string {
+  const bound = bindCallArgs(expr, comp);
+  const children = bound.children;
+  const params = new Map<string, { expr: ExprIR; ctx: WalkContext }>(
+    [...bound.params].map(([name, arg]) => [name, { expr: arg, ctx }]),
+  );
+  const page = {
+    name: comp.name,
+    params: comp.params,
+    state: comp.state,
+    derived: comp.derived,
+    actions: comp.actions,
+    body: comp.body,
+  } as PageIR;
+  const instanceTypes = new Map<string, string>();
+  for (const p of comp.params) {
+    if (p.type.kind === "entity" && ctx.aggregatesByName.has(p.type.name)) {
+      instanceTypes.set(p.name, p.type.name);
+    }
+  }
+  const inner: WalkContext = {
+    ...ctx,
+    page,
+    stateNames: new Set(comp.state.map((f) => snake(f.name))),
+    stateFields: new Map(comp.state.map((f) => [snake(f.name), f] as const)),
+    stateOwner: comp.name,
+    instanceTypes,
+    i18nPrefix: ctx.i18nPrefix ? `component.${comp.name}` : undefined,
+    inlineParams: params,
+    inlineSlot: () => children.map((c) => renderChild(c, ctx)).join(""),
+    varRemapping: undefined,
+    actionArgSubst: undefined,
+    rowTypes: undefined,
+    listTypes: undefined,
+    handlers: [],
+    actionBindings: [],
+    usedComponents: new Set(),
+    componentUses: new Map(),
+    usedStores: new Set(),
+    slotUsed: { value: false },
+  };
+  seedHoistedHandlers(inner, page, comp.body);
+  return comp.body ? renderExpr(comp.body, inner) : "<!-- empty body -->";
+}
+
 /** A call to a user-defined `component` → a fully-qualified HEEx
  *  function-component invocation.  Positional args bind to the
  *  component's declared params in order; named args bind by name.
@@ -1021,20 +1144,21 @@ function renderUserComponent(
 ): string {
   ctx.usedComponents.add(comp.name);
   ctx.componentUses.set(comp.name, (ctx.componentUses.get(comp.name) ?? 0) + 1);
+  // A component that (transitively) renders a form / QueryView / Table /
+  // FileUpload / Chart needs the HOST LiveView to supply its assigns, uploads
+  // and `handle_event` clauses, which a function component cannot — so it is
+  // rendered inline, into the caller, rather than invoked.
+  if (!comp.extern && hostStatefulComponents(ctx.ui).has(comp.name)) {
+    return renderInlinedComponent(expr, comp, ctx);
+  }
   const attrs: string[] = [];
   // A positional argument with no param left to land on is a CHILD: it renders
   // between the open and close tags, into the component's `Slot {}`
   // (`render_slot(@inner_block)`).
-  const children: ExprIR[] = [];
-  let pos = 0;
-  for (let i = 0; i < expr.args.length; i++) {
-    const argName = expr.argNames?.[i];
-    const paramName = argName ?? comp.params[pos++]?.name;
-    if (!paramName) {
-      children.push(expr.args[i]!);
-      continue;
-    }
-    const value = renderExpr(expr.args[i]!, { ...ctx, position: "template" });
+  const bound = bindCallArgs(expr, comp);
+  const children = bound.children;
+  for (const [paramName, arg] of bound.params) {
+    const value = renderExpr(arg, { ...ctx, position: "template" });
     attrs.push(`${snake(paramName)}={${value}}`);
   }
   // Extern component (extern-component-escape-hatch.md) → a hand-written
@@ -1381,6 +1505,11 @@ function gateIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
     if (ctx.varRemapping?.has(snake(e.name))) return;
     if (ctx.stateNames.has(snake(e.name))) return;
     if (ctx.page.derived?.some((d) => snake(d.name) === snake(e.name))) return;
+    const inlined = ctx.inlineParams?.get(e.name);
+    if (inlined) {
+      if (!gateIsHandlerSafe(inlined.expr, inlined.ctx)) safe = false;
+      return;
+    }
     if (ctx.page.params.some((p) => p.name === e.name)) return;
     // Not a page-scope name at all — an enum value or the principal renders the
     // same in both positions.
