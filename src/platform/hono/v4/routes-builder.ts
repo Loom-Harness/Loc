@@ -2694,7 +2694,7 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
  *  are deliberately not matched here. */
 const PLAIN_STRING_BASE = "z.string()";
 
-/** The bound carries the cross-backend range sentence (RS-40) rather than
+/** The bound carries the cross-backend range sentence (RS-41) rather than
  *  zod's own text, which is both framework-worded and zod-major-specific
  *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
  *  equal to …" on 3). */

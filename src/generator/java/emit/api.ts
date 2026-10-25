@@ -15,6 +15,7 @@ import {
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   MISSING_FIELD_MESSAGE,
   problemTitle,
@@ -1151,10 +1152,13 @@ export function renderApiExceptionAdvice(
       `        // client's If-Match expected version was stale (think-time CAS) or the`,
       `        // load→save window lost a race (the repository's guarded version bump`,
       `        // matched zero rows — write-time CAS).`,
-      `        // Return a friendly 409 instead of leaking a 500.`,
-      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", "The resource was modified by another request; reload and retry.", "status", ${concurrencyStatus});`,
+      `        // Return a friendly 409 instead of leaking a 500.  RS-40: the detail`,
+      `        // names the aggregate and the row — every raise site passes`,
+      `        // (<Aggregate>.class, id.value()).`,
+      `        String detail = (e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier() + ${JSON.stringify(` ${CONCURRENCY_CONFLICT_SUFFIX}`)};`,
+      `        CatalogLog.event(${javaLogEvent("conflict")}, "message", detail, "status", ${concurrencyStatus});`,
       `        httpMetrics.recordDomainFault("conflict");`,
-      `        return respond(problem(${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry.", request), ${concurrencyStatus});`,
+      `        return respond(problem(${concurrencyStatus}, "Conflict", detail, request), ${concurrencyStatus});`,
       `    }`,
       ``,
     ],
@@ -1170,7 +1174,7 @@ export function renderApiExceptionAdvice(
     // does not fit.  Jackson refuses it while binding, as an
     // InputCoercionException carrying the field's path, so it surfaces here
     // rather than at Bean Validation — and the answer is the wire-validation
-    // 422 at that field with the cross-backend range sentence (RS-40), the
+    // 422 at that field with the cross-backend range sentence (RS-41), the
     // same body node, python, .NET and elixir send.  Every other unreadable
     // body stays the 400.
     `    @ExceptionHandler(HttpMessageNotReadableException.class)`,

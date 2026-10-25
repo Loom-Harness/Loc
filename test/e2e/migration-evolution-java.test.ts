@@ -7,6 +7,7 @@ import {
   handleFor,
   type PgConn,
   runMigrationEvolutionGate,
+  runUniqueIndexEvolutionGate,
 } from "./support/migration-evolution-harness.js";
 
 // ---------------------------------------------------------------------------
@@ -79,3 +80,12 @@ describe.skipIf(!ENABLED)(
     }, 1_200_000);
   },
 );
+
+// #3229 — `unique (…)` across a softDeletable flip (full → partial → full) and
+// across inheritance (a TPC base's key on each concrete table; a TPH base's key
+// mapped to 409 on each concrete route).  See `runUniqueIndexEvolutionGate`.
+describe.skipIf(!ENABLED)("unique-index evolution gate over the generated java backend", () => {
+  it("rebuilds the index across a softDeletable flip; inherited keys enforce per table / hierarchy", async () => {
+    await runUniqueIndexEvolutionGate(javaDriver);
+  }, 1_200_000);
+});

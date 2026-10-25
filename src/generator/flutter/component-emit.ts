@@ -57,6 +57,7 @@ import type {
   ParamIR,
   UiApiParamIR,
 } from "../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import type { ApiCallSite } from "../_walker/target.js";
@@ -217,20 +218,16 @@ function hasAsyncEffectAction(c: ComponentIR): boolean {
  *  body walk has its own probes for the same three; this is the derived-side
  *  twin, which the walk never sees.) */
 function derivedNeedsShell(e: ExprIR): boolean {
-  if (e.kind === "id") return true;
-  if (e.kind === "ref" && (e.refKind === "store-field" || e.refKind === "current-user"))
-    return true;
-  for (const v of Object.values(e)) {
-    if (Array.isArray(v)) {
-      for (const c of v)
-        if (c && typeof c === "object" && "kind" in c && derivedNeedsShell(c)) {
-          return true;
-        }
-    } else if (v && typeof v === "object" && "kind" in v && derivedNeedsShell(v as ExprIR)) {
-      return true;
+  let needs = false;
+  walkExprDeep(e, (n) => {
+    if (
+      n.kind === "id" ||
+      (n.kind === "ref" && (n.refKind === "store-field" || n.refKind === "current-user"))
+    ) {
+      needs = true;
     }
-  }
-  return false;
+  });
+  return needs;
 }
 
 /** The candidate components — non-extern, with a body, no async-effect action,

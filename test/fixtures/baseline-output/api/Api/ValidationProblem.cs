@@ -121,7 +121,7 @@ public static class ValidationProblem
             };
         }
         // An int literal past Int32 is a FIELD refusal, not a malformed body
-        // (RS-40): Serialization.Int32RangeJsonConverter throws it with the
+        // (RS-41): Serialization.Int32RangeJsonConverter throws it with the
         // range sentence as its message, and the input formatter files that
         // message under the field's JSON path ("$.n", "$.best.qty").  Answered
         // like a missing member: only the range errors, never the companion

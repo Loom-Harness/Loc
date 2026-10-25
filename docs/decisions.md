@@ -176,7 +176,7 @@ primary form).
 
 ## D-ENV-SWAP — per-environment storage swap mechanism
 
-**Status:** OPEN (deferred — out of scope for F1).
+**Status:** DECIDED (owner ruling 2026-10-21) — option ①, no new grammar; option ② is declined.
 
 **Context.** Storage proposal §2.1 invariant 5: *"Storage is
 swappable per deployable."* The test deployable swaps Postgres for
@@ -191,14 +191,11 @@ in-memory without the domain noticing. Two shapes were considered:
   inMemory } }` block (existing storage proposal §3.8). Terse;
   preserves one dataSource set across environments.
 
-**Decision (deferred).** Option ① is the implicit fallback for
-v1 — it works with no new grammar beyond what D-STORAGE-SPLIT lands.
-Option ② is the cleaner long-term shape but not in scope for the
-initial F1 grammar; revisit after F1 lands and we have empirical
-pressure on the verbosity.
+**Decision.** Option ①: a per-environment deployable lists its own
+alternate dataSources, with no new grammar beyond what D-STORAGE-SPLIT
+landed. Option ② (`overrides { storage … }`) is declined.
 
-**Affects.** Storage proposal §3.8 (`overrides`) does not land in
-the F1 micro-plan PRs; reopens after F1.
+**Affects.** Storage proposal §3.8 (`overrides`) does not land.
 
 ---
 
@@ -2171,7 +2168,7 @@ moves are an offline migration).
 
 ## D-TENANCY-DEFAULT — no silent default; an explicit-stance lint
 
-**Status:** PINNED (lint **severity** OPEN — recommended `error`).
+**Status:** PINNED (the lint is an `error`: `loom.tenancy-stance-unmarked`).
 
 **Problem.** A fail-closed *silent* default ("unmarked ⇒ `tenantOwned`") would
 have Loom implicitly attach the `tenantOwned` capability, injecting
@@ -2183,7 +2180,7 @@ system is **unscoped**; a **lint** flags it and suggests the explicit marker
 unfoldable capability. The lint's **severity is the fail-open/fail-closed knob**:
 **error** (recommended — the common case is tenant data, so the unmarked fallback
 is the dangerous one) gives fail-closed without magic; **warning** is fail-open.
-Severity is the one OPEN sub-decision.
+Shipped as **error** (`loom.tenancy-stance-unmarked`, `tenancy-checks.ts`).
 
 **Affects.** `multi-tenancy-design-note.md` R3 (supersedes original decision #2's
 silent-default *mechanism*; the fail-closed *goal* survives via the lint).
@@ -4474,8 +4471,8 @@ is what `gap` means.
 
 ## D-WIRESHAPE-KEEP — the derived wire shape stays the source of truth; the declared response record is the thing that must be made to agree with it
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
-Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
+**Status:** interim — the derived shape stays for now; the goal is to retire
+it (owner ruling on #3383). Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
 the `wireShape` retirement or decline with the measurement. It declines.
 
 **Question.** `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 retire
@@ -4662,7 +4659,7 @@ errors}` rung, the message-less entry carrying no `code`
 (`elixir/vanilla/denial.ts`); python raises a `PydanticCustomError` of type
 `invariant` through `ValidationError.from_exception_data`, so the entry has the
 field's `loc` and no "Value error, " prefix (`python/emit/wire-constraints.ts`).
-Pinned by RS-41 and the `validation-messages` / `intrinsics` wire goldens; the
+Pinned by RS-42 and the `validation-messages` / `intrinsics` wire goldens; the
 four `M-T6.86` waivers are deleted.
 
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400

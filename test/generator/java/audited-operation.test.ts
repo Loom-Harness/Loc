@@ -162,7 +162,7 @@ system AuthedAudit {
     const svc = out.get(`${ROOT}/features/orders/OrderService.java`);
     if (svc === undefined) throw new Error("missing OrderService.java");
     // The accessor is injected (field + ctor param) and the audit actor reads
-    // it through `auditActor()` — the declared user shape (RS-43).
+    // it through `auditActor()` — the declared user shape (RS-44).
     expect(svc).toContain("private final CurrentUserAccessor currentUserAccessor;");
     expect(svc).toContain("CurrentUserAccessor currentUserAccessor");
     expect(svc).toContain("this.currentUserAccessor = currentUserAccessor;");

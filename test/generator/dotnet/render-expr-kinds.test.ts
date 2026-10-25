@@ -179,7 +179,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("this.Name.Trim()");
   });
 
-  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()` completed for ß (RS-42)", () => {
+  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()` completed for ß (RS-43)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -301,7 +301,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("Math.Ceiling(this.Rate)");
   });
 
-  it("renders 2-arg `string.substring(start, len)` over code points, clamping (RS-42)", () => {
+  it("renders 2-arg `string.substring(start, len)` over code points, clamping (RS-43)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -314,7 +314,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("string.Concat(this.Name.EnumerateRunes().Skip(0).Take(3))");
   });
 
-  it("renders 1-arg `string.substring(start)` over code points, clamping (RS-42)", () => {
+  it("renders 1-arg `string.substring(start)` over code points, clamping (RS-43)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",

@@ -52,7 +52,7 @@ export function contextsHaveAudit(contexts: EnrichedBoundedContextIR[]): boolean
  *  column-for-column: snake_case columns, jsonb on the actor / before / after
  *  blobs, indexes on (target_type, target_id) + (correlation_id). */
 function renderPyAudit(user: UserIR | undefined): string {
-  // The audit row's `actor` (RS-43): the request principal in its DECLARED
+  // The audit row's `actor` (RS-44): the request principal in its DECLARED
   // `user { … }` shape, by declared name — the `/auth/me` projection — or
   // None when no principal is bound (and always None without auth).
   const actorBody = user

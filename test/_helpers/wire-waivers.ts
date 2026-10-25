@@ -55,13 +55,17 @@ import type { WireWaiver } from "./wire-record.js";
 // fixed sentence).  M-T6.91 rules the canonical sentence and deletes this.
 // `elixir` joined with M-T6.92, which turned its 500 into the same 409.
 export const WIRE_WAIVERS: readonly WireWaiver[] = [
+  // elixir's workflow / explicit-route dispatcher receives the bare
+  // `{:error, :conflict}` (no aggregate, no row), so its 409 `detail` is the
+  // generic sentence.  Status, `title` and `type` agree; every other backend
+  // names `<Aggregate> <id>` (RS-40).  #3838 carries both through the term.
   {
-    backends: ["dapper", "python", "elixir"],
+    backends: ["elixir"],
     cases: ["transactional-workflow-event-rollback"],
     request: "POST /api/workflows/debit_twice",
     path: "$.detail",
     kinds: ["value"],
     reason:
-      "M-T6.91 — the concurrency-conflict 409 detail is `<Aggregate> <id> was modified by another request` on node, a fixed sentence on .NET/java/python/elixir",
+      "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
 ];

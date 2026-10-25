@@ -90,7 +90,7 @@ describe("python generator — event-sourced concurrency rider", () => {
     expect(repo).toContain("except IntegrityError as err:");
     expect(repo).toContain('getattr(getattr(err, "orig", None), "sqlstate", None) == "23505"');
     expect(repo).toContain(
-      'raise ConcurrencyError(f"Account {aggregate.id} was modified concurrently") from err',
+      'raise ConcurrencyError(f"Account {aggregate.id} was modified by another request") from err',
     );
     expect(repo).toContain("from sqlalchemy.exc import IntegrityError");
     expect(repo).toContain(
@@ -121,7 +121,7 @@ describe("python generator — event-sourced concurrency rider", () => {
     const errors = at(files, "app/domain/errors.py");
     // ConcurrencyError IS present — via the guarded relational write.
     expect(repo).toContain(
-      'raise ConcurrencyError(f"Customer {aggregate.id} was modified concurrently")',
+      'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );
     expect(repo).toContain("where=CustomerRow.version == _expected");
     expect(problem).toContain("@app.exception_handler(ConcurrencyError)");

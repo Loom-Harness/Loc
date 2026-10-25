@@ -1630,7 +1630,7 @@ nothing and the test passes vacuously.
   When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
   merged as prose only, which made any new rule unlandable under the registry's
   gap-free assertion. That has since been closed: the registry was backfilled
-  (it now holds RS-1 … RS-43, contiguous), and `semantics-rules.test.ts` gained
+  (it now holds RS-1 … RS-44, contiguous), and `semantics-rules.test.ts` gained
   the prose-vs-registry parity assertion this finding asked for ("the prose and
   the registry describe the SAME set of rules", plus a per-rule title check), so
   a prose-only rule now fails CI instead of slipping past it.
@@ -1910,7 +1910,50 @@ nothing and the test passes vacuously.
   `text/plain` (404, 404, 415), on all seven wire-gated legs; the emitted seams are pinned by
   `test/generator/empty-command-body.test.ts`.
 
-### RS-40 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
+### RS-40 · An optimistic-concurrency 409 carries the sentence `"<Aggregate> <id> was modified by another request"`
+- **Guarantee.** When a write to a `versioned` aggregate loses its version check
+  — a stale `If-Match`, or a guarded save that matched no row — the answer is
+  409, `title` `"Conflict"`, and the RFC 9457 `detail` is the sentence
+  `"<Aggregate> <id> was modified by another request"`: the aggregate's
+  PascalCase name, the conflicting row's id, no trailing punctuation. The row
+  keeps the write that won. Same sentence for an event-sourced stream whose
+  append lost the `(stream_id, version)` race.
+- **Trigger.** `concurrency-conflict.ddd`: read a note, update it with
+  `If-Match` set to the version read, then update again with that same — now
+  stale — version. The e2e call spells it `api.notes.update(n, body, { ifMatch:
+  read.version })`; the third argument sends `If-Match: "<v>"`, and any other
+  shape is refused (`loom.e2e-call-options`) rather than dropped.
+- **The ruling (M-T6.91).** Node's sentence is canonical, the same call RS-27
+  made for the 404-by-id: it names *what* conflicted. When ruled, node raised
+  `ConcurrencyError(aggregate, id)` while .NET (EF and Dapper), java, python and
+  elixir answered one fixed `"The resource was modified by another request;
+  reload and retry."`. Status, `title` and `type` already agreed, so only a
+  `detail` diff could see it — first done by #3224's
+  `transactional-workflow-event-rollback` golden, which waived it on the two
+  non-node legs it armed.
+- **Per-backend shape.** The aggregate and id come from where both are already
+  in scope. Node and python: the exception raised at each guarded write and
+  event append (python's message already named both; its handler ignored it).
+  Java: the `ObjectOptimisticLockingFailureException(<Agg>.class, id)` every
+  raise site passes, read back in the advice. .NET Dapper:
+  `ConcurrencyConflictException(aggregate, id)`; .NET EF: the event store's
+  wrapped 23505 carries the sentence, and EF's *native* concurrency-token
+  failure is described from the entry it reports (CLR type name — a document
+  POCO's `Document` suffix dropped — and key value). Elixir:
+  `conflict_response(conn, kind, id)`, shaped like `not_found_response/3`. The
+  words after the id are one constant, `CONCURRENCY_CONFLICT_SUFFIX`.
+- **Not part of the guarantee (named).** A two-handle conflict *inside* a
+  workflow is not a shared behaviour yet — EF tracks one entity for both loads
+  (M-T6.90) and elixir answers 500 inside a `transactional` one (M-T6.92). The
+  elixir event-sourced *create* arm has no id in its path, so its sentence
+  carries none.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** M-T6.91. Tier: **behavioral** —
+  `test/behavioral/wire-golden/concurrency-conflict.json`, diffed by every
+  wire-gated leg; the `$.detail` waiver on `transactional-workflow-event-rollback`
+  is deleted.
+
+### RS-41 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
 - **Guarantee.** A request number that does not fit its declared type is a
   **422** wire-validation refusal (RS-29's `Validation failed` rung) with one
   `errors[]` entry at the field's full pointer (RS-33), and the same message on
@@ -1962,7 +2005,7 @@ nothing and the test passes vacuously.
   grammar gate) and `test/conformance/numeric-ingress-parity.test.ts` (the
   range seam per backend).
 
-### RS-41 · A message-less rule's 422 carries node's sentence on every backend
+### RS-42 · A message-less rule's 422 carries node's sentence on every backend
 - **Guarantee.** A rule with no `message "…"` that rides the wire validator —
   an `invariant` over request fields, an operation `precondition` over its
   params — refuses with the sentence node's zod chain sends for it, at the
@@ -2001,7 +2044,7 @@ nothing and the test passes vacuously.
   `test/_helpers/wire-waivers.ts` deleted). Tier: **behavioral** —
   `wire-golden/validation-messages.json` and `wire-golden/intrinsics.json`.
 
-### RS-42 · A string intrinsic counts and cases the same on every backend
+### RS-43 · A string intrinsic counts and cases the same on every backend
 - **Guarantee.** `s.substring(start, len?)` counts **code points**, the unit of
   `s.length` (RS-31): `"a😀bc".substring(1, 2)` is `"😀b"` and
   `"a😀bc".substring(2)` is `"bc"` everywhere. `s.toUpper()` applies the Unicode
@@ -2029,7 +2072,7 @@ nothing and the test passes vacuously.
 - **Provenance.** Wave C3F packet F4. Tier: **unit** (the value table runs each
   backend's real renderer) plus **behavioral** (`wire-golden/intrinsics.json`).
 
-### RS-43 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
+### RS-44 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
 - **Guarantee.** The `actor` an `audited` command records — and its entity
   history (`GET /<aggregates>/{id}/history`) serves — is the request principal
   projected onto the system's declared `user { … }` fields, keyed by the

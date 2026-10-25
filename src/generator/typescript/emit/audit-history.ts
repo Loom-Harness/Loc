@@ -45,7 +45,7 @@ export function historyMapperName(agg: EnrichedAggregateIR): string {
   return `${lowerFirst(agg.name)}AuditEntry`;
 }
 
-/** The per-project `audit/actor.ts` module: the audit row's `actor` (RS-43).
+/** The per-project `audit/actor.ts` module: the audit row's `actor` (RS-44).
  *
  *  The actor is the request principal in its DECLARED `user { … }` shape, by
  *  declared name and nothing else — the same projection `/api/auth/me` answers

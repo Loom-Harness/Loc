@@ -13,6 +13,7 @@ import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   MISSING_FIELD_MESSAGE,
   problemTitle,
   UNIQUE_CONFLICT_DETAIL,
@@ -153,13 +154,27 @@ export function renderVanillaProblemDetailsModule(
   since the client read it (\`Ecto.StaleEntryError\`, rescued to
   \`{:error, :conflict}\`).  Logs the \`conflict\` catalog event, distinct from
   the \`unique (...)\` 409 (which logs \`disallowed\` via \`problem_response/4\`).
+  The detail names the aggregate and the row (RS-40), the same sentence the
+  other four backends serve: \`"<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}"\`.
+  """
+  def conflict_response(conn, kind, id) do
+    send_conflict(conn, "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
+
+  @doc """
+  The same 409 for a conflict that reaches a dispatcher WITHOUT its aggregate and
+  row: a stale save inside a workflow / explicit-handler body surfaces as the bare
+  \`{:error, :conflict}\`, which names neither.  Same status, title and
+  catalog event; the detail is the generic sentence (#3838 carries the
+  aggregate and id through that term so it can match the other backends').
   """
   def conflict_response(conn) do
+    send_conflict(conn, "The resource ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
+
+  defp send_conflict(conn, detail) do
     ${renderPhoenixLogCall("conflict", [
-      {
-        name: "message",
-        valueExpr: `"The resource was modified by another request; reload and retry."`,
-      },
+      { name: "message", valueExpr: "detail" },
       { name: "status", valueExpr: `${concurrencyStatus}` },
     ])}
     ${renderPhoenixDomainFault("conflict")}
@@ -169,7 +184,7 @@ export function renderVanillaProblemDetailsModule(
         type: "about:blank",
         title: ${JSON.stringify(problemTitle(concurrencyStatus))},
         status: ${concurrencyStatus},
-        detail: "The resource was modified by another request; reload and retry.",
+        detail: detail,
         instance: conn.request_path
       })
 

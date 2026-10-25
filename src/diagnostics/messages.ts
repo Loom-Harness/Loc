@@ -1326,6 +1326,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`unique\` column '${p.col}' on aggregate '${p.name}' is a value object, which ` +
     `stores as several columns — a uniqueness key must list single-column ` +
     `(scalar / enum / id) fields.`,
+  "loom.unique-tpc-not-hierarchy-wide": (p: {
+    name: unknown;
+    columns: unknown;
+    concretes: unknown;
+  }) =>
+    `\`unique (${p.columns})\` on abstract aggregate '${p.name}' (inheritanceUsing: ownTable) is ` +
+    `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
+    `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
+    `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
@@ -2054,6 +2063,12 @@ export const DIAGNOSTIC_MESSAGES = {
         : ` 'create' still accepts it too, so a client can start an instance in any state; give it a default and mark it 'managed' if the initial state must not be client-chosen.`),
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/crudish-hard-delete-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.crudish-hard-delete": (p: { name: unknown }) =>
+    `'${p.name}' is 'softDeletable', but the 'destroy' that 'crudish' emits is a HARD delete: 'DELETE /{id}' removes the row, it does not set 'isDeleted'. To make soft delete the only way out, write 'with crudish(updateOnly: true), softDeletable, softDelete' (and declare the 'create' you still want) — the soft delete is then 'POST /{id}/soft_delete'. Keep 'crudish' as it is if a physical delete (an admin purge, an erasure request) is what you mean.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
   // ----------------------------------------------------------------------
   "loom.backfill-target-invalid#backfill-a-aggregate-stores": (p: {
@@ -2113,6 +2128,22 @@ export const DIAGNOSTIC_MESSAGES = {
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** One line of `loom.migration-destructive` for a NOT NULL column a built-in
+   *  CAPABILITY adds to an existing table, when Loom cannot know what the rows
+   *  already there should hold (`tenantOwned`'s tenant, `auditable`'s
+   *  creation stamps).  The author never spelled the column, so the line names
+   *  the capability and the field and says why there is no automatic backfill
+   *  (`softDeletable`'s flag has one and never reaches this). */
+  "loom.migration-destructive#capability-column": (p: {
+    column: unknown;
+    capability: unknown;
+    why: unknown;
+  }) =>
+    `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  "loom.migration-destructive#capability-tenant-owned":
+    "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
+  "loom.migration-destructive#capability-auditable":
+    "The real creation time and author of a row written before auditing are unknown, so there is no automatic backfill.",
   /** B-20b — a `unique (…)` index added to a table the baseline already has.
    *  Rows may already violate it, which fails the migration at boot and
    *  queues every later generation behind it.  Silenced by declaring a
@@ -4489,6 +4520,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `action, so no backend mounts 'POST /api/${p.slug}' and the generated suite would call a ` +
     `route this same compilation did not emit (405). Add 'with crudish' to '${p.aggregate}', ` +
     `or give it an explicit 'create(...) { … }'.`,
+  "loom.e2e-call-options#shape": (p: { slug: unknown; verb: unknown }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
+    `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
+    `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#if-match-scope": (p: {
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
+    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
+    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +

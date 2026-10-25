@@ -349,7 +349,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
 /** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
  *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
- *  the cross-backend range sentence (RS-40, `INTEGER_RANGE_MESSAGE`), sent
+ *  the cross-backend range sentence (RS-41, `INTEGER_RANGE_MESSAGE`), sent
  *  bare — no value appended — exactly as the other four send it. */
 export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
 

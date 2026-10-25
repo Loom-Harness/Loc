@@ -1,0 +1,70 @@
+// Unique-index evolution gate — BASE model (v1).  See `runUniqueIndexEvolutionGate`
+// in support/migration-evolution-harness.ts.
+//
+//   * Account: a plain `unique (number)` — a FULL unique index.  v2 adds
+//     `softDeletable` (the index must be REBUILT as the partial
+//     `WHERE is_deleted = false`); v3 drops it again (rebuilt FULL).
+//   * Party (TPC, ownTable): the base's `unique (email)` must reach EACH
+//     concrete table as its own index — a duplicate within one subtype is a
+//     409, the same value in the sibling table is allowed.
+//   * Machine (TPH, sharedTable): the base's `unique (serial)` is ONE index on
+//     the shared table — a duplicate written through a CONCRETE's route must be
+//     a 409, not a 500, and it spans both subtypes.
+//   * Lathe's OWN `unique (model)` (declared on the concrete, not the base):
+//     one index on the shared table, PARTIAL on `kind = 'Lathe'` — Press
+//     shares the `model` column but declared no key, so a Press may reuse a
+//     Lathe's model.
+//   * v2 adds `softDeletable` to Account with NO backfill block: the
+//     capability's `is_deleted` backfills `false` by itself.
+//
+// The Party / Machine hierarchies are identical in all three versions, so only
+// the Account flip changes between generations.  `__PLATFORM__` is swapped per
+// backend by the harness.
+system UniqueEvo {
+  subdomain Ledger {
+    context Ledger {
+      aggregate Account with crudish {
+        number: string
+        owner: string
+        unique (number)
+      }
+      repository Accounts for Account { }
+
+      abstract aggregate Party inheritanceUsing: ownTable {
+        name: string
+        email: string
+        unique (email)
+      }
+      aggregate Customer extends Party inheritanceUsing: ownTable with crudish { creditLimit: int }
+      aggregate Supplier extends Party inheritanceUsing: ownTable with crudish { rating: int }
+      repository Customers for Customer { }
+      repository Suppliers for Supplier { }
+
+      abstract aggregate Machine inheritanceUsing: sharedTable {
+        serial: string
+        unique (serial)
+      }
+      aggregate Lathe extends Machine with crudish {
+        spindles: int
+        model: string
+        unique (model)
+      }
+      aggregate Press extends Machine with crudish {
+        tonnage: int
+        model: string
+      }
+      repository Lathes for Lathe { }
+      repository Presses for Press { }
+    }
+  }
+  api LedgerApi from Ledger
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: LedgerApi
+    port: 4000
+  }
+}

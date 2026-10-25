@@ -21,7 +21,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // honest cross-backend:
 //   * a param-only precondition takes the new rung — messaged with its
 //     authored text and code, message-LESS with node's sentence and no code
-//     (D-MESSAGELESS-DEFAULT, RS-41);
+//     (D-MESSAGELESS-DEFAULT, RS-42);
 //   * a precondition over `this`-STATE (not wire-translatable on ANY backend —
 //     `corpus/wire-contract`'s `discontinue` is the live example) stays on the
 //     domain floor.
@@ -137,7 +137,7 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
 
   it("lifts a message-LESS param precondition with node's sentence and no code; leaves this-state on the domain floor", async () => {
     const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
-    // Message-less: node's synthesized sentence, no code (RS-41).
+    // Message-less: node's synthesized sentence, no code (RS-42).
     expect(ctx).toContain(
       'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Amount must be at least 1"}]})',
     );

@@ -683,3 +683,5 @@ elsewhere a bare event/payload name stays unresolved.  See the
 > `channelSource`).  See
 > [`channels.md`](old/proposals/channels.md) and
 > [`workflow-and-applier.md`](old/proposals/workflow-and-applier.md).
+
+Not sure whether a use-case is a `workflow`, a `commandHandler`, an aggregate `operation` or a `domainService`? See [Choosing a callable kind](language-reference/06-behavior-and-statements.md#choosing-a-callable-kind) — one table, with what each may mutate, call and emit.

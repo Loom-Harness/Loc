@@ -1362,6 +1362,47 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
   {
     id: "RS-40",
     title:
+      'An optimistic-concurrency 409 carries the sentence `"<Aggregate> <id> was modified by another request"`',
+    trigger:
+      "`concurrency-conflict.ddd`: a `versioned` aggregate's `update` sent with a stale `If-Match` (the version the row had before an accepted update)",
+    observable:
+      'the write is refused with 409, `title` "Conflict", and the RFC 9457 `detail` is the sentence `"<Aggregate> <id> was modified by another request"` — the aggregate\'s PascalCase name, the conflicting row\'s id, no trailing punctuation — on every backend; the row keeps the accepted write.',
+    // THE RULING (M-T6.91): node's sentence is canonical (the C3F rule), the
+    // same shape RS-27 gave the 404-by-id: it names what conflicted, which the
+    // fixed sentence could not.  The split when ruled: node `ConcurrencyError`
+    // (aggregate + id); .NET EF + Dapper, java, python and elixir one fixed
+    // `"The resource was modified by another request; reload and retry."`.
+    // Status, `title` and `type` already agreed, so it surfaced only when #3224
+    // armed the first golden that recorded a non-node concurrency 409
+    // (`transactional-workflow-event-rollback`) and was waived there.
+    //
+    // Per-backend shape — the aggregate and id come from wherever both are in
+    // scope, never from a second copy of the rule: node `ConcurrencyError(agg,
+    // id)` at every guarded write / event append; python `ConcurrencyError` at
+    // the same sites (its message was already `<Agg> <id> was modified
+    // concurrently` and only the handler ignored it); java the
+    // `ObjectOptimisticLockingFailureException(<Agg>.class, id)` every raise
+    // site already passed, read back in the advice; .NET Dapper
+    // `ConcurrencyConflictException(agg, id)`, the EF event-store's wrapped
+    // 23505, and EF's NATIVE concurrency-token failure derived from the entry
+    // it reports (CLR type name — a document POCO's `Document` suffix dropped
+    // — and key value); elixir `conflict_response(conn, kind, id)`, like
+    // `not_found_response/3`.  The suffix is one constant,
+    // `CONCURRENCY_CONFLICT_SUFFIX` (src/ir/util/openapi-errors.ts).
+    //
+    // NOT part of the guarantee: a two-handle conflict INSIDE a workflow, which
+    // is not a shared behaviour yet (EF M-T6.90, elixir M-T6.92); the elixir
+    // event-sourced CREATE arm, whose conflict has no id in the path.
+    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    provenance: [
+      "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+      "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
+    ],
+    tier: "behavioral",
+  },
+  {
+    id: "RS-41",
+    title:
       "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
     trigger:
       '`wire-ingress.ddd`: `reprice` with `"1.2.3"`, `"twelve"` and `"12,50"`; `restock` with ±3000000000',
@@ -1380,7 +1421,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     tier: "behavioral",
   },
   {
-    id: "RS-41",
+    id: "RS-42",
     title: "A message-less rule's 422 carries node's sentence on every backend",
     trigger:
       '`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: "abc")` against a regex precondition) and `intrinsics.ddd`\'s blank-name create against `invariant name.trim().length > 0`',
@@ -1399,7 +1440,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     tier: "behavioral",
   },
   {
-    id: "RS-42",
+    id: "RS-43",
     title: "A string intrinsic counts and cases the same on every backend",
     trigger:
       '`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`\'s derived `middle` / `shout` fields over `"a😀bc"` and `"straße"`',
@@ -1416,7 +1457,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     tier: "static",
   },
   {
-    id: "RS-43",
+    id: "RS-44",
     title:
       "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
     trigger:

@@ -768,6 +768,24 @@
     },
     {
       "id": "RS-40",
+      "title": "An optimistic-concurrency 409 carries the sentence `\"<Aggregate> <id> was modified by another request\"`",
+      "trigger": "`concurrency-conflict.ddd`: a `versioned` aggregate's `update` sent with a stale `If-Match` (the version the row had before an accepted update)",
+      "observable": "the write is refused with 409, `title` \"Conflict\", and the RFC 9457 `detail` is the sentence `\"<Aggregate> <id> was modified by another request\"` — the aggregate's PascalCase name, the conflicting row's id, no trailing punctuation — on every backend; the row keeps the accepted write.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+        "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-41",
       "title": "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
       "trigger": "`wire-ingress.ddd`: `reprice` with `\"1.2.3\"`, `\"twelve\"` and `\"12,50\"`; `restock` with ±3000000000",
       "observable": "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
@@ -785,7 +803,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-41",
+      "id": "RS-42",
       "title": "A message-less rule's 422 carries node's sentence on every backend",
       "trigger": "`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: \"abc\")` against a regex precondition) and `intrinsics.ddd`'s blank-name create against `invariant name.trim().length > 0`",
       "observable": "the wire `errors[].message` is node's: `singleFieldMessage` for a single-field shape (\"Amount must be at least 1\", \"Code is not in the expected format\"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`",
@@ -805,7 +823,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-42",
+      "id": "RS-43",
       "title": "A string intrinsic counts and cases the same on every backend",
       "trigger": "`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`'s derived `middle` / `shout` fields over `\"a😀bc\"` and `\"straße\"`",
       "observable": "`\"a😀bc\".substring(1, 2)` is `\"😀b\"` and `.substring(2)` is `\"bc\"` (code points, the unit of `.length`); `\"straße\".toUpper()` is `\"STRASSE\"`",
@@ -823,7 +841,7 @@
       "tier": "static"
     },
     {
-      "id": "RS-43",
+      "id": "RS-44",
       "title": "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
       "trigger": "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
       "observable": "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",

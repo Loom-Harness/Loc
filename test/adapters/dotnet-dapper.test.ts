@@ -110,7 +110,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // Zero affected rows ⇒ the CAS failed (stale write / stale precondition) ⇒
     // throw the persistence-neutral conflict exception (→ 409).
     expect(repo).toContain(
-      'if (__affected == 0) throw new ConcurrencyConflictException("The resource was modified by another request; reload and retry.");',
+      'if (__affected == 0) throw new ConcurrencyConflictException("Order", aggregate.Id.Value);',
     );
     // The persistence-neutral exception is emitted into Domain.Common (Dapper
     // only — EF keys its 409 arm on DbUpdateConcurrencyException).

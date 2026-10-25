@@ -1970,11 +1970,11 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
         # row's version no longer matched the caller's expected version — a
         # competing write won the race.  Surface a friendly 409 so the client
         # reloads and retries instead of clobbering the newer state.
+        # RS-40: the raise site names the aggregate and the row
+        # ("<Aggregate> <id> was modified by another request") — that is the detail.
         log("warn", "conflict", message=str(err), status=${concurrencyStatus})
         record_domain_fault("conflict")
-        return problem(
-            request, ${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry."
-        )
+        return problem(request, ${concurrencyStatus}, "Conflict", str(err))
 
 `
     : "";

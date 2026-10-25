@@ -27,7 +27,7 @@ export const INT32_MIN = -2147483648;
 export const INT32_MAX = 2147483647;
 
 /** The refusal every backend sends for a wire `int` outside the int32 range —
- *  the `errors[].message` of a 422 at the field's pointer (RS-40).  ONE text,
+ *  the `errors[].message` of a 422 at the field's pointer (RS-41).  ONE text,
  *  owned here rather than by any framework, because each framework's own
  *  wording differs (zod's "Too big: expected number to be <=2147483647",
  *  pydantic's "Input should be less than or equal to …") and two of them (Jackson,

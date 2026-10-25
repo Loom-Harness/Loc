@@ -109,7 +109,7 @@ describe("scalar intrinsics render in Phoenix HEEx page bodies", () => {
     const replaced = await homeLive('s.replace("-", " ")');
     expect(replaced).toContain('String.replace(@s, "-", " ")');
 
-    // Loom's `substring` is start+LENGTH over CODE POINTS (RS-42): a window
+    // Loom's `substring` is start+LENGTH over CODE POINTS (RS-43): a window
     // over the charlist, never `String.slice`, which counts graphemes.
     const sliced = await homeLive("s.substring(2, 5)");
     expect(sliced).toContain("List.to_string(Enum.slice(String.to_charlist(@s), 2, 5))");

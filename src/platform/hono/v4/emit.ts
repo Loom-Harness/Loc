@@ -129,6 +129,7 @@ import {
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   MISSING_FIELD_MESSAGE,
   UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../../../ir/util/openapi-errors.js";
@@ -382,7 +383,7 @@ ${
  *  apart via the \`conflict\` vs \`disallowed\` log event. */
 export class ConcurrencyError extends Error {
   constructor(aggregate: string, id: string) {
-    super(\`\${aggregate} \${id} was modified by another request\`);
+    super(\`\${aggregate} \${id} ${CONCURRENCY_CONFLICT_SUFFIX}\`);
     this.name = "ConcurrencyError";
   }
 }
