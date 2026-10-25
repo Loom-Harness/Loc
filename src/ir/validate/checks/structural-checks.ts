@@ -268,6 +268,33 @@ function unionReservedFindNames(): Set<string> {
   return out;
 }
 
+/** A clause-less find filters on the fields its parameters name
+ *  (`FindIR.paramBindings`); a parameter that names no field would be
+ *  dropped from the query, so it is refused. */
+export function validateFindParamBindings(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const repo of ctx.repositories) {
+    for (const find of repo.finds) {
+      if (find.filter || find.synthesized || find.auditHistory) continue;
+      const bound = new Set((find.paramBindings ?? []).map((b) => b.param));
+      for (const p of find.params) {
+        if (bound.has(p.name)) continue;
+        diags.push({
+          severity: "error",
+          code: "loom.find-param-unbound",
+          message: diagMessage("loom.find-param-unbound", {
+            name: repo.name,
+            findName: find.name,
+            param: p.name,
+            aggName: repo.aggregateName,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
+        });
+      }
+    }
+  }
+}
+
 export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   const reserved = unionReservedFindNames();
   for (const repo of ctx.repositories) {
