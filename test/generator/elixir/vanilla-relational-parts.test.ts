@@ -232,3 +232,83 @@ describe("vanilla single (has_one) relational containment mutation (B9)", () => 
     expect(ctx).toContain("defp __put_assoc_parts(other), do: other");
   });
 });
+
+// M-T6.94 — a REMOVAL has to reach the database.  The persist changeset is built
+// over the struct AS LOADED (`record_before`), so `put_assoc` diffs the real
+// before/after and DELETEs the dropped child; built over the already-mutated
+// `record`, the diff was empty and the child row stayed.  A value-object
+// collection is an association too, so it `put_assoc`s rebuilt rows instead of
+// `force_change` (which Ecto refuses for an assoc — a 500).  The runtime oracle
+// is the `contained-part-removal` / `contained-part-rebuild` corpus cases; these
+// pin the emitted shape.
+const REMOVAL_SOURCE = `
+system Removal {
+  subdomain Core {
+    context Shop {
+      valueobject Charge { label: string  amount: int }
+      aggregate Cart {
+        name: string
+        charges: Charge[]
+        contains lines: Line[]
+        entity Line { sku: string  contains notes: Note[] }
+        entity Note { text: string }
+        operation drop(sku: string) { lines -= lines.where(l => l.sku == sku).first() }
+        operation dropCharge(label: string) { charges -= charges.where(c => c.label == label).first() }
+        operation dropCounted(sku: string): int {
+          lines -= lines.where(l => l.sku == sku).first()
+          return lines.count
+        }
+        operation rename(n: string) { name := n }
+      }
+      repository Carts for Cart { }
+    }
+  }
+  api ShopApi from Core
+  storage pg { type: postgres }
+  resource cartState { for: Shop, kind: state, use: pg }
+  deployable api {
+    platform: elixir
+    contexts: [Shop]
+    dataSources: [cartState]
+    serves: ShopApi
+    port: 4000
+  }
+}
+`;
+
+function fnBody(src: string, head: string): string {
+  const start = src.indexOf(head);
+  expect(start, `${head} not emitted`).toBeGreaterThan(-1);
+  return src.slice(start, src.indexOf("\n  end\n", start));
+}
+
+describe("vanilla containment removal persists (M-T6.94)", () => {
+  it("a removal op (named and returning) builds its changeset over record_before", async () => {
+    const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
+    for (const head of ["def drop_cart(", "def drop_counted_cart("]) {
+      const body = fnBody(ctx, head);
+      expect(body).toContain("record_before = record");
+      expect(body).toMatch(/record_before\n\s+\|> Ecto\.Changeset\.change\(%\{\}\)/);
+      expect(body).toContain("Ecto.Changeset.put_assoc(:lines, __put_assoc_parts(record.lines))");
+    }
+    // A scalar-only op is unchanged — no unused `record_before` binding.
+    expect(fnBody(ctx, "def rename_cart(")).not.toContain("record_before");
+  });
+
+  it("a value-object collection op put_assocs rebuilt rows, never force_change", async () => {
+    const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
+    const body = fnBody(ctx, "def drop_charge_cart(");
+    expect(body).toContain("record_before = record");
+    expect(body).toContain("Ecto.Changeset.put_assoc(:charges, __put_value_rows(record.charges))");
+    expect(ctx).not.toContain("force_change(:charges");
+    expect(ctx).toContain("defp __put_value_rows(list) when is_list(list) do");
+  });
+
+  it("nested parts are normalised to maps, not passed as loaded structs", async () => {
+    const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
+    expect(ctx).toContain("|> Map.new(fn {k, v} -> {k, __put_assoc_nested(v)} end)");
+    expect(ctx).toContain(
+      "defp __put_assoc_nested(%{__meta__: %Ecto.Schema.Metadata{}} = part), do: __put_assoc_parts(part)",
+    );
+  });
+});
