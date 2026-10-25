@@ -448,7 +448,7 @@ export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
  *  dereference.  `select-one` is the `T?` an `if let` source unwraps, and
  *  `select-many` is the row array, so a member read off it (`.count`) takes
  *  the collection lowering. */
-export function repoResultTypeIR(op: Exclude<RepoOp, "declared-find">, entity: TypeIR): TypeIR {
+function repoResultTypeIR(op: Exclude<RepoOp, "declared-find">, entity: TypeIR): TypeIR {
   switch (repoOpResult(op)) {
     case "optional-row":
       return { kind: "optional", inner: entity };
