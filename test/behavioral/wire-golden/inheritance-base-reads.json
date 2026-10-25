@@ -1,0 +1,673 @@
+{
+  "case": "inheritance-base-reads",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/trucks/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": [
+        {
+          "archived": false,
+          "id": "<volatile:key>",
+          "plate": "C-1",
+          "seats": 4,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "seats": 4,
+        "version": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 200,
+      "body": [
+        {
+          "archived": false,
+          "desk": 3,
+          "id": "<volatile:key>",
+          "name": "Bob",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/drivers/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Driver {id} not found",
+        "instance": "/api/drivers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "desk": 3,
+        "id": "<volatile:key>",
+        "name": "Bob",
+        "version": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/cranes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/forklifts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/cranes",
+      "status": 200,
+      "body": [
+        {
+          "archived": false,
+          "id": "<volatile:key>",
+          "reachM": 40,
+          "tag": "CR-1",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/forklifts",
+      "status": 200,
+      "body": [
+        {
+          "archived": false,
+          "id": "<volatile:key>",
+          "liftKg": 2000,
+          "tag": "FL-1",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/equipments/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "reachM": 40,
+        "tag": "CR-1",
+        "type": "Crane",
+        "version": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/equipments/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "liftKg": 2000,
+        "tag": "FL-1",
+        "type": "Forklift",
+        "version": 1
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/projections/equipment_count",
+      "status": 200,
+      "body": {
+        "n": 2
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/forklifts/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/equipments/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Equipment {id} not found",
+        "instance": "/api/equipments/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/projections/equipment_count",
+      "status": 200,
+      "body": {
+        "n": 1
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "plate": "C-9",
+        "seats": 2,
+        "version": 2
+      }
+    },
+    {
+      "seq": 27,
+      "method": "DELETE",
+      "path": "/api/cars/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/cars/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 33,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "payloadKg": 5,
+        "plate": "T-9",
+        "version": 2
+      }
+    },
+    {
+      "seq": 34,
+      "method": "DELETE",
+      "path": "/api/trucks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 36,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "POST",
+      "path": "/api/drivers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 38,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "licence": "L-10",
+        "name": "Cy",
+        "version": 2
+      }
+    },
+    {
+      "seq": 39,
+      "method": "DELETE",
+      "path": "/api/drivers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 40,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Driver {id} not found",
+        "instance": "/api/drivers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/dispatchers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 43,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "desk": 2,
+        "id": "<volatile:key>",
+        "name": "Di",
+        "version": 2
+      }
+    },
+    {
+      "seq": 44,
+      "method": "DELETE",
+      "path": "/api/dispatchers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 45,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Dispatcher {id} not found",
+        "instance": "/api/dispatchers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/cranes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/cranes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 48,
+      "method": "GET",
+      "path": "/api/cranes/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "reachM": 12,
+        "tag": "CR-9",
+        "version": 2
+      }
+    },
+    {
+      "seq": 49,
+      "method": "DELETE",
+      "path": "/api/cranes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/api/cranes/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Crane {id} not found",
+        "instance": "/api/cranes/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 51,
+      "method": "POST",
+      "path": "/api/forklifts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 52,
+      "method": "POST",
+      "path": "/api/forklifts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 53,
+      "method": "GET",
+      "path": "/api/forklifts/{id}",
+      "status": 200,
+      "body": {
+        "archived": false,
+        "id": "<volatile:key>",
+        "liftKg": 20,
+        "tag": "FL-9",
+        "version": 2
+      }
+    },
+    {
+      "seq": 54,
+      "method": "DELETE",
+      "path": "/api/forklifts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 55,
+      "method": "GET",
+      "path": "/api/forklifts/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Forklift {id} not found",
+        "instance": "/api/forklifts/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 56,
+      "method": "PATCH",
+      "path": "/api/cars",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/cars",
+        "instance": "/api/cars",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 57,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 58,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/cars",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 59,
+      "method": "POST",
+      "path": "/api/trucks/{id}/archive",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}/archive",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 60,
+      "method": "POST",
+      "path": "/api/trucks/{id}/archive",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}/archive",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 61,
+      "method": "POST",
+      "path": "/api/trucks/{id}/archive",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/trucks/{id}/archive",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 62,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/seats"
+          }
+        ],
+        "instance": "/api/cars/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

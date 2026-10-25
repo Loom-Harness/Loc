@@ -251,9 +251,7 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * accounted for on every one of the five backends.
  */
 export const BEHAVIOURAL_XFAIL = {
-  node: {
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
-  },
+  node: {},
   mikroorm: {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
