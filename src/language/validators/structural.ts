@@ -38,13 +38,22 @@ import {
   isPreconditionStmt,
   isPrimitiveType,
   isProperty,
+  isReturnStmt,
   isUnique,
   isValueObject,
   isWorkflow,
   isWorkflowCreateDecl,
+  type WorkflowCreateDecl,
 } from "../generated/ast.js";
-import { envForNode, typeOf, typeToString } from "../type-system.js";
-import { envForAggregate, envForPart, envForValueObject } from "./_shared.js";
+import {
+  type DddType,
+  envForNode,
+  isAssignable,
+  resolveTypeRef,
+  typeOf,
+  typeToString,
+} from "../type-system.js";
+import { canPromoteLiteralTo, envForAggregate, envForPart, envForValueObject } from "./_shared.js";
 import {
   checkConstructionArgTypes,
   checkCreate,
@@ -320,6 +329,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
     if (isWorkflowCreateDecl(m) || isHandleDecl(m)) {
       for (const p of m.params) checkParameterDefault(p, envForNode(p), accept);
     }
+    if (isWorkflowCreateDecl(m)) checkWorkflowCreateReturn(m, accept);
   }
 
   // Workflow `function` members are the aggregate-parity pure helper — both the
@@ -342,6 +352,117 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
         code: "loom.transactional-with-continuations",
       });
     }
+  }
+}
+
+/** The result types a workflow `create(…): T` may declare today: an `X id`
+ *  and the four scalars every backend serialises to the same JSON token
+ *  (`"…"` / integer / `true|false`).  An aggregate / payload / value-object /
+ *  decimal / money / datetime result needs a per-backend wire projection the
+ *  workflow route does not have yet — refused honestly, not mis-serialised. */
+function isSupportedWorkflowResult(t: DddType): boolean {
+  if (t.kind === "id") return true;
+  return (
+    t.kind === "primitive" &&
+    (t.name === "string" || t.name === "int" || t.name === "long" || t.name === "bool")
+  );
+}
+
+// `create(…): T { … return <expr> }` — a command-triggered starter's result
+// (the commandHandler twin).  The pairing rules are positional, so they live
+// here where the statement list is still visible:
+//   - a `: T` on an event-triggered (`by …`) starter has no caller to answer;
+//   - a `: T` needs a terminal `return`, and a `return` needs a `: T`;
+//   - the `return` is the LAST top-level statement (it is lowered apart from
+//     the body, so a mid-body or nested one would silently reorder effects);
+//   - the returned value must be assignable to `T`, and `T` must be a type the
+//     route can serialise identically on all five backends.
+// Whether the create is the one the command route serves (a NAMED command
+// create that is not the facade has no route) is an IR-level fact — the same
+// `loom.workflow-return-no-caller` covers it in `workflow-checks.ts`.
+function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcceptor): void {
+  const label = c.name ?? "create";
+  const wf = AstUtils.getContainerOfType(c, isWorkflow);
+  const wfName = wf?.name ?? "";
+  if (c.returnType && c.correlation) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-no-caller", { workflow: wfName, create: label }),
+      { node: c, property: "returnType", code: "loom.workflow-return-no-caller" },
+    );
+    return;
+  }
+  // An `eventSourced` workflow's command route appends events and folds them;
+  // its body may only `emit`, so there is no state for a result to read and
+  // the event-sourced route emitters have no result path.
+  if (c.returnType && wf?.eventSourced) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-event-sourced", {
+        workflow: wfName,
+        create: label,
+      }),
+      { node: c, property: "returnType", code: "loom.workflow-return-event-sourced" },
+    );
+    return;
+  }
+  const last = c.body[c.body.length - 1];
+  for (const n of AstUtils.streamAst(c)) {
+    if (!isReturnStmt(n) || n === last) continue;
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-not-last", { workflow: wfName, create: label }),
+      { node: n, code: "loom.workflow-return-not-last" },
+    );
+  }
+  const ret = last && isReturnStmt(last) ? last : undefined;
+  if (!c.returnType) {
+    if (ret) {
+      accept(
+        "error",
+        diagMessage("loom.workflow-return-untyped", { workflow: wfName, create: label }),
+        { node: ret, code: "loom.workflow-return-untyped" },
+      );
+    }
+    return;
+  }
+  const declared = resolveTypeRef(c.returnType);
+  if (declared.kind !== "unknown" && !isSupportedWorkflowResult(declared)) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-type-unsupported", {
+        workflow: wfName,
+        create: label,
+        declared: typeToString(declared),
+      }),
+      { node: c, property: "returnType", code: "loom.workflow-return-type-unsupported" },
+    );
+  }
+  if (!ret) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-missing", { workflow: wfName, create: label }),
+      { node: c, property: "returnType", code: "loom.workflow-return-missing" },
+    );
+    return;
+  }
+  const actual = typeOf(ret.value, envForNode(ret.value));
+  if (
+    declared.kind !== "unknown" &&
+    actual.kind !== "unknown" &&
+    !isAssignable(actual, declared) &&
+    !canPromoteLiteralTo(ret.value, declared)
+  ) {
+    accept(
+      "error",
+      diagMessage("loom.workflow-return-type-mismatch", {
+        workflow: wfName,
+        create: label,
+        actual: typeToString(actual),
+        declared: typeToString(declared),
+      }),
+      { node: ret, property: "value", code: "loom.workflow-return-type-mismatch" },
+    );
   }
 }
 
