@@ -13,7 +13,7 @@ import {
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → ExUnit test module (the vitest/xUnit/pytest/JUnit
 // sibling).  This closes the Phoenix half of the domain-test parity gap
-// (docs/audits/test-parity-generated-backends.md, F1).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md, F1).
 //
 // The aggregate carries a PURE domain core (`vanilla/domain-core-emit.ts`):
 // `create/1` validates via `apply_action` and each op runs precondition +

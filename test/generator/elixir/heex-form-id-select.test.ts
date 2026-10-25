@@ -2,7 +2,7 @@
 // mount-time options loading.
 //
 // Phase D Slice C from
-// `docs/old/plans/platform-expansion-roadmap.md`.  Closes the second
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/platform-expansion-roadmap.md`.  Closes the second
 // half of the walker TODO at `heex-walker.ts:1030`: T id types
 // were falling through to text input.
 //

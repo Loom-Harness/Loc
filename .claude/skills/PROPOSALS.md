@@ -41,7 +41,7 @@ These map to four proposed skills, ranked by leverage.
 **Trigger.** "Audit parity across backends/frontends", "which backends support X?",
 "drain the compile-tier skip-list", "refresh the parity audit", "feature Y works on
 node but not java/python/elixir", picking up `platform-parity-debt.md` or a
-`docs/audits/*-parity-*.md`.
+`[docs/audits/](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits)*-parity-*.md`.
 
 **Why.** The single most repeated category of work in the review window. The
 `language-feature-developer` skill lands a *new* feature across targets; this skill
@@ -50,8 +50,8 @@ validator-grounded matrix of who-emits-what, and separating **silent gaps** (a
 backend `# TODO`s or crashes on valid `.ddd`) from **honest feature gaps** (gated
 by a validator). #1477 and #1478 are exactly this, done by hand; #1467 re-checked a
 skip-list against fresh `main` and found half the entries already stale. There's a
-standing debt register (`docs/old/proposals/platform-parity-debt.md`) and audit
-(`docs/audits/gated-features-inventory.md`) that want a repeatable refresh.
+standing debt register ([`docs/old/proposals/platform-parity-debt.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/platform-parity-debt.md)) and audit
+([`docs/audits/gated-features-inventory.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/gated-features-inventory.md)) that want a repeatable refresh.
 
 **What it does.**
 1. Enumerate the target matrix from `src/platform/registry.ts` (5 backends, 4
@@ -112,7 +112,7 @@ the multi-backend Docker topology.
 ## 3. `dependency-upgrade` — walk both surfaces, gate both  ⭐
 
 **Trigger.** "Bump <dep>", "upgrade to <runtime> N", "currency batch", picking up
-`docs/old/proposals/dependency-upgrades.md`, an `npm audit` finding, a Dependabot-shaped
+[`docs/old/proposals/dependency-upgrades.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/dependency-upgrades.md), an `npm audit` finding, a Dependabot-shaped
 task.
 
 **Why.** The #1422–#1430 currency batch left `main` red on four jobs (#1464) because
@@ -193,7 +193,7 @@ once even before the skills wrap them.
 A second pass over the prior ~50 PRs surfaced one more skill worth building and
 sharpened the case for the first four.
 
-## 5. `status-refresh` — re-verify docs/old/proposals/comments against fresh `main`  ⭐ new
+## 5. `status-refresh` — re-verify docs/proposals/comments against fresh `main`  ⭐ new
 
 **Trigger.** "The docs are stale", "refresh the trackers", "audit the proposals
 against `main`", after any rename/removal/refactor ("scrub the stale references to
@@ -228,7 +228,7 @@ code. `parity-auditor` can hand off to it; they share the "fresh `main` wins ove
 prose" discipline.
 
 **What it does.**
-1. Take a scope: a doc set (`docs/`, `docs/old/proposals/`, `CLAUDE.md`) or a *concept*
+1. Take a scope: a doc set (`docs/`, [`docs/old/proposals/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals), `CLAUDE.md`) or a *concept*
    just renamed/removed (then grep the concept name across `src/`/`test/`/`docs/`,
    per the #1443 guardrail).
 2. For each claim, find the authoritative code (the validator gate, the emitter, the
@@ -330,14 +330,14 @@ clarifying comment, no behaviour change. Recommend landing.
 
 ## PATCH proposal (2026-07-13, session: docs-corpus consolidation): `status-refresh` triggers point at archived trackers
 
-The proposals/plans corpus moved to `docs/old/` and the live status/ordering home is now
-`docs/new-plan/` (tracks + missions + `coverage.md`). The `status-refresh` skill's trigger
+The proposals/plans corpus moved to [`docs/old/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old) and the live status/ordering home is now
+[`docs/new-plan/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan) (tracks + missions + `coverage.md`). The `status-refresh` skill's trigger
 text still says "refresh the trackers / the proposals status table … picking up
-`docs/old/proposals/README.md` or `docs/old/proposals/global-implementation-plan.md`" —
+[`docs/old/proposals/README.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/README.md) or [`docs/old/proposals/global-implementation-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/global-implementation-plan.md)" —
 both are archived and carry ARCHIVED/SUPERSEDED banners; "refreshing" them is now an
 anti-goal (their statuses are deliberately frozen). Proposed patch (propose-only, per the
-hard rule): retarget those trigger examples at `docs/new-plan/README.md` +
-`docs/new-plan/coverage.md`, and add a boundary line: archived docs under `docs/old/` get
+hard rule): retarget those trigger examples at [`docs/new-plan/README.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/README.md) +
+[`docs/new-plan/coverage.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/coverage.md), and add a boundary line: archived docs under [`docs/old/`](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old) get
 banner/link fixes only, never status refreshes. Second sighting not required — this is a
 mechanical consequence of a landed refactor, same class as a rename scrub.
 

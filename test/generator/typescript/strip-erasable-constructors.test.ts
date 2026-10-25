@@ -1,4 +1,4 @@
-// M19 phase 8 slice 2 (docs/old/plans/dap-node-debug.md, "Non-erasable syntax
+// M19 phase 8 slice 2 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md, "Non-erasable syntax
 // — RESOLVED (slice 2)"). The value object's constructor
 // (`constructor(public readonly amount: number, ...)`) was a TypeScript
 // parameter property — sugar the type checker must desugar, not syntax that

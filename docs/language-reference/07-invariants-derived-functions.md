@@ -237,7 +237,7 @@ A string `.length` — in a domain rule, an invariant, a precondition, anywhere 
 | python | `len(s)` |
 | elixir | `length(String.to_charlist(s))` — in domain expressions and in the hand-rolled `validate_change/3` changeset closure alike (a charlist is one element per code point; `String.length/1` would count graphemes) |
 
-`"😀X"` is therefore **2**, not 3: the astral character is one code point (two UTF-16 code units). Before this was pinned, node/.NET/java counted code units and accepted a value their own published `maxLength` forbade (`docs/audits/schemathesis-findings-2026-08.md`, F5).
+`"😀X"` is therefore **2**, not 3: the astral character is one code point (two UTF-16 code units). Before this was pinned, node/.NET/java counted code units and accepted a value their own published `maxLength` forbade ([`docs/audits/schemathesis-findings-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md), F5).
 
 ### Elixir: enforced or reported
 

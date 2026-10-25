@@ -14,7 +14,7 @@ import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 export const REACT_LIB_SCHEMAS_MONEY_TS = MONEY_SCHEMA_TS;
 
 // =============================================================================
-// Frontend ACL shared utilities — see docs/old/proposals/frontend-acl.md.
+// Frontend ACL shared utilities.
 //
 // Both files are pack-agnostic and emitted into every React project under
 // src/lib/.  Per-action FieldMap *instances* are NOT emitted here — they
@@ -29,7 +29,6 @@ export const REACT_LIB_SCHEMAS_MONEY_TS = MONEY_SCHEMA_TS;
  * file, not as a silent error-misrouting at runtime.
  */
 export const REACT_LIB_STRICT_FIELD_MAP_TS = `// Auto-generated.  Do not edit by hand.
-// See docs/old/proposals/frontend-acl.md.
 
 type NestedPaths<T> = T extends object
   ? {
@@ -51,14 +50,12 @@ export type StrictFieldMap<TPayload, TFormState> = {
 `;
 
 /**
- * Runtime decoder for ProblemDetails 422 responses (per
- * docs/old/proposals/exception-less.md).  Called from the form walker's
+ * Runtime decoder for ProblemDetails 422 responses.  Called from the form walker's
  * generated catch block.  Returns an outcome so the caller switches
  * inline on global / unhandled paths (pack-native toast emitted by
  * the design pack template).  Pure logic, no pack specifics.
  */
 export const REACT_LIB_APPLY_SERVER_ERRORS_TS = `// Auto-generated.  Do not edit by hand.
-// See docs/old/proposals/frontend-acl.md.
 
 import type { UseFormSetError, FieldValues, Path } from "react-hook-form";
 import type { StrictFieldMap } from "./strict-field-map";

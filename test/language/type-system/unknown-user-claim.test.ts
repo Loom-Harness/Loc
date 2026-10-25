@@ -1,7 +1,7 @@
 // `loom.unknown-user-claim` — `currentUser.<field>` where the field is NOT
 // declared in the system's `user { … }` block.
 //
-// The defect this closes (audit `docs/audits/2026-09-10-claimshub-dev-experience.md`
+// The defect this closes (audit `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md`
 // §D2): both member-typing sites — `type-system.ts`'s `lookupUserMember` and the
 // IR layer's `memberType` — fail OPEN on the principal, resolving an unknown
 // claim to `string`.  So `requires currentUser.totallyBogusField == "x"` parsed,

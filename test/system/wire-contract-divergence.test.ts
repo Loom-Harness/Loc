@@ -34,7 +34,7 @@
 //
 // The baseline is exact per node: a row that stops diverging must be removed,
 // and a node that starts diverging fails.  See
-// `docs/new-plan/waves/handoffs/wave-c4-4e-wireshape.md` for the class-by-class
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4e-wireshape.md` for the class-by-class
 // reading of the rows below.
 
 import { describe, expect, it } from "vitest";

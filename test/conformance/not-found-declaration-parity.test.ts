@@ -1,5 +1,5 @@
 // Cross-backend parity for the DOMAIN NOT-FOUND rung — schemathesis F10 + F13
-// (docs/audits/schemathesis-findings-2026-08.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).
 //
 // One root cause, two route classes.  `errorStatuses` published the not-found
 // rung from the ROUTE SHAPE — does the path carry an `{id}`? — while the rung's

@@ -18,7 +18,7 @@ import {
 // turns the deployable into a fullstack host serving an embedded React
 // SPA from Spring's static resources.  All project emission lives under
 // `../generator/java/`; this module is the thin `PlatformSurface` wiring.
-// See docs/old/plans/java-backend-implementation.md for the slice plan.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md for the slice plan.
 // ---------------------------------------------------------------------------
 
 const javaPlatform: PlatformSurface = {

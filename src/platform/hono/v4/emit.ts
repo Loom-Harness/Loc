@@ -394,7 +394,7 @@ export class ConcurrencyError extends Error {
 
 /** Shared HTTP error shape — RFC 7807 ProblemDetails with the §3.2 `errors[]`
  *  extension for per-field validation failures.  See
- *  docs/old/proposals/validation-error-extension.md.
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
  *
  *  Emitted once per project at `http/problem-details.ts`; the three router
  *  files (`http/<agg>.ts`, `http/workflows.ts`) import the
@@ -452,10 +452,9 @@ export const UuidString = z
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
  *  \`errors[]\` extension (per-field \`{ pointer, message }\` array) that
  *  the runtime emits on 422 validation responses.  Consumed by the
- *  frontend ACL's \`applyServerErrors\` (see docs/old/proposals/frontend-acl.md).
+ *  frontend ACL's \`applyServerErrors\`.
  *  All fields nullable / optional — base 5 per the spec core; \`errors\` is
- *  only present on 422 validation responses.  See
- *  docs/old/proposals/validation-error-extension.md — all three backends
+ *  only present on 422 validation responses.  All three backends
  *  (Hono / .NET / Phoenix) declare the same shape in lockstep so the
  *  cross-backend parity gate stays green. */
 export const ProblemDetails = z.object({
@@ -497,8 +496,7 @@ function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field \`errors[]\` extension.  The shape
  *  is the contract consumed by the frontend ACL — see
- *  docs/old/proposals/frontend-acl.md and apply-server-errors.ts in the
- *  generated React project.
+ *  apply-server-errors.ts in the generated React project.
  *
  *  Validation failures get 422 (Unprocessable Entity, RFC 7807 standard
  *  for input-shape errors).  Domain-rule violations carried by
@@ -1698,7 +1696,7 @@ export function generateTypeScriptForContexts(
   // project so the moved modules still resolve.  No-op (byte-identical) for the
   // byLayer default, where `moved` is empty.
   rewriteRelativeImports(out, moved);
-  // (Node debug wiring, docs/old/plans/dap-node-debug.md):
+  // (Node debug wiring, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md):
   // ONLY under `--sourcemap` — suffix every relative import with its real
   // `.ts`/`.tsx` extension so plain `node --enable-source-maps index.ts`
   // (no tsx/tsup loader) can resolve the whole module graph, chaining
@@ -1752,7 +1750,7 @@ function projectPackageJson(
      *  `addTsExtensionsForNodeDebug` import rewrite (this file's caller) —
      *  both are gated on the SAME `--sourcemap` flag, so they always ship
      *  together.  Targets the docker image's node:24 (unflagged type
-     *  stripping); see docs/old/plans/dap-node-debug.md for why
+     *  stripping); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md for why
      *  `--experimental-strip-types` is deliberately NOT included. */
     debugScript?: boolean;
   },
@@ -1922,7 +1920,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
  *  own `typecheck` script) rejects them with TS5097 ("An import path can
  *  only end with a '.ts' extension when 'allowImportingTsExtensions' is
  *  enabled") unless that option is set — confirmed empirically, see
- *  docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
  *  half of that flag's precondition. Flag-off keeps this field absent, so
  *  the emitted tsconfig.json is byte-identical to before. */
 function projectTsconfigJson(debugImports: boolean): string {

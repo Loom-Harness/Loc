@@ -34,7 +34,7 @@
 // dotnet / java / python are NOT scanned: their double-quoted literal has no
 // interpolation form at all, so `JSON.stringify`'s escaping IS complete
 // target syntax there and the 2.2 census already owns every site. That
-// measurement is recorded in `docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md`.
+// measurement is recorded in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md`.
 //
 // ENFORCEMENT. `src/generator/elixir/**` — this packet's row — is ENFORCED
 // CLEAN: the baseline below carries NO elixir row, and a first one fails.
@@ -450,7 +450,7 @@ const REVIEWED_SAFE: readonly Waiver[] = [
  *  rather than implied by an absent key.
  *
  *  Everything here is handed off in
- *  `docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md` — the packet's fence
+ *  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4a-wave2.md` — the packet's fence
  *  admits the scan on these two roots, not the emitter change. The flutter
  *  rows are mostly calls to one of the FOUR divergent local `dartStr`
  *  copies (one of which is the identity function), which is the `exStr`

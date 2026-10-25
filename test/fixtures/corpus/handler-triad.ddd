@@ -29,7 +29,7 @@
 // elixir returned null / None / nil (→ `200 null`, which the 200 schema forbids).
 // F13 settled all five on the shared not-found rung, and `errorStatuses` now
 // DECLARES the 404 that shape answers — see
-// docs/audits/schemathesis-findings-2026-08.md.  The cross-backend pin is
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.  The cross-backend pin is
 // test/conformance/not-found-declaration-parity.test.ts, kept out of the corpus
 // because reaching it from here would mean re-baselining every backend golden.
 system HandlerTriad {

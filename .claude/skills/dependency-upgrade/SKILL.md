@@ -5,8 +5,8 @@ description: >-
   surfaces it touches and gate BOTH — so it doesn't leave `main` red one merge
   later. Use this whenever the task is to bump a version: "bump <dep>",
   "upgrade to <runtime> N", "Langium 4 / TS 6 / Node 24 / Spring Boot 4 / PG18",
-  "run the currency batch", picking up `docs/old/proposals/dependency-upgrades.md`
-  or `docs/audits/stack-versions-audit.md`, clearing an `npm audit` finding, or
+  "run the currency batch", picking up a dependency-upgrade issue, clearing an
+  `npm audit` finding, or
   a Dependabot-shaped task. Reach for it even when the user just says "update
   the postgres image", "move the generated apps to React 19", "bump the .NET
   TFM", or "why did the bump turn main red" — anything that changes a pinned
@@ -69,16 +69,15 @@ skip.** This skill is that discipline.
 `git fetch origin main && git reset --hard origin/main` (or rebase the feature
 branch) — and confirm `npm install` has run (`node_modules/.bin/biome` and
 `src/language/generated/` exist). A version pin you "remember" may already have
-moved: this session's research found `docs/audits/stack-versions-audit.md`
-already stale vs the disk (it lists a `stack v2` / mantine@v9 that **does not
+moved: an earlier stack-versions audit was already stale vs the disk (it listed a `stack v2` / mantine@v9 that **does not
 exist on disk** — only `stacks/{v1,v3,sv1,vue1,ng1}` are present — and lists
 .NET as "defer net8" / Spring Boot 3.5 when the emitters are already on
-`net10.0` and Spring Boot `4.1.0`). **Trust the on-disk emitter, not the audit
-doc.** Read the pin in the actual source before you decide it needs bumping.
+`net10.0` and Spring Boot `4.1.0`). **Trust the on-disk emitter, not a doc.**
+Read the pin in the actual source before you decide it needs bumping.
 
-Then read `docs/old/proposals/dependency-upgrades.md` (the live backlog this skill
-operationalizes) and skim `docs/audits/stack-versions-audit.md` for the
-intended-vs-latest deltas — treating its numbers as a hint, re-verified on disk.
+Then read the issue you are working (dependency-upgrade work is tracked in GitHub
+issues) for the intended-vs-latest deltas — treating its numbers as a hint,
+re-verified on disk.
 
 ## Step 1 — Classify the bump
 
@@ -198,8 +197,7 @@ each landmine is *checked, not rediscovered*. If the bump matches a landmine,
 apply the documented fix; if it's a new landmine, add an entry so the next bump
 inherits it.
 
-Then: update `docs/audits/stack-versions-audit.md` (snapshot date + new values)
-and tick the line in `docs/old/proposals/dependency-upgrades.md`. Run the fast suite
+Then: record the landed versions on the issue. Run the fast suite
 (`npm test`) and report exactly which gates you ran and their real results —
 never claim a green you didn't see. Commit in coherent per-surface commits; do
 **not** open a PR unless the user asks.

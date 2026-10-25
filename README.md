@@ -367,11 +367,10 @@ Per-feature references &mdash; [`auth.md`](docs/auth.md),
 derived-artifact directory, and
 [`license-faq.md`](docs/license-faq.md) for usage terms.
 
-The live roadmap lives under [`docs/new-plan/`](docs/new-plan/) (tracks
-+ agent-pickable missions); the archived design corpus &mdash; frozen
-proposals and plans &mdash; lives under `docs/old/` (not deployed to
-the docs site; [browse on GitHub](https://github.com/Loom-Harness/Loc/tree/main/docs/old/));
-empirical snapshots live under [`docs/audits/`](docs/audits/).
+Work state &mdash; the roadmap, open gaps, who is on what &mdash; lives in
+[GitHub issues](https://github.com/Loom-Harness/Loc/issues). The legacy
+design record (plans, proposals, audits, the mission plan) is no longer in
+the tree; [browse it in history](https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs).
 
 Plus [`experience_gathered.md`](experience_gathered.md) &mdash; running
 retrospective of design choices and gotchas; worth reading before

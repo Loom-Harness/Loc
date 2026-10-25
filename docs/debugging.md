@@ -161,6 +161,15 @@ Each config **assumes a prior build/boot step** — it is deliberately not a
   flag, targeting the runtime the shipped docker image uses (`node:24`,
   where type-stripping is unflagged). A *local* host Node older than 23.6
   needs the flag added by hand; older than 22.6 can't strip types at all.
+  Use plain `node`, not `tsx`: `npx tsx --enable-source-maps` runs the
+  project (esbuild probes extensionless imports) but its stack traces land on
+  the generated `.ts`, never the `.ddd` — Node follows the source map of the
+  module it actually loaded (tsx's in-memory transform), not the `.ts.map`
+  sidecar on disk. Plain Node chains to `.ddd` because debug mode emits
+  explicit `.ts` import specifiers (`src/generator/typescript/debug-imports.ts`)
+  and the emitted TypeScript stays erasable. So a debugging fix verified under
+  tsx proves nothing about `.ddd` resolution, and a new TS emitter construct
+  must stay erasable.
 - **.NET** — assumes a prior `dotnet build` (the config points at
   `bin/Debug/<TFM>/<Assembly>.dll`).
 - **Java** — assumes the project is importable by the editor's Java
@@ -226,7 +235,7 @@ The `file:1` rows are not a resolver failure: those constructs record no region
 of their own, so the enclosing file region is the only true thing the map knows.
 The valueobject row is a plainer omission — no region is recorded at any
 granularity. Both are tracked as mission **M-T8.29** in
-[`docs/new-plan/T8-dx-tooling-ai.md`](new-plan/T8-dx-tooling-ai.md).
+[`docs/new-plan/T8-dx-tooling-ai.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T8-dx-tooling-ai.md).
 
 A `:column` suffix appears only where a fine expression region exists — today
 that means TS/Hono statement bodies (see **M-T8.2** for the fan-out to the other
@@ -289,13 +298,13 @@ stepping (`launch`/`attach`/`continue`/`stepIn` against an actual running
 backend) requires the adapter to spawn and proxy the target's own debugger
 (`js-debug` / `coreclr` / JDWP) and remap only line/scope on top — the
 documented, editor-verified frontier (see
-[`docs/old/proposals/source-map-and-debugging.md`](old/proposals/source-map-and-debugging.md)
+[`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
 §6E). **For live stepping today, use the native editor path in §2** — it
 drives each target's real debugger directly and needs no delegation.
 
 ## See also
 
-- [`docs/old/proposals/source-map-and-debugging.md`](old/proposals/source-map-and-debugging.md)
+- [`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
   — the full design: the Origin spine, per-target metadata, and the phased
   roadmap.
 - [`docs/loom-artifacts.md`](loom-artifacts.md) — the `.loom/` output

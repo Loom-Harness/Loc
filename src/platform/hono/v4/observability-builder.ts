@@ -30,7 +30,7 @@
 // mechanism, JSON output keeps the existing playground line-streaming
 // working unchanged, and the level check happens before any field-object
 // construction so suppressed levels cost ~nothing.  See
-// docs/old/proposals/observability.md.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
 // ---------------------------------------------------------------------------
 
 import { renderHonoMetricsFile } from "../../../generator/_obs/render-hono-metrics.js";

@@ -104,7 +104,7 @@ such flag.
   rename), so no separate applied-history file is needed. Structural checks reject
   a self-rename and duplicate rename source/target (`loom.rename-*`,
   `loom.migration-duplicate-name`). See
-  [`docs/new-plan/missions/M-T2.1-migration-surface-design.md`](new-plan/missions/M-T2.1-migration-surface-design.md).
+  [#3340](https://github.com/Loom-Harness/Loc/issues/3340).
 
   ```ddd
   migration "rename-order-qty" {

@@ -3,8 +3,9 @@ import { offsetToLineCol } from "../generator/_trace/sourcemap.js";
 import { resolveToSource } from "../ir/types/origin.js";
 
 // ---------------------------------------------------------------------------
-// Source Map v3 sidecars — docs/old/proposals/source-map-and-
-// debugging.md.  Sibling of sourcemap.ts (the construct-granular
+// Source Map v3 sidecars —
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md.
+// Sibling of sourcemap.ts (the construct-granular
 // `.loom/sourcemap.json` artifact): renders the SAME recorded regions into
 // the standard `<file>.map` shape a debugger / browser devtools already
 // understands, instead of Loom's bespoke wire format.

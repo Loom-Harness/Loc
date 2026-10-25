@@ -413,7 +413,7 @@ system FieldOps {
 });
 
 // ---------------------------------------------------------------------------
-// D8 of `eval-claims/FIX-PLAN.md` — the bundled realm must be USABLE under the
+// The bundled realm must be USABLE under the
 // default `enforcement: denyByDefault`, where every client-reachable member is
 // permission-gated.  Four separate gaps made it a wall:
 //   1. no seeded principal held any declared permission;

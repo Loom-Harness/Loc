@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java platform surface + registry wiring (slice S1 of
-// docs/old/plans/java-backend-implementation.md): `platform: java` resolves
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md): `platform: java` resolves
 // through the registry as `java@v1`, the surface carries the dotnet-like
 // dual-mode flags, and the adapter menu exposes jpa/layered/byLayer/
 // byFeature as real with jooq/axon/cqrs reserved as stubs.

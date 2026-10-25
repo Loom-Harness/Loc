@@ -1,5 +1,5 @@
 // `policy { allow write <level> on <Aggregate> }` — the WRITE ladder
-// (authorization Phase 3 P3.1, docs/old/plans/authorization-phase3.md).  Covers
+// (authorization Phase 3 P3.1, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md).  Covers
 // parsing (the optional `verb`), lowering (`BoundedContextIR.policyWriteLevels`),
 // the enrichment derivation of `AggregateIR.writeScopeFilter` (set only when the
 // write scope is strictly narrower than the read scope), and the phase-⑦

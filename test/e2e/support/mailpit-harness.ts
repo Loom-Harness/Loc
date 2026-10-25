@@ -9,7 +9,7 @@
 // workflow, then poll the inbox for the delivered envelope).  Only how the
 // server gets booted differs per backend (the sibling test files); the
 // delivery proof is identical.  Mailpit is the mocked-SMTP server the plan's
-// e2e TODO asked for (docs/old/proposals/email-resource-kind.md §6).
+// e2e TODO asked for (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/email-resource-kind.md §6).
 //
 // Both sidecars honour a CI-service override so `services:` containers can be
 // used instead of a docker-in-the-runner sidecar:

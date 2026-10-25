@@ -5,7 +5,7 @@
 // (not a template), so signal/computed reads — bare `name()` in template scope —
 // resolve against `this` (`this.n()`); the body interpolates `doubled()`.
 // Sequential (a derived may reference an earlier derived).
-// See docs/old/proposals/page-derived-bindings.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/page-derived-bindings.md.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";

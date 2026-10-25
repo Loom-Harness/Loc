@@ -5,8 +5,8 @@ bundle of **fields + `filter` + `stamp`** that an aggregate opts into
 with `with <Cap>` / `implements <Cap>`.  It is the typed successor to the
 stringly-typed surface (`implements "X"` / `filter for "X"` /
 `stamp for "X"`), which was **removed** — see
-[`proposals/typed-capabilities.md`](old/proposals/typed-capabilities.md) and
-[`plans/typed-capabilities-implementation.md`](old/plans/typed-capabilities-implementation.md).
+[`proposals/typed-capabilities.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/typed-capabilities.md) and
+[`plans/typed-capabilities-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/typed-capabilities-implementation.md).
 
 ```ddd
 capability softDeletable {

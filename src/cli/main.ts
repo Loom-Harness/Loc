@@ -210,7 +210,7 @@ async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   // `lowerProject` composes the whole import graph as one project — the
   // lone `system { }` block plus top-level `subdomain` / `context`
   // declarations from any file fold into a single system (see
-  // docs/old/proposals/implicit-system-composition.md).
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md).
   //
   // LAZY, and only ever forced after the caller has checked `errorCount`.  A
   // document with a parse error carries a RECOVERED AST — a required cross-ref
@@ -454,7 +454,7 @@ async function runParse(file: string, opts: { allWarnings?: boolean } = {}) {
 
 /**
  * `ddd patch <file> --patches <json>` — apply node-addressed model patches
- * (docs/old/proposals/ai-authoring-loop.md §4).  Default output is the patched
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md §4).  Default output is the patched
  * source on stdout (so it composes: `ddd patch m.ddd --patches p.json > m2.ddd`);
  * `--json` emits the structured PatchResult.  Exits 1 if any patch fails.
  */
@@ -541,7 +541,7 @@ async function withJsonStdout<T>(work: () => Promise<T>): Promise<T> {
 
 /**
  * `ddd parse --json` — the structured-diagnostics contract
- * (docs/old/proposals/ai-diagnostics-contract.md).  Thin wrapper over the toolkit
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md).  Thin wrapper over the toolkit
  * `validate()`: prints the `ValidateReport` to stdout, exits 1 when not `ok`.
  */
 async function runParseJson(file: string): Promise<void> {
@@ -595,7 +595,7 @@ interface RunOptions {
    * trace-level domain instrumentation (`value_computed`,
    * `precondition_evaluated`, etc., via `requestLog().trace(...)`).  Off
    * by default keeps the artefact lean and the domain layer pure; on
-   * regenerate to diagnose.  See docs/old/proposals/observability.md. */
+   * regenerate to diagnose.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md. */
   emitTrace?: boolean;
   /** `--k8s` switch — when true, `generate system` additionally emits a Helm
    * chart (`helm/`) and the raw manifests it renders to (`k8s/`) alongside
@@ -606,7 +606,7 @@ interface RunOptions {
    * spans / macro-call sites.  Off by default (byte-identical output).
    * System target only — the legacy single-project `generate ts` /
    * `generate dotnet` paths don't accept this flag.
-   * See docs/old/plans/source-map-debug-kickoff.md. */
+   * See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
   /** `--inline-sources` switch — inline each `.ddd`'s full text into every
    * Source Map v3 sidecar.  Off by default: the sidecars name the `.ddd` by
@@ -1298,7 +1298,7 @@ interface NewOptions {
 
 /**
  * `ddd new <name>` — scaffold a small, provably-valid starter project
- * (docs/old/proposals/quickstart-and-day-one-batteries.md §3.1).  Picks the
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/quickstart-and-day-one-batteries.md §3.1).  Picks the
  * backend platform (`--platform`) and frontend (`--design`: a React pack, or
  * `coreComponents` for a Phoenix LiveView fullstack), renders a `main.ddd` +
  * `README.md` + `.loomignore` + `LICENSE` (the MIT grant over the generated

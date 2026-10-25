@@ -1,4 +1,4 @@
-// Collection-op completeness gate (docs/old/plans/stdlib.md, slice A4).
+// Collection-op completeness gate (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md, slice A4).
 //
 // The catalogue (src/util/collection-ops.ts) is the single source of truth for
 // which collection ops exist on an array receiver.  Each of the five domain
