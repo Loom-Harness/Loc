@@ -47,56 +47,52 @@ describe("manifest round-trip", () => {
 });
 
 describe("isProtectedFromPrune", () => {
-  it("protects migration files under every backend's layout", () => {
-    for (const p of [
-      "api/Migrations/20260101000000_M_Initial.cs",
-      "api/drizzle/migrations/0000_init.sql",
-      "api/priv/repo/migrations/20260101000000_init.exs",
-      "api/src/main/resources/db/migration/V1.0__init.sql",
-      "api/alembic/migration/0001_init.py",
-    ]) {
-      expect(isProtectedFromPrune(p), p).toBe(true);
-    }
+  it("protects the provenance snapshots and the manifest itself", () => {
+    expect(isProtectedFromPrune(".loom/snapshots/20261025-ab12.loomsnap.json")).toBe(true);
+    expect(isProtectedFromPrune(MANIFEST_REL_PATH)).toBe(true);
   });
 
-  it("protects the snapshot baselines and the manifest itself", () => {
-    expect(isProtectedFromPrune(".loom/snapshots/M.snapshot.json")).toBe(true);
-    expect(isProtectedFromPrune(MANIFEST_REL_PATH)).toBe(true);
+  it("does not protect migration files — every run re-emits the whole chain", () => {
+    for (const p of [
+      "api/Migrations/20260101000000_M_Initial.cs",
+      "api/priv/repo/migrations/20260101000000_init.exs",
+      "api/src/main/resources/db/migration/V1.0__init.sql",
+    ]) {
+      expect(isProtectedFromPrune(p), p).toBe(false);
+    }
   });
 
   it("does not protect ordinary output — including the rest of `.loom/`", () => {
     expect(isProtectedFromPrune("web_app/src/pages/board.tsx")).toBe(false);
     expect(isProtectedFromPrune("api/Application/Issues/Commands/CommentHandler.cs")).toBe(false);
     expect(isProtectedFromPrune(".loom/wire-spec.json")).toBe(false);
-    // A FILE named `migrations` is not a migration DIRECTORY.
-    expect(isProtectedFromPrune("api/migrations")).toBe(false);
   });
 });
 
 describe("carriedOverEntries", () => {
-  // Why this exists: backends emit only the NEWEST migration each run, so a
-  // manifest built from run 2's file map alone would drop the migration entry
-  // that run 1 recorded — and run 3 would add nothing back.  The manifest then
-  // flips between two contents forever, is rewritten on every regen, and the
-  // "a no-op regen touches no file" invariant (`test/cli/regeneration.test.ts`)
-  // dies.  Carrying protected entries forward is what makes it a fixed point.
+  // Why this exists: `ddd snapshot` writes a provenance capture that
+  // `generate` never re-emits, so a manifest built from a later run's file
+  // map alone would drop it — and the run after would add nothing back.  The
+  // manifest then flips between two contents forever, is rewritten on every
+  // regen, and the "a no-op regen touches no file" invariant
+  // (`test/cli/regeneration.test.ts`) dies.  Carrying protected entries
+  // forward is what makes it a fixed point.
   const previous = buildManifest([
-    { path: "api/Migrations/0001_init.cs" },
-    { path: "api/Migrations/0002_add_col.cs" },
-    { path: ".loom/snapshots/M.snapshot.json" },
+    { path: ".loom/snapshots/a.loomsnap.json" },
+    { path: ".loom/snapshots/b.loomsnap.json" },
     { path: "api/Program.cs" },
-    { path: "api/Migrations/0000_deleted_by_hand.cs" },
+    { path: ".loom/snapshots/deleted-by-hand.loomsnap.json" },
   ]);
 
   it("carries the protected paths this run did not re-emit", () => {
     const carried = carriedOverEntries(
       previous,
-      [".loom/snapshots/M.snapshot.json"],
-      (p) => !p.endsWith("0000_deleted_by_hand.cs"),
+      ["api/Program.cs"],
+      (p) => !p.endsWith("deleted-by-hand.loomsnap.json"),
     );
     expect(carried.map((e) => e.path)).toEqual([
-      "api/Migrations/0001_init.cs",
-      "api/Migrations/0002_add_col.cs",
+      ".loom/snapshots/a.loomsnap.json",
+      ".loom/snapshots/b.loomsnap.json",
     ]);
   });
 
@@ -106,8 +102,7 @@ describe("carriedOverEntries", () => {
   });
 
   it("is a fixed point: entries + carry-over reproduces the same manifest", () => {
-    // Run 2 emits everything run 1 did EXCEPT the migrations.
-    const emitted = ["api/Program.cs", ".loom/snapshots/M.snapshot.json"];
+    const emitted = ["api/Program.cs"];
     const next = buildManifest([
       ...emitted.map((p) => ({ path: p })),
       ...carriedOverEntries(previous, emitted, () => true),
@@ -126,7 +121,7 @@ describe("planPrune", () => {
     { path: "stale.ts" },
     { path: "pinned.ts" },
     { path: "impl.ex", scaffoldOnce: true },
-    { path: "api/Migrations/0001_init.cs" },
+    { path: ".loom/snapshots/a.loomsnap.json" },
     { path: "gone-already.ts" },
   ]);
 
@@ -138,7 +133,7 @@ describe("planPrune", () => {
     expect(plan.remove).toEqual(["stale.ts"]);
     expect(plan.keptIgnored).toEqual(["pinned.ts"]);
     expect(plan.keptScaffoldOnce).toEqual(["impl.ex"]);
-    expect(plan.keptProtected).toEqual(["api/Migrations/0001_init.cs"]);
+    expect(plan.keptProtected).toEqual([".loom/snapshots/a.loomsnap.json"]);
   });
 
   it("prunes nothing at all when there is no readable previous manifest", () => {

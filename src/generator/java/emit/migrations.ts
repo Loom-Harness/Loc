@@ -9,9 +9,9 @@ import { renderPgStep } from "../../sql-pg.js";
 // translates `MigrationStep[]` into files; it never re-derives schema.
 //
 // Version scheme: `V<version>.<n>__<Module>_<Name>.sql` — `<version>` is
-// the module's snapshot-stamped timestamp and `<n>` the module's index
-// within the deployable, keeping Flyway versions unique when several
-// modules share the canonical BASE_TIMESTAMP.
+// the generation's migration-chain version (unique across modules and
+// strictly increasing, so Flyway never sees a version below one it has
+// already applied) and `<n>` the module's index within the deployable.
 // ---------------------------------------------------------------------------
 
 export function emitJavaMigrations(migrations: MigrationsIR[], out: Map<string, string>): void {

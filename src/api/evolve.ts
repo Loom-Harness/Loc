@@ -65,8 +65,6 @@ export interface MigrationView {
   module: string;
   /** Human-readable name — `"Initial"` on first run, `"AddOrderStatus"` etc. */
   name: string;
-  /** Deterministic `<YYYYMMDDHHMMSS>` version slug. */
-  version: string;
   steps: MigrationStepView[];
   /** True when the delta drops/loses data — the `--allow-destructive` gate. */
   destructive: boolean;
@@ -228,7 +226,6 @@ function diffSystems(
     migrations.push({
       module: mig.module,
       name: mig.name,
-      version: mig.version,
       steps: mig.steps.map((s) => ({ op: s.op, sql: renderPgStep(s) })),
       destructive: destructiveByModule.has(mig.module),
       destructiveMessage: destructiveByModule.get(mig.module),

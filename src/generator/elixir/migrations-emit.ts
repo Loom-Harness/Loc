@@ -181,16 +181,13 @@ export function emitMigrations(
 ): void {
   for (const m of migrations) {
     if (m.steps.length === 0) continue;
-    // Both paths take their version straight from the builder, which owns the
-    // per-module block arithmetic (`MODULE_VERSION_STRIDE` /
-    // `INITIAL_SUBBLOCK_SPAN` in migrations-builder.ts).  The emitter must NOT
-    // apply an offset of its own: one derived from the module's position in
-    // this array and computed only for INITIAL migrations gives every module's
-    // first delta the same version (Ecto aborts on the duplicate) and sorts
-    // module 1's delta BEFORE its own create-table ("relation does not
-    // exist").  Deriving it here also made the snapshot's recorded version
-    // disagree with the emitted FILENAME, which the migration-baseline guard
-    // compares.
+    // Both paths take their version straight from the migration chain, which
+    // numbers every generation uniquely and reserves `INITIAL_RESERVATION`
+    // versions after an initial for the per-table files below
+    // (`src/system/migration-chain.ts`).  The emitter must NOT apply an offset
+    // of its own: one derived from the module's position in this array would
+    // give two modules' generations the same version (Ecto aborts on the
+    // duplicate) or sort a delta before its own create-table.
     if (m.baseline === null) {
       emitInitial(m, appModule, out, Number(m.version) - BASE_TIMESTAMP);
     } else {
@@ -260,9 +257,9 @@ function emitInitial(
   m: MigrationsIR,
   appModule: string,
   out: Map<string, string>,
-  /** Per-module offset added to every allocated version so migrations from
-   *  different modules don't collide in the shared dir.  See
-   *  `MODULE_VERSION_STRIDE`. */
+  /** The generation's version, as an offset from `BASE_TIMESTAMP`; every
+   *  per-table file is numbered from it, inside the `INITIAL_RESERVATION`
+   *  the migration chain leaves after an initial. */
   baseOffset = 0,
 ): void {
   const base = BASE_TIMESTAMP + baseOffset;
@@ -339,7 +336,7 @@ function emitInitial(
   // steps (a raw `sql "…"` block in a fresh system — the other backends run
   // it inside their single Initial file).  The per-table layout above has no
   // home for them, so they land in ONE trailing data file, offset far above
-  // every table tier (and below MODULE_VERSION_STRIDE, so modules stay
+  // every table tier (and below INITIAL_RESERVATION, so modules stay
   // disjoint).  Dropping them instead would silently diverge from the
   // snapshot's appliedDataMigrations ledger, which already recorded them.
   const dataSteps = m.steps.filter(
@@ -367,7 +364,7 @@ function emitInitial(
 
 /** Within-module version offset for the initial data-migrations file — far
  *  above the table tiers (parents `+i`, parts `+N*10+…`, joins `+N*100+k`)
- *  and safely below `MODULE_VERSION_STRIDE`. */
+ *  and safely below `INITIAL_RESERVATION`. */
 const INITIAL_DATA_OFFSET = 900_000;
 
 function writeInitialFile(
@@ -631,12 +628,14 @@ function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>)
   // with an empty `change/0`: a migration version recorded in
   // `schema_migrations` that does nothing.  Emit no file instead.
   if (collapseVoSteps(m).flatMap((s) => renderEctoStep(s)).length === 0) return;
-  const path = `priv/repo/migrations/${m.version}_${snake(m.name)}.exs`;
+  const path = `priv/repo/migrations/${m.version}_${snake(m.module)}_${snake(m.name)}.exs`;
   out.set(path, renderDeltaFile(m, appModule));
 }
 
 function renderDeltaFile(m: MigrationsIR, appModule: string): string {
-  const migrationName = upperFirst(m.name);
+  // Ecto names every migration module app-wide, and a migration name is only
+  // unique within its module's chain — so the module is part of the name.
+  const migrationName = `${upperFirst(m.module)}${upperFirst(m.name)}`;
   const stepLines = collapseVoSteps(m).flatMap((s) => renderEctoStep(s));
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration

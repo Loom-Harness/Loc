@@ -66,7 +66,8 @@ async function evolve(
       warnings,
     },
   )[0]!;
-  return { mig, warnings };
+  // A generation's version is the chain's to assign; any one will do here.
+  return { mig: { ...mig, version: "20260102000000" }, warnings };
 }
 
 describe("`sql before` ordering (B-20)", () => {

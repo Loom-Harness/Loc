@@ -9,8 +9,15 @@ import { BACKEND_PINS as HONO_PINS } from "../../src/platform/hono/v5/pins.js";
 import {
   type GenerateSystemOptions,
   generateSystems,
+  pendingMigrations,
   type SystemEmission,
 } from "../../src/system/index.js";
+import {
+  BASE_VERSION,
+  EMPTY_CHAIN,
+  type MigrationChain,
+  recordGeneration,
+} from "../../src/system/migration-chain.js";
 import { extractErrors, parseString } from "./parse.js";
 
 export { HONO_PINS };
@@ -299,3 +306,42 @@ export async function generateSystemFilesFromProject(
 
 /** Re-exported — full multi-deployable system emission orchestrator. */
 export { generateSystems };
+
+/**
+ * The migration chain `ddd migrate add` would record for `sources`, one model
+ * after another: the first source's initial generation, then one generation
+ * per later source (named `gen-1`, `gen-2`, …).  Destructive steps are allowed
+ * unless `allowDestructive: false` — evolution tests are usually about the
+ * rendered delta, not the gate.  Feed the result to `generateSystemFiles` as
+ * `migrationChain` to render the whole chain.
+ */
+export async function recordChain(
+  sources: readonly string[],
+  opts: { allowDestructive?: boolean } = {},
+): Promise<MigrationChain> {
+  let chain: MigrationChain = EMPTY_CHAIN;
+  for (const [i, source] of sources.entries()) {
+    const loom = enrichLoomModel(lowerModel(await assertGeneratable(source)));
+    const deltas = pendingMigrations(loom, chain, {
+      allowDestructive: opts.allowDestructive ?? true,
+    });
+    const entries = recordGeneration(chain, deltas, {
+      name: i === 0 ? "initial" : `gen-${i}`,
+      now: BASE_VERSION,
+    });
+    chain = { entries: [...chain.entries, ...entries] };
+  }
+  return chain;
+}
+
+/** `generateSystemFiles` over the chain {@link recordChain} records for
+ *  `sources` — what generating the LAST source renders once every earlier
+ *  one has been recorded. */
+export async function generateEvolvedSystemFiles(
+  sources: readonly string[],
+  options: GenerateSystemOptions & { allowDestructive?: boolean } = {},
+): Promise<Map<string, string>> {
+  const { allowDestructive, ...rest } = options;
+  const chain = await recordChain(sources, { allowDestructive });
+  return generateSystemFiles(sources[sources.length - 1]!, { ...rest, migrationChain: chain });
+}

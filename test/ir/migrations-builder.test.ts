@@ -1,7 +1,4 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderEctoStep } from "../../src/generator/elixir/migrations-emit.js";
 import { renderPgStep } from "../../src/generator/sql-pg.js";
 import type {
@@ -13,10 +10,8 @@ import type {
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import {
   applyDestructivePolicy,
-  BASE_TIMESTAMP,
   buildMigrations,
   diffSchema,
-  INITIAL_SUBBLOCK_SPAN,
   MigrationAmbiguousRenameError,
   MigrationBackfillDiscardedError,
   MigrationDestructiveError,
@@ -24,13 +19,7 @@ import {
   type MigrationWarning,
   schemaFromModule,
 } from "../../src/system/migrations-builder.js";
-import {
-  fsSnapshotStore,
-  memorySnapshotStore,
-  SnapshotReadError,
-  serializeSnapshot,
-  snapshotRelPath,
-} from "../../src/system/snapshot.js";
+import { canonicalSnapshot, memorySnapshotStore } from "../../src/system/snapshot.js";
 import { buildLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
@@ -752,7 +741,6 @@ system Shop {
     const oldLoom = await buildLoomModel(SRC("Order"));
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(oldLoom.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const newLoom = await buildLoomModel(
       `${SRC("PurchaseOrder")}\nmigration "rename-order" { Order -> PurchaseOrder }`,
@@ -807,7 +795,6 @@ system Shop {
     // Baseline already reflects the NEW aggregate name.
     const baked: SchemaSnapshot = {
       ...schemaFromModule(newLoom.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const out = buildMigrations(newLoom.systems[0]!, memorySnapshotStore({ Sales: baked }), {
       tableRenameIntents: newLoom.tableRenameIntents,
@@ -845,11 +832,9 @@ system Shop {
       sys.subdomains.find((s) => s.name === name)!;
     const baseSales: SchemaSnapshot = {
       ...schemaFromModule(byModule(oldSys, "Sales")),
-      lastVersion: BASE_TIMESTAMP,
     };
     const baseFulfilment: SchemaSnapshot = {
       ...schemaFromModule(byModule(oldSys, "Fulfilment")),
-      lastVersion: BASE_TIMESTAMP,
     };
     const newLoom = await buildLoomModel(
       `${SRC("PurchaseOrder")}\nmigration "rename-order" { Order -> PurchaseOrder }`,
@@ -921,7 +906,7 @@ migration "rename-qty" { Order.qty -> quantity }
     const sys = loom.systems[0]!;
     // Baseline still carries the OLD column name `qty`.
     const next = schemaFromModule(sys.subdomains[0]!);
-    const baseline = withModifiedTable({ ...next, lastVersion: BASE_TIMESTAMP }, "orders", (t) => ({
+    const baseline = withModifiedTable(next, "orders", (t) => ({
       ...t,
       columns: t.columns.map((c) => (c.name === "quantity" ? { ...c, name: "qty" } : c)),
     }));
@@ -942,7 +927,6 @@ migration "rename-qty" { Order.qty -> quantity }
     // Baseline already has the NEW name — the ledger block must be a no-op now.
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(sys.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
       renameIntents: loom.renameIntents,
@@ -979,16 +963,10 @@ migration "rename-credit" { Customer.creditLimit -> creditCap }
     // Baseline carries the OLD column name `credit_limit` on the SHARED base
     // table `parties` (the concrete has no table).
     const next = schemaFromModule(sys.subdomains[0]!);
-    const baseline = withModifiedTable(
-      { ...next, lastVersion: BASE_TIMESTAMP },
-      "parties",
-      (t) => ({
-        ...t,
-        columns: t.columns.map((c) =>
-          c.name === "credit_cap" ? { ...c, name: "credit_limit" } : c,
-        ),
-      }),
-    );
+    const baseline = withModifiedTable(next, "parties", (t) => ({
+      ...t,
+      columns: t.columns.map((c) => (c.name === "credit_cap" ? { ...c, name: "credit_limit" } : c)),
+    }));
     const out = buildMigrations(sys, memorySnapshotStore({ Registry: baseline }), {
       renameIntents: loom.renameIntents,
     });
@@ -1009,49 +987,39 @@ migration "rename-credit" { Customer.creditLimit -> creditCap }
 });
 
 describe("buildMigrations", () => {
-  it("returns one entry per owned module, with the right version + name on initial run", async () => {
+  it("returns one entry per owned module, named Initial on its first run", async () => {
     const { sys } = await loadShop();
     const out = buildMigrations(sys, memorySnapshotStore());
     expect(out).toHaveLength(1);
     expect(out[0]!.module).toBe("Sales");
-    expect(out[0]!.version).toBe(BASE_TIMESTAMP);
     expect(out[0]!.name).toBe("Initial");
     expect(out[0]!.steps.length).toBeGreaterThan(0);
-    // After an INITIAL the counter jumps past the module's reserved
-    // initial sub-block, so the first DELTA can't alias one of the many files
-    // an initial expands into on Elixir (fleet-bug-hunt I1).
-    expect(out[0]!.next.lastVersion).toBe(
-      String(BigInt(BASE_TIMESTAMP) + BigInt(INITIAL_SUBBLOCK_SPAN)),
-    );
-    expect(out[0]!.next.versionBlock).toBe(0);
   });
 
-  it("returns empty steps + carried-over lastVersion when snapshot already matches", async () => {
+  it("returns empty steps when the snapshot already matches", async () => {
     const { sys, module } = await loadShop();
     const snap = schemaFromModule(module);
-    const baseline: SchemaSnapshot = { ...snap, lastVersion: BASE_TIMESTAMP };
+    const baseline: SchemaSnapshot = snap;
     const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }));
     expect(out).toHaveLength(1);
     expect(out[0]!.steps).toEqual([]);
-    expect(out[0]!.next.lastVersion).toBe(BASE_TIMESTAMP);
   });
 
-  it("bumps lastVersion by 1 when the snapshot differs", async () => {
+  it("derives a non-Initial delta when the snapshot differs", async () => {
     const { sys, module } = await loadShop();
     const next = schemaFromModule(module);
     const stale = withModifiedTable(next, "orders", (t) => ({
       ...t,
       columns: t.columns.filter((c) => c.name !== "total"),
     }));
-    const baseline: SchemaSnapshot = { ...stale, lastVersion: BASE_TIMESTAMP };
+    const baseline: SchemaSnapshot = stale;
     // Re-adding the non-optional `total` column is a NOT-NULL add on a
     // pre-existing table → destructive; allow it so this test exercises only
-    // the version-bump behaviour.
+    // the delta.
     const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
       allowDestructive: true,
     });
-    expect(out[0]!.version).toBe(String(BigInt(BASE_TIMESTAMP) + 1n));
-    expect(out[0]!.next.lastVersion).toBe(out[0]!.version);
+    expect(out[0]!.steps.length).toBeGreaterThan(0);
     expect(out[0]!.name).not.toBe("Initial");
   });
 
@@ -1132,77 +1100,6 @@ describe("buildMigrations — workflow saga tables land in the context schema", 
     expect(tables.find((t) => t.name === "tally_events")?.schema).toBeUndefined();
     expect(tables.find((t) => t.name === "ledgers")?.schema).toBeUndefined();
     expect(tables.find((t) => t.name === "orders")?.schema).toBeUndefined();
-  });
-});
-
-describe("fsSnapshotStore", () => {
-  const tmpDirs: string[] = [];
-  const mkTmp = (): string => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-snap-"));
-    tmpDirs.push(dir);
-    return dir;
-  };
-  const writeSnapshot = (root: string, module: string, contents: string): string => {
-    const filePath = path.join(root, snapshotRelPath(module));
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, contents);
-    return filePath;
-  };
-
-  afterEach(() => {
-    for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("returns null when no snapshot file exists (first run)", () => {
-    const root = mkTmp();
-    expect(fsSnapshotStore(root).read("Sales")).toBeNull();
-  });
-
-  it("reads back a well-formed snapshot", async () => {
-    const { module } = await loadShop();
-    const snap: SchemaSnapshot = { ...schemaFromModule(module), lastVersion: BASE_TIMESTAMP };
-    const root = mkTmp();
-    writeSnapshot(root, "Sales", serializeSnapshot(snap));
-    const read = fsSnapshotStore(root).read("Sales");
-    expect(read?.lastVersion).toBe(BASE_TIMESTAMP);
-    expect(read?.tables.map((t) => t.name)).toEqual(snap.tables.map((t) => t.name));
-  });
-
-  it("throws SnapshotReadError naming the file when the snapshot is corrupt", () => {
-    const root = mkTmp();
-    const filePath = writeSnapshot(root, "Sales", '{"tables": [ {"name": "orders"'); // truncated
-    expect(() => fsSnapshotStore(root).read("Sales")).toThrow(SnapshotReadError);
-    try {
-      fsSnapshotStore(root).read("Sales");
-      expect.unreachable("expected a SnapshotReadError");
-    } catch (err) {
-      expect(err).toBeInstanceOf(SnapshotReadError);
-      const e = err as SnapshotReadError;
-      expect(e.filePath).toBe(filePath);
-      expect(e.message).toContain(filePath);
-      expect(e.message).toMatch(/corrupt|truncat/i);
-      expect(e.message).toMatch(/restore it from version control|re-baseline/i);
-    }
-  });
-});
-
-describe("buildMigrations — corrupt snapshot never re-baselines", () => {
-  const tmpDirs: string[] = [];
-  afterEach(() => {
-    for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("throws instead of emitting an Initial migration for a corrupt snapshot", async () => {
-    const { sys } = await loadShop();
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "loom-snap-"));
-    tmpDirs.push(root);
-    const filePath = path.join(root, snapshotRelPath("Sales"));
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, "}}} not json {{{"); // corrupted (e.g. interrupted write)
-
-    // Must NOT be interpreted as a fresh output dir → NO "Initial" migration.
-    expect(() => buildMigrations(sys, fsSnapshotStore(root))).toThrow(SnapshotReadError);
-    expect(() => buildMigrations(sys, fsSnapshotStore(root))).toThrow(filePath);
   });
 });
 
@@ -1944,7 +1841,7 @@ migration "add-status" { Order.status = "pending" }
     const sys = loom.systems[0]!;
     const next = schemaFromModule(sys.subdomains[0]!);
     // Baseline WITHOUT the status column — this generation adds it NOT NULL.
-    const baseline = withModifiedTable({ ...next, lastVersion: BASE_TIMESTAMP }, "orders", (t) => ({
+    const baseline = withModifiedTable(next, "orders", (t) => ({
       ...t,
       columns: t.columns.filter((c) => c.name !== "status"),
     }));
@@ -1978,7 +1875,6 @@ migration "add-status" { Order.status = "pending" }
     const sys = loom.systems[0]!;
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(sys.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
       backfillIntents: loom.backfillIntents,
@@ -2063,7 +1959,6 @@ migration "fixup" { sql "UPDATE orders SET status = 'x' WHERE status IS NULL" }
     const sys = loom.systems[0]!;
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(sys.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     // Generation 1 — the statement rides its own data migration.
     const gen1 = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
@@ -2136,7 +2031,7 @@ migration "evolve" {
   }
   async function v1Baseline(): Promise<SchemaSnapshot> {
     const loom = await buildLoomModel(V1);
-    return { ...schemaFromModule(loom.systems[0]!.subdomains[0]!), lastVersion: BASE_TIMESTAMP };
+    return schemaFromModule(loom.systems[0]!.subdomains[0]!);
   }
 
   it("is silent the generation the block runs, and suggests removal on the next", async () => {
@@ -2207,7 +2102,6 @@ migration "vendor-to-sponsor" { Vendor -> Sponsor }
     const sys = loom.systems[0]!;
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(sys.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const gen1 = buildMigrations(sys, memorySnapshotStore({ Registry: baseline }), {
       tableRenameIntents: loom.tableRenameIntents,
@@ -2232,7 +2126,6 @@ describe("buildMigrations — shape-coverage rename cascade (M-T2.1 c)", () => {
     const oldLoom = await buildLoomModel(src(from));
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(oldLoom.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const newLoom = await buildLoomModel(`${src(to)}\nmigration "reshape" { ${from} -> ${to} }`);
     const module = newLoom.systems[0]!.subdomains[0]!.name;
@@ -2349,7 +2242,6 @@ system Tally {
     const oldLoom = await buildLoomModel(ES("Counter"));
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(oldLoom.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const newLoom = await buildLoomModel(
       `${ES("Tally")}\nmigration "rename-tally" { Counter -> Tally }`,
@@ -2394,7 +2286,7 @@ system Shop {
 
   const baselineFor = async (shape: string): Promise<SchemaSnapshot> => {
     const loom = await buildLoomModel(SHAPED(shape));
-    return { ...schemaFromModule(loom.systems[0]!.subdomains[0]!), lastVersion: BASE_TIMESTAMP };
+    return schemaFromModule(loom.systems[0]!.subdomains[0]!);
   };
   const docSys = async () => (await buildLoomModel(SHAPED("document"))).systems[0]!;
 
@@ -2487,7 +2379,6 @@ system Fleet {
     const tph = await buildLoomModel(HIER("sharedTable"));
     const baseline: SchemaSnapshot = {
       ...schemaFromModule(tph.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const tpc = (await buildLoomModel(HIER("ownTable"))).systems[0]!;
     expect(() => buildMigrations(tpc, memorySnapshotStore({ Registry: baseline }))).toThrow(
@@ -2954,7 +2845,6 @@ ${extra}
     const sys = loom.systems[0]!;
     const baseline: SchemaSnapshot = {
       ...(await snapOf(BASE)),
-      lastVersion: BASE_TIMESTAMP,
     };
     const steps = buildMigrations(sys, memorySnapshotStore({ S: baseline }), {
       backfillIntents: loom.backfillIntents,
@@ -3036,8 +2926,8 @@ system P {
       evolved.tables.find((t) => t.name === "as")!.columns.find((c) => c.name === "status")!
         .addColumnDefault,
     ).toBe("'pending'"); // it IS on the in-memory shape the diff reads…
-    expect(serializeSnapshot(evolved)).not.toContain("addColumnDefault"); // …and not on disk
-    expect(serializeSnapshot(evolved)).not.toContain("pending");
+    expect(JSON.stringify(canonicalSnapshot(evolved))).not.toContain("addColumnDefault"); // …and not on disk
+    expect(JSON.stringify(canonicalSnapshot(evolved))).not.toContain("pending");
   });
 
   it("editing a default on an EXISTING column emits nothing", async () => {
@@ -3330,7 +3220,7 @@ system M {
   /** v2's schema with `supplier_ref` swapped back to `bin_code` — i.e. exactly
    *  the v1 baseline, so the diff is one drop + one same-type add. */
   const v1Baseline = (next: SchemaSnapshot): SchemaSnapshot =>
-    withModifiedTable({ ...next, lastVersion: BASE_TIMESTAMP }, "parts", (t) => ({
+    withModifiedTable(next, "parts", (t) => ({
       ...t,
       columns: t.columns.map((c) => (c.name === "supplier_ref" ? { ...c, name: "bin_code" } : c)),
     }));
@@ -3555,7 +3445,6 @@ system M {
     const v2 = await buildLoomModel(SRC("supplierRef"));
     const baseline = {
       ...schemaFromModule(v1.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const warnings: MigrationWarning[] = [];
     const out = buildMigrations(v2.systems[0]!, memorySnapshotStore({ S: baseline }), { warnings });
@@ -3574,7 +3463,6 @@ system M {
     const v2 = await buildLoomModel(SRC("supplierRef"));
     const baseline = {
       ...schemaFromModule(v1.systems[0]!.subdomains[0]!),
-      lastVersion: BASE_TIMESTAMP,
     };
     const withSink: MigrationWarning[] = [];
     const a = buildMigrations(v2.systems[0]!, memorySnapshotStore({ S: baseline }), {
