@@ -897,8 +897,7 @@ export function renderJavaEntity(
             // UnsupportedOperationException — the same pitfall the defaults below
             // avoid, reached through the argument instead (found by M-T6.94's
             // corpus case).
-            const given = t.kind === "array" ? `new ArrayList<>(${jid(f.name)})` : jid(f.name);
-            if (t.kind === "array") javaImports.add("java.util.ArrayList");
+            const given = t.kind === "array" ? `new ${ARRAY_LIST}<>(${jid(f.name)})` : jid(f.name);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
             return `        e.${jid(f.name)} = ${
               dflt === undefined
