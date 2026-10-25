@@ -10,6 +10,12 @@
 //   * Machine (TPH, sharedTable): the base's `unique (serial)` is ONE index on
 //     the shared table — a duplicate written through a CONCRETE's route must be
 //     a 409, not a 500, and it spans both subtypes.
+//   * Lathe's OWN `unique (model)` (declared on the concrete, not the base):
+//     one index on the shared table, PARTIAL on `kind = 'Lathe'` — Press
+//     shares the `model` column but declared no key, so a Press may reuse a
+//     Lathe's model.
+//   * v2 adds `softDeletable` to Account with NO backfill block: the
+//     capability's `is_deleted` backfills `false` by itself.
 //
 // The Party / Machine hierarchies are identical in all three versions, so only
 // the Account flip changes between generations.  `__PLATFORM__` is swapped per
@@ -38,8 +44,15 @@ system UniqueEvo {
         serial: string
         unique (serial)
       }
-      aggregate Lathe extends Machine with crudish { spindles: int }
-      aggregate Press extends Machine with crudish { tonnage: int }
+      aggregate Lathe extends Machine with crudish {
+        spindles: int
+        model: string
+        unique (model)
+      }
+      aggregate Press extends Machine with crudish {
+        tonnage: int
+        model: string
+      }
       repository Lathes for Lathe { }
       repository Presses for Press { }
     }
