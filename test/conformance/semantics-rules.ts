@@ -1457,8 +1457,9 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
     // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
     // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
-    // TARGET, not a conformer: its operation rung follows the rule, its
-    // create/update changeset still sends Ecto's text (M-T6.96).
+    // TARGET, not a conformer: its operation rung and its create/update
+    // changeset both emit the sentence, but no elixir leg witnesses the
+    // create path yet, so it stays a target until one does.
     conforms: ["node", "dotnet", "java", "python"],
     targets: ["elixir"],
     provenance: [

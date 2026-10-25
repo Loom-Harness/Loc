@@ -2076,10 +2076,9 @@ nothing and the test passes vacuously.
   sentence already names the field's label without the server's regex, and a
   code is the i18n key of AUTHORED text only.
 - **Not part of the guarantee (named).** A MISSING required field's sentence is
-  still each framework's (`M-T6.93`). Elixir's create/update CHANGESET still
-  carries Ecto's text for a message-less single-field rule
-  (`validate_number(:seats, greater_than_or_equal_to: 1)` → "must be greater
-  than or equal to 1", `M-T6.96`), and applies `validate_required` before the
+  still each framework's (`M-T6.93`). Elixir's create/update changeset sends
+  node's sentence for a message-less single-field rule (`validate_number(:seats,
+  greater_than_or_equal_to: 1, message: "Seats must be at least 1")`), and applies `validate_required` before the
   invariant, so a whitespace-only string is "can't be blank" there until wave
   C3F packet F1's D14 fix lands.
 - **Conforms.** node, dotnet, dapper, java, python; elixir on the operation
