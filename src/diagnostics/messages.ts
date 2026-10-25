@@ -1326,6 +1326,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`unique\` column '${p.col}' on aggregate '${p.name}' is a value object, which ` +
     `stores as several columns — a uniqueness key must list single-column ` +
     `(scalar / enum / id) fields.`,
+  "loom.unique-tpc-not-hierarchy-wide": (p: {
+    name: unknown;
+    columns: unknown;
+    concretes: unknown;
+  }) =>
+    `\`unique (${p.columns})\` on abstract aggregate '${p.name}' (inheritanceUsing: ownTable) is ` +
+    `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
+    `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
+    `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
     `Choose a different find name (e.g. 'persist', 'fetchById').`,

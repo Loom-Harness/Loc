@@ -506,6 +506,19 @@ system S {
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // `create(…): T` — a result needs a caller.  An event-triggered starter has
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
