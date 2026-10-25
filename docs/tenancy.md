@@ -268,7 +268,7 @@ stays, as the standing record that this read crosses the boundary.
 
 Under a system with `tenancy by`, **every persisted aggregate must declare a
 stance** — `with tenantOwned` or `crossTenant` (the registry and abstract
-bases are exempt). An unmarked aggregate is a hard error:
+bases are exempt; a subtype inherits its base's stance). An unmarked aggregate is a hard error:
 
 | Code | Fires when | Severity |
 |---|---|---|
@@ -283,19 +283,16 @@ bases are exempt). An unmarked aggregate is a hard error:
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
 | `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.run`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
 
-### Inheritance: the stance is declared per CONCRETE
+### Inheritance: a subtype inherits its base's stance
 
-An abstract base is exempt from the rule, and its stance does **not** propagate
-to its subtypes: only the base's *fields* are inherited. So `abstract aggregate
-Vehicle with tenantOwned` gives every subtype the `tenant_id` column while
-nothing stamps or filters it — which is why an unmarked subtype is still
-`loom.tenancy-stance-unmarked` (with a message that names this, rather than
-telling you to add a marker you already wrote on the base), and why writing
-`crossTenant` on the subtype instead is rejected outright: the column is NOT
-NULL either way, so the two halves disagree at runtime — node/python persist
-every row under an empty tenant with no isolation, java/.NET/elixir cannot
-insert at all. Repeat `with tenantOwned` on each concrete, or move the
-capability off the base onto the subtypes that want it.
+An abstract base is exempt from the rule because it persists no rows; its
+stance reaches every subtype (D-INHERITED-CAPABILITIES). `abstract aggregate
+Vehicle with tenantOwned` makes each `… extends Vehicle` tenant-owned — the
+column, the stamp that fills it and the filter that scopes reads by it — with
+no marker of its own. Writing `crossTenant` on such a subtype is
+`loom.tenancy-inherited-stance-conflict`: the subtype would be both tenant data
+and shared data. A `crossTenant` base makes its subtypes `crossTenant` the same
+way.
 
 There is deliberately **no severity knob**: the escape hatch is writing
 `crossTenant` — one keyword, intent declared. This is fail-closed without
