@@ -107,14 +107,15 @@ const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "do
  *  - node, python, .NET Dapper: pass (the loads were always two objects).
  *  - .NET EF: passes with M-T6.90; pre-fix the identity map handed both loads
  *    one tracked instance, so `addTwice` resolved instead of 409ing.
- *  - java: FAILS the same way EF did — the JPA persistence context returns one
- *    managed instance for both loads, so the version CAS in `save` reads the
- *    already-bumped version and `addTwice` resolves (M-T6.93).
+ *  - java: passes with M-T6.93; pre-fix the JPA persistence context returned
+ *    one managed instance for both loads, so the version CAS in `save` read the
+ *    already-bumped version and `addTwice` resolved.  A repeat load now reads a
+ *    detached copy through a connection-sharing child Session.
  *  - elixir (`vanilla`): FAILS earlier — a contained-part removal
  *    (`lines -= …`) does not persist even over the single-handle operation
  *    route (`expected 2 to be 1`, M-T6.94); the stale save would then
  *    answer M-T6.92's (now fixed) 409. */
-const INDEPENDENT_HANDLES: readonly Backend[] = ["node", "python", "dotnet"];
+const INDEPENDENT_HANDLES: readonly Backend[] = ["node", "python", "dotnet", "java"];
 
 /** The backends whose in-workflow stale save of a `shape: document` row or a
  *  `persistedAs: eventLog` stream answers the RS-40 409
@@ -338,7 +339,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "two `getById` loads of one row inside a workflow are two handles over a contained collection — each saves its own child graph with the version it read",
     doc: "workflow",
     backends: INDEPENDENT_HANDLES,
-    note: "Added with M-T6.90.  .NET EF handed both loads ONE tracked instance (identity map); the fix loads a second handle of a tracked row into a forked change tracker.  That puts the second handle's OWNED `lines` graph on a different context from the first, so this case pins that a child INSERT and a child DELETE through the second handle persist exactly once, and that two handles both adding a child still conflict (409, neither persisted).  Backend scope is the named `INDEPENDENT_HANDLES` set above.",
+    note: "Added with M-T6.90.  .NET EF handed both loads ONE tracked instance (identity map); the fix loads a second handle of a tracked row into a forked change tracker.  That puts the second handle's OWNED `lines` graph on a different context from the first, so this case pins that a child INSERT and a child DELETE through the second handle persist exactly once, and that two handles both adding a child still conflict (409, neither persisted).  java had the same identity-map defect under JPA (M-T6.93: a repeat load of a managed row now reads a detached copy through a connection-sharing child Session).  Backend scope is the named `INDEPENDENT_HANDLES` set above.",
   },
   {
     id: "transactional-workflow-event-rollback",

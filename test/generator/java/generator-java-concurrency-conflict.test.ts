@@ -116,7 +116,8 @@ describe("java generator — versioned optimistic-concurrency", () => {
       "throw new ObjectOptimisticLockingFailureException(Customer.class, aggregate.id().value());",
     );
     // …and the bump precedes the actual persist.
-    expect(impl.indexOf("jpa.bumpVersion")).toBeLessThan(impl.indexOf("var saved = jpa.save("));
+    expect(impl.indexOf("jpa.bumpVersion")).toBeLessThan(impl.indexOf("var saved = "));
+    expect(impl).toContain(": jpa.save(aggregate);");
   });
 
   it("a NON-versioned aggregate keeps a bump-free save", async () => {
