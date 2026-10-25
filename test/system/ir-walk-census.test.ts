@@ -156,6 +156,10 @@ function hasNeverCheck(node: ts.Node): boolean {
 }
 
 let cachedSites: Site[] | null = null;
+/** `Object.values(<IR node>)` call sites — a reflective child enumeration that
+ *  also descends into `receiverType`/`memberType` (`TypeIR`s with their own
+ *  `kind: "id"`), so it is never a safe substitute for `walkExprDeep`. */
+const reflectiveSites: string[] = [];
 
 /** Scan `src/**\/*.ts` with the real TypeScript checker (so a `.kind` switch
  *  on an unrelated discriminated union never counts) and return every
@@ -190,6 +194,16 @@ function computeSites(): Site[] {
     }
 
     function visit(node: ts.Node) {
+      // --- Form 3: Object.values(<ExprIR|StmtIR|WorkflowStmtIR>) ---
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.getText() === "Object.values" &&
+        node.arguments.length === 1 &&
+        typeNameMatches(checker, checker.getTypeAtLocation(node.arguments[0]))
+      ) {
+        reflectiveSites.push(`${rel}#${enclosingName(node)}:${lineOf(node)}`);
+      }
+
       // --- Form 1: switch (<recv>.kind) { … } ---
       if (ts.isSwitchStatement(node)) {
         const expr = node.expression;
@@ -720,6 +734,13 @@ describe("IR walk census — no hand-rolled switch/if-chain over ExprIR/StmtIR/W
     // test's colour instead of its count.
     expect(sites.length).toBeGreaterThan(80);
     expect(sites.filter((s) => s.form === "switch").length).toBeGreaterThan(70);
+  });
+
+  it("no reflective Object.values() walk over an IR node", () => {
+    expect(
+      reflectiveSites,
+      `use walkExprDeep / walk*Deep instead:\n${reflectiveSites.join("\n")}`,
+    ).toEqual([]);
   });
 
   it("every offending site is exhaustive or waived", () => {

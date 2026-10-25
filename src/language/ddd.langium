@@ -1511,10 +1511,15 @@ WorkflowMember:
 //   create(p1: T1, p2: T2, …)   → implicit command sugar (legacy paren-body lands here)
 // `by` reuses CorrelationExpr (the restricted name/postfix grammar `on` uses, so a
 // BuilderCall can't swallow the body block).
+// `: T` — the optional RESULT of a command-triggered starter (mirrors
+// `commandHandler name(params): T`): the body ends in `return <expr>` and the
+// command route answers 200 with that value instead of 204.  An
+// event-triggered starter has no caller to answer, so it may not declare one
+// (`loom.workflow-return-no-caller`).
 WorkflowCreateDecl:
     CallableLeadModifiers 'create' (name=ID)?
         '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers
+        CallableSigModifiers (':' returnType=TypeRef)?
         ('by' correlation=CorrelationExpr)?
         CallableGates
     '{'
@@ -2085,7 +2090,7 @@ CommonSoftKeywords returns string:
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
       | 'cookie' | 'coreComponents' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'daisyui'
-      | 'dataSources' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
+      | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
@@ -2172,7 +2177,7 @@ BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
 
 PrimitiveType:
-    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File');
+    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File');
 
 // Element-shaped param type for component slot injection.  Valid only on a
 // `component`'s parameter list; values flow as JSX (`React.ReactNode`-ish in

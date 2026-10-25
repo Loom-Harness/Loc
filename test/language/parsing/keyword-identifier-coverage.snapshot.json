@@ -498,6 +498,16 @@
     "paramName",
     "stateField"
   ],
+  "date": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "datetime": [],
   "decimal": [],
   "deep": [

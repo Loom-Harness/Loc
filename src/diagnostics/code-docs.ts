@@ -229,6 +229,13 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
   "loom.workflow-unrecognised-statement": "13-workflows.md#body-vocabulary",
   "loom.workflow-inline-repository-call": "13-workflows.md#body-vocabulary",
+  "loom.workflow-return-no-caller": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-not-last": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-untyped": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-missing": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
+  "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
   "loom.canonical-create-duplicate-workflow":
     "13-workflows.md#create--handle--starters--continuations",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
@@ -468,6 +475,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.unique-tpc-not-hierarchy-wide":
+    "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };
 
 /** The docs path for a diagnostic code, relative to the docs root —

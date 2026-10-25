@@ -1117,6 +1117,27 @@ function diffTable(
   for (const i of addedIdx) {
     if (!claimedAdd.has(i)) buckets.addIndex.push({ op: "addIndex", index: i, schema });
   }
+  // A SAME-NAMED index whose shape changed is a rebuild, not a no-op.  The
+  // derived name (`<table>_<cols>_uq`) is a function of the table and columns
+  // only, so flipping `softDeletable` on an aggregate with a `unique (…)` key
+  // keeps the name and changes just the partial-index predicate
+  // (`WHERE is_deleted = false` appears or disappears).  Matching by name alone
+  // silently kept the OLD index: the full unique still blocked re-using a
+  // soft-deleted row's key, and the partial one stopped enforcing the key for
+  // live rows once the capability was dropped.  Postgres cannot ALTER an
+  // index's predicate, so the rebuild is a DROP + CREATE: the drop rides the
+  // leading `dropIndex` bucket and the create the trailing `addIndex` one, so a
+  // predicate naming a column added this generation (`is_deleted`) runs after
+  // its `addColumn`, and one naming a column dropped this generation is gone
+  // before its `dropColumn`.  Not destructive (no row is touched); a rebuild
+  // that TIGHTENS (partial → full) is flagged by
+  // `uniqueOnExistingTableWarnings` instead.
+  for (const ni of next.indexes) {
+    const pi = prevIdx.get(ni.name);
+    if (!pi || indexRenamed(pi, ni, colRenameMap)) continue;
+    buckets.dropIndex.push({ op: "dropIndex", table: next.name, schema, name: pi.name });
+    buckets.addIndex.push({ op: "addIndex", index: ni, schema });
+  }
 
   // CHECK diff — matched by name like the index diff (the name is a pure
   // function of the table + the value-object group, so a check that "moved"
@@ -3574,6 +3595,10 @@ function primitiveColumnType(name: string): ColumnType {
       return { kind: "text" };
     case "bool":
       return { kind: "bool" };
+    case "date":
+      // A calendar date — Postgres `date`, which round-trips the wire's
+      // `YYYY-MM-DD` exactly (no zone, no time-of-day).
+      return { kind: "date" };
     case "datetime":
       return { kind: "datetime" };
     case "guid":

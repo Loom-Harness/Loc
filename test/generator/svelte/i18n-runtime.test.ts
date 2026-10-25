@@ -181,7 +181,9 @@ describe("Svelte i18n runtime", () => {
     );
     const i18n = [...files].find(([p]) => p.endsWith("src/lib/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain("new IntlMessageFormat(message, locale).format(values)");
+    expect(i18n).toContain(
+      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
+    );
     const pkg = [...files].find(([p]) => p.endsWith("web/package.json"))![1];
     expect(pkg).toContain("intl-messageformat");
   });
