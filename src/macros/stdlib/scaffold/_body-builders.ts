@@ -15,9 +15,11 @@
 // `scaffoldWorkflowsIndex` dashboards.  Each builds its FINAL body here — there
 // is no sentinel layer and no later expansion pass.
 
+import { AstUtils } from "langium";
 import type {
   Aggregate,
   Containment,
+  DerivedProp,
   EntityPart,
   Expression,
   Operation,
@@ -785,6 +787,24 @@ function buildDataCardParts(
     });
   }
 
+  // Derived values ride the read wire shape after the declared fields
+  // (`wireShape`: id, properties, containments, derived), so the loaded record
+  // carries them.  They render read-only, after the stored fields, typed like
+  // any other cell; a value-object / collection derived has no scalar cell
+  // and stays off the card, as a value-object property does on the list.
+  for (const d of derivedPropsOf(agg)) {
+    const kind = columnKindForType(d.type);
+    if (!kind) continue;
+    const name = String(d.name);
+    rows.push({
+      value: callExpr("KeyValueRow", [
+        { value: stringLit(humanize(name)) },
+        { value: typedCell(() => memberAccess(nameRefExpr(cellVar), name), kind) },
+        { name: "testid", value: stringLit(`${slug}-detail-${name}`) },
+      ]),
+    });
+  }
+
   const related: Expression[] = [];
   for (const c of agg.members.filter((m): m is Containment => m.$type === "Containment")) {
     const part = c.partType.ref;
@@ -1032,6 +1052,112 @@ function propertiesOf(members: readonly { $type: string }[]): Property[] {
   return members.filter((m): m is Property => m.$type === "Property");
 }
 
+function derivedPropsOf(agg: Aggregate): DerivedProp[] {
+  return agg.members.filter((m): m is DerivedProp => m.$type === "DerivedProp");
+}
+
+/** The most columns a scaffolded LIST shows beside its label column.  The list
+ *  is a scanning surface: past a handful of columns the table scrolls sideways
+ *  and the row stops reading as one record.  The Detail page keeps every
+ *  field, so capping here hides nothing that is not one click away. */
+const MAX_LIST_COLUMNS = 6;
+
+/** The capability-stamped audit fields a list leaves out.  `updatedAt` and the
+ *  two principal ids are bookkeeping — the principal id is not even navigable
+ *  (`kindForType`) — while `createdAt` stays, because "when was this opened" is
+ *  something a list is sorted and scanned by. */
+const AUDIT_LIST_HIDDEN: ReadonlySet<string> = new Set(["updatedAt", "createdBy", "updatedBy"]);
+
+/** The column that names a row and links to its Detail page.  `derived` says
+ *  whether it is a `derived` value (not a stored column, so not on the
+ *  server's `?sort=` whitelist) or a stored property. */
+export interface ListLabel {
+  name: string;
+  derived: boolean;
+  /** The one stored field a derived label reads (`display = name` → `name`),
+   *  which orders rows the same way the label does — so the label column sorts
+   *  by it.  Absent when the label reads zero or several fields. */
+  sortField?: string;
+  /** Whether the server's `?sort=` whitelist accepts `sortField`. */
+  sortFieldServerSortable?: boolean;
+}
+
+/** What a scaffolded list renders: the label column (when the aggregate has a
+ *  natural one) and the data columns beside it. */
+export interface ListShape {
+  label?: ListLabel;
+  columns: ScaffoldColumn[];
+}
+
+/** The scaffolded list's columns, derived from the aggregate alone.
+ *
+ *  - The LABEL is the aggregate's `derived display: string` — the name the
+ *    author already gave a record for every `X id` picker and reference
+ *    label.  The label cell links to the Detail page, so a list with a label
+ *    needs no raw-id column.  No `display` ⇒ the id column stays, since it is
+ *    then the only way into a row (guessing a label from the first string
+ *    field would as readily pick a foreign key as a name).
+ *  - The stored fields `display` reads directly are already on screen inside
+ *    the label, so they do not get a column of their own.
+ *  - The `auditable` bookkeeping fields in {@link AUDIT_LIST_HIDDEN} drop.
+ *  - At most {@link MAX_LIST_COLUMNS} data columns remain, in declaration
+ *    order. */
+export function listShapeForAggregate(agg: Aggregate): ListShape {
+  const label = listLabelFor(agg);
+  const caps = (agg as { [CAPABILITIES_TAG]?: string[] })[CAPABILITIES_TAG] ?? [];
+  const audited = caps.includes("auditable");
+  const shown = new Set<string>(label ? [label.name, ...labelReads(agg, label)] : []);
+  const props = userFacingProperties(agg).filter(
+    (p) =>
+      !shown.has(String(p.name)) &&
+      !(audited && p.access === "managed" && AUDIT_LIST_HIDDEN.has(String(p.name))),
+  );
+  return { label, columns: columnsFromProperties(props).slice(0, MAX_LIST_COLUMNS) };
+}
+
+function isPlainRequiredString(type: TypeRef): boolean {
+  return (
+    !type.array &&
+    !type.optional &&
+    (type.alternatives?.length ?? 0) === 0 &&
+    (type.ctors?.length ?? 0) === 0 &&
+    type.base.$type === "PrimitiveType" &&
+    type.base.name === "string"
+  );
+}
+
+function listLabelFor(agg: Aggregate): ListLabel | undefined {
+  const display = derivedPropsOf(agg).find(
+    (d) => d.name === "display" && isPlainRequiredString(d.type),
+  );
+  if (!display) return undefined;
+  const label: ListLabel = { name: "display", derived: true };
+  const reads = [...new Set(labelReads(agg, label))];
+  const only =
+    reads.length === 1 ? propertiesOf(agg.members).find((p) => p.name === reads[0]) : undefined;
+  return only
+    ? { ...label, sortField: String(only.name), sortFieldServerSortable: serverSortable(only) }
+    : label;
+}
+
+/** The property names a derived label's expression reads by bare name
+ *  (`number + " " + subject` → `number`, `subject`).  A stored label reads
+ *  only itself. */
+function labelReads(agg: Aggregate, label: ListLabel): string[] {
+  if (!label.derived) return [];
+  const d = derivedPropsOf(agg).find((x) => x.name === label.name);
+  if (!d) return [];
+  const props = new Set(propertiesOf(agg.members).map((p) => String(p.name)));
+  const out: string[] = [];
+  for (const node of AstUtils.streamAst(d.expr)) {
+    if (node.$type === "NameRef") {
+      const n = (node as { name?: unknown }).name;
+      if (typeof n === "string" && props.has(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
 /** The aggregate-root properties a scaffold LIST or DETAIL page may render.
  *  The API-read wire shape excludes `internal`/`secret`-access fields
  *  (`forApiRead`, src/ir/enrich/wire-projection.ts), so the client DTO never
@@ -1240,6 +1366,85 @@ export function listReadGateForAggregate(agg: Aggregate): Expression | undefined
   return undefined;
 }
 
+/** A parameterless list `find` the scaffold gives a page of its own — the
+ *  author's named view over the aggregate (`find mine(): Ticket[]`).  `gate` is
+ *  the find's own `requires` (the AUTHOR's node: clone before attaching). */
+export interface ViewFind {
+  name: string;
+  gate?: Expression;
+}
+
+/** The aggregate's parameterless list finds: declared on its repository,
+ *  returning a plain `<Agg>[]`, taking no parameters (a find with parameters
+ *  is a filter-bar arm on the List page instead), and not the `all` the List
+ *  page already reads.
+ *
+ *  The page copies the find's gate as its own `requires`, so the nav entry
+ *  shows exactly for the principals the route admits — which needs a gate the
+ *  browser can evaluate ({@link isClientEvaluableGate}).  A find whose gate is
+ *  outside that subset gets no page rather than one the page-gate check
+ *  (`loom.ui-gate-expr-unsupported` / `loom.page-gate-not-client-evaluable`)
+ *  refuses. */
+export function viewFindsForAggregate(agg: Aggregate): ViewFind[] {
+  const policies = new Set(
+    agg.$container.members.filter((m) => m.$type === "PolicyDecl").map((m) => String(m.name)),
+  );
+  const out: ViewFind[] = [];
+  for (const m of agg.$container.members) {
+    if (m.$type !== "Repository") continue;
+    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
+    for (const f of m.finds) {
+      if (f.name === "all" || f.params.length > 0) continue;
+      const rt = f.returnType;
+      if (!rt.array || rt.optional || (rt.ctors?.length ?? 0) > 0) continue;
+      if ((rt.alternatives?.length ?? 0) > 0) continue;
+      if (rt.base.$type !== "NamedType") continue;
+      const target = rt.base.target.ref?.name ?? rt.base.target.$refText;
+      if (target !== agg.name) continue;
+      if (f.gate && !isClientEvaluableGate(f.gate, policies)) continue;
+      out.push({ name: String(f.name), gate: f.gate });
+    }
+  }
+  return out;
+}
+
+/** AST node kinds a client page gate is built from: `currentUser` and its
+ *  claim chain, literals other than `null`, `.contains(…)` membership,
+ *  comparisons and boolean operators, `!`, parentheses and a ternary — the
+ *  subset every frontend gate renderer implements
+ *  (`src/generator/_frontend/gate-expr.ts` and its Feliz / Flutter twins).
+ *  Listed positively, so a construct this list does not know keeps the page
+ *  off rather than emitting a gate the renderers refuse. */
+const CLIENT_GATE_NODES: ReadonlySet<string> = new Set([
+  "BinaryChain",
+  "UnaryExpr",
+  "ParenExpr",
+  "TernaryExpr",
+  "PostfixChain",
+  "MemberSuffix",
+  "CallArg",
+  "NameRef",
+  "StringLit",
+  "IntLit",
+  "DecLit",
+  "BoolLit",
+]);
+
+/** Whether a `currentUser`-only gate can be copied onto a page as its
+ *  `requires`.  Beyond the node kinds in {@link CLIENT_GATE_NODES}: the only
+ *  call is `.contains(…)`, and no name may be a context `policy` — the page
+ *  lives in the `ui`, outside the context, and cannot resolve it. */
+function isClientEvaluableGate(gate: Expression, policies: ReadonlySet<string>): boolean {
+  for (const node of AstUtils.streamAst(gate)) {
+    if (!CLIENT_GATE_NODES.has(node.$type)) return false;
+    const n = node as { name?: unknown; member?: unknown; call?: unknown };
+    if (node.$type === "NameRef" && typeof n.name === "string" && policies.has(n.name))
+      return false;
+    if (node.$type === "MemberSuffix" && n.call && n.member !== "contains") return false;
+  }
+  return true;
+}
+
 export function filterFindsForAggregate(agg: Aggregate): FilterFind[] {
   const out: FilterFind[] = [];
   for (const m of agg.$container.members) {
@@ -1334,7 +1539,19 @@ export function filterStateFields(filters: readonly FilterFind[]): Array<string 
 export function scaffoldList(
   aggName: string,
   columns: readonly ScaffoldColumn[],
-  opts: { apiHandle?: string; filters?: readonly FilterFind[]; paged?: boolean } = {},
+  opts: {
+    apiHandle?: string;
+    filters?: readonly FilterFind[];
+    paged?: boolean;
+    /** The column that names each row and links to its Detail page, in place
+     *  of the raw-id column (`listShapeForAggregate`).  Absent ⇒ the id
+     *  column is the row's link. */
+    label?: ListLabel;
+    /** Render a parameterless list `find` instead of `all`: the page lists
+     *  exactly that find's rows (client-paged — a declared `T[]` find is an
+     *  unbounded array), with no filter bar, under `title`. */
+    view?: { find: string; title: string };
+  } = {},
 ): Expression {
   // Whether the aggregate's implicit `all` is the paged `Paged<T>` findAll
   // (M-T2.6).  Mirrors the enrichment-side exclusion in
@@ -1347,7 +1564,8 @@ export function scaffoldList(
   const humanPlural = humanize(plural(aggName));
   const humanLower = humanPlural.toLowerCase();
   const singular = humanize(aggName).toLowerCase();
-  const filters = opts.filters ?? [];
+  const view = opts.view;
+  const filters = view ? [] : (opts.filters ?? []);
 
   // `<api?>.<Agg>` query root, rebuilt per use — AST nodes can't be shared
   // across parents, and the filter `match` reads it once per arm + the `all`
@@ -1366,23 +1584,70 @@ export function scaffoldList(
   // the server refuses (M-T1.36 F4).  `field:` names the row property to sort
   // by (the accessor may wrap it — money/date cells — so it's passed
   // explicitly); the ID column sorts by `"id"`, always whitelisted.
+  const label = opts.label;
+  // The row's link column: the natural label as an `Anchor` to the Detail
+  // route when the aggregate has one, else the raw id.  A DERIVED label is not
+  // a stored column — the server cannot `?sort=` by it and a LiveView row (an
+  // Ecto struct) has no key for it — so it sorts by `labelSortField` instead.
+  // The row property the label column sorts by: a stored label sorts by
+  // itself; a derived label by the single field it reads, and on a
+  // server-paged list only when the server's `?sort=` whitelist accepts it.
+  const labelSortField = (serverPaged: boolean): string | undefined => {
+    if (!label) return undefined;
+    if (!label.derived) return label.name;
+    if (!label.sortField) return undefined;
+    return !serverPaged || label.sortFieldServerSortable ? label.sortField : undefined;
+  };
+  const linkColumn = (serverPaged: boolean): { name?: string; value: Expression } =>
+    label
+      ? {
+          value: callExpr("Column", [
+            // Headed by the field the label reads when there is exactly one
+            // (`display = name` → "Name"): the header names what a click
+            // sorts by.  A composite label is headed by the aggregate.
+            { value: stringLit(humanize(label.sortField ?? aggName)) },
+            {
+              value: lambda(
+                "o",
+                callExpr("Anchor", [
+                  { value: memberAccess(nameRefExpr("o"), label.name) },
+                  {
+                    name: "to",
+                    value: binaryExpr(
+                      stringLit(`/${slug}/`),
+                      "+",
+                      memberAccess(nameRefExpr("o"), "id"),
+                    ),
+                  },
+                ]),
+              ),
+            },
+            ...(labelSortField(serverPaged)
+              ? [
+                  { name: "sortable", value: boolLit(true) },
+                  { name: "field", value: stringLit(labelSortField(serverPaged) as string) },
+                ]
+              : []),
+          ]),
+        }
+      : {
+          value: callExpr("Column", [
+            { value: stringLit("ID") },
+            {
+              value: lambda(
+                "o",
+                callExpr("IdLink", [
+                  { value: memberAccess(nameRefExpr("o"), "id") },
+                  { name: "of", value: nameRefExpr(aggName) },
+                ]),
+              ),
+            },
+            { name: "sortable", value: boolLit(true) },
+            { name: "field", value: stringLit("id") },
+          ]),
+        };
   const makeCols = (serverPaged: boolean): Array<{ name?: string; value: Expression }> => [
-    {
-      value: callExpr("Column", [
-        { value: stringLit("ID") },
-        {
-          value: lambda(
-            "o",
-            callExpr("IdLink", [
-              { value: memberAccess(nameRefExpr("o"), "id") },
-              { name: "of", value: nameRefExpr(aggName) },
-            ]),
-          ),
-        },
-        { name: "sortable", value: boolLit(true) },
-        { name: "field", value: stringLit("id") },
-      ]),
-    },
+    linkColumn(serverPaged),
     ...columns.map((c) => ({
       value: callExpr("Column", [
         { value: stringLit(humanize(c.name)) },
@@ -1478,7 +1743,9 @@ export function scaffoldList(
   // list's filter block; the page-state fields the inputs bind
   // to are resolved by `filterStateFields`, attached by the page builder.
   const filterFields: Array<{ name?: string; value: Expression }> = [];
-  let listRegion: Expression = allView();
+  let listRegion: Expression = view
+    ? makeQueryView(memberAccess(queryRoot(), view.find, { call: true, args: [] }), false)
+    : allView();
   if (filters.length > 0) {
     for (const f of filters) {
       for (const p of f.params) {
@@ -1543,6 +1810,20 @@ export function scaffoldList(
       })),
       allView(),
     );
+  }
+
+  if (view) {
+    return callExpr("Stack", [
+      { value: breadcrumbs(humanPlural, slug, view.title) },
+      {
+        value: callExpr("Heading", [
+          { value: stringLit(view.title) },
+          { name: "level", value: intLit(2) },
+        ]),
+      },
+      { value: listRegion },
+      { name: "testid", value: stringLit(`${slug}-${snake(view.find)}-list`) },
+    ]);
   }
 
   return callExpr("Stack", [

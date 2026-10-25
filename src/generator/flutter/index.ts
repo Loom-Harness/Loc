@@ -584,37 +584,22 @@ function derivedResolvableOnPage(
   paramNames: ReadonlySet<string>,
   locals: ReadonlySet<string>,
 ): boolean {
-  if (e.kind === "id") return false; // route id — bound only when a read keys on it
-  if (e.kind === "ref") {
-    if (e.refKind === "lambda" || e.refKind === "enum-value" || e.refKind === "match-binding") {
-      return true;
-    }
-    // A store read hoists its own `ref.watch` local — see the doc comment.
-    if (e.refKind === "store-field" && e.storeName) return true;
-    return locals.has(e.name) || stateNames.has(e.name) || paramNames.has(e.name);
-  }
-  for (const v of Object.values(e)) {
-    if (Array.isArray(v)) {
-      for (const c of v) {
-        if (
-          c &&
-          typeof c === "object" &&
-          "kind" in c &&
-          !derivedResolvableOnPage(c as ExprIR, stateNames, paramNames, locals)
-        ) {
-          return false;
-        }
+  let resolvable = true;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "id") {
+      resolvable = false; // route id — bound only when a read keys on it
+    } else if (n.kind === "ref") {
+      if (n.refKind === "lambda" || n.refKind === "enum-value" || n.refKind === "match-binding") {
+        return;
       }
-    } else if (
-      v &&
-      typeof v === "object" &&
-      "kind" in v &&
-      !derivedResolvableOnPage(v as ExprIR, stateNames, paramNames, locals)
-    ) {
-      return false;
+      // A store read hoists its own `ref.watch` local — see the doc comment.
+      if (n.refKind === "store-field" && n.storeName) return;
+      if (!(locals.has(n.name) || stateNames.has(n.name) || paramNames.has(n.name))) {
+        resolvable = false;
+      }
     }
-  }
-  return true;
+  });
+  return resolvable;
 }
 
 /** One candidate `final <name> = <dart>;` per page `derived` binding, in

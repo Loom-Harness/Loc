@@ -59,7 +59,7 @@ describe("angular menu-link gate", () => {
     expect(shell).toContain('import { SessionService } from "./auth/session.service";');
     expect(shell).toContain("readonly session = inject(SessionService);");
     expect(shell).toContain(
-      "get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
     // Secret (gated) link is wrapped; Public (ungated) link is not.
     expect(shell).toContain('@if (currentUser.role === "manager") { <a mat-list-item');

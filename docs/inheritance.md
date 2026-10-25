@@ -81,7 +81,7 @@ as soon as the reader is routed. Both layouts now delegate.
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
-| `phoenix` (Ecto) | the context module gains `list_<bases>/0` = the union of the concrete `list_<concrete>/0` reads; the base emits no Ecto schema |
+| `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
 
@@ -152,6 +152,37 @@ If the key must be unique across the whole hierarchy, use `inheritanceUsing:
 sharedTable`. A concrete's own `unique (…)` keys stay as they are, and a
 concrete that redeclares the same column list does not get a second copy. Before
 this, a TPC base's keys reached no table, so no backend enforced them.
+
+### A key declared on a TPH concrete
+
+A `unique (…)` that a `sharedTable` **concrete** declares itself is an index on
+the shared table, partial on the concrete's `kind` discriminator, and named
+with it (`<table>_<kind>_<cols>_uq`):
+
+```ddd
+abstract aggregate Machine inheritanceUsing: sharedTable { serial: string  unique (serial) }
+aggregate Lathe extends Machine with crudish { model: string  unique (model) }
+aggregate Press extends Machine with crudish { model: string }
+```
+```sql
+CREATE UNIQUE INDEX "machines_serial_uq" ON "floor"."machines" ("serial");
+CREATE UNIQUE INDEX "machines_lathe_model_uq" ON "floor"."machines" ("model") WHERE kind = 'Lathe';
+```
+
+A second Lathe with the same `model` answers 409 on every backend (the Ecto
+changeset names the scoped index). A `Press` may reuse a Lathe's `model`.
+
+The index is partial because the table, and any column two concretes both
+declare, is shared. `Lathe.model` and `Press.model` are the same `model`
+column, so a full index would also refuse a Press whose model matches a
+Lathe's, and nobody declared that constraint. `WHERE kind = 'Lathe'` limits the
+index to the rows the declaration covers. A key declared on the **base** stays a
+full index, because the base declared it for the whole hierarchy. (On a
+`softDeletable` hierarchy the predicate gains `AND is_deleted = false`.)
+
+Before this, only the base's keys were read, so a concrete's own key reached no
+index and a duplicate answered 201. The migration-evolution tier checks both
+the 409 and the cross-concrete 201 on all five SQL backends.
 
 ## Validation rules
 

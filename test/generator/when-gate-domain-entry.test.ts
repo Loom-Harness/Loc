@@ -82,7 +82,8 @@ ${WORKFLOW}
 
 /** The refusal detail — one derived rule, byte-identical on all five
  *  (`domain-denial-detail-parity.test.ts` pins that half). */
-const DETAIL = "operation 'cancel' is not allowed in the current state of Order.";
+const DETAIL =
+  "operation 'cancel' is not allowed in the current state of Order (when this.status != St.Shipped && this.status != St.Cancelled).";
 
 /** Per-backend: where the DOMAIN method lives, where the WORKFLOW STEP that
  *  calls it lives, and the call the step makes. */

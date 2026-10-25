@@ -1097,9 +1097,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   if (needsSession) {
     imports.push('import { SessionService } from "../auth/session.service";');
     members.push("  readonly session = inject(SessionService);");
-    members.push(
-      "  get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
-    );
+    members.push("  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }");
   }
   // Page-level `requires` UI gate: wrap the body in an `@if (<gate>) { … }
   // @else { … }` rendering a Forbidden fallback when the gate fails (the client
@@ -1236,7 +1234,7 @@ export function renderAngularPageStub(page: PageIR, nameCtx: PageNameCtx, authUi
       "})",
       `export class ${className} {`,
       "  readonly session = inject(SessionService);",
-      "  get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
       "}",
       "",
     ].join("\n");
