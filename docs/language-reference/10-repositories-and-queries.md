@@ -2,7 +2,7 @@
 
 Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -90,6 +90,28 @@ end
 ::: end
 
 The comparison binds **one column against one value** (a parameter, literal, or enum value) on every backend — that constraint is what makes the clause selectable, and it is enforced (see the queryable subset below).
+
+### A find without `where` — key lookup by parameter name
+
+A find with no `where` filters on the fields its parameters name: each parameter
+equals the field of the same name, or the field whose `<field>Id` spelling it is
+(`siteId` → `site`). The pairing is resolved once in enrichment and stored on
+the find, so every backend filters on the same keys. A parameter that names no
+field is refused (`loom.find-param-unbound`) — it would otherwise be dropped
+from the query, and the find would answer every lookup with an arbitrary row.
+
+```ddd
+repository Products for Product {
+  find bySku(sku: string): Product?     // ≡ where this.sku == sku
+  find bySkuOops(s: string): Product?   // loom.find-param-unbound: 's' names no field
+}
+```
+
+```ts
+// node — product-repository.ts
+async bySku(sku: string): Promise<Product | null> {
+  const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).limit(1);
+```
 
 ### List finds are deprecated
 

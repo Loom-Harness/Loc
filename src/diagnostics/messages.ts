@@ -1338,6 +1338,17 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
+  "loom.find-param-unbound": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    aggName: unknown;
+  }) =>
+    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
+    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
+    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
+    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
+    `'where' clause that uses it.`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {

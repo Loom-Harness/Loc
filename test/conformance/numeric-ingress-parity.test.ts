@@ -90,7 +90,7 @@ system Ing {
         operation reprice(newPrice: money, newQty: int) { price := newPrice qty := newQty }
       }
       repository Products for Product {
-        find byPrice(p: money): Product[]
+        find byPrice(p: money): Product[] where this.price >= p
       }
     }
   }

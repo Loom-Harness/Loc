@@ -82,6 +82,7 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { bindFindParams } from "./find-param-bindings.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -977,13 +978,16 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizePagedQueryHandlerFinds(
-    // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-    // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
-    ctx.queryHandlers,
-    ctx.criteria,
-    ctx.retrievals,
+  const repositories = bindFindParams(
+    synthesizePagedQueryHandlerFinds(
+      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+      ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+      ctx.queryHandlers,
+      ctx.criteria,
+      ctx.retrievals,
+    ),
+    aggregates,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
