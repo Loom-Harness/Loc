@@ -45,7 +45,7 @@
 // class substantially; it does not close it for all five.
 
 import { describe, expect, it } from "vitest";
-import { dddSourceOf, trackedDddFiles, UNPARSEABLE_DDD } from "../_helpers/ddd-corpus.js";
+import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import {
   byDeployable,
@@ -56,7 +56,7 @@ import {
 
 /** Every tracked `.ddd` bar the one that is a design document wearing a `.ddd`
  *  extension (pinned, with the reasoning, by `ddd-source-census.test.ts`). */
-const CORPUS = trackedDddFiles().filter((f) => f !== UNPARSEABLE_DDD);
+const CORPUS = trackedDddFiles();
 
 /** A `.ddd` that generation legitimately refuses — a fixture written to BE
  *  invalid, or one whose `import` graph only resolves as part of a multi-file
