@@ -22,6 +22,7 @@ import {
 } from "../_expr/target.js";
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,8 @@ export function renderPyNegatedGuard(e: ExprIR, ctx: PyRenderContext = DEFAULT):
 function renderPyConvert(target: string, from: string | undefined, v: string): string {
   if (target === "string") {
     if (from === "datetime") return `${v}.isoformat()`;
+    // `date.isoformat()` is `YYYY-MM-DD` — the calendar-date wire form.
+    if (from === "date") return `${v}.isoformat()`;
     return `str(${v})`;
   }
   if (target === "long") {
@@ -372,8 +375,8 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "string.trim": (recv) => `${recv}.strip()`,
   "string.toUpper": (recv) => `${recv}.upper()`,
   "string.toLower": (recv) => `${recv}.lower()`,
-  // 0-based clamping semantics = JS slice (see the catalogue contract);
-  // Python slicing clamps natively.  Space around the slice colon is the
+  // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
+  // contract) — Python slicing is all three natively.  Space around the slice colon is the
   // black/ruff-format style for non-trivial slice operands.
   "string.substring": (recv, args) =>
     args.length > 1 ? `${recv}[${args[0]} : (${args[0]}) + (${args[1]})]` : `${recv}[${args[0]} :]`,
@@ -437,6 +440,14 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // offset before the fields are zeroed.
   "datetime.startOfDay": (recv) =>
     `${recv}.astimezone(${PY.UTC}).replace(hour=0, minute=0, second=0, microsecond=0)`,
+  // The UTC calendar date of the (tz-aware) instant.
+  "datetime.toDate": (recv) => `${recv}.astimezone(${PY.UTC}).date()`,
+  // ---- date — `datetime.date`; subtracting two dates is a `timedelta` whose
+  // `.days` is the exact signed whole-day distance.
+  "date.year": (recv) => `${recv}.year`,
+  "date.month": (recv) => `${recv}.month`,
+  "date.day": (recv) => `${recv}.day`,
+  "date.daysUntil": (recv, args) => `((${args[0]}) - (${recv})).days`,
 };
 
 function renderMethodCall(
@@ -914,6 +925,10 @@ const PY_TYPE_TARGET: TypeTarget = {
         return "bool";
       case "datetime":
         return PY.datetime;
+      case "date":
+        // `datetime.date`, imported under an alias (`calendar-date.ts`) so a
+        // field or parameter NAMED `date` cannot shadow its own annotation.
+        return PY_CALENDAR_DATE;
       case "json":
         return "object";
       case "File":

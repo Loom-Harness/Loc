@@ -40,6 +40,16 @@ function asMigrationStmt(rendered: string): string {
   return rendered.replace("_log.", "migrationLog.");
 }
 
+/** The `error` field of the boot `migration_failed` line.  A failing
+ *  migration statement surfaces as an Npgsql `PostgresException` (directly or
+ *  one level wrapped); its SQLSTATE, server message and constraint name say
+ *  WHICH statement broke and why, so they are spelled out rather than left to
+ *  the stack trace.  `Detail` is included as-is: Npgsql redacts it unless the
+ *  connection string opts into `Include Error Detail`, and the redaction notice
+ *  names that switch. */
+const DOTNET_MIGRATION_ERROR_EXPR =
+  '(migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message';
+
 /** The boot-time DB-connect wait (`BOOT_DB_RETRY`, eval item #24) — a
  *  top-level local function in Program.cs.  It retries the caller's connect
  *  probe with capped exponential backoff while Npgsql reports the failure as
@@ -999,6 +1009,10 @@ builder.Services.AddControllers(opts =>
         new ${ns}.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new ${ns}.Serialization.CanonicalInstantOffsetJsonConverter());
+    // An int literal past Int32 names itself (RS-42), so ValidationProblem
+    // answers it as a 422 at the field instead of a 400 for the body.
+    opts.JsonSerializerOptions.Converters.Add(
+        new ${ns}.Serialization.Int32RangeJsonConverter());
 });
 
 // Model binding + DataAnnotations run BEFORE any controller action, so a
@@ -1210,7 +1224,7 @@ using (var migrationScope = app.Services.CreateScope())
     {
         ${asMigrationStmt(
           renderDotnetLogCallWithException("migrationFailed", "migrationError", [
-            { name: "error", valueExpr: "migrationError.Message" },
+            { name: "error", valueExpr: DOTNET_MIGRATION_ERROR_EXPR },
           ]),
         )}
         throw;
@@ -1572,6 +1586,11 @@ export function renderCsproj(
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
          hand-written libraries, not a mapped domain model.
+         CA1716: a type or member named after a keyword of ANOTHER .NET
+         language (\`Event\`, \`Module\`, \`Property\` are Visual Basic
+         keywords).  The same bargain as CA1711: \`aggregate Event\` is a
+         domain noun the generator neither chooses nor may rename, and C#
+         consumers — the only ones this project has — are unaffected.
          CA1720: "identifier contains type name" — the same bargain for MEMBER
          names.  A field \`Guid: string\` or \`single: bool\` (→ \`Single\`)
          is legal .ddd on every backend, and its C# property name

@@ -16,6 +16,7 @@ import { elixirCodePointLength } from "../../_expr/code-point.js";
 import {
   coerceMatcherExpected,
   coerceTestLiteral,
+  decideLiteralCoercion,
   matcherSubjectType,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
@@ -37,6 +38,7 @@ import { isValueObjectType, renderValueObjectEquality } from "./value-object-typ
 const EX_TEST_LITERAL: TestLiteralTarget = {
   id: (rendered) => rendered,
   datetime: (rendered) => `elem(DateTime.from_iso8601(${rendered}), 1)`,
+  date: (rendered) => `Date.from_iso8601!(${rendered})`,
 };
 
 // ---------------------------------------------------------------------------
@@ -348,8 +350,15 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
   // compared as instants.  `DateTime.compare/2` raises on a binary, so a value
   // STORED as the raw string fails the assertion instead of equalling it.
+  // A `date` subject compares by `Date.compare/2` on the same footing.
   const dt = coerceMatcherExpected(expr, expected, EX_TEST_LITERAL);
-  if (dt !== undefined) return verb(`DateTime.compare(${actual}, ${dt}) == :eq`);
+  if (dt !== undefined) {
+    const mod =
+      expr.args[0] && decideLiteralCoercion(matcherSubjectType(expr), expr.args[0]).kind === "date"
+        ? "Date"
+        : "DateTime";
+    return verb(`${mod}.compare(${actual}, ${dt}) == :eq`);
+  }
 
   // `toBe(nil)`-shaped asserts keep the native operator.
   const nullArg = arg?.kind === "literal" && arg.lit === "null";

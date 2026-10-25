@@ -40,7 +40,7 @@ describe("other-language type spellings", () => {
   it("`boolean` suggests `bool` and keeps the long field-type tail", async () => {
     const m = (await messages(sys("done: boolean"))).find((x) => x.includes("'boolean'"));
     expect(m).toContain("Unknown type 'boolean'. Did you mean 'bool'?");
-    expect(m).toContain("Field types are: bool, datetime");
+    expect(m).toContain("Field types are: bool, date, datetime");
   });
 
   it("an ambiguous spelling offers both readings", async () => {
@@ -56,6 +56,7 @@ describe("other-language type spellings", () => {
     ["uuid", "guid"],
     ["timestamp", "datetime"],
     ["DateTime", "datetime"],
+    ["LocalDate", "date"],
     ["double", "decimal"],
     ["bigint", "long"],
     ["object", "json"],

@@ -50,7 +50,9 @@ expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
 `return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
 `extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
 `true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`,
+type names `int long decimal money string bool datetime guid json File`
+(`date` is a primitive type name too, but a SOFT one — a field may still be
+named `date`),
 plus the system-level heads — `system`, `subdomain`, `deployable`,
 `storage`, `api`, `ui`, `component`, `theme`, `user`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
@@ -447,13 +449,13 @@ Inside an aggregate or an `entity` part:
 | `derived display: string = Expression` | **Reserved** — declares the aggregate's user-facing label.  When present, `string(aggregate)` and implicit `"x " + aggregate` compile to a member access on this derived; React Select pickers use it for option text.  Without it, those expressions are compile errors. |
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
 | `[private] invariant Expression [when Expression] [message "…"]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; `message` is the user-facing text (also the i18n key). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
-| `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`). |
+| `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
 | `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] [{ … }]` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  The body is optional: `create(title: string)` is the same declaration as `create(title: string) { }` (likewise a workflow starter).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
@@ -574,6 +576,36 @@ aggregate Account persistedAs: eventLog {
   apply(e: Opened) { owner := e.owner  balance := 0 }   // fold (initialises)
   apply(e: Deposited) { balance := balance + e.amount }   // fold
 }
+```
+
+- **The stream is the concurrency control (expected-version appends).** A
+  loaded handle remembers the stream version it was folded to, and its save
+  appends the versions *after* that one. If another append landed in between,
+  the first re-used version collides with the `(stream_type, stream_id,
+  version)` key and the save answers the optimistic-concurrency 409
+  ([RS-40](conformance-semantics.md) sentence, [RS-41](conformance-semantics.md)
+  rule). A decision taken on a stale fold is never kept. That is why
+  `versioned` is not spliced onto an event-sourced aggregate. One handle
+  changed twice does not conflict with itself.
+
+```
+workflow withdrawTwice transactional {
+  create(a: Account id, amount: int) {
+    let first = Accounts.getById(a)
+    let second = Accounts.getById(a)
+    first.withdraw(amount)
+    second.withdraw(amount)   // stale fold → 409, neither withdrawal kept
+  }
+}
+```
+
+```ts
+// node — AccountRepository.save (excerpt)
+let version = aggregate._streamVersion;          // the version this handle folded
+const rows = pending.map((event) => ({ …, version: ++version, … }));
+try { await this.db.insert(schema.ledgerEvents).values(rows); }
+catch (err) { if (/* 23505 */) throw new ConcurrencyError("Account", aggregate.id); throw err; }
+aggregate._streamVersion = version;
 ```
 
 Storage emission ships on **node, .NET, Python, Java, and Phoenix** (plain
@@ -881,7 +913,7 @@ BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | Name
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
 SelfType      = 'Self'                         // the host aggregate, inside a capability
-PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File'
+PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
 // `money("10.50")` — the precise-decimal literal — has no rule of its own: it
@@ -1188,7 +1220,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   `{at, date}` / `{at, time}`, `{n, plural, one {# item} other {# items}}`,
   `{n, selectordinal, …}`, `{kind, select, a {…} other {…}}`.  An unknown
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
-  type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
+  type (a `date` on anything but a `datetime` or `date`, a `time` on a
+  non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
@@ -1271,6 +1304,13 @@ width per unit — no calendar-relative `months` / `years`):
 - everything else (`duration ÷ x`, `datetime × …`, mixing with a
   non-`int` numeric) is rejected.
 
+A calendar `date` stays outside this algebra: two dates compare, and
+`a.daysUntil(b)` / `.year()` / `.month()` / `.day()` / `datetime.toDate()` /
+`today()` cover the rest — see
+[the type-system chapter](language-reference/04-type-system.md#date--a-calendar-day).
+There is no `time` (time-of-day) type, by decision: without a date it has no
+ordering across a daylight-saving change.
+
 ```ddd
 aggregate Invoice {
   issuedAt: datetime
@@ -1286,7 +1326,10 @@ get overdue(): boolean { return new Date() > this.dueAt; }
 ```
 
 There is no `duration` field type on the wire — it lives only in
-expressions (and as the `every:` cadence of a `timerSource`).
+expressions (and as the `every:` cadence of a `timerSource`).  Written as a
+field, parameter or return type it is refused with that explanation; carry
+the amount as an `int` in a fixed unit (`function slaHours(p: Priority): int`)
+and build the duration where it is used (`openedAt + hours(slaHours(priority))`).
 
 ### `money` — precise decimal, distinct from `decimal`
 
@@ -1353,7 +1396,7 @@ decimal`.
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
 | `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
-| `for x in Repo.run(R(args)) { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)). |
+| `let xs = Repo.run(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.run(...)` result; iterating the call inline (`for x in Repo.run(...)`) is refused with `loom.workflow-foreach-source`. |
 | `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result and branch on presence. |
 | `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on node / dotnet / java / python.**  Refused with `loom.elixir-if-stmt-unsupported` when an elixir deployable hosts the context (a Phoenix body threads its result through a rebound `record`, and an Elixir `if` block's bindings do not escape it), and with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
 
@@ -1951,11 +1994,15 @@ by the queryable-subset validator.
 
 `findById` and `getById` are auto-generated for every aggregate
 (no need to declare them in the repository).  An auto-included
-`find all(): T[]` is also added to every aggregate's repository, so
+`find all(): T paged` is also added to every aggregate's repository (a bare
+`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends`
+subtype aggregate, whose rows cannot page), so
 all five backends always expose `GET /<plural>` and every frontend
 (react, vue, svelte, angular, feliz, flutter) always has a list page to
 render.  Declaring your own `find all(...)` in the DSL overrides the
-implicit one.
+implicit one, and its declared return type is the wire contract: write
+`find all(): T paged requires <expr>` to gate the list and keep the
+`Paged<T>` envelope; `find all(): T[]` answers a bare JSON array.
 
 **Absence, in a body.**  `getById` and a find declared `: T` load a single
 row and answer the declared **404** when it is not there — on the GET route,

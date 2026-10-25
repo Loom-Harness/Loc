@@ -27,7 +27,6 @@ system FieldOps {
         find byRegionAndRef(region: string, reference: string): WorkOrder[]
         find bySite(siteId: Site id): WorkOrder[]
         find inRegion(region: string): WorkOrder paged
-        find tagged(tag: string): WorkOrder[]
         find explicitRef(r: string): WorkOrder? where this.reference == r
       }
       aggregate Note shape: document {
@@ -85,9 +84,8 @@ describe("java — a clause-less find applies its implicit key-match filter (N2)
     );
   });
 
-  it("JPA: a param naming no field adds no conjunct; an explicit where is untouched", async () => {
+  it("JPA: an explicit where is untouched", async () => {
     const jpa = await file("workorders/WorkOrderJpaRepository.java");
-    expect(jpa).toContain(`@Query("select e from WorkOrder e")\n    List<WorkOrder> tagged(`);
     expect(jpa).toContain(
       `@Query("select e from WorkOrder e where e.reference = :r")\n    WorkOrder explicitRef(`,
     );

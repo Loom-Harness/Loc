@@ -1655,6 +1655,26 @@ describe("A8.3 — destructive-change gate", () => {
     expect(allowed.some((s) => s.op === "alterColumnType")).toBe(true);
   });
 
+  // `datetime → date` drops the time-of-day (and, cast in the session zone, can
+  // move the day), so the narrowing is destructive like any type change: gated
+  // without --allow-destructive, and emitted as `TYPE DATE USING col::DATE`.
+  it("gates a datetime → date narrowing behind --allow-destructive and renders DATE", () => {
+    const at = (kind: "datetime" | "date") => ({
+      schemaVersion: 1 as const,
+      tables: [tbl("patients", [idCol, { name: "born", type: { kind }, nullable: false }])],
+    });
+    const prev = at("datetime");
+    const raw = diffSchema(prev, at("date"));
+    const step = raw.find((s) => s.op === "alterColumnType");
+    expect(step).toBeDefined();
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "M" }),
+    ).toThrow(MigrationDestructiveError);
+    const allowed = applyDestructivePolicy(raw, prev, { allowDestructive: true, module: "M" });
+    const sql = allowed.map((s) => renderPgStep(s)).join("\n");
+    expect(sql).toContain(`ALTER COLUMN "born" TYPE DATE USING "born"::DATE`);
+  });
+
   it("blocks a NOT-NULL add without a default on an existing table unless allowed", () => {
     const prev = { schemaVersion: 1 as const, tables: [tbl("orders", [idCol])] };
     const next = {
@@ -2060,6 +2080,108 @@ migration "fixup" { sql "UPDATE orders SET status = 'x' WHERE status IS NULL" }
     })[0]!;
     expect(gen2.steps).toEqual([]);
     expect(gen2.next.appliedDataMigrations).toEqual(["fixup#0"]);
+  });
+});
+
+// A `migration` block stays in the source after it has done its work.  Once
+// every step is reflected in the baseline snapshot — renames and backfills in
+// the schema, sql steps in the applied ledger — it is inert, and the builder
+// says so as a suggestion (never a warning, never a refusal).  It must stay
+// silent while any step still has work to do, including the generation that
+// runs it.
+describe("buildMigrations — a spent migration block is announced (loom.migration-block-applied)", () => {
+  const V1 = `
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Order { quantity: int  status: string  note: string? }
+      repository Orders for Order { }
+    }
+  }
+  deployable api { platform: node, contexts: [Orders], port: 3000 }
+}
+`;
+  const V2 = `
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Order { quantity: int  state: string  note: string  placedAt: datetime }
+      repository Orders for Order { }
+    }
+  }
+  deployable api { platform: node, contexts: [Orders], port: 3000 }
+}
+migration "evolve" {
+  Order.status -> state
+  Order.note = ""
+  Order.placedAt = now()
+  sql "UPDATE orders SET state = lower(state)"
+}
+`;
+  async function gen(src: string, baseline: SchemaSnapshot | null) {
+    const loom = await buildLoomModel(src);
+    const warnings: MigrationWarning[] = [];
+    const out = buildMigrations(
+      loom.systems[0]!,
+      memorySnapshotStore(baseline ? { Sales: baseline } : {}),
+      {
+        renameIntents: loom.renameIntents,
+        tableRenameIntents: loom.tableRenameIntents,
+        backfillIntents: loom.backfillIntents,
+        sqlSteps: loom.sqlMigrationSteps,
+        warnings,
+      },
+    )[0]!;
+    return { out, warnings };
+  }
+  async function v1Baseline(): Promise<SchemaSnapshot> {
+    const loom = await buildLoomModel(V1);
+    return { ...schemaFromModule(loom.systems[0]!.subdomains[0]!), lastVersion: BASE_TIMESTAMP };
+  }
+
+  it("is silent the generation the block runs, and suggests removal on the next", async () => {
+    const g1 = await gen(V2, await v1Baseline());
+    // Sanity: the block really did its work in this generation (rename, the
+    // NULL → NOT NULL flip's UPDATE, the add's UPDATE, the sql step).
+    expect(g1.out.steps.map((s) => s.op)).toContain("renameColumn");
+    expect(g1.out.steps.filter((s) => s.op === "backfillColumn")).toHaveLength(2);
+    expect(g1.out.steps.map((s) => s.op)).toContain("sqlExec");
+    expect(g1.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
+
+    const g2 = await gen(V2, g1.out.next);
+    expect(g2.out.steps).toEqual([]);
+    const applied = g2.warnings.filter((w) => w.code === "loom.migration-block-applied");
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.severity).toBe("suggestion");
+    expect(applied[0]!.message).toContain('migration "evolve" is fully applied');
+    expect(applied[0]!.module).toBe("Sales");
+  });
+
+  it("stays silent while one step is still unapplied (an unledgered sql step)", async () => {
+    const g1 = await gen(V2, await v1Baseline());
+    // Forget the sql step's ledger entry: the schema is migrated, the data fix
+    // is not, so the block still has work to do.
+    const g2 = await gen(V2, { ...g1.out.next, appliedDataMigrations: [] });
+    expect(g2.out.steps.map((s) => s.op)).toEqual(["sqlExec"]);
+    expect(g2.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
+  });
+
+  it("a NULL → NOT NULL flip's backfill is live the generation it runs", async () => {
+    // The column is already in the baseline, so "the column exists" alone
+    // would call this block spent while its UPDATE is in this very migration.
+    const FLIP = V1.replace("note: string?", "note: string").concat(
+      `migration "flip" { Order.note = "" }\n`,
+    );
+    const g1 = await gen(FLIP, await v1Baseline());
+    expect(g1.out.steps.map((s) => s.op)).toEqual(["backfillColumn", "alterColumnNullable"]);
+    expect(g1.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
+    const g2 = await gen(FLIP, g1.out.next);
+    expect(g2.warnings.map((w) => w.code)).toContain("loom.migration-block-applied");
+  });
+
+  it("stays silent on a first run — there is no baseline to judge against", async () => {
+    const g = await gen(V2, null);
+    expect(g.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
   });
 });
 
@@ -2758,6 +2880,40 @@ ${extra}
       `ALTER TABLE "as" ALTER COLUMN "tier" DROP DEFAULT;`,
       `ALTER TABLE "as" ALTER COLUMN "note" DROP DEFAULT;`,
     ]);
+  });
+
+  it("a NOT NULL value collection adds empty — no flag, no TODO, on every backend", async () => {
+    // A collection's empty value is derivable from the column type alone, so
+    // `tags: string[]` on a populated table rides the same add-WITH-DEFAULT →
+    // DROP DEFAULT pair instead of the add-nullable / TODO / SET NOT NULL
+    // sequence that is guaranteed to fail on the first existing row.
+    const withColl = src("name: string  tags: string[]  tiers: Tier[]");
+    const prev = await snapOf(BASE);
+    const raw = diffSchema(prev, await snapOf(withColl));
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "S" }),
+    ).not.toThrow();
+    const steps = await evolve(BASE, withColl);
+    expect(steps.some((s) => s.op === "sqlComment")).toBe(false);
+    expect(steps.map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT '{}';`,
+      `ALTER TABLE "as" ALTER COLUMN "tags" DROP DEFAULT;`,
+      `ALTER TABLE "as" ADD COLUMN "tiers" TEXT[] NOT NULL DEFAULT '{}';`,
+      `ALTER TABLE "as" ALTER COLUMN "tiers" DROP DEFAULT;`,
+    ]);
+    // Phoenix renders the add itself; the SQL string literal reaches Ecto
+    // through `fragment/1`, never as an Elixir charlist.
+    expect(renderEctoStep(steps[0]!).join("\n")).toContain(
+      `add :tags, {:array, :text}, null: false, default: fragment("'{}'")`,
+    );
+    // The derived default never reaches the snapshot or a CREATE TABLE.
+    const create = diffSchema(null, await snapOf(withColl)).find((s) => s.op === "createTable");
+    expect(renderPgStep(create!)).not.toContain("'{}'");
+  });
+
+  it("an optional collection is added nullable, with no derived default", async () => {
+    const steps = await evolve(BASE, src("name: string  tags: string[]?"));
+    expect(steps.map(renderPgStep)).toEqual([`ALTER TABLE "as" ADD COLUMN "tags" TEXT[] NULL;`]);
   });
 
   it("a non-literal default stays out — `now()` still trips the gate", async () => {

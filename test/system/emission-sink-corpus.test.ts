@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EmissionClobberError } from "../../src/util/emission-sink.js";
-import { REPO_ROOT, trackedDddFiles, UNPARSEABLE_DDD } from "../_helpers/ddd-corpus.js";
+import { REPO_ROOT, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { BACKENDS, PLATFORM_CLAUSE } from "../fixtures/corpus/backends.js";
 
@@ -40,7 +40,6 @@ interface Case {
 function cases(): Case[] {
   const out: Case[] = [];
   for (const ddd of trackedDddFiles()) {
-    if (ddd === UNPARSEABLE_DDD) continue;
     const text = readFileSync(resolve(REPO_ROOT, ddd), "utf8");
     if (!text.includes("__PLATFORM__")) {
       out.push({ label: ddd, source: text });

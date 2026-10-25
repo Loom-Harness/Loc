@@ -26,6 +26,7 @@
       "body": [
         {
           "attempts": 0,
+          "credit": "9.5000",
           "orderId": "<volatile:key>",
           "retries": 1,
           "status": "Pending"
@@ -39,6 +40,7 @@
       "status": 200,
       "body": {
         "attempts": 0,
+        "credit": "9.5000",
         "orderId": "<volatile:key>",
         "retries": 1,
         "status": "Pending"
@@ -58,6 +60,7 @@
       "status": 200,
       "body": {
         "attempts": 1,
+        "credit": "7.0000",
         "orderId": "<volatile:key>",
         "retries": 2,
         "status": "Shipped"
@@ -89,6 +92,7 @@
       "status": 200,
       "body": {
         "attempts": 1,
+        "credit": "7.0000",
         "orderId": "<volatile:key>",
         "retries": 2,
         "status": "Shipped"
@@ -167,6 +171,7 @@
       "body": [
         {
           "attempts": 1,
+          "credit": "7.0000",
           "orderId": "<volatile:key>",
           "retries": 2,
           "status": "Shipped"

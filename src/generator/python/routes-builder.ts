@@ -36,7 +36,9 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
@@ -90,6 +92,7 @@ import { PY_NUMERIC } from "./numeric-codec.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
+import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
 
 // The symbols a routes module references, as `ref()` markers — the module's
 // import block derives from the ones that survive into its text (M-T9.84).
@@ -735,25 +738,10 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
 
 // --- lifecycle stamps -----------------------------------------------------------
 
-/** The stamp assignments for one lifecycle event (create / update). */
-function stampRules(agg: EnrichedAggregateIR, event: "create" | "update") {
-  return (agg.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments);
-}
-
-/** Whether this aggregate carries a lifecycle stamp for `event`. */
-function hasStamp(agg: EnrichedAggregateIR, event: "create" | "update"): boolean {
-  return stampRules(agg, event).length > 0;
-}
-
-/** Whether the `event` stamp references the request principal (so the route
- *  must thread `current_user` into the stamp call). */
-function stampUsesUser(agg: EnrichedAggregateIR, event: "create" | "update"): boolean {
-  return stampRules(agg, event).some((a) => exprUsesCurrentUser(a.value));
-}
-
 /** The `<var>._stamp_on_<event>([current_user])` call line — emitted right
- *  before the repository persist (parity with Java's service stamp call). */
-function stampCall(agg: EnrichedAggregateIR, event: "create" | "update", varName: string): string {
+ *  before the repository persist (parity with Java's service stamp call).
+ *  The in-process save sites use `pyStampedSaveLines` (`stamp-call.ts`). */
+function stampCall(agg: EnrichedAggregateIR, event: StampEvent, varName: string): string {
   return `    ${varName}._stamp_on_${event}(${stampUsesUser(agg, event) ? "current_user" : ""})`;
 }
 
@@ -781,7 +769,7 @@ function createRoute(
   ctx: EnrichedBoundedContextIR,
   apiOp: ApiOperationIR,
 ): string {
-  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : agg.canonicalCreate;
+  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : canonicalCreate(agg);
   const auditCreate = !!createAction?.audited;
   const esCreate = agg.persistedAs === "eventLog" ? agg.creates?.[0] : undefined;
   if (esCreate) {
@@ -833,7 +821,7 @@ function createRoute(
   // principal the stamps and `currentUser.*` defaults do — one binding serves
   // all three (a second `current_user: User = …` would be a redefinition ruff
   // flags).
-  const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
+  const gateUsesPrincipal = lifecycleGatesUseCurrentUser(canonicalCreate(agg));
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
     pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
@@ -846,7 +834,7 @@ function createRoute(
     bindPrincipal ? PY_USER_BIND : null,
     // BEFORE the factory: a denied create must construct nothing (and, when
     // audited, stage nothing).
-    ...lifecycleGate(agg.canonicalCreate),
+    ...lifecycleGate(canonicalCreate(agg)),
     `    created = ${aggClassRef(agg.name)}.create(${args})`,
     hasStamp(agg, "create") ? stampCall(agg, "create", "created") : null,
     auditCreate ? "    repo = _repo(session)" : null,
@@ -976,7 +964,7 @@ function historyRoute(
     // non-raising getter: there, absence means "drop the entry".
     gateUsesUser ? `    current_user_ = ${H.require_current_user}()` : null,
     find.requires
-      ? `    if ${renderPyNegatedGuard(find.requires, { thisName: "self", currentUserExpr: "current_user_" })}:\n        raise ${PY.ForbiddenError}("Forbidden")`
+      ? `    if ${renderPyNegatedGuard(find.requires, { thisName: "self", currentUserExpr: "current_user_" })}:\n        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${find.name}`)})`
       : null,
     // (2) — reachability, not a predicate on the audit table.
     `    await repo.get_by_id(${pyIdType(agg.name)}(id))`,
@@ -998,7 +986,7 @@ function destroyRoute(
   // the repo (same session → commits with the delete), THEN hard-delete.
   // Asymmetry: `before` is the last snapshot, `after` is JSON null (JSON.NULL →
   // the `null` literal, satisfying the NOT NULL jsonb column).
-  const auditDestroy = !!agg.canonicalDestroy?.audited;
+  const auditDestroy = !!canonicalDestroy(agg)?.audited;
   const destroyAuditCall = auditDestroy
     ? [
         "    await repo.record_audit(",
@@ -1015,8 +1003,8 @@ function destroyRoute(
   // the row) and BEFORE the audit row is staged, so a denied delete records
   // nothing.  A principal-only gate reads no field, so it needs no receiver —
   // the load still runs as the 404 probe but is not bound (ruff F841).
-  const destroyGateReadsRow = lifecycleGatesReadRow(agg.canonicalDestroy);
-  const destroyGateUsesUser = lifecycleGatesUseCurrentUser(agg.canonicalDestroy);
+  const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
+  const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   const bindLoaded = auditDestroy || destroyGateReadsRow;
   return lines(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
@@ -1026,7 +1014,7 @@ function destroyRoute(
       ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
       : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
-    ...lifecycleGate(agg.canonicalDestroy, destroyGateReadsRow ? "__loaded" : undefined),
+    ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
     auditDestroy ? "    __before = repo.to_wire(__loaded)" : null,
     ...destroyAuditCall,
     "    try:",
@@ -1095,7 +1083,7 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   return [
     `    if ${renderPyNegatedGuard(op.when, { thisName: "found" })}:`,
     `        raise ${PY.DisallowedError}(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )})`,
   ];
 }
@@ -1167,11 +1155,16 @@ function versionedSave(
  *  `T?` return doesn't feed `None` into the string helper. */
 function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind === "primitive" && (inner.name === "money" || inner.name === "datetime")) {
+  if (
+    inner.kind === "primitive" &&
+    (inner.name === "money" || inner.name === "datetime" || inner.name === "date")
+  ) {
     const wire =
       inner.name === "money"
         ? numericEncode(PY_NUMERIC, "money", "dto-map", expr)
-        : `${H.iso}(${expr})`;
+        : inner.name === "date"
+          ? `${expr}.isoformat()`
+          : `${H.iso}(${expr})`;
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }
   return expr;

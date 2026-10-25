@@ -32,6 +32,7 @@ import {
   stmtUsesCurrentUser,
   type WorkflowStmtIR,
 } from "../types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "./canonical-lifecycle.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -106,8 +107,8 @@ export function lifecycleGates(action: OperationIR | null | undefined): Requires
  *  and the bare `AggregateIR` satisfy it without this module importing either. */
 export interface GatedAggregate {
   readonly operations: readonly OperationIR[];
-  readonly canonicalCreate?: OperationIR | null;
-  readonly canonicalDestroy?: OperationIR | null;
+  readonly creates?: readonly OperationIR[];
+  readonly destroys?: readonly OperationIR[];
 }
 
 /**
@@ -131,8 +132,8 @@ export interface GatedAggregate {
 export function callerGates(agg: GatedAggregate): RequiresStmtIR[] {
   return [
     ...agg.operations.flatMap(operationGates),
-    ...lifecycleGates(agg.canonicalCreate),
-    ...lifecycleGates(agg.canonicalDestroy),
+    ...lifecycleGates(canonicalCreate(agg)),
+    ...lifecycleGates(canonicalDestroy(agg)),
   ];
 }
 
@@ -291,11 +292,11 @@ export const RENDERED_CREATE_STMT_KINDS: ReadonlySet<StmtIR["kind"]> = new Set([
  *  for an aggregate with no canonical create, so a call site can use this
  *  unconditionally and stay byte-identical when it is empty. */
 export function createBodyStatements(agg: {
-  readonly canonicalCreate?: OperationIR | null;
+  readonly creates?: readonly OperationIR[];
   readonly persistedAs?: string;
 }): StmtIR[] {
   if (agg.persistedAs === "eventLog") return [];
-  return (agg.canonicalCreate?.statements ?? []).filter((s) =>
+  return (canonicalCreate(agg)?.statements ?? []).filter((s) =>
     RENDERED_CREATE_STMT_KINDS.has(s.kind),
   );
 }
@@ -306,7 +307,7 @@ export function createBodyStatements(agg: {
  *  read ones, so no backend emits an unused parameter or binding (`tsc`
  *  `noUnusedParameters`, `mix compile --warnings-as-errors`). */
 export function createBodyParams(agg: {
-  readonly canonicalCreate?: OperationIR | null;
+  readonly creates?: readonly OperationIR[];
   readonly persistedAs?: string;
 }): ParamIR[] {
   const read = new Set<string>();
@@ -315,5 +316,5 @@ export function createBodyParams(agg: {
       if (e.kind === "ref" && e.refKind === "param") read.add(e.name);
     });
   }
-  return (agg.canonicalCreate?.params ?? []).filter((p) => read.has(p.name));
+  return (canonicalCreate(agg)?.params ?? []).filter((p) => read.has(p.name));
 }

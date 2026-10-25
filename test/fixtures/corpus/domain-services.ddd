@@ -168,9 +168,10 @@ system DomainSvc {
   }
 
   // api e2e — seeds an account and reads it back via the `byHolder` find the
-  // reading service calls, proving the read mechanics at runtime.  (The
-  // workflow→service wiring is proven by the per-PR compile gates; the e2e DSL
-  // has no workflow accessor — same split as banking-reading-service.ddd.)
+  // reading service calls, proving the read mechanics at runtime, then drives
+  // both `transactional` workflows: the READING tier gates a registration, the
+  // MUTATING tier moves money between two loaded accounts and the workflow's
+  // save-at-exit persists both.
   test e2e "byHolder returns the account the reading service would find" against d {
     let a = api.accounts.create({ holder: "alice", balance: { amount: 100, currency: "USD" } })
     let found = api.accounts.byHolder({ holder: "alice" })
@@ -200,11 +201,24 @@ system DomainSvc {
     let withdrawn = api.accounts.getById(a)
     expect(withdrawn.balance.amount).toBe(100)
 
+    // The two `transactional` workflows.  RegisterAccount's precondition asks
+    // the READING service whether the holder is free, then creates the
+    // account; MoveMoney loads both accounts, hands them to the MUTATING
+    // service, and persists both at exit — a transfer is only right if BOTH
+    // balances moved.
+    api.registerAccount.run({ holder: "bob", balance: { amount: 40, currency: "USD" } })
+    let bob = api.accounts.byHolder({ holder: "bob" })
+    expect(bob.balance.amount).toBe(40)
+    api.moveMoney.run({ source: a.id, dest: bob.id, amount: { amount: 15, currency: "USD" } })
+    expect(api.accounts.getById(a).balance.amount).toBe(85)
+    expect(api.accounts.getById(bob.id).balance.amount).toBe(55)
+
     // The LIST route carries the same nested value object in bulk.
     let listed = api.accounts.all()
-    expect(listed.items.length).toBe(1)
-    expect(listed.total).toBe(1)
+    expect(listed.items.length).toBe(2)
+    expect(listed.total).toBe(2)
 
+    api.accounts.destroy(bob.id)
     api.accounts.destroy(a)
     expect(api.accounts.getById(a)).toThrow(404)
     expect(api.accounts.byHolder({ holder: "alice2" })).toThrow(404)

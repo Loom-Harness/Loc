@@ -28,7 +28,8 @@ public sealed class ProductRepository : IProductRepository
 
     public async Task<Product?> GetByIdAsync(ProductId id, CancellationToken cancellationToken = default)
     {
-        var found = await _db.Products.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var __db = _db.Products.Local.Any(x => x.Id == id) ? _db.Fork() : _db;
+        var found = await __db.Products.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id} found={Found}", "aggregate_loaded", "Product", id.Value, found != null);
         return found;
     }
@@ -41,7 +42,8 @@ public sealed class ProductRepository : IProductRepository
 
     public async Task SaveAsync(Product aggregate, CancellationToken cancellationToken = default)
     {
-        var entry = _db.Entry(aggregate);
+        var __db = _db.TrackerOf(aggregate);
+        var entry = __db.Entry(aggregate);
         if (entry.State == EntityState.Detached)
         {
             _db.Products.Add(aggregate);
@@ -55,7 +57,7 @@ public sealed class ProductRepository : IProductRepository
         }
         var __pending = aggregate.PullEvents();
         var __deferred = await _events.RecordDurableAsync(__pending, null, cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id}", "repository_save", "Product", aggregate.Id.Value);
         foreach (var ev in __deferred)
         {
@@ -66,8 +68,9 @@ public sealed class ProductRepository : IProductRepository
 
     public async Task DeleteAsync(Product aggregate, CancellationToken cancellationToken = default)
     {
-        _db.Products.Remove(aggregate);
-        await _db.SaveChangesAsync(cancellationToken);
+        var __db = _db.TrackerOf(aggregate);
+        __db.Products.Remove(aggregate);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
     }
     public async Task<Paged<Product>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)
     {

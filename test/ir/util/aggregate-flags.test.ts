@@ -8,6 +8,7 @@ import {
   aggregatesNeedConcurrency,
   outboundReferenceFields,
 } from "../../../src/ir/util/aggregate-flags.js";
+import { canonicalDestroy } from "../../../src/ir/util/canonical-lifecycle.js";
 import { buildLoomModel, enrichedAggregates } from "../../_helpers/ir.js";
 
 // Presence gates: every backend orchestrator asks these two booleans before
@@ -127,7 +128,7 @@ describe("aggregatesCanTripReferencedDelete — BOTH halves required", () => {
     repository Customers for Customer { }
     repository Orders for Order { }`);
     // Vacuity guard: the fixture really has a destroy route.
-    expect(aggs.some((a) => a.canonicalDestroy != null)).toBe(true);
+    expect(aggs.some((a) => canonicalDestroy(a) != null)).toBe(true);
     expect(aggregatesCanTripReferencedDelete(aggs)).toBe(true);
   });
 
@@ -137,7 +138,7 @@ describe("aggregatesCanTripReferencedDelete — BOTH halves required", () => {
     aggregate Order { customer: Customer id  create(customer: Customer id) { } }
     repository Customers for Customer { }
     repository Orders for Order { }`);
-    expect(aggs.every((a) => a.canonicalDestroy == null)).toBe(true);
+    expect(aggs.every((a) => canonicalDestroy(a) == null)).toBe(true);
     expect(aggregatesCanTripReferencedDelete(aggs)).toBe(false);
   });
 

@@ -418,15 +418,16 @@ export const VALUE_ROWS: readonly ValueRow[] = [
     arm: "intrinsic string.substring",
     expr: call(s, "substring", [litInt("1"), litInt("2")], STR),
     params: { s: { type: "string", value: '"a\\ud83d\\ude00bc"' } },
-    expected: { kind: "string", value: '"\\ud83d\\ude00"' },
-    why: "the catalogue (`src/util/intrinsics.ts`) pins `substring` to JS `slice` semantics, i.e. UTF-16 units — so the astral character is TWO positions wide",
-    divergesOn: {
-      python: {
-        value: '"\\ud83d\\ude00b"',
-        reason:
-          "python slices CODE POINTS, so the same call answers one character more.  Every backend's `length` counts code points (row `string_length_astral`), so the catalogue's unit for `substring` disagrees with its own `length` — handed off (wave-c3-3d-promote.md, D10) for a decision on which unit is the contract",
-      },
-    },
+    expected: { kind: "string", value: '"\\ud83d\\ude00b"' },
+    why: "substring counts CODE POINTS, the unit of `length` (row `string_length_astral`): the astral character is ONE position wide, so two positions from 1 are the emoji and `b` — UTF-16 units answer the emoji alone",
+  },
+  {
+    id: "string_substring_astral_from",
+    arm: "intrinsic string.substring (one argument)",
+    expr: call(s, "substring", [litInt("2")], STR),
+    params: { s: { type: "string", value: '"a\\ud83d\\ude00bc"' } },
+    expected: { kind: "string", value: '"bc"' },
+    why: "the omitted-length arm counts code points too — UTF-16 units would start INSIDE the surrogate pair",
   },
   {
     id: "string_upper_eszett",
@@ -434,14 +435,7 @@ export const VALUE_ROWS: readonly ValueRow[] = [
     expr: call(s, "toUpper", [], STR),
     params: { s: { type: "string", value: '"stra\\u00dfe"' } },
     expected: { kind: "string", value: '"STRASSE"' },
-    why: "full Unicode case mapping — a per-char simple mapping leaves `ß` unchanged",
-    divergesOn: {
-      dotnet: {
-        value: '"STRA\\u00dfE"',
-        reason:
-          "`ToUpperInvariant()` is a simple (1:1) mapping and keeps `ß`.  The catalogue sanctions 'the platform's default (invariant-leaning) mapping', so this is a NAMED divergence, not a defect — recorded so a change in either direction is seen (D11 asks whether the contract should say so explicitly)",
-      },
-    },
+    why: "the Unicode full mapping's `ß` → SS — a per-char simple mapping (.NET's ToUpperInvariant alone) leaves `ß` unchanged",
   },
   // ── rounding ──────────────────────────────────────────────────────────────
   {

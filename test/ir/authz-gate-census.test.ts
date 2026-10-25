@@ -101,6 +101,7 @@ import {
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment, deriveContextOperations } from "../../src/ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
@@ -191,6 +192,11 @@ interface LadderSurface {
   readonly path: string;
   readonly body?: unknown;
   readonly arms?: LadderArms;
+  /** The probe targets a route that must NOT exist (an unaudited aggregate's
+   *  `/{id}/history`): its 404 is the framework's route miss, not a gate, so
+   *  the route ratchet below asserts the route is ABSENT rather than present,
+   *  and the probe credits no refusal. */
+  readonly absentRoute?: boolean;
 }
 interface LadderSpec {
   readonly seed: unknown;
@@ -359,8 +365,8 @@ function surfacesOf(model: LoomModel): Surfaces {
         const hasRequires =
           (op.operation !== undefined && operationGates(op.operation).length > 0) ||
           op.find?.requires !== undefined ||
-          (op.kind === "create" && lifecycleGates(agg?.canonicalCreate).length > 0) ||
-          (op.kind === "destroy" && lifecycleGates(agg?.canonicalDestroy).length > 0);
+          (op.kind === "create" && lifecycleGates(canonicalCreate(agg)).length > 0) ||
+          (op.kind === "destroy" && lifecycleGates(canonicalDestroy(agg)).length > 0);
         if (hasRequires) gates.push("requires");
         add(op.kind, op.method.toUpperCase(), op.path, gates);
       }
@@ -446,9 +452,13 @@ function ladderSurfaces(spec: LadderSpec | undefined): (LadderSurface & { arms: 
 }
 
 /** A probe path as the census spells a route: query string dropped (a find's
- *  `?a=b` is not part of its route), and the ladder's `{id}` placeholder is
+ *  `?a=b` is not part of its route), and a literal uuid segment (a probe of an
+ *  ABSENT row) read as the `{id}` placeholder — the ladder's own `{id}` is
  *  already the derivation's spelling. */
-const probePath = (p: string): string => p.split("?")[0];
+const probePath = (p: string): string =>
+  p
+    .split("?")[0]
+    .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi, "/{id}");
 
 /** `<METHOD> <path>` keys of every route a ladder probe REFUSES someone on,
  *  plus `tenant:<METHOD> <path>` for a route only the CROSS-TENANT rung
@@ -456,6 +466,7 @@ const probePath = (p: string): string => p.split("?")[0];
 function refusedRoutes(spec: LadderSpec | undefined): Set<string> {
   const out = new Set<string>();
   for (const s of ladderSurfaces(spec)) {
+    if (s.absentRoute) continue;
     const route = `${s.method.toUpperCase()} ${probePath(s.path)}`;
     if (isRefusal(s.arms.unauthorized) || isRefusal(s.arms.anonymous)) out.add(route);
     if (isRefusal(s.arms.otherTenant)) out.add(`tenant:${route}`);
@@ -625,7 +636,15 @@ describe("authz gate census — every emitted gate has a refused caller or a pin
       const { allRoutes } = surfacesOf(await modelOf(c.source));
       for (const s of ladderSurfaces(spec)) {
         const route = `${s.method.toUpperCase()} ${probePath(s.path)}`;
-        if (!allRoutes.has(route)) {
+        if (s.absentRoute) {
+          // The inverse claim: a probe that exists to see a route MISS must
+          // not quietly start landing on a served route.
+          if (allRoutes.has(route)) {
+            problems.push(
+              `AUTHZ_LADDERS["${name}"] marks \`${route}\` absentRoute, but ${c.file} serves it`,
+            );
+          }
+        } else if (!allRoutes.has(route)) {
           problems.push(
             `AUTHZ_LADDERS["${name}"] probes \`${route}\`, which ${c.file} serves no longer`,
           );

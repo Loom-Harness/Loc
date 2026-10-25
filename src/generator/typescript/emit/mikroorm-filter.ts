@@ -9,6 +9,7 @@
 import type { AssociationIR, EnrichedAggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { orientComparison } from "../../../ir/util/comparison-operands.js";
+import { principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import {
   DATA_KEY_PATH_DELIMITER,
@@ -21,6 +22,7 @@ import {
 import { intrinsicFor, intrinsicKey, isQueryableBoolIntrinsic } from "../../../util/intrinsics.js";
 import { escapeTsIdent, snake } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
+import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { SQL_LIKE_ESCAPE_CLAUSE, tsSubtreeLikePattern } from "../../_expr/subtree-like.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
@@ -498,6 +500,22 @@ function predicateEntry(e: ExprIR, acc: string, assocs: readonly AssociationIR[]
   // column this file emits (the deep-scope sentinel's own note).
   const membership = containsMembershipFragment(inner, acc, assocs);
   if (membership) return rawEntry(membership, "[]");
+  // A principal term (`currentUser.role == "agent"`) reads no column, so it
+  // has no FilterQuery key: it is decided in JS against the principal and
+  // enters the query as a constant raw condition, built inside the object
+  // literal like every other raw fragment here.
+  const pt = principalTerm(inner);
+  if (pt) {
+    const test = renderPrincipalTest(pt, {
+      claim: (field) => `${acc}.${field}`,
+      value: (v) => filterValue(v, acc),
+      isNull: (x) => `${x} == null`,
+      isNotNull: (x) => `${x} != null`,
+      eq: (l, r) => `${l} === ${r}`,
+      ne: (l, r) => `${l} !== ${r}`,
+    });
+    if (test !== null) return `[raw(${test} ? "1 = 1" : "1 = 0")]: []`;
+  }
   if (inner.kind === "binary" && (inner.op === "==" || FILTER_OP[inner.op] !== undefined)) {
     return comparisonEntry(inner, acc);
   }
@@ -732,7 +750,7 @@ export function mikroContextFilters(agg: EnrichedAggregateIR, bypass?: FilterByp
     // A crash at generation is the strictly safer failure.  With
     // `authzFilterEntry` rendering the subtree sentinel there is no known
     // shape left to crash on.
-    out.push(whereToMikroFilter(pred));
+    out.push(whereToMikroFilter(pred, AMBIENT_PRINCIPAL, agg.associations));
   });
   return out;
 }
@@ -769,7 +787,7 @@ export function withContextFilters(base: string, caps: string[]): string {
 
 function mikroWriteScopeFilter(agg: EnrichedAggregateIR): string | null {
   if (!agg.writeScopeFilter) return null;
-  return whereToMikroFilter(agg.writeScopeFilter);
+  return whereToMikroFilter(agg.writeScopeFilter, AMBIENT_PRINCIPAL, agg.associations);
 }
 
 /** The `getById` body lines for a QUERYABLE-COLUMN shape (relational /

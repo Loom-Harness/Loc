@@ -198,37 +198,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/_packs/loader-fs.ts
-  "src/generator/_packs/loader-fs.ts#loadPack": {
-    deferred:
-      'A custom design path with no pack.json. Relative paths resolve against the process CWD, not the .ddd directory (resolvePackDir is called without referenceDir at react/index.ts:168 and others). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$2": {
-    deferred:
-      'A custom pack whose pack.json has no emits map. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$3": {
+  // `loadPack` throws `diagMessage("loom.design-pack-invalid#load")` for every
+  // read-time pack defect, auto-guarded by the phase-⑦ check
+  // (design-pack-checks.ts) that inspects the same defect list.
+  "src/generator/_packs/loader-fs.ts#readPackDir": {
     invariant:
-      "Fires only for a path inside <repo>/designs/<family>/<ver>, which holds only the shipped packs (their versions match; tests pin this); custom paths outside designs/ are exempt. (src/generator/_packs/loader-fs.ts:155-161)",
+      "Fires only for a path inside <repo>/designs/<family>/<ver>, which holds only the shipped packs (their versions match; tests pin this); custom paths outside designs/ are exempt. (src/generator/_packs/loader-fs.ts#readPackDir)",
   },
-  "src/generator/_packs/loader-fs.ts#loadPack$4": {
-    deferred:
-      'A custom pack whose emits entry names a .hbs file that does not exist. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$5": {
-    deferred:
-      'A custom pack that declares stack: "v999". Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/loader-fs.ts#loadPack$6": {
+  "src/generator/_packs/loader-fs.ts#readPackDir$2": {
     invariant:
-      "The shipped stack dirs contain only stack-package-*.hbs, and no shipped shared dir has a template with those names, so no clash is possible. (stacks/*/ (only stack-package-deps/devdeps.hbs))",
+      "The shipped stack dirs contain only stack-package-*.hbs, and no shipped shared dir has a template with those names, so no clash is possible; a pack picks a stack by name and cannot add files to it. (stacks/*/ (only stack-package-deps/devdeps.hbs))",
   },
   "src/generator/_packs/loader-fs.ts#readSharedSources": {
     invariant:
@@ -240,63 +219,33 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/_packs/loader.ts
-  "src/generator/_packs/loader.ts#compilePack": {
-    invariant:
-      "The only caller, loadPack, already throws on a missing or non-object emits before calling compilePack. (src/generator/_packs/loader-fs.ts:146-150)",
-  },
-  "src/generator/_packs/loader.ts#compilePack$2": {
-    invariant:
-      "loadPack fills `sources` for every emits key (or throws first), so sources[logicalName] is never null. (src/generator/_packs/loader-fs.ts:170-178)",
-  },
-  "src/generator/_packs/loader.ts#compilePack$3": {
-    deferred:
-      'A custom pack missing a required primitive (validateRequired defaults to true). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
+  // `compilePack` throws `diagMessage("loom.design-pack-invalid#load")` for
+  // every manifest defect (pack-defects.ts#manifestDefects) — auto-guarded.
   "src/generator/_packs/loader.ts#render": {
     invariant:
-      "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. (src/generator/_packs/loader.ts:466-475; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
+      "Every template name the generators render is in REQUIRED_PRIMITIVES (checked: all literal render/primitive names in react/_walker/_frontend) and so is enforced at load; the optional ones (realtime-toast-setup, primitive-modal-controlled) are checked with templates.has first. A custom pack of the wrong format is refused by loom.design-pack-format-mismatch, so the required set checked is the framework's own. (src/generator/_packs/required-primitives.ts; src/generator/react/realtime-handlers-builder.ts:33; src/generator/_walker/primitives/forms.ts:978)",
   },
 
   // src/generator/_packs/pack-chrome.ts
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane": {
-    deferred:
-      'A custom pack with an empty chrome message. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$2": {
-    deferred:
-      'A custom pack whose chrome message contains `<`. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
-  "src/generator/_packs/pack-chrome.ts#assertDeclaredChromeIsSane$3": {
-    deferred:
-      'A custom pack whose chrome message has an unbalanced brace. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
-  },
   "src/generator/_packs/pack-chrome.ts#bind": {
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "Every literal chrome role a template passes hash (hole) values to is scanned in a heex pack (pack-defects.ts kind chrome-hole-heex) by the phase-⑦ inspection; every shipped and every inspected template names its role as a string literal.",
+  },
+  "src/generator/_packs/pack-chrome.ts#sharedChrome": {
     deferred:
-      'A custom heex pack (elixir LiveView) whose template passes an ICU hole value ({{chrome "rowActions" who="x"}}); this fires when the ui is translatable (heexI18nEnabled). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+      'A custom NON-heex pack whose template calls {{sharedChrome "prev"}} (the built-in JS packs receive shared chrome as walker-built tokens; only the two HEEx packs call it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
     mission: "M-T9.83",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#declared": {
-    deferred:
-      'A custom pack whose template uses {{chrome "boolTrue"}} with no chrome entry for it. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",
   },
 
   // src/generator/_packs/shell-emits.ts
   "src/generator/_packs/shell-emits.ts#emitShellFiles": {
-    deferred:
-      'A custom pack declaring shellFiles with a key that is not in emits. Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "M-T9.83",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.design-pack-invalid"],
+    note: "compilePack refuses a shellFiles key with no template (pack-defects.ts kind shellfile-not-emitted) before a LoadedPack exists, and phase ⑦ reports the same defect.",
   },
 
   // src/generator/_stmt/target.ts
@@ -352,10 +301,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every shared-walker target implements renderRouteId. (tsx-target.ts:398, vue-target.ts:393, svelte-target.ts:325, angular-target.ts:330, feliz-target.ts:381, flutter-target.ts:315)",
   },
   "src/generator/_walker/walker-core.ts#emitExpr$4": {
-    deferred:
-      "No validator rejects `this` in a page/component body: `Text { this.name }` in a ui page parses with 0 errors and crashes react/vue/svelte/angular generation.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-this-unbound"],
+    note: "validateUiBodyRules (ui-body-vocabulary-checks.ts) refuses `this` in every page / component / store surface the walker renders: bodies, titles, derived, state inits and action bodies.",
   },
   "src/generator/_walker/walker-core.ts#emitExpr$5": {
     invariant:
@@ -374,10 +321,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
   },
   "src/generator/_walker/walker-core.ts#unsupportedPageStmt": {
-    deferred:
-      "A page action that assigns (`:=` or `+=`) to a name that is not a declared state field parses with 0 errors. Example: `action bump() { other := 1 }`. Only if/precondition/requires are gated (loom.if-stmt-page-body-unsupported / loom.ui-body-statement-kind).",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.ui-assign-not-state",
+      "loom.ui-body-statement-kind",
+      "loom.if-stmt-page-body-unsupported",
+    ],
+    note: "Callers: a `:=` / `+=` / `-=` whose root is not a state field of the host (loom.ui-assign-not-state, every action of every page / component / store, nested arms included); return / precondition / requires (loom.ui-body-statement-kind); if (loom.if-stmt-page-body-unsupported); emit does not resolve in ui scope (phase ③); every shared-walker target implements renderVariantMatch.",
   },
   "src/generator/_walker/walker-core.ts#walk": {
     invariant:
@@ -569,10 +518,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/dotnet/render-expr.ts
   "src/generator/dotnet/render-expr.ts#renderCall": {
-    deferred:
-      "A resource-op inside a workflow `function` body (`function peek(k: string): string = salesFiles.get(k)`) is admitted (it is inside a workflow) but the <Wf>Functions class is rendered without resourceClasses, so renderCall throws.",
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.resource-op-outside-workflow",
+      "loom.projection-fold-impure",
+      "loom.resource-verb-invalid",
+    ],
+    note: "A resource-op reaches codegen only from a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal — every other expression site, a workflow `function` included, is refused (fail-closed on an undeclared site), a projection fold by loom.projection-fold-impure — and every legal site renders with resourceClasses on all five backends (test/system/resource-op-positions.test.ts). A raw verb on an in-system-bound api resource (which has no storage, so no class mapping) is refused at every site by loom.resource-verb-invalid#api-bound.",
   },
   "src/generator/dotnet/render-expr.ts#renderCsAuthzFilter": {
     invariant:
@@ -581,10 +532,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/dotnet/workflow-eventsourced-emit.ts
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
-    deferred:
-      "An `eventSourced` workflow with only a command-triggered create (no `on`/event-create) and no id-typed state field has no correlation field and no diagnostic, yet the ES emitter unconditionally requires an id-typed correlation field.",
-    mission: "M-T9.78",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
+    note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
   // src/generator/elixir/adapters/by-feature-layout.ts
@@ -623,10 +572,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
   "src/generator/elixir/dispatch-emit.ts#renderStmt": {
-    deferred:
-      "A workflow on(e) reactor body containing `Orders.delete(o)` lowers to a repo-delete WorkflowStmtIR, which the elixir reactor renderer has no arm for; no validator refuses it (likely also if-let/resource-call/domain-service-call in reactor bodies).",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "Exhaustive-switch `never` default: the reactor renderer has an arm for every WorkflowStmtIR kind, measured per kind by test/system/body-statement-census.test.ts. (src/generator/elixir/dispatch-emit.ts renderStmt; src/ir/types/loom-ir.ts WorkflowStmtIR)",
   },
 
   // src/generator/elixir/domain-service-emit.ts
@@ -671,10 +618,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every page/component action variant-match whose subject is not an aggregate-op method call is refused, and that accepted shape always satisfies detectAwaitedOp; inline-lambda placement is refused by loom.effect-in-lambda (verified).",
   },
   "src/generator/elixir/heex-walker-core.ts#renderVariantMatchStmt$2": {
-    deferred:
-      "A bare `match await Invoice.confirm()` on a LiveView page naming an aggregate from a context the elixir deployable does not host passes the system-wide async-effect check, but the HEEx emitter only knows served aggregates.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-aggregate-unserved"],
+    note: "A page `match await <Agg>.op()` names an aggregate through a bare aggregate ref; loom.ui-aggregate-unserved now also covers a backend that mounts its ui itself (HEEx LiveView), refusing any page read of an aggregate outside the deployable's own contexts \u2014 so every awaited aggregate is a served one.",
   },
 
   // src/generator/elixir/liveview-emit.ts
@@ -683,10 +628,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The validator computes the same transitive per-page instance count of state-declaring components on every phoenixLiveView-mounted ui.",
   },
   "src/generator/elixir/liveview-emit.ts#gatherComponentHandlers": {
-    deferred:
-      "A page using `onClick: Cart.clear` synthesizes a `clear` handle_event clause that collides with a stateful component's own `action clear()`; the validator never sees store-action-ref handlers.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.heex-handler-name-collision"],
+    note: "A bare store-action handler (`onClick: Cart.clear`) now names its own hyphenated event (`store-cart-clear`), which no `snake(action)` clause can spell, so the only cross-surface clause collisions left are page/component action names \u2014 exactly what loom.heex-handler-name-collision refuses.",
   },
 
   // src/generator/elixir/realtime-liveview.ts
@@ -705,10 +648,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/render-expr.ts
   "src/generator/elixir/render-expr.ts#renderCall": {
-    deferred:
-      'A raw verb (`orders.get("/orders")`) on a `kind: api` resource bound to an in-system api (no storage) lowers to a resource-op, but buildPhoenixResourceModules only maps storage-backed resources, and nothing rejects it.',
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.resource-verb-invalid",
+      "loom.resource-op-outside-workflow",
+      "loom.projection-fold-impure",
+    ],
+    note: "buildPhoenixResourceModules maps only storage-backed resources; a resource-op on an in-system-bound api resource (no storage) is refused at every site by loom.resource-verb-invalid#api-bound. Every other resource-op sits on a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal, each proven to render on all five backends by test/system/resource-op-positions.test.ts; the rest are refused (a projection fold by loom.projection-fold-impure).",
   },
   "src/generator/elixir/render-expr.ts#renderDecimalBinary": {
     guardedBy: ["loom.operator-non-bool-operands"],
@@ -725,10 +670,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/domain-core-emit.ts
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt": {
-    deferred:
-      "The event-sourced pure core reads the same command body as the ES command runner, so it shares that runner's gap: an `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
   },
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
     invariant:
@@ -737,24 +680,25 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/eventsourced-emit.ts
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
-    deferred:
-      "An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
   },
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
-    deferred:
-      "An eventSourced workflow `apply` that constructs a contained entity part of an aggregate in the same context (`let l = Line { sku: a.sku }`) validates clean, but the workflow fold has no part resolver.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.cross-aggregate-entity-part"],
+    note: "validatePartConstructionOwner (body-stmt-vocabulary.ts) refuses an entity-part construction outside the aggregate that owns it, so an aggregate fold only builds its own parts (which resolvePart finds) and a workflow fold builds none.",
   },
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldStatement": {
-    deferred:
-      "A `return` in an event-sourced aggregate `apply` body passes both applier-discipline validators but the elixir fold renderer has no `return` arm (an `if` in an eventSourced WORKFLOW apply is likely also unguarded).",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.elixir-if-stmt-unsupported",
+      "loom.variant-match-placement",
+    ],
+    note: "validateApplierBodies holds every applier (aggregate and workflow) to APPLIER_STMT_KINDS; the fold renders all of it but `if`, which validateElixirIfSupport refuses in every elixir-hosted applier. `expression` is refused too, so the renderer's `expression` arm is unreachable.",
   },
 
   // src/generator/elixir/store-emit.ts
@@ -782,10 +726,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.variant-match-placement"],
   },
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
-    deferred:
-      "A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.elixir-if-stmt-unsupported"],
+    note: 'validateElixirIfSupport classifies every block-bodied `function` — aggregate AND workflow — with the same elixirIfRefusal("value") predicate this throw asserts.',
   },
 
   // src/generator/elixir/vanilla/integration-tests-emit.ts
@@ -884,23 +826,25 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "AST validator rejects a match with zero arms and no else.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$3": {
-    deferred:
-      "An effect-free block-body lambda (only let statements) in a page action passes loom.effect-in-lambda and every other gate, then crashes.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "UI_BODY_FEATURE_RENDERERS['block-lambda-in-action'] omits feliz; any block lambda in a page / component / store action body is refused on a Feliz host.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
-    guardedBy: ["loom.ui-this-unbound"],
+    guardedBy: ["loom.ui-this-unbound", "loom.ui-body-feature-unsupported"],
+    note: "The kinds reaching the default arm: `this` (loom.ui-this-unbound, target-neutral) and `action-ref` (UI_BODY_FEATURE_RENDERERS['action-ref-value'] omits feliz); `authz-filter` is built only by enrichment into aggregate filters, never a ui body.",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$5": {
     invariant:
       "authz-filter is built only by enrichment into an aggregate's contextFilters / writeScopeFilter, never into a ui body. (src/ir/util/tenant-stance.ts)",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
-    deferred:
-      "A page action using a collection/string method outside the small F# set (reverse, indexOf, concat, none, find, append, toString, format...) parses clean and crashes; no frontend method-vocabulary gate covers the feliz update path.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.intrinsic-unknown",
+      "loom.unknown-member",
+      "loom.frontend-collection-op-unsupported",
+      "loom.ui-body-feature-unsupported",
+    ],
+    note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member — by the AST typing pass since M-T5.47, and by validateUiBodyRules on an action-body lambda param and a value-object function); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` by the per-target table (string-regex-match). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
   },
 
   // src/generator/feliz/index.ts
@@ -929,16 +873,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/feliz/update-emit.ts
   "src/generator/feliz/update-emit.ts#renderUpdateStmt": {
-    deferred:
-      "toast(...) in a page action lowers as a private-operation call; loom.unresolved-action-ref exempts it as a view-effect builtin but feliz has only a navigate arm. Also: an unresolved call foo() inside a STORE action is not checked by unresolved-action-ref.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.unresolved-action-ref"],
+    note: "`toast(…)` now renders (Cmd.ofEffect → updateToast). Every other private-operation call in a page / component / store action body is refused by loom.unresolved-action-ref, which now walks store action bodies too.",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$2": {
-    deferred:
-      "A match await nested inside another match-await arm on a :id page (or any match await in a store action) is never projected and no gate refuses it (feliz-async-effect-unsupported only flags component hosts; stores are not scanned).",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported", "loom.feliz-async-effect-unsupported"],
+    note: "A variant-match reaches the per-statement renderer only nested in another arm (nested-async-effect), in a store action (store-async-effect) or beside sibling statements (async-effect-with-siblings) — all omit feliz in UI_BODY_FEATURE_RENDERERS; a component host is loom.feliz-async-effect-unsupported.",
   },
   "src/generator/feliz/update-emit.ts#renderUpdateStmt$3": {
     guardedBy: ["loom.ui-body-statement-kind", "loom.if-stmt-page-body-unsupported"],
@@ -955,28 +895,20 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A QueryView read naming anything other than all/byId/history/a declared find is refused (tried create/delete/undeclared names).",
   },
   "src/generator/feliz/wire.ts#felizFindRead": {
-    deferred:
-      "A find returning a non-aggregate shape (string[], int) read in a feliz QueryView parses clean and crashes.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindReturnDecodable (ir/util/feliz-find-read.ts) is shared with the gate: feature find-read-non-aggregate-return omits feliz.",
   },
   "src/generator/feliz/wire.ts#felizFindRead$2": {
-    deferred:
-      "Find call arity is not checked: QueryView { of: C.Thing.byName() } (or bare C.Thing.byName, or 2 args) against a 1-param find parses with 0 errors.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-find-call-arity"],
+    note: "Target-neutral: a find read in any page / component read primitive with a different argument count than the find's params is refused.",
   },
   "src/generator/feliz/wire.ts#findParamQueryValue": {
-    deferred:
-      "A repository find with a list (or other non-scalar) parameter read in a feliz QueryView parses clean and crashes; no feliz find-shape gate.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindParamSupported (ir/util/feliz-find-read.ts) gates both this function and the validator: feature find-read-composite-param omits feliz.",
   },
   "src/generator/feliz/wire.ts#walk": {
-    deferred:
-      "A find read nested in a For/data lambda passing the row binding (C.Thing.byName(r.name)) is valid but the argument isn't a state cell/store field.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-body-feature-unsupported"],
+    note: "felizFindArgRefResolvable (ir/util/feliz-find-read.ts) is the shared predicate: feature find-read-unbound-arg omits feliz.",
   },
 
   // src/generator/flutter/auth-gate.ts
@@ -1013,16 +945,17 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/flutter/riverpod-emit.ts
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt": {
-    deferred:
-      "loom.unresolved-action-ref does not scan STORE action bodies, so a typo'd/unknown call foo() in a store action parses clean and crashes the flutter store notifier.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.unresolved-action-ref"],
+    note: "navigate / toast render; any other private-operation call in a page, component or store action body is refused by loom.unresolved-action-ref (store bodies are now walked).",
   },
   "src/generator/flutter/riverpod-emit.ts#renderNotifierStmt$2": {
-    deferred:
-      "A match await nested inside a page match-await arm (or any match await in a store action) reaches the default arm; the page interceptor only handles top-level ones and no gate covers nested/store cases.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.ui-body-feature-unsupported",
+      "loom.ui-body-statement-kind",
+      "loom.if-stmt-page-body-unsupported",
+      "loom.flutter-async-effect-unsupported",
+    ],
+    note: "variant-match reaches here only nested in another arm or in a store action (nested-async-effect / store-async-effect omit flutter); a component host is loom.flutter-async-effect-unsupported; return / precondition / requires and if have their own gates.",
   },
   "src/generator/flutter/riverpod-emit.ts#renderVariantMatchNotifier": {
     guardedBy: [
@@ -1063,16 +996,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/jpa-annotations.ts
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations": {
-    deferred:
-      "An optional reference collection `tags: Tag id[]?` on an aggregate (or any `X id[]` on an entity part, or on a projection/workflow state) gets no AssociationIR, but jpaFieldAnnotations unwraps optional and demands one.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A projection / workflow state row's `X id[]` takes the `stateRow` jsonb arm before the association lookup; every other `X id[]` that is not an aggregate root's own non-optional field (optional, entity part, inside a value object) is refused by loom.collection-field-unpersisted, and enrichment derives one AssociationIR per remaining field.",
   },
   "src/generator/java/emit/jpa-annotations.ts#jpaFieldAnnotations$2": {
-    deferred:
-      "For aggregates/parts/bases valueCollectionsFor derives one entry per VO-array field (unwrapping optional), so the throw is unreachable there; but a projection (or saga) state field `tags: Tag[]` reaches this lookup with the stub owner {name, associations: []} and crashes one line earlier with 'TypeError: owner.fields is not iterable' (valid model, 0 errors) — repro g5-java-proj-voarray.ddd; fixing that TypeError would make this throw fire.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A `<VO>[]` on a projection / workflow state row (the only owner without a ValueCollectionIR) is refused by loom.collection-field-unpersisted#state-value-collection; for aggregates / parts valueCollectionsFor derives one entry per VO-array field.",
   },
 
   // src/generator/java/emit/projection-reads.ts
@@ -1081,10 +1010,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Whenever the id-source wire row exists it is the `keyed by` field, which validateKey requires to be type kind 'id' (enrichments.ts:1268-1279 builds the row from that field).",
   },
   "src/generator/java/emit/projection-reads.ts#corrWire": {
-    deferred:
-      "A folded projection with no `keyed by` whose handlers all use `on(e: E) by e.x` passes validation (0 errors) and has no id-source wire field; today generation crashes earlier in src/system/migrations-builder.ts projectionTableShape (TypeError: Cannot read properties of undefined (reading 'replace')) so this throw is masked — repro g5-java-singleton-fold-by.ddd.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-event-unkeyed"],
+    note: "A folded projection with no `keyed by` is refused for every handler, with or without an explicit `by` (loom.projection-event-unkeyed#singleton), so every folded projection reaching the read emitter has an id-source wire field.",
   },
   "src/generator/java/emit/projection-reads.ts#guardProjectionField": {
     invariant:
@@ -1093,10 +1020,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/projection-state.ts
   "src/generator/java/emit/projection-state.ts#correlationField": {
-    deferred:
-      "Same singleton-with-`by` gap as corrWire: a folded projection without `keyed by` but with `on(...) by ...` validates clean, has correlationField undefined, and would throw here; currently masked by the earlier migrations-builder TypeError (repro g5-java-singleton-fold-by.ddd). Keyed projections are guarded by loom.projection-key-unknown (:607).",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-event-unkeyed", "loom.projection-key-unknown"],
+    note: "A keyless folded projection is refused whether its handlers use `by` or not (loom.projection-event-unkeyed#singleton); a keyed one names a declared state field (loom.projection-key-unknown).",
   },
   "src/generator/java/emit/projection-state.ts#projectionCorrIdClass": {
     guardedBy: ["loom.projection-key-not-id"],
@@ -1105,10 +1030,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/query-projection-reads.ts
   "src/generator/java/emit/query-projection-reads.ts#groupKeyCoerce": {
-    deferred:
-      "Grouping by a bare `json` column (`group by o.meta; select k = o.meta`) is shape-valid, but groupKeyCoerce has no arm for primitive 'json' (or 'File') and throws.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-columnless-source", "loom.projection-groupby-key-not-columnar"],
+    note: "Every bare source column type has an arm (json and File included); a value-object or collection key is refused as loom.projection-columnless-source, a computed key as loom.projection-groupby-key-not-columnar, and `duration` has no field syntax so it is never a column.",
   },
   "src/generator/java/emit/query-projection-reads.ts#keyCol": {
     guardedBy: [
@@ -1138,10 +1061,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/emit/workflow-eventsourced.ts
   "src/generator/java/emit/workflow-eventsourced.ts#esWorkflowCorrIdClass": {
-    deferred:
-      "An eventSourced workflow with only a command-triggered create and no id-typed state field validates clean, has no correlationField, and renderEsWorkflowFoldClass is still emitted for it.",
-    mission: "M-T9.78",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
+    note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
   },
 
   // src/generator/java/emit/workflow-instances.ts
@@ -1172,20 +1093,20 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
-    deferred:
-      'A resource op in a projection fold assign value (`blob := salesFiles.get("x")`) passes loom.projection-fold-impure (assign is allowed) and the resource-op gate, then hits the Java renderer with no resourceClasses.',
-    mission: "M-T9.80",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.projection-fold-impure",
+      "loom.resource-op-outside-workflow",
+      "loom.resource-verb-invalid",
+    ],
+    note: "loom.projection-fold-impure now looks inside the VALUES of the pure fold kinds, so a resource op in a fold assignment is refused. Every other resource-op sits on a site RESOURCE_OP_SITES (src/ir/validate/checks/resource-op-positions.ts) declares legal — each proven to render with resourceClasses on all five backends (the dispatcher's event-starter / reactor bodies included) by test/system/resource-op-positions.test.ts — or is refused there (fail-closed); a raw verb on an in-system-bound api resource is loom.resource-verb-invalid#api-bound.",
   },
   "src/generator/java/render-expr.ts#renderMoneyBinary": {
     guardedBy: ["loom.operator-non-bool-operands"],
     note: "Only &&/|| fall to the default, and both are rejected unless both operands are bool, so they can't have a money/decimal operand.",
   },
   "src/generator/java/render-expr.ts#renderNew": {
-    deferred:
-      "A part builder-call `Line { qty: 1 }` inside an aggregate-nested unit test lowers to a `new` expr, but the Java test renderer's JavaRenderContext has no agg.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.aggregate-test-context"],
+    note: "Part types resolve only inside their own aggregate, where every rendering context sets JavaRenderContext.agg; the one aggregate-scoped body without an aggregate instance \u2014 a nested unit test \u2014 refuses a part builder as loom.aggregate-test-context.",
   },
 
   // src/generator/python/channels-builder.ts
@@ -1248,10 +1169,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "esWorkflowFoldBlock is only emitted when wf.correlationField is set, and that field is always the unique id-typed state field (unlike Java, verified with g5-es-wf-nocorr-python.ddd which generates cleanly). (src/generator/python/dispatch-builder.ts:271-275; src/ir/lower/lower-workflow.ts:151-152)",
   },
   "src/generator/python/workflow-eventsourced-emit.ts#renderApplierStmt": {
-    deferred:
-      "A workflow applier containing a `let` binding (`apply(pr: PaymentRegistered) { let x = pr.amount  paid := paid + x }`) validates clean, but the Python ES-workflow applier renderer only handles assign/add/remove.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.variant-match-placement",
+    ],
+    note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
   // src/generator/react/index.ts
@@ -1304,10 +1229,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/typescript/emit/mikroorm-entities.ts
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType": {
-    deferred:
-      "A root value-object field whose VO contains a VO collection (`tags: Tag[]`) is flattened into sub-columns and recurses into columnsForType with a non-scalar array element; no validator rejects nested VO collections under persistence: mikroorm.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.collection-field-unpersisted"],
+    note: "A collection of references or value objects nested inside a persisted value object is refused (loom.collection-field-unpersisted#nested-in-value-object), and a state row's `X id[]` takes the jsonb stateFieldColumns arm, so only primitive / enum arrays reach the array arm.",
   },
   "src/generator/typescript/emit/mikroorm-entities.ts#columnsForType$2": {
     invariant:
@@ -1360,10 +1283,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A MikroORM value of a kind the queryable oracle refuses (lambda, call, new, …). Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
   "src/generator/typescript/emit/mikroorm-filter.ts#predicateEntry": {
-    deferred:
-      "A capability `filter this.owners.contains(<id>)` over an `X id[]` reference collection is admitted by firstNonQueryablePredicate, but mikroContextFilters calls whereToMikroFilter(pred) with no associations, so containsMembershipFragment returns null and predicateEntry falls through.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "A `this.<refColl>.contains(x)` the queryable oracle admits names an aggregate root's own non-optional `X id[]` (loom.collection-field-unpersisted refuses the other positions), which always has an AssociationIR, and every whereToMikroFilter caller \u2014 context filters and the write-scope guard included \u2014 passes agg.associations, so containsMembershipFragment resolves it; every other shape is measured by test/system/predicate-position-census.test.ts.",
   },
 
   // src/generator/typescript/emit/schema.ts
@@ -1503,10 +1424,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "GroupKeyTransform is the single literal 'startOfDay', and MIKRO_GROUP_KEY_TRANSFORM_SQL is a Record keyed by that type with a startOfDay entry, so the lookup cannot miss. (src/ir/util/projection-aggregate.ts:111,126; src/platform/hono/v4/projection-query-routes-builder.ts:984-989)",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow": {
-    deferred:
-      "A select-only query-time projection derives its row fields from the select expressions' resolved types (selectDerivedFields), so `select span = o.closedAt - o.openedAt` (datetime - datetime = duration) puts a duration into wireShape and zodForRow throws.",
-    mission: "M-T9.82",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.projection-select-duration"],
+    note: "A select-only row field takes its select expression's type, and a `duration`-typed select is refused (loom.projection-select-duration); `duration` has no field syntax, so it never reaches a declared row field either.",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#zodForRow$2": {
     guardedBy: ["loom.slot-out-of-position", "loom.action-out-of-position"],
@@ -1533,10 +1452,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/platform/hono/v4/workflow-eventsourced-builder.ts
   "src/platform/hono/v4/workflow-eventsourced-builder.ts#renderApplierStmt": {
-    deferred:
-      "The applier purity rules (loom.applier-emits/-impure-call/-guard) cover aggregate appliers and explicitly allow let/if/expression/return; an eventSourced workflow `apply(r) { let a = r.at  firedAt := a }` (or an `if`) validates clean and the hono ES-workflow applier refuses it.",
-    mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
+    guardedBy: [
+      "loom.applier-stmt-invalid",
+      "loom.applier-emits",
+      "loom.applier-impure-call",
+      "loom.applier-guard",
+      "loom.variant-match-placement",
+    ],
+    note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
   // src/platform/metadata.ts

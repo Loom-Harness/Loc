@@ -1,6 +1,7 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
@@ -11,6 +12,7 @@ import {
   MONEY_WIRE_SCALE,
 } from "../../money-scale.js";
 import { PY, pyVoOrEnum } from "../py-symbols.js";
+import { PY_CALENDAR_DATE } from "./calendar-date.js";
 import {
   createFieldConstraints,
   createFieldMessageValidator,
@@ -25,7 +27,6 @@ const GENERIC = pyRef("typing", "Generic");
 const TYPEVAR = pyRef("typing", "TypeVar");
 const pyd = (n: string): string => pyRef("pydantic", n);
 const BASE_MODEL = pyd("BaseModel");
-const FIELD = pyd("Field");
 const AFTER_VALIDATOR = pyd("AfterValidator");
 const BEFORE_VALIDATOR = pyd("BeforeValidator");
 const STRING_CONSTRAINTS = pyd("StringConstraints");
@@ -189,16 +190,29 @@ export const PY_INT32 = "Int32";
  *  published `format: int32` and rejected the overflow at the binder; this is
  *  python catching up to them, not a new rule.
  *
- *  `Field(ge=…, le=…)` supplies the VALIDATION (an out-of-range value is an
- *  ordinary pydantic error, so FastAPI answers its standard 422 — the same
- *  envelope every other bad field gets), `WithJsonSchema` supplies the
- *  published SCHEMA, so the spec reads `{"type": "integer", "format":
- *  "int32"}` exactly as .NET's and java's do instead of pydantic's
- *  `exclusiveMinimum`/`maximum` pair.
+ *  `_int32` supplies the VALIDATION (an out-of-range value is an ordinary
+ *  pydantic error, so FastAPI answers its standard 422 — the same envelope
+ *  every other bad field gets), `WithJsonSchema` supplies the published
+ *  SCHEMA, so the spec reads `{"type": "integer", "format": "int32"}` exactly
+ *  as .NET's and java's do.  A `PydanticCustomError`, not `Field(ge=…, le=…)`:
+ *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-42),
+ *  and `Field`'s would be pydantic's own "Input should be less than or equal
+ *  to 2147483647".  It runs AFTER the int coercion and any declared bound, so
+ *  a field whose rule states a tighter range answers that rule's sentence
+ *  first — as node, which drops the int32 pair beside a declared bound, does.
  *
  *  `long` is deliberately NOT given a twin: it is a `bigint` column, and the
  *  int64 range it would declare is wider than the JSON numbers either python
  *  or node can carry exactly — a bound nothing enforces is the F21 mistake. */
+const PY_INT32_CHECK_DEF = [
+  "def _int32(value: int) -> int:",
+  `    if not ${INT32_MIN} <= value <= ${INT32_MAX}:`,
+  `        raise ${PYDANTIC_CUSTOM_ERROR}("int_range", ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`,
+  "    return value",
+  "",
+  "",
+];
+
 const PY_INT32_DEF = [
   `${PY_INT32} = ${ANNOTATED}[`,
   "    int,",
@@ -207,7 +221,7 @@ const PY_INT32_DEF = [
   // it.  Placed FIRST so it runs before the int coercion that would have
   // silently turned the bool into 0/1.
   `    ${BEFORE_VALIDATOR}(_reject_non_number),`,
-  `    ${FIELD}(ge=-2147483648, le=2147483647),`,
+  `    ${AFTER_VALIDATOR}(_int32),`,
   `    ${WITH_JSON_SCHEMA}({"type": "integer", "format": "int32"}),`,
   "]",
 ];
@@ -229,7 +243,7 @@ export const PY_INT32_PARAM = "Int32Param";
 const PY_INT32_PARAM_DEF = [
   `${PY_INT32_PARAM} = ${ANNOTATED}[`,
   "    int,",
-  `    ${FIELD}(ge=-2147483648, le=2147483647),`,
+  `    ${AFTER_VALIDATOR}(_int32),`,
   `    ${WITH_JSON_SCHEMA}({"type": "integer", "format": "int32"}),`,
   "]",
 ];
@@ -340,6 +354,10 @@ function wireFieldType(
           return "bool";
         case "datetime":
           return inbound ? PY.datetime : "str";
+        // Inbound, pydantic parses the ISO `YYYY-MM-DD` text into a date and
+        // refuses anything else as a 422; outbound it is that text again.
+        case "date":
+          return inbound ? PY_CALENDAR_DATE : "str";
         case "json":
           return "object";
         case "File":
@@ -527,6 +545,7 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
     "",
     PY_WIRE_NUM_DEF,
     "",
+    PY_INT32_CHECK_DEF,
     PY_INT32_DEF,
     "",
     PY_INT32_PARAM_DEF,

@@ -12,8 +12,14 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import { MISSING_FIELD_MESSAGE, problemTitle } from "../../../ir/util/openapi-errors.js";
+import {
+  CONCURRENCY_CONFLICT_SUFFIX,
+  MISSING_FIELD_MESSAGE,
+  problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
+} from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
+import { UUID_WIRE_MESSAGE } from "../../../util/uuid-wire.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
 export function renderVanillaProblemDetailsModule(
@@ -149,13 +155,27 @@ export function renderVanillaProblemDetailsModule(
   since the client read it (\`Ecto.StaleEntryError\`, rescued to
   \`{:error, :conflict}\`).  Logs the \`conflict\` catalog event, distinct from
   the \`unique (...)\` 409 (which logs \`disallowed\` via \`problem_response/4\`).
+  The detail names the aggregate and the row (RS-40), the same sentence the
+  other four backends serve: \`"<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}"\`.
+  """
+  def conflict_response(conn, kind, id) do
+    send_conflict(conn, "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
+
+  @doc """
+  The same 409 for a conflict that reaches a dispatcher WITHOUT its aggregate and
+  row: a stale save inside a workflow / explicit-handler body surfaces as the bare
+  \`{:error, :conflict}\`, which names neither.  Same status, title and
+  catalog event; the detail is the generic sentence (#3838 carries the
+  aggregate and id through that term so it can match the other backends').
   """
   def conflict_response(conn) do
+    send_conflict(conn, "The resource ${CONCURRENCY_CONFLICT_SUFFIX}")
+  end
+
+  defp send_conflict(conn, detail) do
     ${renderPhoenixLogCall("conflict", [
-      {
-        name: "message",
-        valueExpr: `"The resource was modified by another request; reload and retry."`,
-      },
+      { name: "message", valueExpr: "detail" },
       { name: "status", valueExpr: `${concurrencyStatus}` },
     ])}
     ${renderPhoenixDomainFault("conflict")}
@@ -165,7 +185,7 @@ export function renderVanillaProblemDetailsModule(
         type: "about:blank",
         title: ${JSON.stringify(problemTitle(concurrencyStatus))},
         status: ${concurrencyStatus},
-        detail: "The resource was modified by another request; reload and retry.",
+        detail: detail,
         instance: conn.request_path
       })
 
@@ -350,9 +370,9 @@ export function renderVanillaProblemDetailsModule(
   @doc """
   Send a 422 ProblemDetails carrying an EXPLICIT \`errors[]\` list — the
   wire-validation rung for a denial that never builds an \`Ecto.Changeset\`
-  (a messaged \`precondition\` over the operation's own request params,
+  (a \`precondition\` over the operation's own request params,
   which the other four backends lift into the \`<Op>Request\` validator).  Each
-  entry is \`%{pointer:, message:, code:}\`; the code resolves through the same
+  entry is \`%{pointer:, message:, code:}\` (no code for a message-less rule); the code resolves through the same
   catalog the changeset path uses, so both rungs localise identically.
   """
   def validation_errors_response(conn, errors) when is_list(errors) do
@@ -363,6 +383,8 @@ export function renderVanillaProblemDetailsModule(
     %{pointer: pointer, message: ${localizeMessages ? "localize(code, message)" : "message"}, code: code}
   end
 
+  # A message-LESS rule's entry has no code: its sentence is the one node's
+  # validator sends, and a code is the i18n key of AUTHORED text only.
   # A STRUCTURAL error (a workflow request missing a param) carries no code —
   # the same shape zod's structural issues take on node.
   defp render_wire_error(%{pointer: pointer, message: message}) do
@@ -389,7 +411,7 @@ export function renderVanillaProblemDetailsModule(
         conn,
         ${uniquenessStatus},
         ${JSON.stringify(problemTitle(uniquenessStatus))},
-        "A record with these values already exists."
+        ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)}
       )
     else
       validation_failed_response(conn, changeset)
@@ -464,7 +486,7 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
   the same 422 the other four backends already answer.
   """
   def invalid_path_id_response(conn, param) do
-    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: "Expected UUID."}])
+    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${elixirString(UUID_WIRE_MESSAGE)}}])
   end
 
   @doc """

@@ -358,7 +358,8 @@ describe("audited — workflow capture", () => {
     expect(wf).toContain('action: "cancel",');
     expect(wf).toContain('targetType: "Cart",');
     expect(wf).toContain("targetId: (__auditAfter0 as { id: string }).id,");
-    expect(wf).toContain("actor: __auditCtx0?.currentUser ?? null,");
+    expect(wf).toContain("actor: auditActor(),");
+    expect(wf).toContain('import { auditActor } from "../audit/actor";');
     expect(wf).toContain("parentId: __auditCtx0?.parentId ?? null,");
     // Only the audited op is instrumented — the plain `touch` stays a bare call.
     expect(wf.match(/insert\(schema\.auditRecords\)/g)).toHaveLength(1);

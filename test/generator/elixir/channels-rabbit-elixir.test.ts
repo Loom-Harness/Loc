@@ -128,7 +128,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const files = await generateSystemFiles(FIXTURE);
     for (const dep of ["sales_api", "ship_api"]) {
       const mix = files.get(`${dep}/mix.exs`) ?? "";
-      expect(mix).toContain('{:amqp, "~> 4.0"}');
+      expect(mix).toContain('{:amqp, "4.3.0"}');
       expect(mix).not.toContain(":redix");
     }
   });
@@ -161,7 +161,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     expect(consumer).toContain("Redix.PubSub.subscribe");
     expect(consumer).not.toContain("open_rabbit");
     const mix = files.get("sales_api/mix.exs") ?? "";
-    expect(mix).toContain('{:redix, "~> 1.5"}');
+    expect(mix).toContain('{:redix, "1.10.0"}');
     expect(mix).not.toContain(":amqp");
   });
 });

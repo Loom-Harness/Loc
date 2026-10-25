@@ -58,12 +58,7 @@ import {
 import type { DddType } from "../../src/language/type-system.js";
 import { envForNode, typeOf } from "../../src/language/type-system.js";
 import { tyKey, typingSession } from "../../src/language/typing/index.js";
-import {
-  dddSourceOf,
-  inlineDddDocuments,
-  trackedDddFiles,
-  UNPARSEABLE_DDD,
-} from "../_helpers/ddd-corpus.js";
+import { dddSourceOf, inlineDddDocuments, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/index.js";
 
 /** The pinned counts — read rather than JSON-imported (the repo compiles on a
@@ -189,9 +184,7 @@ async function differential(): Promise<Tally> {
     samples: {},
   };
   const sources: { name: string; text: string }[] = [
-    ...trackedDddFiles()
-      .filter((f) => f !== UNPARSEABLE_DDD)
-      .map((f) => ({ name: f, text: dddSourceOf(f) })),
+    ...trackedDddFiles().map((f) => ({ name: f, text: dddSourceOf(f) })),
     ...inlineDddDocuments().map((d) => ({ name: `${d.file}:${d.line}`, text: d.text })),
   ];
   for (const src of sources) {

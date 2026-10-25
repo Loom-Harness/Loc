@@ -8,12 +8,12 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // concurrent append that loses the version race raises a Postgrex.Error
 // unique_violation (SQLSTATE 23505) inside the append transaction; the
 // repository rescues it to `{:error, :conflict}`, which the event-sourced
-// controller's `command_error/2` maps onto `ProblemDetails.conflict_response/1`
+// controller's `command_error/2` maps onto `ProblemDetails.conflict_response/3`
 // — a 409 with the distinct `conflict` catalog event, reusing the `versioned`
 // machinery.
 //
 // Since versioning is default-on (M-T3.4), a plain relational aggregate is now
-// auto-versioned and ALSO carries `conflict_response/1` (via the shared
+// auto-versioned and ALSO carries `conflict_response/3` (via the shared
 // optimistic-lock → 409 machinery); the rider fires for event-sourced OR
 // versioned aggregates, which is now every non-event-sourced aggregate too.
 //
@@ -94,24 +94,26 @@ describe("vanilla elixir generator — event-sourced concurrency rider", () => {
     );
   });
 
-  it("the event-sourced controller maps {:error, :conflict} onto conflict_response/1", async () => {
+  it("the event-sourced controller maps {:error, :conflict} onto conflict_response/3", async () => {
     const controller = at(await generateSystemFiles(ES), "controllers/account_controller.ex");
     expect(controller).toContain("defp command_error(conn, :conflict) do");
-    expect(controller).toContain("ProblemDetails.conflict_response(conn)");
+    expect(controller).toContain(
+      'ProblemDetails.conflict_response(conn, "Account", conn.path_params["id"])',
+    );
   });
 
-  it("ProblemDetails emits conflict_response/1 with the distinct `conflict` event", async () => {
+  it("ProblemDetails emits conflict_response/3 with the distinct `conflict` event", async () => {
     const pd = at(await generateSystemFiles(ES), "problem_details.ex");
-    expect(pd).toContain("def conflict_response(conn) do");
+    expect(pd).toContain("def conflict_response(conn, kind, id) do");
     expect(pd).toContain('event: "conflict"');
     expect(pd).toContain("send_resp(409, body)");
   });
 
-  it("a plain relational aggregate ALSO gets conflict_response/1 — versioning is default-on (M-T3.4)", async () => {
+  it("a plain relational aggregate ALSO gets conflict_response/3 — versioning is default-on (M-T3.4)", async () => {
     // Versioning is now auto-applied to every plain (non-event-sourced)
     // aggregate, so the `versioned` optimistic-lock → 409 machinery (and its
-    // shared `conflict_response/1`) rides along even without `with versioned`.
+    // shared `conflict_response/3`) rides along even without `with versioned`.
     const pd = at(await generateSystemFiles(RELATIONAL), "problem_details.ex");
-    expect(pd).toContain("def conflict_response(conn) do");
+    expect(pd).toContain("def conflict_response(conn, kind, id) do");
   });
 });

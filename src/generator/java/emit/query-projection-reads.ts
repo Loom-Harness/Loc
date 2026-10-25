@@ -83,9 +83,58 @@ import { workflowStateClass } from "./workflow-state.js";
 // projections; java joined after node/python/elixir.
 // ---------------------------------------------------------------------------
 
+/** Methods every generated `<Agg>JpaRepository` already has — inherited
+ *  from Spring Data's `JpaRepository` / `ListCrudRepository` /
+ *  `ListPagingAndSortingRepository` / `QueryByExampleExecutor`, plus
+ *  `java.lang.Object`.  A synthesized source read spelled like one of them
+ *  either fails javac (`count()` clashes with `long count()`) or silently
+ *  overrides the inherited method every other caller relies on. */
+const SPRING_DATA_REPOSITORY_MEMBERS: ReadonlySet<string> = new Set([
+  "count",
+  "delete",
+  "deleteAll",
+  "deleteAllById",
+  "deleteAllByIdInBatch",
+  "deleteAllInBatch",
+  "deleteById",
+  "deleteInBatch",
+  "exists",
+  "existsById",
+  "findAll",
+  "findAllById",
+  "findBy",
+  "findById",
+  "findOne",
+  "flush",
+  "getById",
+  "getOne",
+  "getReferenceById",
+  "save",
+  "saveAll",
+  "saveAllAndFlush",
+  "saveAndFlush",
+  "clone",
+  "equals",
+  "finalize",
+  "getClass",
+  "hashCode",
+  "notify",
+  "notifyAll",
+  "toString",
+  "wait",
+]);
+
+/** The repository-side name of a query-time projection's source read:
+ *  `lowerFirst(projection name)`, suffixed `Source` when that spelling is a
+ *  Spring Data / `Object` member of the JPA repository it is declared on. */
+function sourceFindName(projName: string): string {
+  const name = lowerFirst(projName);
+  return SPRING_DATA_REPOSITORY_MEMBERS.has(name) ? `${name}Source` : name;
+}
+
 /** Query-time projections sourced from `agg`, as synthesized parameterless
- *  finds the repository emitters pick up (name = lowerFirst(projection name)) —
- *  the `viewFindsFor` analogue, so the source read shares the JPQL find path. */
+ *  finds the repository emitters pick up (name = `sourceFindName`) — the
+ *  `viewFindsFor` analogue, so the source read shares the JPQL find path. */
 export function queryProjectionFindsFor(
   aggName: string,
   ctx: EnrichedBoundedContextIR,
@@ -100,7 +149,7 @@ export function queryProjectionFindsFor(
   return (ctx.projections ?? [])
     .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
     .map((p) => ({
-      name: lowerFirst(p.name),
+      name: sourceFindName(p.name),
       // The projection's own parameters — its inlined `where` names them, so a
       // parameterless read emitted `@Query("… = :o")` with no `@Param`, which
       // compiles and then fails at Spring context startup.
@@ -384,6 +433,12 @@ export function renderJavaQueryProjections(
         joined.has(f.name) && f.type.kind !== "optional"
           ? { kind: "optional", inner: f.type }
           : f.type;
+      // `FileRef` lives in the generated `domain.common` package, which
+      // `wireJavaType` (base-package-agnostic) spells bare.
+      const leaf = t.kind === "optional" ? t.inner : t;
+      if (leaf.kind === "primitive" && leaf.name === "File") {
+        rowImports.add(`${qpctx.basePkg}.domain.common.FileRef`);
+      }
       return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
@@ -471,7 +526,12 @@ export function renderJavaQueryProjections(
       const groupedCol = (i: number) => (groupedCols === 1 ? "r" : `r[${i}]`);
       const args = [
         ...grouped.keys.map((k, i) =>
-          groupKeyCoerce(k.type, groupedCol(i), groupKeyOf(k.expr)?.transform !== undefined),
+          groupKeyCoerce(
+            k.type,
+            groupedCol(i),
+            qpctx.basePkg,
+            groupKeyOf(k.expr)?.transform !== undefined,
+          ),
         ),
         ...grouped.aggregates.map((a, i) => jpqlCoerce(a, groupedCol(grouped.keys.length + i))),
       ];
@@ -656,7 +716,7 @@ export function renderJavaQueryProjections(
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         ...mapLines,
-        `        return ${repoField(source)}.${findName}(${projArgNames.join(", ")}).stream()`,
+        `        return ${repoField(source)}.${sourceFindName(proj.name)}(${projArgNames.join(", ")}).stream()`,
         `            .map(a -> new ${rowName}(${args.join(", ")}))`,
         `            .toList();`,
         `    }`,
@@ -910,9 +970,9 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
  *  guid reads cast to that mapping while the numerics keep the same
  *  `Number`/`toString` discipline as the aggregates.  A nullable key (optional
  *  column ⇒ a NULL group) stays null. */
-function groupKeyCoerce(t: TypeIR, read: string, viaFunction = false): string {
+function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = false): string {
   if (t.kind === "optional") {
-    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, viaFunction)}`;
+    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, basePkg, viaFunction)}`;
   }
   if (t.kind === "enum") return `(${t.name}) ${read}`;
   if (t.kind === "id") {
@@ -951,6 +1011,17 @@ function groupKeyCoerce(t: TypeIR, read: string, viaFunction = false): string {
         return `(Boolean) ${read}`;
       case "guid":
         return `(${J.UUID}) ${read}`;
+      case "json":
+        // A jsonb column groups by jsonb equality; the entity maps it as the
+        // same `JsonNode` the wire row carries.
+        return `(${J.JsonNode}) ${read}`;
+      case "File":
+        // A File column is jsonb holding the FileRef record — the domain
+        // and the wire shape are the same record.
+        return `(${javaRef(`${basePkg}.domain.common`, "FileRef")}) ${read}`;
+      case "date":
+        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
+        return `((${J.LocalDate}) ${read}).toString()`;
     }
   }
   throw new Error(

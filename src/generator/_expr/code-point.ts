@@ -83,3 +83,49 @@ export function javaCodePointLength(recv: string): string {
 export function elixirCodePointLength(recv: string): string {
   return `length(String.to_charlist(${recv}))`;
 }
+
+// ---------------------------------------------------------------------------
+// String `.substring(start, len?)` — counted in the SAME unit as `.length`.
+//
+// The catalogue contract (`src/util/intrinsics.ts`) is 0-based and CLAMPING:
+// an out-of-range start yields "", a length past the end truncates, an omitted
+// length runs to the end.  Its UNIT is the code point, like `.length` above —
+// a substring in UTF-16 units would split an astral character in half
+// (`"a😀bc".substring(1, 2)` answered "😀" on node/.NET/java and "😀b" on
+// python, whose slicing is code points) and disagree with the backend's own
+// `.length`, which every caller uses to compute the bounds (RS-31's unit).
+// One snippet per target language; each takes the start (and length) as
+// rendered expressions, and a receiver or argument may be spelled more than
+// once — Loom expressions are pure.
+// ---------------------------------------------------------------------------
+
+/** JS/TS: spread to code points, `slice` (which clamps), join back. */
+export function tsCodePointSubstring(recv: string, start: string, len?: string): string {
+  return len === undefined
+    ? `[...${recv}].slice(${start}).join("")`
+    : `[...${recv}].slice(${start}, (${start}) + (${len})).join("")`;
+}
+
+/** C#: one `Rune` per scalar value; `Skip`/`Take` clamp at both ends and
+ *  `string.Concat<Rune>` re-encodes each rune. */
+export function csCodePointSubstring(recv: string, start: string, len?: string): string {
+  return len === undefined
+    ? `string.Concat(${recv}.EnumerateRunes().Skip(${start}))`
+    : `string.Concat(${recv}.EnumerateRunes().Skip(${start}).Take(${len}))`;
+}
+
+/** Java: the JDK's code-point stream; `skip`/`limit` clamp, and the collector
+ *  re-encodes each code point (a surrogate pair stays whole). */
+export function javaCodePointSubstring(recv: string, start: string, len?: string): string {
+  const window = len === undefined ? `.skip(${start})` : `.skip(${start}).limit(${len})`;
+  return `${recv}.codePoints()${window}.collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString()`;
+}
+
+/** Elixir: a charlist is a list of code points (see `elixirCodePointLength`);
+ *  `Enum.slice/3` / `Enum.drop/2` clamp — `String.slice/3` would count
+ *  GRAPHEMES. */
+export function elixirCodePointSubstring(recv: string, start: string, len?: string): string {
+  return len === undefined
+    ? `List.to_string(Enum.drop(String.to_charlist(${recv}), ${start}))`
+    : `List.to_string(Enum.slice(String.to_charlist(${recv}), ${start}, ${len}))`;
+}

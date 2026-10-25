@@ -58,12 +58,12 @@ describe("feliz Action(x.op)", () => {
     expect(app).toContain("  | ActivateProductDone of Result<unit, string>");
     // update: trigger fires the id-qualified POST; Done refetches the detail.
     expect(app).toContain(
-      "  | ActivateProduct id -> model, Cmd.OfAsync.perform Api.activateProduct id ActivateProductDone",
+      "  | ActivateProduct id -> model, Cmd.OfAsync.perform Api.activateProductAction id ActivateProductDone",
     );
     expect(app).toContain("  | ActivateProductDone (Ok ()) -> model, pageCmd model.CurrentPage");
     expect(app).toContain("  | ActivateProductDone (Error _) -> model, Cmd.none");
     // Api: empty-body POST to /<id>/<op> → unit.
-    expect(app).toContain("let activateProduct (id: string) : Async<Result<unit, string>> =");
+    expect(app).toContain("let activateProductAction (id: string) : Async<Result<unit, string>> =");
     expect(app).toContain('Http.request (sprintf "/api/products/%s/activate" id)');
     expect(app).toContain('Http.content (BodyContent.Text "{}")');
     // view: a plain dispatching button (ungated).

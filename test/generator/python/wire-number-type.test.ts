@@ -75,7 +75,7 @@ describe("the numeric guard rejects the JSON types a number is not", () => {
     const int32 = wire.slice(wire.indexOf("Int32 = Annotated["));
     const block = int32.slice(0, int32.indexOf("]") + 1);
     const guardAt = block.indexOf("BeforeValidator(_reject_non_number)");
-    const boundAt = block.indexOf("Field(ge=-2147483648");
+    const boundAt = block.indexOf("AfterValidator(_int32)");
     expect(guardAt).toBeGreaterThan(-1);
     expect(boundAt).toBeGreaterThan(-1);
     expect(guardAt).toBeLessThan(boundAt);

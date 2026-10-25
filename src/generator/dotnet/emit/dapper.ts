@@ -35,7 +35,9 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
@@ -50,10 +52,12 @@ import {
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
+import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
+import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { csSubtreeLikePattern, SQL_LIKE_ESCAPE_CLAUSE } from "../../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
@@ -181,6 +185,8 @@ function primTypes(name: string): { sql: string; cs: string } {
       return { sql: "boolean", cs: "bool" };
     case "datetime":
       return { sql: "timestamptz", cs: "DateTime" };
+    case "date":
+      return { sql: "date", cs: "DateOnly" };
     case "guid":
       return { sql: "uuid", cs: "Guid" };
     case "json":
@@ -743,6 +749,12 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
     const idCol = sqlIdent("id");
     return selfScope.idOnLeft ? `(${idCol} = ${claimParam})` : `(${claimParam} = ${idCol})`;
   }
+  // A principal term (`currentUser.role == "agent"`) reads no column: it is
+  // decided in C# against the principal (Loom null semantics, which a SQL
+  // `@claim <> 'agent'` over a null claim would not give) and bound as ONE
+  // boolean parameter — see `collectFilterPrincipalRefs`.
+  const pt = principalTerm(e);
+  if (pt) return `@${principalTermParam(pt)}`;
   switch (e.kind) {
     case "paren":
       return `(${whereToSql(e.inner, sqlCtx)})`;
@@ -1112,6 +1124,22 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
   const unparen = (x: ExprIR): ExprIR => (x.kind === "paren" ? unparen(x.inner) : x);
   for (const f of filters)
     walkExprDeep(f, (e) => {
+      // A principal term binds one C# boolean (see `whereToSql`); its claim
+      // operands are read inside that value, not bound as `@__cu_<claim>`.
+      const pt = principalTerm(e);
+      if (pt) {
+        if (e.kind === "binary" || e.kind === "paren") {
+          walkExprDeep(e, (x) => {
+            if (x !== e) consumed.add(x);
+          });
+        }
+        add({
+          param: principalTermParam(pt),
+          claimProp: "",
+          valueExpr: (base) => principalTermValue(pt, base),
+        });
+        return;
+      }
       if (
         e.kind === "member" &&
         e.receiver.kind === "ref" &&
@@ -1156,6 +1184,33 @@ export function collectFilterPrincipalRefs(filters: readonly ExprIR[]): FilterPr
       }
     });
   return [...byParam.values()];
+}
+
+/** The C# boolean a principal term binds, read off the accessor `base`. */
+function principalTermValue(pt: PrincipalTerm, base: string): string {
+  const test = renderPrincipalTest(pt, {
+    claim: (field) => `${base}.${upperFirst(field)}`,
+    value: (v) => renderCsExpr(v),
+    isNull: (x) => `${x} == null`,
+    isNotNull: (x) => `${x} != null`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+  if (test === null) return refuseOutOfVocabulary("sql-dapper", "principal term in filter");
+  return `(${test})`;
+}
+
+/** The Dapper parameter a principal term binds.  Derived from the term's own
+ *  text, so the SQL renderer and the binding collector name it identically
+ *  and two references to the same term share one parameter. */
+function principalTermParam(pt: PrincipalTerm): string {
+  const text = principalTermValue(pt, "u");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `__pt_${h.toString(16).padStart(8, "0")}`;
 }
 
 /** Dedup principal refs by param name (a claim referenced by both a capability
@@ -1401,7 +1456,7 @@ export function renderDapperRepository(
         `        ${DAPPER_BEGIN_TX}`,
         "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
         `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion", new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
-        `        if (__affected == 0) throw new ConcurrencyConflictException("The resource was modified by another request; reload and retry.");`,
+        `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
@@ -2033,7 +2088,7 @@ export function renderDapperRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         `    {`,
@@ -2354,7 +2409,7 @@ export function renderDapperDocumentRepository(
         ...savePrelude,
         "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
         `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (id, data, version) VALUES (@id, CAST(@data AS jsonb), 1) ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = ${table}.version + 1 WHERE ${table}.version = @ExpectedVersion", new { id = aggregate.Id.Value, data = __data, ExpectedVersion = __expected }, ${audit.txArg}cancellationToken: cancellationToken));`,
-        `        if (__affected == 0) throw new ConcurrencyConflictException("The resource was modified by another request; reload and retry.");`,
+        `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
         ...audit.flush,
         audit.commit,
       ].filter((l): l is string => l !== null)
@@ -2414,7 +2469,7 @@ export function renderDapperDocumentRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         "    {",
@@ -2705,13 +2760,28 @@ export function renderDapperEventSourcedRepository(
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
       audit.on ? null : `            ${dapperOpenConn(ns)}`,
-      `            var __version = await conn.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT MAX(version) FROM ${table} WHERE stream_type = @st AND stream_id = @sid", new { st = "${streamType}", sid = __sid }, ${audit.txArg}cancellationToken: cancellationToken)) ?? 0;`,
+      // Expected-version append (M-T6.98): continue from the version THIS
+      // handle was folded to, not from a `MAX(version)` re-read here — a
+      // re-read lets a handle loaded before another append keep a decision
+      // taken on its stale fold.  A stale handle's append re-inserts a version
+      // that exists and loses on the (stream_type, stream_id, version) key
+      // (SQLSTATE 23505) — the RS-40 409, the same exception the guarded
+      // relational / document upserts raise.
+      "            var __version = aggregate._StreamVersion;",
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
       "                var __data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json);",
-      `                await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      "                try",
+      "                {",
+      `                    await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (stream_type, stream_id, version, type, data, occurred_at) VALUES (@st, @sid, @version, @type, CAST(@data AS jsonb), now())", new { st = "${streamType}", sid = __sid, version = __version, type = __ev.GetType().Name, data = __data }, ${audit.txArg}cancellationToken: cancellationToken));`,
+      "                }",
+      '                catch (Npgsql.PostgresException __ex) when (__ex.SqlState == "23505")',
+      "                {",
+      `                    throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
+      "                }",
       "            }",
+      "            aggregate._StreamVersion = __version;",
       "        }",
       ...audit.flush,
       audit.commit,
@@ -2768,4 +2838,58 @@ export function renderDapperConnectionSetup(searchPath: readonly string[] = []):
     `        SearchPath = ${JSON.stringify(searchPath.join(","))},`,
     `    }.ConnectionString));`,
   ];
+}
+
+const DATE_ONLY_HANDLER_PATH = "Infrastructure/Persistence/DateOnlyTypeHandler.cs";
+
+/** Wire the `DateOnly` type handler into a finished Dapper project iff some
+ *  emitted C# names `DateOnly` — derived from use over the file map, so a
+ *  project with no `date` field is byte-identical.  Registered right after the
+ *  data source in `Program.cs`, before any repository can run a query. */
+export function wireDapperDateOnlyHandler(out: Map<string, string>, ns: string): void {
+  const program = out.get("Program.cs");
+  if (program === undefined) return;
+  const uses = [...out].some(([p, c]) => p.endsWith(".cs") && /\bDateOnly\b/.test(c));
+  if (!uses) return;
+  // The data source registration ends one of two ways — `renderDapperConnectionSetup`
+  // with and without a connection `search_path`.
+  const anchor = [
+    `    builder.Configuration.GetConnectionString("Default")!));`,
+    `    }.ConnectionString));`,
+  ].find((a) => program.includes(a));
+  if (anchor === undefined) return;
+  out.set(DATE_ONLY_HANDLER_PATH, renderDapperDateOnlyHandler(ns));
+  rewrite(
+    out,
+    "Program.cs",
+    program.replace(
+      anchor,
+      `${anchor}\nDapper.SqlMapper.AddTypeHandler(new ${ns}.Infrastructure.Persistence.DateOnlyTypeHandler());`,
+    ),
+  );
+}
+
+/** `Infrastructure/Persistence/DateOnlyTypeHandler.cs` — teaches Dapper the
+ *  Loom `date` scalar (`DateOnly`), which it cannot bind as a parameter on its
+ *  own ("type System.DateOnly cannot be used as a parameter value").  Npgsql
+ *  binds a `DateOnly` to `date` natively; a `date` column READS back as a
+ *  `DateTime` at midnight through Dapper's untyped `GetValue`, whose calendar
+ *  day is the stored one — no zone is applied to a `date`. */
+function renderDapperDateOnlyHandler(ns: string): string {
+  return lines(
+    `namespace ${ns}.Infrastructure.Persistence;`,
+    "",
+    '/// <summary>Binds and reads the Loom <c>date</c> scalar (<see cref="DateOnly"/>).</summary>',
+    "public sealed class DateOnlyTypeHandler : Dapper.SqlMapper.TypeHandler<DateOnly>",
+    "{",
+    "    public override void SetValue(System.Data.IDbDataParameter parameter, DateOnly value)",
+    "    {",
+    "        parameter.DbType = System.Data.DbType.Date;",
+    "        parameter.Value = value;",
+    "    }",
+    "",
+    "    public override DateOnly Parse(object value) =>",
+    "        value is DateOnly d ? d : DateOnly.FromDateTime((DateTime)value);",
+    "}",
+  );
 }

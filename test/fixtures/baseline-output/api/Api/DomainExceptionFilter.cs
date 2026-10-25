@@ -142,9 +142,19 @@ public sealed class DomainExceptionFilter : IExceptionFilter
         }
         if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
         {
-            _log.LogWarning("{Event} message={Message} status={Status}", "conflict", "The resource was modified by another request; reload and retry.", 409);
+            var __conflictDetail = context.Exception.Message;
+            if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException { Entries.Count: > 0 } __dbx)
+            {
+                var __entry = __dbx.Entries[0];
+                var __type = __entry.Metadata.ClrType;
+                var __name = __type.Namespace?.EndsWith(".Infrastructure.Persistence.Documents") == true && __type.Name.EndsWith("Document") ? __type.Name[..^"Document".Length] : __type.Name;
+                var __key = __entry.Metadata.FindPrimaryKey();
+                var __idVal = __key is { Properties.Count: > 0 } ? __entry.Property(__key.Properties[0].Name).CurrentValue : null;
+                __conflictDetail = $"{__name} {__idVal} was modified by another request";
+            }
+            _log.LogWarning("{Event} message={Message} status={Status}", "conflict", __conflictDetail, 409);
             global::Api.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, 409, "Conflict", "The resource was modified by another request; reload and retry.", trace_id);
+            context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id);
             context.ExceptionHandled = true;
             return;
         }

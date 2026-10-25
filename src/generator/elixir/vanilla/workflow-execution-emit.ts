@@ -114,6 +114,7 @@ import {
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
@@ -121,6 +122,30 @@ import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-
  *  name, which is what a cross-context create already emits today. */
 function aggOf(ctx: BoundedContextIR | undefined, aggName: string): AggregateIR | undefined {
   return ctx?.aggregates.find((a) => a.name === aggName);
+}
+
+/** True when a workflow `factory-let` creating `aggName` must hand the
+ *  principal to the create seam: the aggregate's lifecycle stamps read
+ *  `currentUser` (`auditable`'s `createdBy`/`updatedBy`, a `tenantOwned`
+ *  `tenantId`), so the repository insert writes them from the threaded
+ *  `current_user` exactly as the REST controller's create does.  Without it the
+ *  stamped columns persist nil and a NOT NULL audit column rejects the insert. */
+function factoryStampsActor(ctx: BoundedContextIR | undefined, aggName: string): boolean {
+  const agg = aggOf(ctx, aggName);
+  return !!agg && stampUsesPrincipal(agg);
+}
+
+/** A workflow `factory-let` as its context create call — the in-process
+ *  (`internalCreateFn`) entry, carrying the workflow's `current_user` when the
+ *  aggregate stamps the principal.  `fields` is the rendered `key: value` list. */
+function factoryCreateCall(
+  aggName: string,
+  fields: string,
+  contextModule: string,
+  ctx: BoundedContextIR | undefined,
+): string {
+  const actor = factoryStampsActor(ctx, aggName) ? ", current_user" : "";
+  return `${contextModule}.${internalCreateFn(aggName, aggOf(ctx, aggName))}(%{${fields}}${actor})`;
 }
 
 export interface VanillaWorkflowExecResult {
@@ -353,8 +378,7 @@ function lowerStatement(
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
-      const action = `create_${snake(st.aggName)}`;
-      const call = `${contextModule}.${action}(%{${fields}})`;
+      const call = factoryCreateCall(st.aggName, fields, contextModule, ctx);
       // M-T6.21 — `{:ok, _order} <- …` when nothing downstream reads the new
       // aggregate and it is not the workflow's return; the `:ok` match still
       // gates the chain, so a failed create still rolls back.
@@ -374,15 +398,24 @@ function lowerStatement(
       // A `currentUser`-gated op takes a trailing `current_user` arg —
       // `opCallSource` threads the in-scope binding when `ctx` resolves it.
       const call = opCallSource(st, renderCtx, contextModule, ctx);
+      // M-T6.98 — the call PERSISTS (each context op is its own save on
+      // elixir, where the other four save a handle once at the end), so the
+      // handle is rebound to what it returns: the saved record, carrying the
+      // version (or folded stream version) the write moved it to.  Discarding
+      // it left the handle at its LOADED version, so a second op on the same
+      // handle was a stale save — a self-inflicted concurrency conflict — and,
+      // on an event-sourced aggregate, a decision taken on a stale fold.
+      // Only a void op returns the record; a returning op's `{:ok, value}` is
+      // its result, so that handle is left as it is.  Unread later → `_`.
+      const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
       const rebind =
-        reads.rebindOpTargets && bindUsedLater(st.target, rest, reads.trailing)
-          ? escapeElixirIdent(snake(st.target))
-          : "_";
+        op !== undefined && !op.returnType && bindUsedLater(st.target, rest, reads.trailing);
+      const handle = escapeElixirIdent(snake(st.target));
       return [
         {
           kind: "with-clause",
-          text: `{:ok, ${rebind}} <- ${call}`,
-          bindName: undefined,
+          text: `{:ok, ${rebind ? handle : "_"}} <- ${call}`,
+          bindName: rebind ? handle : undefined,
         },
       ];
     }
@@ -731,7 +764,7 @@ function lowerStatement(
                   ? escapeElixirIdent(snake(inner.name))
                   : "_";
                 clauses.push(
-                  `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+                  `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
                 );
                 break;
               }
@@ -843,7 +876,7 @@ function opCallSource(
  *  param-op calls into context mutating-fn with-clauses.  Returns `[]` when
  *  `ctx` is absent (legacy/test path) or the op isn't resolvable/mutating — the
  *  caller then keeps the sound side-effect fallback. */
-function resolveInlinedServiceClauses(
+export function resolveInlinedServiceClauses(
   st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>,
   renderCtx: RenderCtx,
   contextModule: string,
@@ -922,22 +955,20 @@ function opCallThreadsUser(
 }
 
 /** True when the workflow body itself names `currentUser`, OR it calls a
- *  `currentUser`-gated operation (whose context fn takes the trailing actor).
- *  Either way the workflow function must thread `current_user \\ nil` so the
- *  binding is in scope for the rendered guard / op-call.  Recurses into
- *  `for-each` / `if-let` bodies. */
+ *  `currentUser`-gated operation (whose context fn takes the trailing actor),
+ *  OR it creates an aggregate whose lifecycle stamps read the principal.  Any
+ *  of these means the workflow function threads `current_user \\ nil` so the
+ *  binding is in scope for the rendered guard / op-call / create call, at any
+ *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
 function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
-  return workflowUsesCurrentUser(wf) || stmtsCallUserGatedOp(wf.statements, ctx);
-}
-
-function stmtsCallUserGatedOp(sts: WorkflowStmtIR[], ctx: BoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") return opCallThreadsUser(s, ctx);
-    if (s.kind === "for-each") return stmtsCallUserGatedOp(s.body, ctx);
-    if (s.kind === "if-let")
-      return stmtsCallUserGatedOp(s.thenBody, ctx) || stmtsCallUserGatedOp(s.elseBody ?? [], ctx);
-    return false;
-  });
+  if (workflowUsesCurrentUser(wf)) return true;
+  let needs = false;
+  for (const st of wf.statements)
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
+      if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
+    });
+  return needs;
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
@@ -1042,7 +1073,7 @@ function renderLoopBody(
         lastBind = escapeElixirIdent(snake(inner.name));
         const bind = bindUsedLater(inner.name, rest) ? lastBind : "_";
         clauses.push(
-          `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+          `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
         );
         if (bind === "_") lastBind = "nil";
         break;
@@ -1239,9 +1270,7 @@ function renderBranchStmt(
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
       const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
-      return [
-        `{:ok, ${bind}} = ${contextModule}.${internalCreateFn(st.aggName, aggOf(ctx, st.aggName))}(%{${fields}})`,
-      ];
+      return [`{:ok, ${bind}} = ${factoryCreateCall(st.aggName, fields, contextModule, ctx)}`];
     }
     case "emit": {
       const fields = st.fields
@@ -1654,7 +1683,8 @@ function renderWorkflowModule(
     result ? renderExpr(result.value, renderCtx) : undefined,
   );
   // A workflow that names `currentUser` in a guard/body — or calls a
-  // `currentUser`-gated op — threads `current_user \\ nil` into `run/1`
+  // `currentUser`-gated op, or creates a principal-stamped aggregate — threads
+  // `current_user \\ nil` into `run/1`
   // (and `run_inner` on the transactional path) so the rendered bare token
   // `current_user` (and the trailing op-call actor) bind.  The
   // `WorkflowsController` passes `conn.assigns[:current_user]`.  A workflow
@@ -1711,6 +1741,60 @@ function renderWorkflowModule(
     );
     return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
   });
+  // A payload's MONEY fields are wire strings the body hands on unparsed, so a
+  // malformed one ("1.2.3") reached the aggregate's changeset and came back
+  // Ecto's "is invalid" at the AGGREGATE's field (`/amount`).  Every other
+  // backend refuses it at the wire, as node's `Invalid decimal: "1.2.3"` at the
+  // field's whole path (`/c/amount`, RS-33).  Each such field is checked against
+  // node's money grammar before the body runs; a refusal is a changeset error on
+  // the PARAM carrying the field on `loom_path`, which the shared renderer turns
+  // into exactly that pointer.
+  const moneyChecks = params.flatMap((n) => {
+    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
+    const inner = t?.kind === "optional" ? t.inner : t;
+    const payload =
+      inner?.kind === "entity"
+        ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
+        : undefined;
+    if (!payload || inner?.kind !== t?.kind) return [];
+    return payload.fields
+      .filter((f) => {
+        const ft = f.type.kind === "optional" ? f.type.inner : f.type;
+        return ft.kind === "primitive" && ft.name === "money";
+      })
+      .map((f) => `{:${snake(n)}, :${snake(f.name)}, ${snake(n)}.${snake(f.name)}}`);
+  });
+  const moneyGuardOpen =
+    moneyChecks.length > 0
+      ? `    case __loom_payload_money([${moneyChecks.join(", ")}]) do
+      :ok ->
+`
+      : "";
+  const moneyGuardClose =
+    moneyChecks.length > 0
+      ? `
+      {:error, _} = loom_payload_refusal -> loom_payload_refusal
+    end`
+      : "";
+  const moneyGuardHelper =
+    moneyChecks.length > 0
+      ? `
+
+  # node's money grammar, character for character — the payload twin of the
+  # context's operation-param guard.
+  defp __loom_payload_money(checks) do
+    Enum.find_value(checks, :ok, fn {param, field, value} ->
+      if is_nil(value) or (is_binary(value) and Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)) do
+        nil
+      else
+        {:error,
+         {%{}, %{param => :map}}
+         |> Ecto.Changeset.change(%{})
+         |> Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field])}
+      end
+    end)
+  end`
+      : "";
   const paramDestructure =
     params.length > 0
       ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}`
@@ -1759,7 +1843,13 @@ function renderWorkflowModule(
       : "";
   // `workflow_started` runs first thing in the body (before the destructure +
   // the with-chain), so it fires at run/1 entry on every invocation.
-  const finalBody = `    ${startedCall}\n` + paramDestructure + statePrelude + aliasedBody;
+  const finalBody =
+    `    ${startedCall}\n` +
+    paramDestructure +
+    moneyGuardOpen +
+    statePrelude +
+    aliasedBody +
+    moneyGuardClose;
 
   const transactionalDoc = transactional
     ? "\n\n  Marked `transactional` — the body runs inside `Repo.transaction/1`;\n  a rejection result rolls the transaction back."
@@ -1813,7 +1903,7 @@ ${missingParamsClause}${failureReporter}
 
   defp run_inner(${innerParam}) when is_map(params) do
 ${finalBody}
-  end${helperDefs}
+  end${helperDefs}${moneyGuardHelper}
 end
 `;
     return { content, statementRegions };
@@ -1837,7 +1927,7 @@ ${finalBody}
     end)
     |> report_result()
   end
-${missingParamsClause}${failureReporter}${helperDefs}
+${missingParamsClause}${failureReporter}${helperDefs}${moneyGuardHelper}
 end
 `;
   return { content, statementRegions };

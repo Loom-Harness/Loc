@@ -19,6 +19,7 @@ import {
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 
 /** The minimal read shape the query-time projection reuse feeds
@@ -38,6 +39,7 @@ export interface AggregateReadShape {
 }
 
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import {
   baseOf,
@@ -102,6 +104,7 @@ export const R = {
   current_user: authUser("current_user"),
   require_current_user: authUser("require_current_user"),
   AuditRecordRow: pyRef("app.db.audit", "AuditRecordRow"),
+  audit_actor: pyRef("app.db.audit", "audit_actor"),
   ProvenanceRecord: pyRef("app.db.provenance", "ProvenanceRecord"),
   iso: wire("iso"),
   money_str: wire("money_str"),
@@ -417,7 +420,7 @@ export function buildPyRepositoryFile(
     `        rows = (await self._session.execute(${R.select}(${root})${rootWhere(
       { expr: `${root}.id.in_(list(ids))`, ops: new Set() },
       root,
-      undefined,
+      kind,
       filterPred,
     )})).scalars().all()`,
     `        return ${hydrateListExpr(agg)}`,
@@ -428,7 +431,7 @@ export function buildPyRepositoryFile(
     ]),
     "",
     saveMethod(agg, ctx, aggVar),
-    agg.canonicalDestroy ? ["", deleteMethod(agg, ctx)] : null,
+    canonicalDestroy(agg) ? ["", deleteMethod(agg, ctx)] : null,
     "",
     hydrateMethod(agg, ctx),
     hasChildCollections(agg) ? ["", hydrateManyMethod(agg, ctx)] : null,
@@ -1447,7 +1450,7 @@ function saveMethod(
     out.push("        )");
     out.push("        if _guarded.first() is None:");
     out.push(
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {${aggVar}.id} was modified concurrently")`,
+      `            raise ${R.ConcurrencyError}(f"${agg.name} {${aggVar}.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push("        await self._session.execute(");
@@ -1739,9 +1742,11 @@ export function recordAuditMethod(): string {
     // the NOT NULL jsonb column (parity with the Hono route's `before: null`).
     "        before: object,",
     "        after: object,",
-    "        actor: object | None = None,",
     '        status: str = "ok",',
     "    ) -> None:",
+    // The actor is the ambient principal's declared shape, read here rather
+    // than threaded through every call site (RS-45).
+    `        actor = ${R.audit_actor}()`,
     "        self._session.add(",
     `            ${R.AuditRecordRow}(`,
     `                audit_id=${R.uuid4}().hex,`,
@@ -1811,6 +1816,9 @@ export function wireValue(
   }
   if (t.kind === "primitive" && t.name === "datetime") {
     return optional ? `(None if ${expr} is None else ${R.iso}(${expr}))` : `${R.iso}(${expr})`;
+  }
+  if (t.kind === "primitive" && t.name === "date") {
+    return optional ? `(None if ${expr} is None else ${expr}.isoformat())` : `${expr}.isoformat()`;
   }
   if (t.kind === "primitive" && t.name === "money") {
     // Money crosses the wire as its canonical decimal STRING via the shared

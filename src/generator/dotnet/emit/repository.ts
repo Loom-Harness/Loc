@@ -10,7 +10,9 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -118,7 +120,7 @@ export function renderRepositoryInterface(
       `    ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
       // Hard delete — only when the aggregate has a canonical `destroy`
       // (declared or via `crudish`); keeps plain repos unchanged.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
@@ -484,7 +486,13 @@ export function renderRepositoryImpl(
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
       "    {",
-      `        var found = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
+      // M-T6.90 — two loads of one row are two handles, each with the version
+      // it read (node semantics).  A row this scope already tracks is loaded
+      // into a fork (AppDbContext.Fork) instead of being handed back as the
+      // SAME instance by EF's identity map, so a stale second handle's save
+      // still trips the version guard → 409.
+      `        var __db = _db.${setName}.Local.Any(x => x.Id == id) ? _db.Fork() : _db;`,
+      `        var found = await __db.${setName}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
       // aggregate_loaded (debug) — mirrors the Hono repo emission;
       // `found` is a bool so a downstream filter can grep failed loads
       // by (event="aggregate_loaded", Found=false).
@@ -530,7 +538,10 @@ export function renderRepositoryImpl(
         : []),
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
-      "        var entry = _db.Entry(aggregate);",
+      // The context tracking this handle — a fork for a second load of a row
+      // (see GetByIdAsync), else the scoped context.
+      "        var __db = _db.TrackerOf(aggregate);",
+      "        var entry = __db.Entry(aggregate);",
       "        if (entry.State == EntityState.Detached)",
       "        {",
       `            _db.${setName}.Add(aggregate);`,
@@ -562,7 +573,7 @@ export function renderRepositoryImpl(
             ])}`,
             "        try",
             "        {",
-            "            await _db.SaveChangesAsync(cancellationToken);",
+            "            await _db.SaveChangesWithAsync(__db, cancellationToken);",
             `            ${renderDotnetLogCall("txCommit", [
               { name: "aggregate", valueExpr: `"${agg.name}"` },
               { name: "id", valueExpr: "aggregate.Id.Value" },
@@ -585,7 +596,7 @@ export function renderRepositoryImpl(
             "        }",
           ]
         : [
-            "        await _db.SaveChangesAsync(cancellationToken);",
+            "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
             // repository_save (debug) after SaveChangesAsync — the EF
             // transaction has committed at this point.  Field set mirrors
             // the Hono emission's (aggregate, id) prefix.
@@ -613,13 +624,14 @@ export function renderRepositoryImpl(
       // Hard delete — gated on a canonical `destroy`.  `Remove` + Save;
       // containment children and join-table rows drop via the schema's
       // ON DELETE CASCADE FKs (mirrors the Hono Drizzle delete).
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
             "    {",
-            `        _db.${setName}.Remove(aggregate);`,
-            "        await _db.SaveChangesAsync(cancellationToken);",
+            "        var __db = _db.TrackerOf(aggregate);",
+            `        __db.${setName}.Remove(aggregate);`,
+            "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
             "    }",
           ]
         : []),
@@ -1082,7 +1094,17 @@ export function renderDocumentRepositoryImpl(
       ...(aggregateIsVersioned(agg)
         ? [
             `        var __existing = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == aggregate.Id.Value, cancellationToken);`,
-            "        var __nextVersion = __existing == null ? 1 : __existing.Version + 1;",
+            // M-T6.98 — the write-time CAS compares against the version THIS
+            // handle was loaded at (or the client's `If-Match`), not the row
+            // just re-read: `__existing` is EF's tracked instance, which a
+            // sibling handle's save has already advanced, so bumping it
+            // `+ 1` let a stale handle overwrite the row.  Setting the
+            // concurrency token's ORIGINAL value makes SaveChanges issue
+            // `UPDATE … WHERE version = <expected>`; zero rows raise EF's
+            // native DbUpdateConcurrencyException → the RS-40 409.
+            "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+            "        if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+            "        var __nextVersion = __existing == null ? 1 : __expected + 1;",
             // INSERT only: a jsonb aggregate is not EF-tracked, so the
             // AuditableInterceptor never stamps it.  Must run BEFORE the
             // snapshot is serialized.  The update path rewrites the whole blob
@@ -1142,7 +1164,7 @@ export function renderDocumentRepositoryImpl(
       // `Remove` it; a missing row is a no-op.  Without this, a document-shaped
       // aggregate with `crudish` fails CS0535 — the interface declares
       // `DeleteAsync` but the impl wouldn't provide it.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
@@ -1374,11 +1396,16 @@ export function renderEventSourcedRepositoryImpl(
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
-      `            var __version = await _db.${dbSet}.Where(e => e.StreamType == "${streamType}" && e.StreamId == __sid).Select(e => (int?)e.Version).MaxAsync(cancellationToken) ?? 0;`,
+      // Expected-version append (M-T6.98): continue from the version THIS
+      // handle was folded to, not from a `Max(Version)` re-read here — a
+      // re-read lets a handle loaded before another append keep a decision
+      // taken on its stale fold.
+      "            var __version = aggregate._StreamVersion;",
+      `            var __appended = new List<${recordCls}>();`,
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
-      `                _db.${dbSet}.Add(new ${recordCls}`,
+      `                var __rec = new ${recordCls}`,
       "                {",
       `                    StreamType = "${streamType}",`,
       "                    StreamId = __sid,",
@@ -1386,11 +1413,13 @@ export function renderEventSourcedRepositoryImpl(
       "                    Type = __ev.GetType().Name,",
       "                    Data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json),",
       "                    OccurredAt = DateTime.UtcNow,",
-      "                });",
+      "                };",
+      `                _db.${dbSet}.Add(__rec);`,
+      "                __appended.Add(__rec);",
       "            }",
       // The (stream_id, version) PK IS the event stream's optimistic-concurrency
-      // control: a competing append that read the same Max(Version) inserts the
-      // same version and loses with a Postgres 23505.  EF surfaces it as a
+      // control: a stale handle's append re-inserts a version that exists and
+      // loses with a Postgres 23505.  EF surfaces it as a
       // DbUpdateException with a PostgresException inner; translate it to the EF
       // concurrency exception the DomainExceptionFilter maps to 409 (parity with
       // the `versioned` guarded write's stale-write rejection).
@@ -1401,8 +1430,16 @@ export function renderEventSourcedRepositoryImpl(
       "            catch (Microsoft.EntityFrameworkCore.DbUpdateException __ex)",
       '                when (__ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })',
       "            {",
-      '                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("The resource was modified by another request; reload and retry.", __ex);',
+      "                foreach (var __rec in __appended) _db.Entry(__rec).State = EntityState.Detached;",
+      `                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"${agg.name} {__sid} ${CONCURRENCY_CONFLICT_SUFFIX}", __ex);`,
       "            }",
+      // Append-only rows are never updated through this context, so they are
+      // detached once written.  Left tracked, a second handle's stale append
+      // of the same (stream_type, stream_id, version) key failed IN EF —
+      // "another instance with the same key value is already being tracked",
+      // a 500 — instead of reaching the database's key and its 409.
+      "            foreach (var __rec in __appended) _db.Entry(__rec).State = EntityState.Detached;",
+      "            aggregate._StreamVersion = __version;",
       "        }",
       `        ${renderDotnetLogCall("repositorySave", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },

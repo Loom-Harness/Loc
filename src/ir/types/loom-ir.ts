@@ -47,6 +47,10 @@ export type PrimitiveName =
   | "money"
   | "string"
   | "bool"
+  /** A CALENDAR date — year, month, day; no time-of-day, no offset.  Wire
+   *  form is the ISO-8601 calendar date `"2026-01-01"`; Postgres `date`.
+   *  Distinct from `datetime` so a value west of UTC never shifts a day. */
+  | "date"
   | "datetime"
   | "guid"
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
@@ -93,6 +97,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "decimal",
   "money",
   "bool",
+  "date",
   "datetime",
   "guid",
   "json",
@@ -484,6 +489,10 @@ export interface OperationIR {
    * functions inline like any boolean position.  Emitted by every
    * backend. */
   when?: ExprIR;
+  /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
+   *  in the 409 Disallowed `detail` by `disallowedDetail`
+   *  (src/ir/util/denial-detail.ts) on every backend.  Absent when `when` is. */
+  whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -581,11 +590,6 @@ export interface AggregateIR {
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
   destroys?: OperationIR[];
-  /** The single unnamed canonical `create`, if declared, else null.
-   * Convenience accessor over `creates`. */
-  canonicalCreate?: OperationIR | null;
-  /** The single unnamed canonical `destroy`, if declared, else null. */
-  canonicalDestroy?: OperationIR | null;
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with
@@ -895,6 +899,12 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
+/** One clause-less find parameter and the aggregate field it equals. */
+export interface FindParamBindingIR {
+  param: string;
+  field: string;
+}
+
 export interface FindIR {
   name: string;
   params: ParamIR[];
@@ -911,6 +921,15 @@ export interface FindIR {
   requires?: ExprIR;
   /** Optional `where ...` filter expression in IR form. */
   filter?: ExprIR;
+  /** A clause-less find's parameters, each paired with the aggregate field it
+   *  filters on (`find byReference(reference: string)` → `reference ==
+   *  this.reference`).  Resolved once in enrichment, after the inheritance
+   *  field merge, by `bindFindParams`; backends read it through
+   *  `implicitFindMatches` / `effectiveFindFilter` and never match names
+   *  themselves.  In parameter order; a parameter that names no field has no
+   *  entry (and is refused, `loom.find-param-unbound`).  Absent when the find
+   *  has a `where` (it replaces the convention) or no parameters. */
+  paramBindings?: FindParamBindingIR[];
   /** Set when the `where` filter is *exactly* one named `criterion`
    *  reference — its name + lowered args, for backends that consume the
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
@@ -1104,6 +1123,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** Provenance back to the `retrieval` declaration — the span its
+   *  diagnostics point at. */
+  origin?: OriginRef;
 }
 
 export interface BoundedContextIR {
@@ -3297,6 +3319,11 @@ export interface DeployableIR {
    *  `ui` a keyword in the deployable block would shadow the test-DSL
    *  accessor and break parsing of existing examples. */
   design?: string;
+  /** For a custom `design:` path: the directory of the `.ddd` file that
+   *  declared this deployable, which a RELATIVE path resolves against
+   *  (`resolvePackDir(design, designBaseDir)`).  Absent for built-in packs
+   *  and for a model with no file location (an in-memory source). */
+  designBaseDir?: string;
   /** Realization axes (D-REALIZATION-AXES).  Each decomposes the
    *  platform bundle into one orthogonal concern.  All optional in the
    *  type but **always concrete on backend deployables post-lowering**
@@ -3747,6 +3774,11 @@ export type ExprIR =
         verb: string;
         capability: string;
         interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
       };
       /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
        *  on a resource that binds an in-system `api`.  Fully resolved at

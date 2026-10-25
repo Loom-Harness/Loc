@@ -54,7 +54,7 @@ describe("angular page requires gate", () => {
     expect(page).toContain("readonly session = inject(SessionService);");
     // Exposes the verified claims the template reads as bare member refs.
     expect(page).toContain(
-      "get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
     // Template control-flow gate (bare `currentUser.role`, no `this.`).
     expect(page).toContain('@if (currentUser.role === "manager") {');

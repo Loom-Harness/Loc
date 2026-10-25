@@ -249,7 +249,7 @@ describe("api binding + walker hook injection", () => {
       system S {
         subdomain Sales {
           context Orders {
-            aggregate Customer { name: string }
+            aggregate Customer { name: string  email: string }
             repository Customers for Customer { find byEmail(email: string): Customer? }
           }
         }

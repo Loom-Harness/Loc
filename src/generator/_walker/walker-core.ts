@@ -326,6 +326,16 @@ export interface ActionMutationState {
    *  `useDeleteOrder(() => )`, a syntax error.  Render the argument with
    *  `renderActionMutationArg` rather than interpolating this field. */
   idExpr?: string;
+  /** A ROW-scoped `Action` (inside a `Table` column / `For` lambda): one hook
+   *  serves every row, so its id is read from this holder, which the row's
+   *  click sets just before it mutates.  The shell declares the holder (a
+   *  plain `{ current: "" }` box — nothing renders from it, so it needs no
+   *  reactivity) and passes the hook a getter over it; `idExpr` is unused. */
+  rowIdHolder?: string;
+  /** The hook is called somewhere other than the shell's function top — React's
+   *  row-scoped `Action` calls it inside a per-row child component — so the
+   *  shell imports it and declares nothing. */
+  importOnly?: boolean;
 }
 
 /** Render an action-mutation hook's hook-time ARGUMENT LIST.
@@ -1674,8 +1684,8 @@ function emitMemberAccess(
   // A `currentUser.<claim>` access — the receiver is the verified session
   // user (D-AUTH-OIDC).  A target that can resolve the claims (Feliz binds
   // `model.CurrentUser`) owns the WHOLE access via the seam, since the
-  // session user may be optionally bound; targets that leave the seam
-  // undefined fall through to the plain member emit below.
+  // session user may be optionally bound; the JSX targets read the
+  // shell-bound `currentUser`, which `usesCurrentUser` makes the shell emit.
   if (
     expr.receiver.kind === "ref" &&
     expr.receiver.refKind === "current-user" &&

@@ -9,6 +9,7 @@ import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, pythonWireIdent, snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { contextEventRowClassName } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
@@ -108,6 +109,8 @@ function pyStateType(t: TypeIR): string {
         return "bool";
       case "datetime":
         return PY.datetime;
+      case "date":
+        return PY_CALENDAR_DATE;
       default:
         return "str";
     }
@@ -133,6 +136,8 @@ function esZero(t: TypeIR): string {
         return "False";
       case "datetime":
         return `${PY.datetime}.now(${PY.UTC})`;
+      case "date":
+        return `${PY.datetime}.now(${PY.UTC}).date()`;
       default:
         return '""';
     }
@@ -142,12 +147,20 @@ function esZero(t: TypeIR): string {
 }
 
 /** Render one applier statement against the public `state` object — the
- *  `this.<field>` seam resolves to `state.<field>`.  Applier bodies are pure
- *  folds (A1 discipline), so only assigns / collection mutations appear. */
+ *  `this.<field>` seam resolves to `state.<field>`.  An applier is a pure fold:
+ *  state writes, local bindings, a bare expression and a branch.  Everything
+ *  else (`emit` / a call statement / a guard / `return`) is refused at
+ *  validation for every backend (structural-checks.ts, the applier rules, and
+ *  `src/ir/validate/checks/body-stmt-vocabulary.ts`), so reaching that arm is
+ *  an internal invariant violation. */
 export function renderApplierStmt(s: StmtIR, indent: string): string {
   const target = (segments: readonly string[]): string =>
     `state.${segments.map((x) => snake(x)).join(".")}`;
   const rctx = { thisName: "state" } as const;
+  const nested = (stmts: readonly StmtIR[]): string =>
+    stmts.length === 0
+      ? `${indent}    pass`
+      : stmts.map((b) => renderApplierStmt(b, `${indent}    `)).join("\n");
   switch (s.kind) {
     case "assign":
       return `${indent}${target(s.target.segments)} = ${renderPyExpr(s.value, rctx)}`;
@@ -155,10 +168,29 @@ export function renderApplierStmt(s: StmtIR, indent: string): string {
       return `${indent}${target(s.target.segments)}.append(${renderPyExpr(s.value, rctx)})`;
     case "remove":
       return `${indent}${target(s.target.segments)} = [__e for __e in ${target(s.target.segments)} if __e != (${renderPyExpr(s.value, rctx)})]`;
-    default:
+    case "let":
+      // Escaped like every `refKind: "let"` use site (`let from` → `from_`).
+      return `${indent}${pythonIdent(s.name)} = ${renderPyExpr(s.expr, rctx)}`;
+    case "expression":
+      return `${indent}${renderPyExpr(s.expr, rctx)}`;
+    case "if": {
+      const head = `${indent}if ${renderPyExpr(s.cond, rctx)}:\n${nested(s.thenBody)}`;
+      if (!s.elseBody) return head;
+      return `${head}\n${indent}else:\n${nested(s.elseBody)}`;
+    }
+    case "precondition":
+    case "requires":
+    case "return":
+    case "emit":
+    case "call":
+    case "variant-match":
       throw new Error(
         `python es-workflow applier: unexpected statement kind '${s.kind}' (appliers are pure folds)`,
       );
+    default: {
+      const _exhaustive: never = s;
+      return _exhaustive;
+    }
   }
 }
 

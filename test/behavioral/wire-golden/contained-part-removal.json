@@ -506,6 +506,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/carts/{id}/drop",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/sku"
+          }
+        ],
+        "instance": "/api/carts/{id}/drop",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

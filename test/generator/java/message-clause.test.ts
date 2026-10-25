@@ -54,7 +54,7 @@ describe("java — messaged rule → wire validator + domain floor text", () => 
     // The message-less `invariant sku.length > 0` uses the `loom.invariant`
     // sentinel code, which the advice does NOT surface as a wire `code`.
     expect(validator).toContain(
-      'errors.rejectValue("sku", "loom.invariant", "Invariant violated: sku.length > 0")',
+      'errors.rejectValue("sku", "loom.invariant", "Sku must be at least 1 character")',
     );
   });
 });

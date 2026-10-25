@@ -63,6 +63,8 @@ import {
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
+import { e2eIfMatchApplies, readE2eCallOptions } from "../../util/e2e-call-options.js";
 import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
 import {
   apisServedBy,
@@ -539,7 +541,7 @@ function apiRouteExists(
   if (verb === "history") return repo?.historyFind != null;
   // The canonical destroy only: a NAMED `destroy archive { }` has no DELETE
   // route, and the renderer lets it fall through to the operation arm.
-  if (verb === "destroy" && agg.canonicalDestroy) return ops.some((o) => o.kind === "destroy");
+  if (verb === "destroy" && canonicalDestroy(agg)) return ops.some((o) => o.kind === "destroy");
   if (ops.some((o) => o.kind === "operation" && o.operation?.name === verb)) return true;
   // A find must be one the derivation LISTS.  `findRepoQuery` in the renderer
   // matches any `repo.finds` entry by name, including a `synthesized: true`
@@ -604,7 +606,7 @@ function routedVerbs(
   const out: string[] = [];
   if (ops.some((o) => o.kind === "create")) out.push("create");
   if (ops.some((o) => o.kind === "getById")) out.push("getById");
-  if (agg.canonicalDestroy && ops.some((o) => o.kind === "destroy")) out.push("destroy");
+  if (canonicalDestroy(agg) && ops.some((o) => o.kind === "destroy")) out.push("destroy");
   if (repo?.historyFind) out.push("history");
   for (const o of ops) if (o.kind === "operation" && o.operation) out.push(o.operation.name);
   for (const o of ops) if (o.kind === "find" && o.find) out.push(o.find.name);
@@ -791,6 +793,44 @@ function checkApiPayload(
       diags,
       { kind: "operation" },
     );
+    checkCallOptions(call, agg, op.name, source, diags);
+  }
+}
+
+/** The optional THIRD argument of an operation call — `{ ifMatch: <version> }`,
+ *  rendered as the `If-Match` header (`e2e-call-options.ts`).  Any other shape,
+ *  a fourth argument, or an `ifMatch` on a route not every backend reads it on
+ *  is refused: the renderer used to drop a third argument without a word, so a
+ *  test that MEANT to send a stale precondition silently sent none. */
+function checkCallOptions(
+  call: MagicCall,
+  agg: AggregateIR,
+  opName: string,
+  source: string,
+  diags: LoomDiagnostic[],
+): void {
+  if (call.args.length <= 2) return;
+  const options = readE2eCallOptions(call.args[2]);
+  if (call.args.length > 3 || options === "malformed") {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-call-options",
+      source,
+      message: diagMessage("loom.e2e-call-options#shape", { slug: call.slug, verb: call.verb }),
+    });
+    return;
+  }
+  if (options && !e2eIfMatchApplies(agg, opName)) {
+    diags.push({
+      severity: "error",
+      code: "loom.e2e-call-options",
+      source,
+      message: diagMessage("loom.e2e-call-options#if-match-scope", {
+        slug: call.slug,
+        verb: call.verb,
+        aggregate: agg.name,
+      }),
+    });
   }
 }
 

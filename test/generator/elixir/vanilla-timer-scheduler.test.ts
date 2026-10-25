@@ -164,8 +164,8 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     expect(app).toContain("D.Scheduler.Healthz");
 
     const mix = g("d/mix.exs");
-    expect(mix).toContain('{:crontab, "~> 1.1"}');
-    expect(mix).toContain('{:oban, "~> 2.19"}');
+    expect(mix).toContain('{:crontab, "1.2.1"}');
+    expect(mix).toContain('{:oban, "2.24.2"}');
 
     const config = g("d/config/config.exs");
     expect(config).toContain("config :d, Oban,");
