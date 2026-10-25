@@ -2784,8 +2784,13 @@ export function wireDapperDateOnlyHandler(out: Map<string, string>, ns: string):
   if (program === undefined) return;
   const uses = [...out].some(([p, c]) => p.endsWith(".cs") && /\bDateOnly\b/.test(c));
   if (!uses) return;
-  const anchor = `    builder.Configuration.GetConnectionString("Default")!));`;
-  if (!program.includes(anchor)) return;
+  // The data source registration ends one of two ways — `renderDapperConnectionSetup`
+  // with and without a connection `search_path`.
+  const anchor = [
+    `    builder.Configuration.GetConnectionString("Default")!));`,
+    `    }.ConnectionString));`,
+  ].find((a) => program.includes(a));
+  if (anchor === undefined) return;
   out.set(DATE_ONLY_HANDLER_PATH, renderDapperDateOnlyHandler(ns));
   rewrite(
     out,

@@ -91,6 +91,22 @@ describe("date scalar — per-backend representation", () => {
   );
 
   it(
+    "dotnet + dapper: the DateOnly type handler is registered after the data source, with or without a search_path",
+    async () => {
+      const files = await generateSystemFiles(system("dotnet { persistence: dapper }"));
+      const program = fileMatching(files, /(^|\/)Program\.cs$/);
+      expect(program).toContain("Dapper.SqlMapper.AddTypeHandler(new ");
+      expect(program).toContain("DateOnlyTypeHandler()");
+      expect([...files.keys()].some((p) => p.endsWith("DateOnlyTypeHandler.cs"))).toBe(true);
+      // Registered after the data source (whichever form it ends in), before use.
+      const dataSource = program.indexOf("Npgsql.NpgsqlDataSource.Create(");
+      expect(dataSource).toBeGreaterThanOrEqual(0);
+      expect(program.indexOf("AddTypeHandler(")).toBeGreaterThan(dataSource);
+    },
+    GEN_TIMEOUT,
+  );
+
+  it(
     "java: LocalDate in the domain, a pointed WireFormatException.date parse",
     async () => {
       const files = await generateSystemFiles(system("java"));
