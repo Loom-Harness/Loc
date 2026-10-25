@@ -12,6 +12,7 @@ import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
 import { javaLocals, localOf } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
@@ -227,11 +228,15 @@ export function renderJavaDocumentRepositoryImpl(
 
   // A `money`/`decimal` find parameter (`over(BigDecimal min)`) or a
   // `new BigDecimal("…")` literal in a predicate names the simple type.
-  const usesBigDecimal = methodLines.some((l) => /(?<!\.)\bBigDecimal\b/.test(l));
+  // Spell it through the `BigDecimal` ref so the unit's import is derived from
+  // use, not predicated on a scan of the rendered lines.
+  const bigDecimalRefd = methodLines.map((l) =>
+    // not inside an existing marker (`lang|module|BigDecimal|alias`): skip a name flanked by `|`.
+    l.replace(/(?<![.\w|])BigDecimal\b(?!\|)/g, () => `${J.BigDecimal}`),
+  );
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
-    usesBigDecimal ? `import java.math.BigDecimal;` : null,
     `import java.util.ArrayList;`,
     `import java.util.List;`,
     `import java.util.Optional;`,
@@ -412,7 +417,7 @@ export function renderJavaDocumentRepositoryImpl(
     `        }`,
     `    }`,
     methodLines.length > 0 ? `` : null,
-    ...methodLines,
+    ...bigDecimalRefd,
     `}`,
     ``,
   );
