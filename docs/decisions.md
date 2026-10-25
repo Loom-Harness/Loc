@@ -4617,7 +4617,7 @@ which extends this ruling to every backend and every message-less rule.
 
 **Status:** proposed (default applies 48 h after merge unless overridden).
 Taken as the owner default recorded for wave C3F ("node's sentence is
-canonical", `docs/new-plan/waves/wave-c3f.md`) and built by its packet F4.
+canonical", [`wave-c3f.md`](https://github.com/Loom-Harness/Loc/blob/609a44bc8a2f7f7e6215ac99e2cc9858302c0f4d/docs/new-plan/waves/wave-c3f.md)) and built by its packet F4.
 
 **Question.** A rule with no `message "…"` clause still refuses a request, and
 the refusal is one `errors[].message` wire field. Before this ruling it had a

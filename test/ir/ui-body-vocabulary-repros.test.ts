@@ -1,6 +1,6 @@
 // The thirteen frontend-body throw sites of the fail-closed register, one case
 // each, from its repros
-// (`docs/new-plan/missions/M-T9.77-fail-closed-register.md`).  Each `.ddd`
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T9.77-fail-closed-register.md).  Each `.ddd`
 // reported `0 error(s)` and then crashed `ddd generate system`; now each is
 // refused by a `loom.*` code at `ddd parse`, or (toast) generates.  The
 // frontend × shape matrix around them is `ui-body-vocabulary-census.test.ts`.

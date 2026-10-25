@@ -1507,7 +1507,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // `actor/0` over the principal the Auth plug stashes.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+      "wave C3 packet 3d hand-off D1; fixed in wave C3F packet F5",
       "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json",
     ],
     // BEHAVIORAL: the stored actor is only observable through a booted

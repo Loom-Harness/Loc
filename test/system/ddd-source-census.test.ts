@@ -162,7 +162,7 @@ const DELIBERATELY_INVALID = [
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r02-overlap-system.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r18-recursive-containment-crash.ddd",
-  // `eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
+  // `test/fixtures/eval-models/eval/repro/broken/` — the error-QUALITY corpus of the FieldOps
   // evaluation: ten models each carrying exactly one ordinary mistake, used to
   // score what the toolchain says back.  Being refused is the whole point, so
   // they belong here rather than being fixed or untracked.  The ones that fail
@@ -192,13 +192,13 @@ const DELIBERATELY_INVALID = [
   // `loom.unknown-member` now refuses it — so, per the note above, its pin.
   "test/fixtures/eval-models/eval/repro/broken/b09-page-wrong-aggregate.ddd",
   "test/fixtures/eval-models/eval/repro/broken/b10-money-decimal-mix.ddd",
-  // The Commons register's (`eval/FINDINGS.md`) repro sources, ported from the
+  // The Commons register's (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/eval/FINDINGS.md) repro sources, ported from the
   // evaluation branch (`loom-dsl-evaluation-bxc2c6`) on 2026-09-29 so the
   // register's citations resolve (eval-closure review G8-09a).  Three of them
   // are refused, each for the reason its finding records:
   //  - `adversarial/05-missing-ctor-field.ddd` is F-014 — a `Money { … }`
   //    construction omitting `currency` validated CLEAN before #2923; it is the
-  //    same regression guard as `eval/repro/F014-money-ctor-unchecked.ddd`.
+  //    same regression guard as `test/fixtures/eval-models/eval/repro/F014-money-ctor-unchecked.ddd`.
   //  - `probe/rowlevel.ddd` is F-012's "own rows" probe written with the claim
   //    typed `string`, which the register records is refused until the claim is
   //    typed `Member id` in `user { }`.
