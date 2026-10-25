@@ -87,9 +87,11 @@ system Demo {
     expect(routes).toContain("handle: WireStr = Field(min_length=1)");
     // Cross-field invariant → @model_validator that raises a typed
     // PydanticCustomError → 422 (never a bare ValueError, whose wire message is
-    // "Value error, …" — RS-41), instead of falling through to the domain's
+    // "Value error, …" — RS-42), instead of falling through to the domain's
     // DomainError → 400.
-    expect(routes).toMatch(/from pydantic import .*\bField\b.*\bmodel_validator\b/);
+    expect(routes).toMatch(
+      /from pydantic import (?:\([^)]*\bField\b[^)]*\bmodel_validator\b|[^\n(]*\bField\b[^\n]*\bmodel_validator\b)/,
+    );
     expect(routes).toMatch(/@model_validator\(mode="after"\)/);
     expect(routes).toContain("if not (self.handle != self.email):");
     expect(routes).toContain(

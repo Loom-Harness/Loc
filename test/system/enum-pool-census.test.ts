@@ -171,7 +171,6 @@ const WAIVERS: Record<string, Waiver> = {
   // =========================================================================
   "src/generator/typescript/emit/value-objects.ts#renderEnumsAndValueObjects": DECLARES_OWN,
   "src/generator/python/emit/value-objects.ts#renderPyEnumsAndValueObjects": DECLARES_OWN,
-  "src/generator/python/emit/value-objects.ts#renderPyEnumsAndValueObjects$2": DECLARES_OWN,
   "src/generator/java/index.ts#emitProjectFromContexts": DECLARES_OWN,
   "src/generator/dotnet/context-scaffolding-emit.ts#emitEnums": DECLARES_OWN,
   "src/generator/java/index.ts#emitProjectFromContexts$2": ALL_CONTEXTS,
@@ -184,7 +183,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/platform/hono/v4/adapters/drizzle-persistence.ts#emitDrizzleSchema": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
-  "src/generator/python/explicit-handlers-emit.ts#emitPyExplicitRouteRouter": ALL_CONTEXTS,
   "src/generator/feliz/index.ts#enumsFromContexts": ALL_CONTEXTS,
   "src/generator/_frontend/projections-module.ts#buildProjectionsApiModule": ALL_CONTEXTS,
   "src/generator/dotnet/bcl-collision.ts#declaredTypeNames": ALL_CONTEXTS,
@@ -195,10 +193,10 @@ describe("enum-pool census — no name resolution of an enum through a context's
 
   it("finds a substantial surface, not an empty one", () => {
     // A broken detector reports zero sites, which reads as "all clean".
-    // The floor sits just under the STANDING surface (17 sites) — what is
+    // The floor sits just under the STANDING surface (14 sites) — what is
     // left once the fleet's P1–P4 drains have all landed — so it holds on
     // every combination of those branches.
-    expect(sites.length).toBeGreaterThanOrEqual(15);
+    expect(sites.length).toBeGreaterThanOrEqual(12);
   });
 
   it("every `ctx.enums` site is waived (standing = own declarations / all contexts; deferred = drain to enumPool)", () => {

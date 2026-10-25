@@ -4,6 +4,9 @@ import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { renderPyAuditHistoryModule } from "./audit-history.js";
 
+/** The `current_user_var` import line, spliced in only on an authed system. */
+const AUTH_USER_IMPORT = "from app.auth.user import current_user_var";
+
 // ---------------------------------------------------------------------------
 // Per-operation audit runtime — Python / FastAPI counterpart of the Hono
 // `audit_records` table + the .NET `AuditRecord` / `IAuditWriter` pair + the
@@ -78,7 +81,7 @@ function renderPyAudit(user: UserIR | undefined): string {
     `from sqlalchemy.dialects.postgresql import JSONB`,
     `from sqlalchemy.orm import Mapped, mapped_column`,
     ``,
-    user ? `from app.auth.user import current_user_var` : null,
+    user ? AUTH_USER_IMPORT : null,
     `from app.db.schema import Base`,
     ``,
     ``,

@@ -27,6 +27,7 @@ on:
       - 'src/util/**'
       - 'src/generator/python/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_projection/**'
       - 'src/platform/python.ts'
       # Shared emission seams the platform tree above delegates into: `_stmt` is

@@ -25,9 +25,11 @@ import {
 } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../../_auth/origin-claim.js";
+import { JAVA_IMPORTS } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
 
@@ -90,12 +92,7 @@ export function renderAuthFiles(
   // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
   // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
   if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
-  const components = fields
-    .map((f) => {
-      collectAuthImports(f.type, imports);
-      return `${renderJavaType(f.type)} ${f.name}`;
-    })
-    .join(", ");
+  const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
   // Derived `currentUser.orgPath` — the caller's tenant materialized path
   // (multi-tenancy).  An extra record accessor (not a component), so
   // every `new User(...)` site is untouched; stringified null-safely.
@@ -197,6 +194,7 @@ export function renderAuthFiles(
     lines(
       `package ${pkg};`,
       ``,
+      JAVA_IMPORTS,
       ...[...imports].sort().map((i) => `import ${i};`),
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
@@ -235,7 +233,6 @@ export function renderAuthFiles(
   // principal a null one, so this verifier names the id class and needs the
   // same `<basePkg>.domain.ids.*` import `User` already carries.
   if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
-  for (const f of fields) collectAuthImports(f.type, stubImports);
   const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
   // Dev-claims override carries the shapes the shared classifier admits —
   // `String` and `List<String>`; every other component keeps its built-in
@@ -946,12 +943,12 @@ function javaClaimRead(f: FieldIR, auth: AuthIR): JavaClaimRead {
  *  NumericDate (epoch seconds). */
 const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   ``,
-  `    private static <T> T claimAs(Map<String, Object> payload, String path, Function<Object, T> decode) {`,
+  `    private static <T> T claimAs(Map<String, Object> payload, String path, ${J.Function}<Object, T> decode) {`,
   `        Object value = navigate(payload, path);`,
   `        return value == null ? null : decode.apply(value);`,
   `    }`,
   ``,
-  `    private static <T> List<T> claimList(Map<String, Object> payload, String path, Function<Object, T> decode) {`,
+  `    private static <T> List<T> claimList(Map<String, Object> payload, String path, ${J.Function}<Object, T> decode) {`,
   `        Object value = navigate(payload, path);`,
   `        if (value == null) {`,
   `            return null;`,
@@ -972,7 +969,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `        return list == null ? List.of() : list;`,
   `    }`,
   ``,
-  `    private static <A, B> B mapOrNull(A value, Function<A, B> wrap) {`,
+  `    private static <A, B> B mapOrNull(A value, ${J.Function}<A, B> wrap) {`,
   `        return value == null ? null : wrap.apply(value);`,
   `    }`,
   ``,
@@ -980,9 +977,9 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `        return v instanceof String || v instanceof Number ? String.valueOf(v) : null;`,
   `    }`,
   ``,
-  `    private static UUID asUuid(Object v) {`,
+  `    private static ${J.UUID} asUuid(Object v) {`,
   `        try {`,
-  `            return v instanceof String s ? UUID.fromString(s) : null;`,
+  `            return v instanceof String s ? ${J.UUID}.fromString(s) : null;`,
   `        } catch (IllegalArgumentException e) {`,
   `            return null;`,
   `        }`,
@@ -1005,7 +1002,7 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `        return n == null || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE ? null : n.intValue();`,
   `    }`,
   ``,
-  `    private static BigDecimal asDecimal(Object v) {`,
+  `    private static ${J.BigDecimal} asDecimal(Object v) {`,
   `        try {`,
   `            return v instanceof Number || v instanceof String ? ${numericEncode(JAVA_NUMERIC, "decimal", "find-param", "v")} : null;`,
   `        } catch (NumberFormatException e) {`,
@@ -1023,10 +1020,10 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
   `        return null;`,
   `    }`,
   ``,
-  `    private static Instant asInstant(Object v) {`,
+  `    private static ${J.Instant} asInstant(Object v) {`,
   `        try {`,
   `            if (v instanceof Number n) {`,
-  `                return Instant.ofEpochSecond(n.longValue());`,
+  `                return ${J.Instant}.ofEpochSecond(n.longValue());`,
   `            }`,
   `            return v instanceof String s ? java.time.OffsetDateTime.parse(s).toInstant() : null;`,
   `        } catch (java.time.format.DateTimeParseException e) {`,
@@ -1037,17 +1034,6 @@ const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
 
 function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
   const pkg = `${basePkg}.auth`;
-  // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
-  // List the string[] reader returns.
-  const imports = new Set<string>(["java.util.List"]);
-  for (const f of fields) {
-    const mappableString =
-      (f.type.kind === "primitive" && f.type.name === "string") ||
-      (f.type.kind === "array" &&
-        f.type.element.kind === "primitive" &&
-        f.type.element.name === "string");
-    if (!mappableString) collectAuthImports(f.type, imports);
-  }
   // Env override first (12-factor): the generated compose repoints
   // OIDC_ISSUER at the bundled dev Keycloak, so a literal issuer must not
   // be baked un-overridably — with it baked, every token from the bundled
@@ -1060,14 +1046,6 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
   const args = reads.map((r) => `                ${r.arg}`).join(",\n");
   const guards = reads.flatMap((r) => r.pre).map((l) => `            ${l}`);
   const typed = reads.some((r) => r.typed);
-  if (typed) {
-    // The decode helpers name every scalar type, whatever the claim shape.
-    for (const i of ["java.util.UUID", "java.time.Instant", "java.math.BigDecimal"]) imports.add(i);
-    imports.add("java.util.function.Function");
-  }
-  // A decoded `X id` claim constructs the strong id, which lives in
-  // `<basePkg>.domain.ids` (the same wildcard the User record imports).
-  if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
   return lines(
     `package ${pkg};`,
     ``,
@@ -1077,8 +1055,11 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `import java.net.http.HttpResponse;`,
     `import java.util.ArrayList;`,
     `import java.util.Map;`,
+    `import java.util.List;`,
     `import java.util.Set;`,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    JAVA_IMPORTS,
+    // A decoded `X id` claim constructs the strong id (`<basePkg>.domain.ids`).
+    claimsReferenceIds(fields) ? `import ${basePkg}.domain.ids.*;` : null,
     ``,
     `import tools.jackson.databind.JsonNode;`,
     `import tools.jackson.databind.ObjectMapper;`,
@@ -1588,18 +1569,6 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
   ];
 }
 
-function collectAuthImports(t: TypeIR, into: Set<string>): void {
-  if (t.kind === "primitive" && t.name === "guid") into.add("java.util.UUID");
-  if (t.kind === "primitive" && t.name === "datetime") into.add("java.time.Instant");
-  if (t.kind === "primitive" && (t.name === "decimal" || t.name === "money"))
-    into.add("java.math.BigDecimal");
-  if (t.kind === "array") {
-    into.add("java.util.List");
-    collectAuthImports(t.element, into);
-  }
-  if (t.kind === "optional") collectAuthImports(t.inner, into);
-}
-
 /** The system principal's members on the `User` record (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `isSystem` / `causedBy`
  *  are trailing record components (the accessors `isSystem()` / `causedBy()`
@@ -1758,7 +1727,7 @@ function stubValue(t: TypeIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "guid":
-        return "new UUID(0L, 0L)";
+        return `new ${J.UUID}(0L, 0L)`;
       case "string":
         return '"admin"';
       case "int":
@@ -1767,7 +1736,7 @@ function stubValue(t: TypeIR): string {
       case "bool":
         return "false";
       case "datetime":
-        return "Instant.EPOCH";
+        return `${J.Instant}.EPOCH`;
       case "decimal":
       case "money":
         return "java.math.BigDecimal.ZERO";
@@ -1775,7 +1744,7 @@ function stubValue(t: TypeIR): string {
         return "null";
     }
   }
-  if (t.kind === "array") return "List.of()";
+  if (t.kind === "array") return `${J.List}.of()`;
   // A NON-optional `X id` claim: java compiled either way (a record component
   // takes null), but `null` handed every `currentUser.customerId` read a null
   // strong id where the other four backends carry the zero id — the same
