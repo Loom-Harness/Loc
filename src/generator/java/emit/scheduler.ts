@@ -27,8 +27,8 @@ import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { J } from "../java-symbols.js";
 import { mainSourcePath } from "../naming.js";
-import { collectJavaTypeImports } from "../render-expr.js";
 
 /** The `cron:` timers of a set — run on JobRunr. */
 export function cronTimers(timers: readonly TimerSourceIR[]): TimerSourceIR[] {
@@ -69,22 +69,22 @@ function tickFieldValue(field: FieldIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
-        return "Instant.now()";
+        return `${J.Instant}.now()`;
       case "int":
         return "0";
       case "long":
         return "0L";
       case "decimal":
       case "money":
-        return "BigDecimal.ZERO";
+        return `${J.BigDecimal}.ZERO`;
       case "bool":
         return "false";
       case "string":
         return '""';
       case "guid":
-        return "UUID.randomUUID()";
+        return `${J.UUID}.randomUUID()`;
       case "duration":
-        return "Duration.ZERO";
+        return `${J.Duration}.ZERO`;
       default:
         return "null";
     }
@@ -95,21 +95,6 @@ function tickFieldValue(field: FieldIR): string {
 /** `new <Event>(<synth args…>)`, args in the record's declaration order. */
 function tickConstruct(event: EventIR): string {
   return `new ${event.name}(${event.fields.map(tickFieldValue).join(", ")})`;
-}
-
-/** The tick-value imports (Instant / BigDecimal / UUID / Duration / JsonNode)
- *  over a set of timers' events. */
-function tickTypeImports(
-  timers: readonly TimerSourceIR[],
-  eventByName: Map<string, EventIR>,
-): string[] {
-  const set = new Set<string>();
-  for (const ts of timers) {
-    for (const f of eventByName.get(ts.event)?.fields ?? []) {
-      collectJavaTypeImports(f.type, set);
-    }
-  }
-  return [...set].sort();
 }
 
 /**
@@ -124,7 +109,6 @@ export function renderJavaTimerScheduler(
 ): string {
   const everys = everyTimers(timers);
   if (everys.length === 0) return "";
-  const typeImports = tickTypeImports(everys, eventByName);
 
   const fields = everys.map(
     (ts) =>
@@ -149,7 +133,6 @@ export function renderJavaTimerScheduler(
     ``,
     `import java.util.concurrent.atomic.AtomicBoolean;`,
     `import java.util.function.Supplier;`,
-    ...typeImports.map((i) => `import ${i};`),
     ``,
     `import org.springframework.context.ApplicationEventPublisher;`,
     `import org.springframework.jdbc.core.JdbcTemplate;`,
@@ -253,11 +236,8 @@ export function renderJavaTimerJob(
   const cls = timerJobClass(ts);
   const event = eventByName.get(ts.event);
   const construct = event ? tickConstruct(event) : `new ${ts.event}()`;
-  const typeImports = tickTypeImports([ts], eventByName);
   return lines(
     `package ${basePkg};`,
-    ``,
-    ...typeImports.map((i) => `import ${i};`),
     ``,
     `import org.springframework.context.ApplicationEventPublisher;`,
     `import org.springframework.stereotype.Component;`,

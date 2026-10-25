@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import type { OriginRef } from "../../ir/types/origin.js";
+import { hasMarkers } from "../_imports/symbol.js";
 
 export interface SourceMapRegion {
   /** 1-based inclusive [startLine, endLine] in the generated file. */
@@ -243,6 +244,12 @@ export class SourceMapRecorder {
     fragmentText: string,
     subRegions: readonly SourceMapSubRegion[],
   ): void {
+    // A fragment still carrying `ref()` import markers can never match the
+    // finalized module text — fail loudly instead of silently dropping its
+    // regions (M-T9.84: spell it with `spellMarkers` first).
+    if (hasMarkers(fragmentText)) {
+      throw new Error(`${path}: source-map fragment carries unresolved import markers`);
+    }
     const firstIdx = content.indexOf(fragmentText);
     if (firstIdx === -1) return;
     if (content.indexOf(fragmentText, firstIdx + 1) !== -1) return;
