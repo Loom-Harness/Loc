@@ -467,7 +467,13 @@ export function renderRepositoryImpl(
       "",
       `    public async Task<${agg.name}?> GetByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
       "    {",
-      `        var found = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
+      // M-T6.90 — two loads of one row are two handles, each with the version
+      // it read (node semantics).  A row this scope already tracks is loaded
+      // into a fork (AppDbContext.Fork) instead of being handed back as the
+      // SAME instance by EF's identity map, so a stale second handle's save
+      // still trips the version guard → 409.
+      `        var __db = _db.${setName}.Local.Any(x => x.Id == id) ? _db.Fork() : _db;`,
+      `        var found = await __db.${setName}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
       // aggregate_loaded (debug) — mirrors the Hono repo emission;
       // `found` is a bool so a downstream filter can grep failed loads
       // by (event="aggregate_loaded", Found=false).
@@ -510,7 +516,10 @@ export function renderRepositoryImpl(
       "",
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
-      "        var entry = _db.Entry(aggregate);",
+      // The context tracking this handle — a fork for a second load of a row
+      // (see GetByIdAsync), else the scoped context.
+      "        var __db = _db.TrackerOf(aggregate);",
+      "        var entry = __db.Entry(aggregate);",
       "        if (entry.State == EntityState.Detached)",
       "        {",
       `            _db.${setName}.Add(aggregate);`,
@@ -542,7 +551,7 @@ export function renderRepositoryImpl(
             ])}`,
             "        try",
             "        {",
-            "            await _db.SaveChangesAsync(cancellationToken);",
+            "            await _db.SaveChangesWithAsync(__db, cancellationToken);",
             `            ${renderDotnetLogCall("txCommit", [
               { name: "aggregate", valueExpr: `"${agg.name}"` },
               { name: "id", valueExpr: "aggregate.Id.Value" },
@@ -565,7 +574,7 @@ export function renderRepositoryImpl(
             "        }",
           ]
         : [
-            "        await _db.SaveChangesAsync(cancellationToken);",
+            "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
             // repository_save (debug) after SaveChangesAsync — the EF
             // transaction has committed at this point.  Field set mirrors
             // the Hono emission's (aggregate, id) prefix.
@@ -598,8 +607,9 @@ export function renderRepositoryImpl(
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
             "    {",
-            `        _db.${setName}.Remove(aggregate);`,
-            "        await _db.SaveChangesAsync(cancellationToken);",
+            "        var __db = _db.TrackerOf(aggregate);",
+            `        __db.${setName}.Remove(aggregate);`,
+            "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
             "    }",
           ]
         : []),

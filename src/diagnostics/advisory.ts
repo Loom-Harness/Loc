@@ -27,11 +27,19 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // A query-filtered column with no covering leading-column index
   // (`src/ir/validate/checks/index-suggestion-checks.ts`).
   "loom.index-suggestion",
+  // A `softDeletable` aggregate whose `crudish` destroy is a hard DELETE —
+  // documented, but rarely what the author meant
+  // (`src/ir/validate/checks/crudish-hard-delete-checks.ts`).
+  "loom.crudish-hard-delete",
   // An aggregate no code path can construct — legal, sometimes deliberate
   // (a read-only table fed out of band, or a fixture that only pins emission)
   // and worth saying out loud either way
   // (`src/ir/validate/checks/aggregate-constructible-checks.ts`).
   "loom.aggregate-not-constructible",
+  // A single-row find keyed on fields no `unique (...)` covers — legal, and
+  // harmless while the data happens to be unique, but nondeterministic the
+  // moment it is not (`src/ir/validate/checks/find-uniqueness-checks.ts`).
+  "loom.single-row-find-not-unique",
 ]);
 
 /** True when a diagnostic code belongs to the advisory `Suggestions:`

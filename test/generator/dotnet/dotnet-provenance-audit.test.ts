@@ -168,7 +168,7 @@ describe("dotnet provenance runtime", () => {
     expect(repo).toContain("foreach (var __lin in __prov)");
     expect(repo).toContain("_db.ProvenanceRecords.Add(new ProvenanceRecord");
     // staged BEFORE SaveChangesAsync → same transaction
-    expect(repo.indexOf("DrainProv")).toBeLessThan(repo.indexOf("SaveChangesAsync"));
+    expect(repo.indexOf("DrainProv")).toBeLessThan(repo.indexOf("SaveChangesWithAsync"));
     // provenance_recorded (debug) announced once per non-empty flush
     expect(repo).toContain('_log.LogDebug("{Event} aggregate={Aggregate} count={Count}"');
   });

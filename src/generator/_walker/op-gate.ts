@@ -3,6 +3,7 @@
 // `OperationForm`, `Action`).
 import type { AggregateIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
+import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { localizedPageChromeValue } from "./i18n-emit.js";
 import type { OpGateState, WalkContext } from "./walker-core.js";
 
@@ -27,4 +28,31 @@ export function opGateFor(
     disabledExpr: ctx.target.renderOpGateDisabled?.(local) ?? `${local}.data?.allowed === false`,
     reasonExpr: localizedPageChromeValue(ctx, "opNotAllowed"),
   };
+}
+
+/** The client-side spelling of an operation's `requires` gate for a trigger
+ *  rendered on an `auth: ui` frontend, or null when the trigger stays visible.
+ *
+ *  The action-level mirror of a page's `requires` guard: when EVERY `requires`
+ *  predicate on the op reads only `currentUser`, the verified session claims
+ *  decide it in the browser, so a principal the backend would answer 403 does
+ *  not see the button at all.  An op with no `requires`, or one whose gate
+ *  reads `this.<field>` or a param (`tryRenderGate` returns null — not
+ *  client-evaluable), keeps its trigger; the backend still enforces every gate.
+ *  Sets `ctx.usesCurrentUser` so the page shell binds `currentUser`.
+ *
+ *  Shared by `Action` and the `Modal { OperationForm }` trigger on the JS
+ *  targets; Feliz, Flutter and HEEx spell the same predicate in their own
+ *  language (`opActionGate` / `gateActionButton`). */
+export function opRequiresClientGate(
+  op: AggregateIR["operations"][number],
+  ctx: WalkContext,
+): string | null {
+  if (!ctx.authUi) return null;
+  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
+  if (gates.length === 0) return null;
+  const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
+  if (!parts.every((p) => p !== null)) return null;
+  ctx.usesCurrentUser = true;
+  return parts.map((p) => `(${p})`).join(" && ");
 }

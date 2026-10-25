@@ -301,7 +301,7 @@
       "id": "RS-17",
       "title": "A `when` state-gate rejection names the operation it refused",
       "trigger": "an `operation … when <pred>` invoked in a state the predicate rejects — the 409 rung of the denial ladder",
-      "observable": "every backend answers 409 with title \"Disallowed\" and the occurrence-specific detail \"operation '<op>' is not allowed in the current state of <Agg>.\". The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled \"Conflict\".",
+      "observable": "every backend answers 409 with title \"Disallowed\" and the occurrence-specific detail \"operation '<op>' is not allowed in the current state of <Agg> (when <predicate source>).\", built once by `disallowedDetail` (src/ir/util/denial-detail.ts). The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled \"Conflict\".",
       "conforms": [
         "node",
         "dotnet",

@@ -96,7 +96,9 @@ export function serializeSnapshot(snapshot: SchemaSnapshot): string {
 /** Drop the column stamps that describe the SOURCE rather than the database.
  *
  *  A snapshot records the schema as it existed last time we generated, and is
- *  a checked-in file an operator reads.  `ColumnShape.addColumnDefault` (the
+ *  a checked-in file an operator reads.  `ColumnShape.capability` (which
+ *  built-in capability contributed the column — read only by the destructive
+ *  gate's explanation) is the same kind of stamp.  `ColumnShape.addColumnDefault` (the
  *  `.ddd` field default M-T2.16 lends to an add-column diff) is not part of
  *  that schema in any sense: no `CREATE TABLE` renders it, the diff never
  *  compares it, and the one step that consumes it drops the DEFAULT again in
@@ -111,9 +113,11 @@ export function serializeSnapshot(snapshot: SchemaSnapshot): string {
  *  read back from the baseline (reshape detection; the value-collection diff
  *  filter), so they are part of what the snapshot is for. */
 function stripDerivationOnlyFields(t: TableShape): TableShape {
-  if (!t.columns.some((c) => c.addColumnDefault !== undefined)) return t;
+  if (!t.columns.some((c) => c.addColumnDefault !== undefined || c.capability !== undefined)) {
+    return t;
+  }
   return {
     ...t,
-    columns: t.columns.map(({ addColumnDefault: _dropped, ...c }) => c),
+    columns: t.columns.map(({ addColumnDefault: _d, capability: _c, ...c }) => c),
   };
 }

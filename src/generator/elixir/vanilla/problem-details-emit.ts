@@ -18,6 +18,7 @@ import {
   problemTitle,
 } from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
+import { UUID_WIRE_MESSAGE } from "../../../util/uuid-wire.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 
 export function renderVanillaProblemDetailsModule(
@@ -482,7 +483,7 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
   the same 422 the other four backends already answer.
   """
   def invalid_path_id_response(conn, param) do
-    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: "Expected UUID."}])
+    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${elixirString(UUID_WIRE_MESSAGE)}}])
   end
 
   @doc """

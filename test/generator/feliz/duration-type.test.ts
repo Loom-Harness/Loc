@@ -84,14 +84,12 @@ system Dur {
   deployable api1 { platform: node contexts: [Shop] dataSources: [st] serves: A port: 8081 }
 }`;
     // `duration` is not in `PrimitiveType`, so it parses as a NamedType and
-    // fails to LINK — the field can never reach the wire shape.  The refusal
-    // now names the type catalogue instead of Langium's `NamedDecl` internals
-    // (`ddd-linker.ts`); `docs/language.md` already said there is no duration
-    // field type, and the compiler finally says it too.
+    // fails to LINK — the field can never reach the wire shape.  The linker
+    // (`ddd-linker.ts`) says why — a duration is expression-only — and what to
+    // carry instead, rather than listing the field types as if it were a typo.
     const bad = await parseString(sys("duration"), { validate: true });
-    expect(bad.errors.join("\n")).toMatch(/Unknown type 'duration'/);
-    // …and it lists what a field type CAN be, which is the whole point.
-    expect(bad.errors.join("\n")).toMatch(/Field types are: .*\bdatetime\b/);
+    expect(bad.errors.join("\n")).toMatch(/'duration' cannot be written as a type/);
+    expect(bad.errors.join("\n")).toMatch(/Carry the amount as an 'int'/);
     // Control: the same position accepts a real primitive, so the failure above
     // is about `duration` specifically, not a malformed fixture.
     const good = await parseString(sys("datetime"), { validate: true });

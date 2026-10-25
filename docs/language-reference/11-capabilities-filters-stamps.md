@@ -116,21 +116,21 @@ query = from(record in Api.Sales.Order, where: (record.region == ^r) and (not re
 
 ::: tabs backend
 == node
-Persist-time, in the Drizzle upsert: a project-wide `db/audit-stamp.ts` helper tailored to every stamping aggregate's field set. The insert branch stamps the create **and** update fields; the update branch overlays only the update fields (create-only columns stay immutable). A bare `currentUser` becomes the ambient `ctx.actorId`; a save outside a request scope (seed / system) is left unstamped:
+Persist-time, in the Drizzle upsert: `db/audit-stamp.ts` holds one `stampInsert<Agg>` / `stampUpdate<Agg>` pair per stamping aggregate, so each save applies only its own aggregate's stamps. The insert branch stamps the create **and** update fields; the update branch overlays only the update fields (create-only columns stay immutable). A bare `currentUser` becomes the ambient `ctx.actorId`; a save outside a request scope (seed / system) is left unstamped:
 ```ts
 // db/audit-stamp.ts
-export function stampInsert<T extends Record<string, unknown>>(row: T): T {
+export function stampInsertOrder<T extends Record<string, unknown>>(row: T): T {
   const ctx = requestContext();
   if (!ctx) return row;
   return { ...row, createdAt: new Date(), touchedAt: new Date(), createdBy: ctx.actorId, updatedAt: new Date(), updatedBy: ctx.actorId };
 }
-export function stampUpdate<T extends Record<string, unknown>>(row: T): Partial<T> {
+export function stampUpdateOrder<T extends Record<string, unknown>>(row: T): Partial<T> {
   const ctx = requestContext();
   if (!ctx) return row;
   const { createdAt: _createdAt, createdBy: _createdBy, ...rest } = row;
   return { ...rest, touchedAt: new Date(), updatedAt: new Date(), updatedBy: ctx.actorId } as unknown as Partial<T>;
 }
-// db/repositories/order-repository.ts:  tx.insert(schema.orders).values(stampInsert({ … }))  /  tx.update(schema.orders).set(stampUpdate({ … }))
+// db/repositories/order-repository.ts:  tx.insert(schema.orders).values(stampInsertOrder({ … }))  /  tx.update(schema.orders).set(stampUpdateOrder({ … }))
 ```
 == dotnet
 A `SaveChangesInterceptor` (`AuditableInterceptor`) on the `DbContext`, one switch arm per stamping aggregate, keyed on `entry.State` (`onUpdate` also fires on `Added`, so a NOT-NULL `touched_at` is filled on create). `now()` → `DateTime.UtcNow`:
@@ -148,7 +148,7 @@ case Order e:
     break;
 ```
 == java
-Spring Data JPA auditing: `now()` stamps map to `@CreatedDate` / `@LastModifiedDate`, `currentUser` stamps to `@CreatedBy` / `@LastModifiedBy` fed by an `AuditorAware<String>` over the `CurrentUserAccessor` (`config/JpaAuditingConfig.java`):
+Spring Data JPA auditing: bare `now()` stamps map to `@CreatedDate` / `@LastModifiedDate`, bare `currentUser` stamps to `@CreatedBy` / `@LastModifiedBy` fed by an `AuditorAware<String>` over the `CurrentUserAccessor` (`config/JpaAuditingConfig.java`). Any other value — a claim (`currentUser.tenantId`) or a computed one (`now() + hours(slaHours())`) — is assigned in an explicit `@PrePersist _stampOnCreate()` / `@PreUpdate _stampOnUpdate()` hook on the entity:
 ```java
 // features/orders/Order.java
 @EntityListeners(AuditingEntityListener.class)
@@ -175,9 +175,43 @@ def _stamp_on_update(self) -> None:
 ```
 ::: end
 
+### Stamps that read the aggregate
+
+A stamp belongs to its host: one declared on an aggregate (directly or through a capability it implements) stamps only that aggregate's rows, and a context-level stamp stamps every aggregate in the context. Because `this` is in scope, a stamp value may read the host's fields, derived values and `function`s; it is evaluated against the instance being persisted:
+
+```ddd
+aggregate Ticket {
+  priority: Priority
+  dueAt: datetime managed
+  function slaHours(): int = match { priority == Urgent => 4, else => 72 }
+  stamp onCreate { dueAt := now() + hours(slaHours()) }
+}
+```
+
+```ts
+// node — db/audit-stamp.ts: the save site passes the domain instance
+export function stampInsertTicket<T extends Record<string, unknown>>(row: T, aggregate: Ticket): T {
+  const ctx = requestContext();
+  if (!ctx) return row;
+  return { ...row, dueAt: new Date((new Date()).getTime() + (((aggregate.slaHours()) * 3600000))) };
+}
+```
+
+```elixir
+# elixir — lib/api/ticketing/ticket_repository.ex: the changeset with its changes applied
+|> then(fn cs ->
+  record = Ecto.Changeset.apply_changes(cs)
+  Ecto.Changeset.put_change(cs, :due_at, Loom.Datetime.normalize(DateTime.add(DateTime.utc_now(), ((Api.Ticketing.sla_hours(record)) * 3600000), :millisecond)))
+end)
+```
+
+.NET reads it off the tracked entity (`e.SlaHours()`), Java and Python off `this` / `self` in the stamp hook.
+
 ### Validator-gated stamp cases
 
-Three refusals, none backend-specific (each reads only the model — the old per-backend `loom.<plat>-stamp-unsupported` codes are gone):
+Three model-level refusals (each reads only the model — the old per-backend `loom.<plat>-stamp-unsupported` codes are gone), plus one backend gap:
+
+- `loom.stamp-reads-aggregate-unsupported` — the backend gap: a stamp value that reads the aggregate (see above) on a **document-shaped** aggregate hosted by an **elixir** deployable. That write seam merges stamps into the request attributes before any record exists; compute the value in the create/operation body, or store the aggregate relationally.
 
 - `loom.stamp-principal-without-auth` — a `currentUser` stamp on a deployable **without** `auth: required` / a system `user {}` (no principal to stamp from; use `now()`-only stamps or add auth).
 - `loom.stamp-on-event-sourced-invalid` — **any** stamp on a `persistedAs: eventLog` aggregate (there is no row to stamp; the truth is the stream).
