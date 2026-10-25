@@ -38,12 +38,35 @@ export function readMigrationChainOrEmpty(sourceFile: string): MigrationChain {
 }
 
 function readChainDir(dir: string): MigrationChain {
-  const files = fs
+  return parseChain(readDirFiles(dir));
+}
+
+/** The `.json` files of `sourceFile`'s `migrations/`, as `parseChain` /
+ *  `parseForkedChain` take them; `undefined` when the directory is absent. */
+export function readChainFiles(
+  sourceFile: string,
+): { name: string; content: string }[] | undefined {
+  const dir = migrationsDir(sourceFile);
+  return fs.existsSync(dir) ? readDirFiles(dir) : undefined;
+}
+
+function readDirFiles(dir: string): { name: string; content: string }[] {
+  return fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".json"))
     .sort()
     .map((name) => ({ name, content: fs.readFileSync(path.join(dir, name), "utf8") }));
-  return parseChain(files);
+}
+
+/** Delete `entries`' files from `sourceFile`'s `migrations/`.  Returns the
+ *  deleted paths. */
+export function deleteChainEntries(sourceFile: string, entries: readonly ChainEntry[]): string[] {
+  const dir = migrationsDir(sourceFile);
+  return entries.map((e) => {
+    const file = path.join(dir, entryFileName(e));
+    fs.rmSync(file);
+    return file;
+  });
 }
 
 /** Write `entries` into `sourceFile`'s `migrations/`, creating it.  Returns

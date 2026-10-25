@@ -71,6 +71,25 @@ function optString(args: Record<string, unknown>, key: string): string | undefin
   return v;
 }
 
+function optFiles(
+  args: Record<string, unknown>,
+  key: string,
+): { name: string; content: string }[] | undefined {
+  const v = args[key];
+  if (v === undefined) return undefined;
+  const ok =
+    Array.isArray(v) &&
+    v.every(
+      (f) =>
+        typeof f === "object" &&
+        f !== null &&
+        typeof (f as { name?: unknown }).name === "string" &&
+        typeof (f as { content?: unknown }).content === "string",
+    );
+  if (!ok) throw new Error(`'${key}' must be an array of { name, content } strings`);
+  return v as { name: string; content: string }[];
+}
+
 /** `{ source, symbol }` schema shared by the read-navigation tools. */
 const SYMBOL_SCHEMA = {
   type: "object",
@@ -292,13 +311,25 @@ export const TOOLS: ToolDef[] = [
         baseline: {
           type: "string",
           description:
-            "The PREVIOUS .ddd model source to diff against. Omit for the first-run migration (everything reads 'Initial', wire diff skipped).",
+            "The PREVIOUS .ddd model source to diff against. Omit for the first-run migration (everything reads 'Initial', wire diff skipped). A baseline that does not parse or validate fails the call (ok:false) rather than reading as absent.",
+        },
+        migrations: {
+          type: "array",
+          description:
+            "The files of the model's committed migrations/ directory ({ name, content } each). When given, the chain's head is the schema baseline, so the migrations reported are exactly what `ddd migrate add` would record; the wire diff still needs `baseline`.",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, content: { type: "string" } },
+            required: ["name", "content"],
+            additionalProperties: false,
+          },
         },
       },
       required: ["source"],
       additionalProperties: false,
     },
-    handler: (args) => diff(reqString(args, "source"), optString(args, "baseline")),
+    handler: (args) =>
+      diff(reqString(args, "source"), optString(args, "baseline"), optFiles(args, "migrations")),
   },
 ];
 
