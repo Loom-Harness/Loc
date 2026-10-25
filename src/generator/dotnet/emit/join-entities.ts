@@ -72,7 +72,11 @@ export function renderJoinEntity(assoc: AssociationIR, ns: string): string {
 
 /** Render the EF Core IEntityTypeConfiguration<JoinEntity> file
  * (placed at `Infrastructure/Persistence/Configurations/<JoinEntityName>Configuration.cs`). */
-export function renderJoinEntityConfiguration(assoc: AssociationIR, ns: string): string {
+export function renderJoinEntityConfiguration(
+  assoc: AssociationIR,
+  ns: string,
+  schema?: string,
+): string {
   const className = joinEntityName(assoc);
   const ownerProp = joinFkPropName(assoc.ownerFk);
   const targetProp = joinFkPropName(assoc.targetFk);
@@ -90,11 +94,17 @@ export function renderJoinEntityConfiguration(assoc: AssociationIR, ns: string):
       "{",
       `    public void Configure(EntityTypeBuilder<${className}> builder)`,
       "    {",
-      `        builder.ToTable("${assoc.joinTable}");`,
+      // The join table lives in the owning aggregate's Postgres schema — the
+      // shared migration creates it there (`"carts"."cart_tags"`).  Without the
+      // schema argument EF queried `public.cart_tags` and every save of an
+      // aggregate with an `X id[]` field 500'd (found by M-T6.94's corpus case).
+      `        builder.ToTable("${assoc.joinTable}"${schema ? `, "${schema}"` : ""});`,
       `        builder.HasKey(x => new { x.${ownerProp}, x.${targetProp} });`,
       `        builder.HasIndex(x => x.${targetProp});`,
-      `        builder.Property(x => x.${ownerProp}).HasConversion(v => v.Value, v => new ${assoc.ownerAgg}Id(v));`,
-      `        builder.Property(x => x.${targetProp}).HasConversion(v => v.Value, v => new ${assoc.targetAgg}Id(v));`,
+      // Columns named as the migration creates them (`cart_id`/`tag_id`) — EF's
+      // default would be the property name (`CartId`), a column that does not exist.
+      `        builder.Property(x => x.${ownerProp}).HasConversion(v => v.Value, v => new ${assoc.ownerAgg}Id(v)).HasColumnName("${assoc.ownerFk}");`,
+      `        builder.Property(x => x.${targetProp}).HasConversion(v => v.Value, v => new ${assoc.targetAgg}Id(v)).HasColumnName("${assoc.targetFk}");`,
       "    }",
       "}",
     ) + "\n"
