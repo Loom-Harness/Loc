@@ -18,6 +18,7 @@ import {
   offsetToPosition,
   validateLoomModel,
 } from "../ir/validate/validate.js";
+import { verifyLoomModel } from "../ir/verify/verify-ir.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { applyPatches, type ModelPatch } from "../language/model-patch.js";
@@ -578,6 +579,11 @@ interface RunOptions {
    * chart (`helm/`) and the raw manifests it renders to (`k8s/`) alongside
    * `docker-compose.yml`.  See docs/kubernetes.md. */
   emitKubernetes?: boolean;
+  /** `--verify-ir` switch — run the IR verifier over the enriched model before
+   * phase ⑦ and fail the run on a violation.  A violation is a compiler bug
+   * (lowering/enrichment produced an IR the backends cannot consume), not a
+   * model error; off by default.  `generate system` only. */
+  verifyIr?: boolean;
   /** `--allow-destructive` switch — permit destructive delta migrations
    * (column/table drops, NOT-NULL adds without a default on an existing
    * table).  Off by default: a destructive delta aborts the run with a
@@ -717,6 +723,17 @@ async function runGenerate(
   // the real warnings under one count — `parse` reports those separately, and
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
+  if (options.verifyIr) {
+    const violations = verifyLoomModel(loom);
+    if (violations.length > 0) {
+      console.error(
+        `${file}: IR verification failed — ${violations.length} violation(s). These are compiler invariants, not model errors; please report them.`,
+      );
+      for (const v of violations) console.error(`  error: ${v}`);
+      if (!options.continueOnError) process.exit(1);
+      return { hadError: true };
+    }
+  }
   const loomDiags = validateLoomModel(loom);
   const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
   // ONE footer, after both phases — the same call `parse` makes at the same
@@ -1915,6 +1932,10 @@ generate
     "also emit a Helm chart (helm/) and raw manifests (k8s/) alongside docker-compose.yml; see docs/kubernetes.md",
   )
   .option(
+    "--verify-ir",
+    "run the IR verifier (compiler self-check of lowering/enrichment output) before validation and exit non-zero on a violation; off by default. See docs/tools.md.",
+  )
+  .option(
     "--allow-destructive",
     "permit destructive delta migrations (column/table drops, NOT-NULL adds without a default on an existing table); off by default a destructive delta aborts. See docs/migrations.md.",
   )
@@ -1944,6 +1965,7 @@ generate
         json?: boolean;
         trace?: boolean;
         k8s?: boolean;
+        verifyIr?: boolean;
         allowDestructive?: boolean;
         allowRebaseline?: boolean;
         sourcemap?: boolean;
@@ -1963,6 +1985,7 @@ generate
         dryRun: options.dryRun,
         emitTrace: !!options.trace,
         emitKubernetes: !!options.k8s,
+        verifyIr: !!options.verifyIr,
         allowDestructive: !!options.allowDestructive,
         allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,

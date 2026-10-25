@@ -39,6 +39,7 @@ import {
   DEMO_TENANT_ID,
   demoTenantClaim,
 } from "../ir/util/demo-tenant.js";
+import { assertLoomModelVerifies } from "../ir/verify/verify-ir.js";
 import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
@@ -127,6 +128,11 @@ export interface SystemEmission {
 
 export interface GenerateSystemOptions {
   emitTrace?: boolean;
+  /** Run the IR verifier (`verifyLoomModel`) over the enriched model before any
+   *  emission and throw on a violation.  Off by default: a violation is a bug in
+   *  lowering/enrichment, never in the `.ddd`, so the check is a self-test of the
+   *  compiler (the CLI `--verify-ir` flag), not part of normal generation. */
+  verifyIr?: boolean;
   /** When true, additionally emit a Helm chart (`helm/`) and the raw
    *  manifests it renders to (`k8s/`) ALONGSIDE the always-present
    *  `docker-compose.yml`.  Opt-in (the CLI `--k8s` flag); off keeps the
@@ -226,6 +232,7 @@ export function generateSystemsFromLoom(
   loom: EnrichedLoomModel,
   options: GenerateSystemOptions = {},
 ): SystemEmission {
+  if (options.verifyIr) assertLoomModelVerifies(loom, "generateSystemsFromLoom");
   const out = emissionSink("system/index");
   const snapshots = options.snapshots ?? memorySnapshotStore();
   // One recorder for the whole model — systems share one flat output map
