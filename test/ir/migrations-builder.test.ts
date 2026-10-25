@@ -1655,6 +1655,26 @@ describe("A8.3 — destructive-change gate", () => {
     expect(allowed.some((s) => s.op === "alterColumnType")).toBe(true);
   });
 
+  // `datetime → date` drops the time-of-day (and, cast in the session zone, can
+  // move the day), so the narrowing is destructive like any type change: gated
+  // without --allow-destructive, and emitted as `TYPE DATE USING col::DATE`.
+  it("gates a datetime → date narrowing behind --allow-destructive and renders DATE", () => {
+    const at = (kind: "datetime" | "date") => ({
+      schemaVersion: 1 as const,
+      tables: [tbl("patients", [idCol, { name: "born", type: { kind }, nullable: false }])],
+    });
+    const prev = at("datetime");
+    const raw = diffSchema(prev, at("date"));
+    const step = raw.find((s) => s.op === "alterColumnType");
+    expect(step).toBeDefined();
+    expect(() =>
+      applyDestructivePolicy(raw, prev, { allowDestructive: false, module: "M" }),
+    ).toThrow(MigrationDestructiveError);
+    const allowed = applyDestructivePolicy(raw, prev, { allowDestructive: true, module: "M" });
+    const sql = allowed.map((s) => renderPgStep(s)).join("\n");
+    expect(sql).toContain(`ALTER COLUMN "born" TYPE DATE USING "born"::DATE`);
+  });
+
   it("blocks a NOT-NULL add without a default on an existing table unless allowed", () => {
     const prev = { schemaVersion: 1 as const, tables: [tbl("orders", [idCol])] };
     const next = {

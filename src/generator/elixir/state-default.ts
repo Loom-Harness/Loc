@@ -56,6 +56,8 @@ export function stateDefault(
         return "false";
       case "datetime":
         return "DateTime.utc_now()";
+      case "date":
+        return "Date.utc_today()";
       default:
         return '""';
     }

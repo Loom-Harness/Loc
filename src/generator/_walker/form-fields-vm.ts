@@ -52,6 +52,11 @@ export function prepareFormFieldVM(
     if (inner.name === "datetime") {
       return { template: "field-input-datetime", path, label, testId, errorExpr };
     }
+    // A calendar `date` gets a DATE picker (`<input type="date">`), whose value
+    // is already the wire's `YYYY-MM-DD` — no zone conversion on either side.
+    if (inner.name === "date") {
+      return { template: "field-input-date", path, label, testId, errorExpr };
+    }
     if (inner.name === "File") {
       // A `File`-typed field renders a file-upload input: the pack's
       // `field-input-file` template wraps a `<Controller>` whose

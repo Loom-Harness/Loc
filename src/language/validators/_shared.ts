@@ -253,7 +253,9 @@ export function isInfallibleConversion(source: string, target: string): boolean 
       // this change.  `json` / `File` stay refused — neither has a canonical
       // scalar form, which is the actual reason the old "any primitive"
       // wording was wrong.
+      // A calendar `date` renders as its ISO-8601 `YYYY-MM-DD` text.
       source === "guid" ||
+      source === "date" ||
       source === "datetime"
     );
   }

@@ -31,6 +31,7 @@ export type ColumnType =
   // scale each backend happens to write, and the stored money diverges across
   // backends.
   | { kind: "decimal"; precision?: number; scale?: number }
+  | { kind: "date" }
   | { kind: "datetime" }
   | { kind: "json" }
   | { kind: "array"; inner: ColumnType };
