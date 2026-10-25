@@ -1,4 +1,5 @@
 import type { ExprIR } from "../types/loom-ir.js";
+import { type DurationExprIR, durationCtorOperand, isDatetimeTypedIR } from "./temporal.js";
 
 // ---------------------------------------------------------------------------
 // The SQL-renderable expression subset (M-T2.3 data-migration surface).
@@ -17,7 +18,8 @@ import type { ExprIR } from "../types/loom-ir.js";
  *  expression can't backfill.
  *
  *  Supported: literals, enum values, sibling-field refs (`this-prop`),
- *  parens, unary, the closed BinOp set, ternary.  Value-object leaves are
+ *  parens, unary, the closed BinOp set, ternary, and `datetime ± duration`
+ *  with a direct `days`/`hours`/`minutes(n)` constructor operand.  Value-object leaves are
  *  excluded — Phoenix stores a VO as one `:map` column, so a leaf-column
  *  reference would not be portable across backends. */
 export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
@@ -39,6 +41,18 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
     case "unary":
       return sqlRenderableExpr(e.operand);
     case "binary": {
+      // `datetime ± days/hours/minutes(n)` — the one place a duration is
+      // admitted: a direct constructor operand of `+`/`-` whose other side is
+      // provably datetime renders as Postgres interval arithmetic
+      // (`created_at + make_interval(hours => 24)`).  A bare duration, a
+      // duration-typed `let`, or `duration ± duration` stays refused below:
+      // there is no duration column to write it to.
+      const temporal = sqlTemporalArith(e);
+      if (temporal) {
+        const side = sqlRenderableExpr(temporal.datetime);
+        if (side !== true) return side;
+        return sqlRenderableExpr(temporal.duration.amount);
+      }
       const l = sqlRenderableExpr(e.left);
       if (l !== true) return l;
       return sqlRenderableExpr(e.right);
@@ -116,4 +130,24 @@ export function sqlRenderableExpr(e: ExprIR): true | { reason: string } {
 export function sqlLiteralColumnDefault(e: ExprIR): boolean {
   if (e.kind === "literal") return e.lit !== "now" && e.lit !== "null";
   return e.kind === "ref" && e.refKind === "enum-value";
+}
+
+/** The `datetime ± duration` shape a backfill may use, split into its two
+ *  operands, or null.  `+` admits the constructor on either side
+ *  (`hours(24) + createdAt`); `-` only on the right (a duration minus a
+ *  datetime is not a datetime).  The datetime side must be provably datetime
+ *  (`isDatetimeTypedIR`) and must not itself be a duration constructor.  Shared
+ *  by the predicate above and the renderer (`src/generator/sql-pg-expr.ts`) so
+ *  the two agree on exactly which nodes are interval arithmetic. */
+export function sqlTemporalArith(
+  e: Extract<ExprIR, { kind: "binary" }>,
+): { datetime: ExprIR; duration: DurationExprIR } | null {
+  if (e.op !== "+" && e.op !== "-") return null;
+  const rightDur = durationCtorOperand(e.right);
+  const leftDur = e.op === "+" ? durationCtorOperand(e.left) : null;
+  const duration = rightDur ?? leftDur;
+  const datetime = rightDur ? e.left : leftDur ? e.right : null;
+  if (!duration || !datetime || durationCtorOperand(datetime)) return null;
+  if (!isDatetimeTypedIR(datetime)) return null;
+  return { datetime, duration };
 }

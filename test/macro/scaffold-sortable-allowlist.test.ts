@@ -50,9 +50,14 @@ describe("scaffold list sortable columns = server sort whitelist (F4)", () => {
     const list = files.get("web/src/pages/customers/list.tsx")!;
     const headers = [...list.matchAll(/setSortKey\("(\w+)"\)/g)].map((m) => m[1]);
     expect(accepted).toEqual(["id", "name", "tier", "joined", "active"]);
-    expect(headers).toEqual(accepted);
+    // The `display` label links the row (no raw-id column) and sorts by the one
+    // field it reads, `name`; every other sortable header is a whitelisted
+    // data column.
+    expect(headers).toEqual(["name", "tier", "joined", "active"]);
+    for (const h of headers) expect(accepted).toContain(h);
     // …while every other list column still RENDERS (the `version` token is
-    // transport-only and is not a list column at all — M-T3.4).
-    for (const col of ["Salary", "Owner Ref", "Nick", "Score"]) expect(list).toContain(`"${col}"`);
+    // transport-only and is not a list column at all — M-T3.4; the list is
+    // capped, so `score` falls past the cap and lives on Detail only).
+    for (const col of ["Salary", "Owner Ref", "Nick"]) expect(list).toContain(`"${col}"`);
   });
 });

@@ -28,7 +28,8 @@ public sealed class CustomerRepository : ICustomerRepository
 
     public async Task<Customer?> GetByIdAsync(CustomerId id, CancellationToken cancellationToken = default)
     {
-        var found = await _db.Customers.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var __db = _db.Customers.Local.Any(x => x.Id == id) ? _db.Fork() : _db;
+        var found = await __db.Customers.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id} found={Found}", "aggregate_loaded", "Customer", id.Value, found != null);
         return found;
     }
@@ -41,7 +42,8 @@ public sealed class CustomerRepository : ICustomerRepository
 
     public async Task SaveAsync(Customer aggregate, CancellationToken cancellationToken = default)
     {
-        var entry = _db.Entry(aggregate);
+        var __db = _db.TrackerOf(aggregate);
+        var entry = __db.Entry(aggregate);
         if (entry.State == EntityState.Detached)
         {
             _db.Customers.Add(aggregate);
@@ -55,7 +57,7 @@ public sealed class CustomerRepository : ICustomerRepository
         }
         var __pending = aggregate.PullEvents();
         var __deferred = await _events.RecordDurableAsync(__pending, null, cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id}", "repository_save", "Customer", aggregate.Id.Value);
         foreach (var ev in __deferred)
         {
@@ -66,8 +68,9 @@ public sealed class CustomerRepository : ICustomerRepository
 
     public async Task DeleteAsync(Customer aggregate, CancellationToken cancellationToken = default)
     {
-        _db.Customers.Remove(aggregate);
-        await _db.SaveChangesAsync(cancellationToken);
+        var __db = _db.TrackerOf(aggregate);
+        __db.Customers.Remove(aggregate);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
     }
     public async Task<Paged<Customer>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)
     {

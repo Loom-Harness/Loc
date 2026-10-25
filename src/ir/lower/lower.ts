@@ -1623,6 +1623,7 @@ function lowerRetrieval(r: Retrieval, env: Env): RetrievalIR {
     criterionRef: criterionRefOf(r.where, bodyEnv),
     sort,
     loadPlan,
+    origin: originFor(r),
   };
 }
 

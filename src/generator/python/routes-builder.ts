@@ -38,6 +38,7 @@ import {
 } from "../../ir/util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../ir/util/denial-detail.js";
 import {
   lifecycleGates,
   lifecycleGatesReadRow,
@@ -91,6 +92,7 @@ import { PY_NUMERIC } from "./numeric-codec.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
+import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
 
 // The symbols a routes module references, as `ref()` markers — the module's
 // import block derives from the ones that survive into its text (M-T9.84).
@@ -736,25 +738,10 @@ export function pyWireToDomain(expr: string, t: TypeIR, ctx: BoundedContextIR): 
 
 // --- lifecycle stamps -----------------------------------------------------------
 
-/** The stamp assignments for one lifecycle event (create / update). */
-function stampRules(agg: EnrichedAggregateIR, event: "create" | "update") {
-  return (agg.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments);
-}
-
-/** Whether this aggregate carries a lifecycle stamp for `event`. */
-function hasStamp(agg: EnrichedAggregateIR, event: "create" | "update"): boolean {
-  return stampRules(agg, event).length > 0;
-}
-
-/** Whether the `event` stamp references the request principal (so the route
- *  must thread `current_user` into the stamp call). */
-function stampUsesUser(agg: EnrichedAggregateIR, event: "create" | "update"): boolean {
-  return stampRules(agg, event).some((a) => exprUsesCurrentUser(a.value));
-}
-
 /** The `<var>._stamp_on_<event>([current_user])` call line — emitted right
- *  before the repository persist (parity with Java's service stamp call). */
-function stampCall(agg: EnrichedAggregateIR, event: "create" | "update", varName: string): string {
+ *  before the repository persist (parity with Java's service stamp call).
+ *  The in-process save sites use `pyStampedSaveLines` (`stamp-call.ts`). */
+function stampCall(agg: EnrichedAggregateIR, event: StampEvent, varName: string): string {
   return `    ${varName}._stamp_on_${event}(${stampUsesUser(agg, event) ? "current_user" : ""})`;
 }
 
@@ -1096,7 +1083,7 @@ function whenGate(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   return [
     `    if ${renderPyNegatedGuard(op.when, { thisName: "found" })}:`,
     `        raise ${PY.DisallowedError}(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )})`,
   ];
 }

@@ -489,6 +489,10 @@ export interface OperationIR {
    * functions inline like any boolean position.  Emitted by every
    * backend. */
   when?: ExprIR;
+  /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
+   *  in the 409 Disallowed `detail` by `disallowedDetail`
+   *  (src/ir/util/denial-detail.ts) on every backend.  Absent when `when` is. */
+  whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -1119,6 +1123,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** Provenance back to the `retrieval` declaration — the span its
+   *  diagnostics point at. */
+  origin?: OriginRef;
 }
 
 export interface BoundedContextIR {

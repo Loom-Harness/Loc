@@ -770,9 +770,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.retrieval-loads-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/query-checks.ts:346",
+    site: "src/ir/validate/checks/query-checks.ts:368",
     what: "explicit `loads:` deferred — retrievals load the whole aggregate",
     mission: "M-T5.4",
+    verified: true,
+  },
+  {
+    code: "loom.stamp-reads-aggregate-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/principal-guard-checks.ts:137",
+    what:
+      "a `stamp` whose value reads the aggregate's own fields / functions (`dueAt := now() + " +
+      "hours(slaHours())`) on a document-shaped aggregate hosted by elixir: that path merges " +
+      "stamps into the request attrs before any record exists, so there is nothing to read.  " +
+      "Every other backend and the relational elixir path evaluate it against the instance.",
+    mission: "#3840",
     verified: true,
   },
   {
