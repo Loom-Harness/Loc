@@ -338,6 +338,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `criterion '${p.name}' is impure: it calls the operation '${p.headName}'. Criteria are pure predicates — call a 'function' (pure) instead of an 'operation' (mutating).`,
   "loom.criterion-cycle": (p: { name: unknown }) =>
     `criterion '${p.name}' is part of a reference cycle. A criterion may not (transitively) reference itself.`,
+  "loom.criterion-retrieval-name-clash": (p: { name: unknown; context: unknown }) =>
+    `retrieval '${p.name}' has the same name as a criterion in context '${p.context}'. ` +
+    `A criterion and a retrieval may not share a name — rename one (e.g. the retrieval ` +
+    `to '${p.name}Sorted').`,
   "loom.criterion-arity": (p: {
     argc: unknown;
     name: unknown;
@@ -818,8 +822,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
     `bespoke list finder on the repository, and put it on the wire with ` +
     `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
-    `when a client must call it. (A unique-key reconstitution find returning a single ` +
-    `'T' / 'T?' stays fine.)`,
+    `when a client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' ` +
+    `rewrites it. (A unique-key reconstitution find returning a single 'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts

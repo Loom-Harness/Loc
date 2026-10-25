@@ -26,9 +26,9 @@ guards.
 > (read-path-architecture.md, "`run` takes a criterion") — `Repo.run(<Criterion>)`
 > / `Repo.run(<Criterion>(args), page?)` is first-class alongside
 > `Repo.run(<Retrieval>)`, riding the identical `findAllBy<Criterion>` desugar as
-> `findAll`.  A declared `retrieval` keeps precedence: a name that is *both* a
-> criterion and a retrieval stays a retrieval, so existing `run(<Retrieval>)`
-> call sites are unchanged.  Ordering / fetch-shaping is expressed by an
+> `findAll`.  A criterion and a retrieval may not share a name in one context
+> (`loom.criterion-retrieval-name-clash`, an error), so `run(<Name>)` always
+> means exactly one of them.  Ordering / fetch-shaping is expressed by an
 > **anonymous retrieval** — `Repo.run(retrieval { where: <Criterion> sort: […]
 > loads: […] }, page?)` — the call-site twin of a declared `retrieval`; `findAll`
 > and bare-criterion `run` stay the un-shaped spellings, shaping lives on the
@@ -38,7 +38,9 @@ guards.
 > `T paged` is a bespoke list finder — pass a criterion to `run`
 > (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead of accreting a
 > method per query, and expose it with `scaffoldPaged(of: …)` +
-> `scaffoldPagedApi(of: …)` when a client must call it.  A **unique-key reconstitution** find (returning a single
+> `scaffoldPagedApi(of: …)` when a client must call it.
+> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites the old form
+> (see [D-LIST-FIND-REMOVED](decisions.md)).  A **unique-key reconstitution** find (returning a single
 > `T` / `T?` by identity) is *not* a list query and stays legal.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
@@ -193,6 +195,7 @@ that still inline).
 | `loom.criterion-impure` | The body calls a mutating `operation`. Criteria are pure — call a pure `function` instead. |
 | `loom.criterion-cycle` | A criterion (transitively) references itself. |
 | `loom.criterion-arity` | A criterion call supplies the wrong number of arguments. |
+| `loom.criterion-retrieval-name-clash` | A `retrieval` has the same name as a `criterion` in its context — `run(<Name>)`, `scaffoldPaged(of: <Name>)` and `where: <Name>` would each have to pick one silently. Rename one. |
 | `loom.call-arg-type` | A criterion call supplies an argument whose type isn't assignable to the declared parameter (the shared call-argument type check; arity stays `loom.criterion-arity`). Checked at the env-bearing call sites (body `precondition` / `requires`, `derived`, …). |
 
 The body is an ordinary expression, so mutation (`:=`, `+=`), `emit`,

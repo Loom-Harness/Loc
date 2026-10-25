@@ -42,10 +42,10 @@ import { type Env, lowerType } from "./lower-types.js";
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
  *  target names a **criterion** (so the read runs `findAllBy<Criterion>`) rather
  *  than a **retrieval** (read-path-architecture.md, "`run` takes a criterion").
- *  Retrieval takes precedence: a name that is BOTH a criterion and a retrieval
- *  stays a retrieval (back-compat — a declared retrieval keeps its existing
- *  meaning), so `run` only re-routes a name that is a criterion and NOT a
- *  retrieval. */
+ *  A name that is BOTH is a validation error
+ *  (`loom.criterion-retrieval-name-clash`), so on a valid model the two sets
+ *  are disjoint; excluding retrieval names here only keeps an erroring model
+ *  lowering on its retrieval meaning. */
 export type CriterionRunPredicate = (name: string) => boolean;
 
 /** Build a {@link CriterionRunPredicate} from the enclosing context's members.

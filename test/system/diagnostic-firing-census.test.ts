@@ -1052,6 +1052,11 @@ system S {
     }
     repository Orders for Order { }`),
 
+  "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+    criterion Named(n: string) of Thing = this.name == n
+    retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n
