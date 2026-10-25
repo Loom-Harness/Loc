@@ -168,11 +168,13 @@ system Commons {
       criterion TitleMatches(q: string) of Post = title.startsWith(q)
 
       repository Posts for Post {
-        find byAuthor(a: Member id): Post paged requires currentUser.role != "" where this.author == a
+        find byAuthor(a: Member id): Post paged where this.author == a
       }
+      policy { read Post requires currentUser.role != "" }
       repository Comments for Comment {
-        find forPost(p: Post id): Comment paged requires currentUser.role != "" where this.post == p
+        find forPost(p: Post id): Comment paged where this.post == p
       }
+      policy { read Comment requires currentUser.role != "" }
       repository Reactions for Reaction { }
       repository Medias for Media { }
     }
@@ -247,11 +249,13 @@ system Commons {
       }
 
       repository Reports for Report {
-        find all(): Report[] requires currentUser.role == "moderator" || currentUser.role == "admin"   // F-005 workaround
+        find all(): Report[] // F-005 workaround
       }
+      policy { read Report requires currentUser.role == "moderator" || currentUser.role == "admin" }
       repository Bans for Ban {
-        find all(): Ban[] requires currentUser.role == "moderator" || currentUser.role == "admin"   // F-005 workaround
+        find all(): Ban[] // F-005 workaround
       }
+      policy { read Ban requires currentUser.role == "moderator" || currentUser.role == "admin" }
     }
   }
 

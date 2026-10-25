@@ -2,13 +2,13 @@
 
 Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
 ## `repository` & `find`
 
-A `repository` binds reads to one aggregate (`repository Name for Agg`). It contains `find` operations — each `find name(params): T [requires <gate>] [where <expr>] [ignoring …]`. The return type `T` is an ordinary [type reference](04-type-system.md): a single aggregate, an option `T?`, a collection `T[]`, or a transport carrier (`T paged` / `T envelope` / `T option`). Every repository also gets two reads for free without declaring them: a by-primary-key lookup (`findById` / `getById`) and a **paged, sortable** load-all (`all(page, pageSize, sort, dir)` — auto-`findAll` is derived in enrichment, phase ⑥, and is paged by default), so a bare `repository Foo for Foo { }` is already queryable. A declared find may not take the name of a built-in repository verb of the language — `getById`, `findById`, `findAll`, `run`, or a write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit`) — because `Repo.<name>(…)` already means the built-in (`loom.find-reserved-name`); nor may it repeat itself (`loom.duplicate-find`). A declared `find all` is allowed and replaces the auto-paged load-all. No name is reserved because of a target backend: each emitter escapes a find whose rendered method would collide with one it emits itself (on .NET, `getByIdAsync` → `GetByIdAsyncFind`).
+A `repository` binds reads to one aggregate (`repository Name for Agg`). It contains `find` operations — each `find name(params): T [where <expr>] [ignoring …]`. The return type `T` is an ordinary [type reference](04-type-system.md): a single aggregate, an option `T?`, a collection `T[]`, or a transport carrier (`T paged` / `T envelope` / `T option`). Every repository also gets two reads for free without declaring them: a by-primary-key lookup (`findById` / `getById`) and a **paged, sortable** load-all (`all(page, pageSize, sort, dir)` — auto-`findAll` is derived in enrichment, phase ⑥, and is paged by default), so a bare `repository Foo for Foo { }` is already queryable. A declared find may not take the name of a built-in repository verb of the language — `getById`, `findById`, `findAll`, `run`, or a write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit`) — because `Repo.<name>(…)` already means the built-in (`loom.find-reserved-name`); nor may it repeat itself (`loom.duplicate-find`). A declared `find all` is allowed and replaces the auto-paged load-all. No name is reserved because of a target backend: each emitter escapes a find whose rendered method would collide with one it emits itself (on .NET, `getByIdAsync` → `GetByIdAsyncFind`).
 
 ```ddd
 aggregate Product with crudish { sku: string  name: string  price: money }
@@ -202,13 +202,23 @@ end
 ```
 ::: end
 
-### `requires` — gating a read
+### Gating a read — `policy { read X requires … }`
 
-A find (and a projection) may carry a `requires <expr>` authorization gate. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` or a parameter there is `loom.find-gate-not-current-user`; use `where` to scope rows and `requires` to allow/deny the caller. The enforcement story (403, `denyByDefault`, history reads inheriting the list gate) is in [chapter 17](17-auth.md) and [`../auth.md`](../auth.md).
+A find carries no authorization gate. Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, each find's route, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use `where` to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
 
 ```ddd
-find mine(c: string): Order? requires currentUser.role == "agent" where this.code == c
+repository Orders for Order {
+  find mine(c: string): Order? where this.code == c
+}
+policy { read Order requires currentUser.role == "agent" }
 ```
+
+```ts
+// node — http/order.routes.ts, GET /orders/mine
+if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find mine");
+```
+
+A projection keeps its own header gate (`projection P requires <expr> { … }`).
 
 ## `criterion`
 

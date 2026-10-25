@@ -82,6 +82,7 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -980,7 +981,13 @@ export function enrichContext(
   const repositories = synthesizePagedQueryHandlerFinds(
     // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
     // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+    // `applyPolicyReadGates` sits between them: it puts the
+    // `policy { read X requires … }` gate on the injected `all` (and every
+    // declared find), which history then copies.
+    ensureHistoryFind(
+      aggregates,
+      applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+    ),
     ctx.queryHandlers,
     ctx.criteria,
     ctx.retrievals,

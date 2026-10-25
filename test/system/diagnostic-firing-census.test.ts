@@ -571,6 +571,30 @@ system TpcUnique {
       }`),
   // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
   // disjunct: the system principal it runs as can never pass it.
+  // The policy read gate runs before the load, so it may read only
+  // `currentUser` and constants — a row field there is refused.
+  "loom.policy-read-gate-not-current-user": `
+system S {
+  user { id: guid  role: string }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  open: bool }
+    repository Secrets for Secret { }
+    policy { read Secret requires open == true }
+  } }
+}`,
+
+  // `read` heads the gate rule as an identifier, not a keyword, so any word
+  // parses there — and every word but `read` is refused by name.
+  "loom.policy-unknown-rule": `
+system S {
+  user { id: guid  role: string }
+  subdomain D { context Vault {
+    aggregate Secret { body: string }
+    repository Secrets for Secret { }
+    policy { view Secret requires true }
+  } }
+}`,
+
   "loom.reactor-gate-unsatisfiable": `
 system ReactorGate {
   user { id: guid  permissions: string[] }
@@ -3390,9 +3414,7 @@ system S {
   auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
   subdomain D { context Vault {
     aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
-    repository Secrets for Secret {
-      find all(): Secret[] requires currentUser.role == "admin"
-    }
+    repository Secrets for Secret { }
   } }
   api Api from D
   storage pg { type: postgres }
@@ -3420,8 +3442,9 @@ system S {
       apply(e: Opened) { owner := e.owner }
     }
     repository Accounts for Account {
-      find all(): Account[] requires currentUser.role == "admin"
+      find all(): Account[]
     }
+    policy { read Account requires currentUser.role == "admin" }
   } }
   api Api from D
   storage pg { type: postgres }

@@ -69,6 +69,7 @@ const DELIBERATELY_DROPPED: Readonly<Record<string, string>> = {
   policyReadLevels: "consumed by enrichment before the merge; no post-merge reader",
   policyWriteLevels: "consumed by enrichment before the merge; no post-merge reader",
   policyDenies: "consumed by enrichment before the merge; no post-merge reader",
+  policyReadGates: "consumed by enrichment (onto every find's `requires`) before the merge",
 };
 
 /** Field names declared on `BoundedContextIR`, read out of the IR source. */

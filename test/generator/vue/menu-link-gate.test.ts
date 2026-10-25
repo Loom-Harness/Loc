@@ -117,7 +117,8 @@ system Helpdesk {
   subdomain Support {
     context Tickets {
       aggregate Ticket with crudish { subject: string }
-      repository Tickets for Ticket { ${gated ? 'find all(): Ticket[] requires currentUser.role == "agent"' : ""} }
+      repository Tickets for Ticket { ${gated ? "find all(): Ticket[]" : ""} }
+      ${gated ? 'policy { read Ticket requires currentUser.role == "agent" }' : ""}
     }
   }
   storage primary { type: postgres }

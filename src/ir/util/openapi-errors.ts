@@ -214,8 +214,8 @@ export function errorStatuses(
     // the workflow-instance-by-id read declare against, and all three validate
     // the same `{id}`.
     //
-    // A `find byId(id: T id): T? requires <expr>` gates it (M-T3.19,
-    // `byIdReadGate` in `read-gates.ts`): the gate runs BEFORE the load, so a
+    // The aggregate's `policy { read T requires <expr> }` gates it
+    // (`byIdRouteFind` in `read-gates.ts`): the gate runs BEFORE the load, so a
     // denied caller answers 403 whether or not the id exists — the by-id read
     // is not an existence oracle for a caller the gate refuses.
     case "getById":

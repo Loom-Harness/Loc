@@ -37,11 +37,12 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 //     `requires`).  Event-triggered creates / `on(...)` reactors are not
 //     client-reachable, so they are excluded.
 //
-// Read endpoints — **views** and repository **finds** — are in scope too: each
-// is a GET endpoint, and both carry an optional `requires <expr>` gate (the
-// read-side twin of an operation's in-handler 403).  An ungated read under
-// denyByDefault serves to any caller; `requires true` is the explicit
-// intentionally-public escape.
+// Read endpoints — **projections** and repository **finds** — are in scope too:
+// each is a GET endpoint.  A projection carries its own `requires <expr>`; every
+// read of an aggregate (its finds, list, by-id and history reads) is gated by
+// the context's `policy { read X requires <expr> }` (the read-side twin of an
+// operation's in-handler 403).  An ungated read under denyByDefault serves to
+// any caller; `requires true` is the explicit intentionally-public escape.
 
 export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): void {
   if (sys.auth?.enforcement !== "denyByDefault") return;
@@ -201,38 +202,33 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // repository find named `all` (usually the enrichment-injected one —
       // eval item 22, ruling D5).  One loop, one implementation, two codes.
       //
-      // Both have a surface named AT THE DECLARATION (the #2877 ruling — no
-      // inherited aggregate-level default gate): the author declares the read
-      // in the repository with its gate —
-      //     find byId(id: T id): T? requires <expr>
-      //     find all(): T[]        requires <expr>
+      // Both are gated by the aggregate's policy read gate —
+      //     policy { read T requires <expr> }
       // — and every backend's route renders that gate before the load.  Under
-      // denyByDefault an UNDECLARED / ungated one is REFUSED AT RUNTIME (403)
-      // on all five backends: the route fails closed.
+      // denyByDefault an ungated one is REFUSED AT RUNTIME (403) on all five
+      // backends: the route fails closed.
       //
       // The diagnostics are WARNINGS for one release (owner decision
       // 2026-10-11): the runtime 403 ships now, the build stays non-breaking,
       // and the message tells the author exactly which line restores access.
-      // Promotion to error is the tracked M-T3.19 follow-up (~2026-11-01).
+      // Promotion to error is a tracked follow-up (~2026-11-01).
       //
       // Read off `deriveContextOperations` — the same derivation every backend
       // route builder renders — so the check covers exactly the routes that
       // exist (abstract bases serve neither).
       for (const op of deriveContextOperations(c)) {
         if (isAllFind(op)) {
-          // A declared ungated `find all` reports here too — the declared-find
-          // loop below skips `all`, so it is this warning or nothing.
+          // A declared `find all` reports here too — the declared-find loop
+          // below skips `all`, so it is this warning or nothing.
           // `defaultDenied` = the deny gate enrichment stamped, not the
           // author's: the read is refused at runtime, still worth the warning.
           if (op.find?.requires && !op.find.defaultDenied) continue;
-          const repo = c.repositories.find((r) => r.aggregateName === op.aggregate);
           diags.push({
             severity: "warning",
             code: "loom.default-deny-list-ungated",
             message: diagMessage("loom.default-deny-list-ungated", {
               name: op.aggregate,
               path: op.path,
-              repo: repo?.name ?? `${op.aggregate}s`,
             }),
             source: `${c.name}/${op.aggregate}/all`,
             origin: c.origin,
@@ -257,7 +253,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         });
       }
       // Repository finds: each author-declared named find is its own GET route
-      // and carries the same optional `requires <expr>` gate.  The list read
+      // and is gated by the aggregate's policy read gate.  The list read
       // (`find all`, injected or declared) is reported by the
       // `loom.default-deny-list-ungated` warning above, not here.  Internal
       // synthesized finds (paged-run helpers) are never their own route.
@@ -271,6 +267,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               message: diagMessage("loom.default-deny-ungated#denybydefault-find-is-reachable", {
                 name: repo.name,
                 findName: find.name,
+                aggregate: repo.aggregateName,
               }),
               source: `find/${repo.name}.${find.name}`,
               origin: repo.origin,
@@ -279,9 +276,8 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         }
         // Entity history (docs/audit.md): `GET /<agg>/{id}/history` replays the
         // `before`/`after` snapshots of every successful command on a row.  It
-        // is compiler-synthesized like `find all` — but unlike `find all` the
-        // author HAS a surface to gate it from, because history copies the list
-        // read's gate at enrichment.  So an ungated one is actionable, and
+        // is compiler-synthesized like `find all`, and gated by the same policy
+        // read gate (history copies the list read's gate at enrichment).  So an ungated one is actionable, and
         // under denyByDefault an ungated CHANGE HISTORY is a worse default than
         // an ungated current-state read: it discloses who changed what and
         // when, over the row's whole lifetime, in one request.
@@ -292,7 +288,6 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             message: diagMessage("loom.audit-history-ungated", {
               aggregateName: repo.aggregateName,
               aggregateName2: snake(plural(repo.aggregateName)),
-              name: repo.name,
             }),
             source: `find/${repo.name}.history`,
             origin: repo.origin,

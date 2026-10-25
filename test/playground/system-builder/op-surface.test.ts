@@ -3,7 +3,7 @@
 // `body.ts` owns everything inside an operation's braces; `op-surface.ts` owns
 // everything before them — the parameter list, the return type, the `requires`
 // / `when` gates, the `private` / `extern` / `audited` modifiers, and a find's
-// `requires` gate + `ignoring` clause.
+// `ignoring` clause.
 //
 // The invariant every mutator keeps: an edit is a narrow CST splice guarded by
 // an output re-parse, so everything outside the edited span — the operation's
@@ -22,7 +22,6 @@ import {
   opSurface,
   renameOpParam,
   retypeOpParam,
-  setFindGate,
   setFindIgnoring,
   setOpGate,
   setOpModifier,
@@ -77,9 +76,10 @@ const SRC = `system Shop {
       find byCustomer(customerId: Customer id): Order[]
       find drafts(forCustomer: Customer id): Order[]
         where this.customerId == forCustomer
-      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring tenantOwned
+      find secured(): Order[] where this.total > 0 ignoring tenantOwned
       find everything(): Order[] ignoring *
     }
+    policy { read Order requires currentUser.isAdmin }
   }
 }`;
 
@@ -152,13 +152,12 @@ describe("operation surface — the read surface", () => {
     expect([s?.private, s?.extern, s?.audited]).toEqual([false, false, false]);
   });
 
-  it("reports a find's params / return / gate / filter / ignoring", () => {
+  it("reports a find's params / return / filter / ignoring", () => {
     expect(findSurface(parse(SRC), "Orders", "secured")).toEqual({
       name: "secured",
       params: [],
       returnType: { base: { kind: "named", target: "Order" }, array: true, optional: false },
       returnTypeText: "Order[]",
-      requires: "currentUser.isAdmin",
       where: "this.total > 0",
       ignoring: ["tenantOwned"],
     });
@@ -554,48 +553,6 @@ describe("operation surface — modifiers", () => {
   });
 });
 
-describe("find surface — requires gate", () => {
-  it("adds the gate between the return type and the `where` filter", () => {
-    expectHunk(
-      SRC,
-      setFindGate(SRC, "Orders", "drafts", "currentUser.isAdmin"),
-      ["      find drafts(forCustomer: Customer id): Order[]"],
-      ["      find drafts(forCustomer: Customer id): Order[] requires currentUser.isAdmin"],
-    );
-    expectCommentsIntact(setFindGate(SRC, "Orders", "drafts", "currentUser.isAdmin"));
-  });
-
-  it("replaces / removes an existing gate, filter and ignoring untouched", () => {
-    expectHunk(
-      SRC,
-      setFindGate(SRC, "Orders", "secured", "currentUser.isOwner"),
-      [
-        "      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring tenantOwned",
-      ],
-      [
-        "      find secured(): Order[] requires currentUser.isOwner where this.total > 0 ignoring tenantOwned",
-      ],
-    );
-    expectHunk(
-      SRC,
-      setFindGate(SRC, "Orders", "secured", null),
-      [
-        "      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring tenantOwned",
-      ],
-      ["      find secured(): Order[] where this.total > 0 ignoring tenantOwned"],
-    );
-    expect(setFindGate(SRC, "Orders", "byCustomer", null)).toBe(SRC);
-  });
-
-  it("returns null on a broken source / unknown find / unparseable expression", () => {
-    expect(setFindGate(BROKEN, "Orders", "drafts", "x")).toBeNull();
-    expect(setFindGate(SRC, "Orders", "nope", "x")).toBeNull();
-    expect(setFindGate(SRC, "Nope", "drafts", "x")).toBeNull();
-    expect(setFindGate(SRC, "Orders", "drafts", "  ")).toBeNull();
-    expect(setFindGate(SRC, "Orders", "drafts", "a ==")).toBeNull();
-  });
-});
-
 describe("find surface — ignoring clause", () => {
   it("appends a name list after the filter", () => {
     expectHunk(
@@ -607,7 +564,7 @@ describe("find surface — ignoring clause", () => {
     expectCommentsIntact(setFindIgnoring(SRC, "Orders", "drafts", ["tenantOwned"]));
   });
 
-  it("appends after the return type when there is no filter or gate", () => {
+  it("appends after the return type when there is no filter", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "byCustomer", "*"),
@@ -620,12 +577,8 @@ describe("find surface — ignoring clause", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "secured", "*"),
-      [
-        "      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring tenantOwned",
-      ],
-      [
-        "      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring *",
-      ],
+      ["      find secured(): Order[] where this.total > 0 ignoring tenantOwned"],
+      ["      find secured(): Order[] where this.total > 0 ignoring *"],
     );
     expectHunk(
       SRC,
@@ -645,10 +598,8 @@ describe("find surface — ignoring clause", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "secured", []),
-      [
-        "      find secured(): Order[] requires currentUser.isAdmin where this.total > 0 ignoring tenantOwned",
-      ],
-      ["      find secured(): Order[] requires currentUser.isAdmin where this.total > 0"],
+      ["      find secured(): Order[] where this.total > 0 ignoring tenantOwned"],
+      ["      find secured(): Order[] where this.total > 0"],
     );
     expect(setFindIgnoring(SRC, "Orders", "byCustomer", null)).toBe(SRC);
   });

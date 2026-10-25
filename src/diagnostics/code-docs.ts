@@ -401,6 +401,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-call-field-not-in-create":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
+  "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",

@@ -26,8 +26,9 @@ system Repro {
       policy Gate(): bool = currentUser.permissions.contains(permissions.manage)
       repository Opens for Open { }
       repository Closeds for Closed {
-        find all(): Closed[] requires currentUser.role == "admin"
+        find all(): Closed[]
       }
+      policy { read Closed requires currentUser.role == "admin" }
     }
   }
   user { id: string  role: string  permissions: string[] }

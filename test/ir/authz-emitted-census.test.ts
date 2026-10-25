@@ -181,9 +181,10 @@ const GATE_SHAPES = `system GateShapes {
         }
       }
       repository Tickets for Ticket {
-        find all(): Ticket[] requires currentUser.role == "auditor"
-        find openOnes(): Ticket[] requires currentUser.role == "agent" where this.open == true
+        find all(): Ticket[]
+        find openOnes(): Ticket[] where this.open == true
       }
+      policy { read Ticket requires currentUser.role == "auditor" }
       projection OpenCount requires currentUser.role == "lead" {
         total: int
         from Ticket as t

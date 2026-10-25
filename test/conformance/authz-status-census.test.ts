@@ -72,8 +72,9 @@ system Census {
         }
       }
       repository Items for Item {
-        find openOnes(): Item[] requires currentUser.level > 2 where this.qty > 0
+        find openOnes(): Item[] where this.qty > 0
       }
+      policy { read Item requires currentUser.level > 2 }
     }
   }
   api A from S
@@ -400,8 +401,9 @@ system Census {
         name: string
       }
       repository Items for Item {
-        find all(): Item[] requires currentUser.level > 2
+        find all(): Item[]
       }
+      policy { read Item requires currentUser.level > 2 }
     }
   }
   api A from S

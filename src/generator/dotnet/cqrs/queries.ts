@@ -112,7 +112,7 @@ export function emitGetByIdQueryAndHandler(
       returnType: `${agg.name}Response?`,
     }),
   );
-  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates the
+  // The aggregate's read gate (`policy { read T requires <expr> }`) gates the
   // by-id read.  Evaluated BEFORE the load (403 for an existing and a missing
   // id alike — no existence oracle), with the same carrier + `detail` label as
   // the find's own handler (`buildFindHandlerBody`).

@@ -92,8 +92,9 @@ describe("api-surface — resolved error statuses", () => {
       error NotFound { resource: string }
       aggregate Order { code: string }
       repository Orders for Order {
-        find byCode(code: string): Order or NotFound requires currentUser.role == "admin"
+        find byCode(code: string): Order or NotFound
       }
+      policy { read Order requires currentUser.role == "admin" }
     `),
     );
     const find = opByKey(deriveContextOperations(orders(model)), "get", "/api/orders/by_code");

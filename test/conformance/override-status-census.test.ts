@@ -110,13 +110,13 @@ const API_BODY = `{ ${Object.entries(OVERRIDE)
  *    `operation … when …`       → Disallowed (state gate)
  *    `destroy` + a referencing  → ReferencedInUse (23503, FK RESTRICT) — `Line`
  *      aggregate                  exists ONLY to make the FK real
- *    `find … requires …`        → Forbidden on a READ (the arm whose declared
+ *    `read Item requires …`     → Forbidden on a READ (the arm whose declared
  *                                 status was hardcoded while the operation
  *                                 arm's was resolved)
  *    `operation … audited`      → the audit-history read, a SECOND gated read
- *                                 controller, gated because it inherits the
- *                                 `find all` gate
- *    getById                    → NotFound
+ *                                 controller, gated by the same read gate
+ *    getById of `Line` (no read → NotFound (Item's by-id route is gated, so
+ *      gate)                      its first declared error is the 403)
  *
  *  Dropping any one of them silently shrinks the census, so the per-site
  *  "matches under default emission too" assertion doubles as a fixture guard. */
@@ -137,10 +137,11 @@ system Census {
         destroy { }
       }
       repository Items for Item {
-        find all(): Item[] requires currentUser.level > 2
-        find openOnes(): Item[] requires currentUser.level > 2 where this.status == "open"
+        find all(): Item[]
+        find openOnes(): Item[] where this.status == "open"
         find byName(n: string): Item? where this.name == n
       }
+      policy { read Item requires currentUser.level > 2 }
       aggregate Line {
         item: Item id
         amount: int
@@ -196,9 +197,9 @@ const SITES: Record<Platform, Site[]> = {
     {
       rung: "NotFound",
       what: "getById's DECLARED OpenAPI response set",
-      file: "http/item.routes.ts",
+      file: "http/line.routes.ts",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "getItemById",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n\s*(\d+): \{ description:/,
+      at: /operationId: "getLineById",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n\s*(\d+): \{ description:/,
     },
     {
       rung: "Disallowed",
@@ -248,8 +249,8 @@ const SITES: Record<Platform, Site[]> = {
     {
       rung: "NotFound",
       what: "getById's DECLARED [ProducesResponseType] set",
-      file: "Api/ItemsController.cs",
-      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,200}?GetItemById\(/,
+      file: "Api/LinesController.cs",
+      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,200}?GetLineById\(/,
     },
     {
       rung: "Disallowed",
@@ -304,7 +305,7 @@ const SITES: Record<Platform, Site[]> = {
       // trailing entries.  Capture group 1 is the FIRST, which is the rung:
       // the emitter sorts ascending and both 404 and the override sort below
       // 422.
-      at: /"\/api\/items\/\{id\}", null, new int\[\] \{(\d+)(?:, \d+)*\}/,
+      at: /"\/api\/lines\/\{id\}", null, new int\[\] \{(\d+)(?:, \d+)*\}/,
     },
     {
       rung: "Disallowed",
@@ -353,8 +354,8 @@ const SITES: Record<Platform, Site[]> = {
     {
       rung: "NotFound",
       what: "getById's DECLARED `responses=` set",
-      file: "http/item_routes.py",
-      at: /operation_id="getItemById", responses=\{(\d+):/,
+      file: "http/line_routes.py",
+      at: /operation_id="getLineById", responses=\{(\d+):/,
     },
     {
       rung: "Disallowed",
@@ -399,7 +400,7 @@ const SITES: Record<Platform, Site[]> = {
       what: "getById's DECLARED OpenApiSpex response set",
       file: "api/a_spec.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "getItemById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operationId: "getLineById",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
     },
     {
       rung: "Disallowed",

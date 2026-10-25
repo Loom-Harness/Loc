@@ -143,8 +143,9 @@ describe("the scaffolded pages inherit the gate their route is guarded by", () =
         context Orders {
           aggregate Order with crudish { subject: string }
           repository Orders for Order {
-            find all(): Order[] requires currentUser.role == "agent"
+            find all(): Order[]
           }
+          policy { read Order requires currentUser.role == "agent" }
           workflow Fulfillment requires currentUser.role == "supervisor" {
             orderId: Order id
             stage: string

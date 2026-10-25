@@ -702,11 +702,10 @@ export function renderEsController(
   const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
-  // The list and by-id reads' authorization gates — the author's
-  // `find all(): T[] requires …` / `find byId(id: T id): T? requires …`
-  // (M-T3.19, `read-gates.ts`).  403 BEFORE the load, with the same carrier +
-  // `detail` label the relational controller (`api-emit.ts`) renders.  This
-  // controller used to emit both actions without consulting either gate.
+  // The list and by-id reads' authorization gate — the aggregate's
+  // `policy { read T requires … }` (`read-gates.ts`).  403 BEFORE the load,
+  // with the same carrier + `detail` label the relational controller
+  // (`api-emit.ts`) renders.
   const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
   const gatedReadAction = (head: string, body: string, find: FindIR | undefined): string => {
     const gate = effectiveGate(find?.requires);

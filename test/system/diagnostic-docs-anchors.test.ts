@@ -179,7 +179,7 @@ describe("the undocumented-codes ratchet", () => {
 // migration blocks (its home is docs/migrations.md § Rename detection).  Raised
 // deliberately; #3073's docs-root anchor escape (`../migrations.md#…`) is the
 // way to shrink both once it lands.
-const UNDOCUMENTED_BASELINE = 356;
+const UNDOCUMENTED_BASELINE = 355;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {
