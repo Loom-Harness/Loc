@@ -55,6 +55,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { baseReaderShape } from "./base-reader.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -470,9 +471,11 @@ function renderContextModule(
     // seam to delegate to).  Emitting them would reference functions the
     // read-only base repository never defines.
     if (isAbstractBase(agg)) {
+      // The reader threads the actor whenever a concrete read it fronts does.
+      const baseActor = baseReaderShape(agg, ctx, sys).principal ? ", current_user \\\\ nil" : "";
       return `  # ${aggPascal} (abstract base — read-only polymorphic reader)
-  defdelegate list_${aggSnake}s(), to: ${repoMod}, as: :list
-  defdelegate get_${aggSnake}(id), to: ${repoMod}, as: :find_by_id
+  defdelegate list_${aggSnake}s(${baseActor.slice(2)}), to: ${repoMod}, as: :list
+  defdelegate get_${aggSnake}(id${baseActor}), to: ${repoMod}, as: :find_by_id
 `;
     }
     // A principal (tenancy) filter threads the request actor through the read
