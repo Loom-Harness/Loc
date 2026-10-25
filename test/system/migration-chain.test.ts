@@ -27,6 +27,7 @@ const schema = (...tables: string[]): SchemaSnapshot => ({
   schemaVersion: 1,
   tables: tables.map((name) => ({
     name,
+    ownerModule: "A",
     columns: [{ name: "id", type: { kind: "uuid" }, nullable: false }],
     primaryKey: ["id"],
     foreignKeys: [],
