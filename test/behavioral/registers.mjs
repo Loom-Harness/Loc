@@ -248,10 +248,10 @@ function baseReads({ passes = [], pins = {} } = {}) {
  */
 export const BEHAVIOURAL_XFAIL = {
   node: {
-    "inheritance-base-reads": baseReads(),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
   mikroorm: {
-    "inheritance-base-reads": baseReads(),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
   dotnet: {
     "inheritance-read-restrictions": TPH_FILTER_REFUSED,
@@ -285,7 +285,7 @@ export const BEHAVIOURAL_XFAIL = {
     },
   },
   python: {
-    "inheritance-base-reads": baseReads(),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // `{"st": row.st}` against a model whose only attributes are the leaves.
     "projection-valueobject-row": projectionVoRow({
       expect: "fail",
