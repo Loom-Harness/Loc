@@ -82,7 +82,7 @@ export function usedAggregates(datasets: Dataset[], seedable: Set<string>): stri
 // emitters instead of each re-deriving its own create-input / create-call
 // shape.  This is what closes the class of defect the mission found:
 // java/.NET built an event-sourced aggregate's `create` call from
-// `forCreateInput(agg.fields)` — every declared FIELD — against a factory
+// `createInputFields(agg)` — every declared FIELD — against a factory
 // that takes only the event-sourced `create` action's own declared
 // PARAMETERS (`create open(owner: string)` → `create(String owner)`), a
 // param-count/name mismatch (CS1501 / javac "cannot be applied").  node and

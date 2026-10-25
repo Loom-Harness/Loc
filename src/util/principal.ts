@@ -37,6 +37,25 @@ export const PRINCIPAL_ORG_PATH = "orgPath";
  *  root-segment claim, so `rootOrg == orgPath`. */
 export const PRINCIPAL_ROOT_ORG = "rootOrg";
 
+/** The built-in principal member `currentUser.isSystem` (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `false` for every request
+ *  principal; `true` for the SYSTEM principal an event reactor (`create(e)` /
+ *  `on(e)` workflow subscription, timer tick) runs as — a principal with no
+ *  claims, scoped to the triggering event's tenant, whose `causedBy` names the
+ *  originating user for audit and logs only.  A gate that should admit a
+ *  reactor says so: `requires currentUser.isSystem || …`.
+ *
+ *  Not a `user { }` claim and never on the wire: every backend's request
+ *  principal serializes exactly as before (`/auth/me` is unchanged). */
+export const PRINCIPAL_IS_SYSTEM = "isSystem";
+
+/** The system principal's runtime-only `causedBy` slot — the id of the user
+ *  whose request raised the event a reactor runs for (null for a timer tick).
+ *  For audit and logs ONLY (ruling D1): it is not a language member, and no
+ *  gate can read it.  Reserved as a claim name alongside
+ *  {@link PRINCIPAL_IS_SYSTEM} so it cannot collide in a generated User type. */
+export const PRINCIPAL_CAUSED_BY = "causedBy";
+
 /** The ambient OPERATING-scope accessor (organization-context.md; M-T3.6
  *  items 3+5) — a peer of `currentUser`.  `currentUser` is the PRINCIPAL
  *  (identity, permissions, home org); `organizationContext` is the org the

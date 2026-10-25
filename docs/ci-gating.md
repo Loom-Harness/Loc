@@ -44,9 +44,8 @@ Every heavy gate — the runtime/boot e2e suites, the deploy build — was a
 
    **As of 2026-10-05 every one of them gates before the merge** — per-PR, in
    the merge queue, or both; see "The never-gating legs, re-measured
-   (2026-10-05)" below. The one `push: main` leg still in neither tier is
-   `playground-e2e`, on a dated waiver; `merge-queue-readiness.test.ts` fails
-   on any other, and on a waiver older than 90 days.
+   (2026-10-05)" below. Since 2026-10-20 nothing re-tests on `push: main` at
+   all — see "Post-merge net" below.
 
    This bucket used to be much larger. Promoted out of it, each now carrying a
    `pull_request:` trigger with a narrow `paths:` block, the literal draft
@@ -114,24 +113,52 @@ gets attributed to a later, innocent commit.
 | Lane | What | Rule |
 |---|---|---|
 | **Per-PR, every push** (required) | `test.yml` (fast vitest ×4 shards + the corpus-census job; coverage is nightly-only) + lint + web-tsc → `tests-passed` (unfiltered on PRs); `langium-generated`; `workflow-lint`; the typecheck/compile gates (`hono/dotnet/java/python-build`, `generated-*-build`, `corpus-build`); `behavioral-e2e` (Hono on PGlite, daemonless) as the runtime canary; `pr-gate` (the aggregate verdict over everything that triggered) | Cheap, parallel, no docker/db. Catches most regressions with fast feedback. |
-| **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-ui-vue-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `phoenix-ui-e2e`; `migration-evolution-e2e` (also in the queue); `tenancy-e2e`'s five `flat` cells; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — deliberately narrower than its own `push: main` block, so a typical PR fires one or two siblings, not the whole family. |
+| **Per-PR, path-scoped** (binding via `pr-gate`) | The cross-backend runtime legs `behavioral-e2e-{dotnet,java,python,elixir,dapper,mikroorm}` + `behavioral-ui-e2e` + `behavioral-ui-vue-e2e` + `behavioral-heex-ui-e2e` (each fires when the PR touches its backend's emitters, the shared IR, or the harness); the five `{hono,python,java,dotnet,elixir-vanilla}-obs-e2e` legs; the four *native* `{hono,python,java,dotnet}-oidc-e2e` legs; the four `generated-{react,vue,svelte,angular}-e2e` SPA smokes; `elixir-vanilla-vo-e2e`; `phoenix-ui-e2e`; `migration-evolution-e2e` (also in the queue); `tenancy-e2e`'s five `flat` cells; `pairwise`'s generation sweep; the `pages` build (docs/web/src) | Docker/boot cost paid only by the PRs that can break them; when they fire, `pr-gate` makes them blocking. Each file's `paths:` block is the authority on *when* — for the six `behavioral-e2e-*` legs deliberately narrower than the generation path, so a typical PR fires one or two siblings, not the whole family; their nightly run covers the rest (see "Post-merge net"). |
 | **Merge queue** (`merge_group`, runs once on the final candidate — **LIVE since 2026-09-07**) | The 24 wired gates (branch protection itself requires only `tests passed` + `pr-gate`): the cheap broad set over the combined tree (`tests passed`, langium drift, the five `build-generated-*`, both `corpus-*`, the six frontend builds, `parity`, headless `behavioral`), `migration-evolution-e2e` (its full-tree run; its per-PR block is path-scoped), plus the five gates the queue is the ONLY pre-merge run for unless a `run-*` label asks earlier (`tenancy-e2e` beyond its `flat` cells, `channels-e2e`, `api-call-e2e`, `elixir-oidc-compose-e2e`, `auth-oidc-compose-e2e`) | Catches what per-PR CI structurally cannot: two PRs green apart, red together. Everything already binding per-PR is deliberately NOT required here — see "What the queue requires, and what it does not". |
 | **Nightly / label** (unchanged) | `conformance-full`, `generated-a11y`, `frontend-fullstack-e2e`, `k8s-e2e` | Broad, slow, low churn — post-hoc is fine. |
 
 Note: `generated-react-build`, `generated-vue-build` and
-`generated-angular-build` each emit a **slim** matrix on PRs and the **full**
-Cartesian everywhere else. Their `configure` job keys on
-`github.event_name == 'pull_request'`, so `merge_group` (like `push:main` and
-`workflow_dispatch`) falls through to the full sweep — the per-PR/pre-land
-split the tiers call for is already built in, and the queue gets the full
-Cartesian on the rebased candidate.
+`generated-angular-build` run a **slice** on PRs and in the merge queue, and
+the **full** example × pack Cartesian nightly on `main` (and on
+`workflow_dispatch`). The queue exists to catch two PRs green apart and red
+together; per-example or per-pack drift from an unrelated PR is rare and
+cheap to fix the next morning, and the full React sweep alone was ~50
+runner-minutes of every queue entry.
 
 The playground suite is split the same way. `playground-e2e` (the whole
 Playwright suite, including the network-gated bundle/boot specs) stays
-post-merge / nightly / `run-e2e`-label; `playground-e2e-no-network` runs the
+nightly / `run-e2e`-label; `playground-e2e-no-network` runs the
 network-free subset (workspace, history, builder, requirements, editor) on
 every PR touching `web/**` or `src/**`, so file-management and builder
 regressions are caught before merge.
+
+## Post-merge net
+
+Nothing re-tests on `push: main`. A merge-queue entry tests exactly the tree
+that lands on `main` (squash merges, each group built on the ones ahead of
+it), so a `push: main` run of a queue leg repeats a verdict already in hand.
+At ~300 jobs a merge that repeat was the largest single consumer of the runner pool (2026-10-20:
+49 workflow runs for one merged commit).
+
+- **Queue legs** (`merge_group:`): gated in the queue; no post-merge run.
+- **Per-PR legs outside the queue** (the docker/boot legs in the
+  path-scoped tier above): a nightly `schedule:` run on `main`, staggered
+  01:00–04:59 UTC. It carries no `paths:` filter, so it checks every such
+  leg against the combined tree once a day. This is also what covers the
+  six `behavioral-e2e-*` legs whose PR blocks are deliberately narrower than
+  the generation path (`PR_TIER_DECLARED` in
+  `workflow-path-coverage.test.ts`).
+- **`pages.yml`** keeps `push: main`, because that run *is* the deploy.
+
+The cost is detection latency for one class of break: two PRs that are green
+apart and red together, in a leg the queue does not run, now surfaces at the
+next nightly instead of about an hour after the second merge. Either way it
+surfaces on `main`; `ci-red-alarm` opens the issue, and `flake-budget` reads
+both the nightly runs and each queue leg's `merge_group` runs.
+
+`merge-queue-readiness.test.ts` → "post-merge net" pins it: `push: main`
+only on the deploy allowlist, and every per-PR leg outside the queue carries a
+`schedule:` (or a reasoned `NO_NIGHTLY` entry).
 
 ## The never-gating legs, re-measured (2026-10-05)
 
@@ -162,14 +189,10 @@ min (p90 26.4)**, its critical path the corpus compile gates (~22 min). Adding
 `channels-e2e` and `api-call-e2e` puts 23 jobs / ~43 runner-minutes (+8 %) on
 an entry; every added job is shorter than that critical path.
 
-**The exit metric is enforced, not asserted.**
-`merge-queue-readiness.test.ts` → "no post-merge leg sits outside both the
-per-PR set and the queue" fails on any `push: main` workflow that neither runs
-per-PR (a `pull_request:` trigger firing on `opened`, with an entry job behind
-nothing but the draft guard) nor carries `merge_group:`, unless it has a
-`NEVER_GATING_WAIVERS` entry with a reason and a measurement date. A waiver
-older than 90 days fails until it is re-measured; a waiver whose leg now gates
-fails as stale.
+**The exit metric is enforced, not asserted.** No runtime leg is
+post-merge-only: every one runs per-PR, in the queue, or both, and
+`merge-queue-readiness.test.ts` → "post-merge net" pins the shape that
+replaced the old `push: main` re-runs (see "Post-merge net").
 
 **Kept out, with dated reasons (2026-10-05):**
 
@@ -613,9 +636,12 @@ pushes repeatedly while in progress — draft pushes were the bulk of the
 queue load, and the queue was the bulk of CI latency (jobs have sat queued
 for an hour before starting).
 
-So the fan-out is **draft-gated**: on a draft PR only the fast lane runs —
-`test.yml` (the required floor), `langium-generated`, `workflow-lint`, and
-`pr-gate` (which waits on whatever ran). Every other per-PR workflow carries
+So the fan-out is **draft-gated**: on a draft PR only the seconds-cheap lane
+runs — `langium-generated`, `workflow-lint`, and `pr-gate` (which waits on
+whatever ran). Drafts are train members (`docs/agent-runbook.md` → "Trains"):
+their authors run the suite locally and the train PR runs it once, so
+`test.yml` is draft-gated too — a draft cannot merge, so its skipped required
+check strands nothing. Every other per-PR workflow carries
 
 ```yaml
 on:
@@ -631,8 +657,8 @@ Marking the PR **ready for review** fires the full fan-out (that's what the
 `if` sits only on entry jobs — `needs:`-chained jobs cascade-skip, and the
 `<stem>-passed` rollups treat skipped needs as OK, exactly as in the merge
 queue. `pr-gate` also triggers on `ready_for_review`, so its verdict always
-covers the full set. Drafts can't merge anyway, so nothing is lost — a
-draft gets fast feedback, and "ready" means "now spend the fleet on me."
+covers the full set. Drafts can't merge anyway, so nothing is lost —
+"ready" means "now spend the fleet on me."
 
 The label-gated heavy workflows (`run-tenancy`, `run-channels`, …) are
 deliberately NOT draft-gated: applying the label to a draft is an explicit
@@ -761,7 +787,7 @@ Per-PR lane — cheap, already runs on every push:
 | `behavioral-e2e.yml` | `behavioral` |
 
 Queue-heavy lane — the docker/boot gates. Several of these are no longer
-`push:main`/label-only (the `behavioral-e2e-*` legs, the five `*-obs-e2e`, the
+label-only (the `behavioral-e2e-*` legs, the five `*-obs-e2e`, the
 four native `*-oidc-e2e` and `pages` fire per-PR path-scoped); they are listed
 here because the queue must run them *unconditionally* on the rebased
 candidate, not only when a path matches:
@@ -984,12 +1010,12 @@ only when tagged with that exact label. (`tenancy-e2e` spells the same rule
 as `contains(github.event.pull_request.labels.*.name, 'run-tenancy')` on its
 non-`flat` job, because that file is per-PR for its `flat` cells and so fires
 on `synchronize`, not on `labeled`.) Concurrency on these files is keyed so that a labeled PR run
-never collides with or cancels a `push:main` run — some use `github.ref`, some
+never collides with or cancels a `main` run — some use `github.ref`, some
 `github.event.pull_request.number || github.ref`; read the file rather than
 assuming one shape. A *promoted* gate is different: it must use the PR-aware
 key with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, so a
 superseded PR push cancels its own in-flight run instead of leaking a runner
-slot, while `push: main` runs keep per-commit attribution.
+slot, while scheduled runs on `main` always finish.
 
 This is a manual pre-merge check, **not** a replacement for the merge queue
 above — the queue is the structural fix; labels are the interim "80/20."

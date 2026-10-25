@@ -75,6 +75,7 @@ import { provableStringType } from "../../util/expr-body-type.js";
 import { snake } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { WALKER_LAYOUT_PRIMITIVES } from "../../util/walker-primitive-names.js";
+import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import {
   PROVENANCE_LINEAGE_FIELD,
@@ -1001,9 +1002,15 @@ export interface OperationFormState extends FormStateBase {
    *  title; the page-shell falls back to the humanized op name. */
   modalTitle?: string;
   modalTitleExpr?: string;
-  /** The op-module template's Cancel button label, routed through the stable
-   *  `chrome.cancel` catalog key (the template can't reach a WalkContext). */
+  /** The op-module template's dismiss button label (markup text), routed
+   *  through the `chrome.*` catalog key `opDialogChrome` picks (the template
+   *  can't reach a WalkContext). */
   cancelLabel?: string;
+  /** The accessible name of the dialog's close icon, as a target-native VALUE
+   *  expression (a `t(…)` call or a quoted literal) for an attribute/prop slot
+   *  — never equal to the submit label (`opDialogChrome`).  Read only by the
+   *  packs whose dialog renders a close icon. */
+  closeLabelExpr?: string;
   /** True when this is the aggregate's primary operation (first
    *  public op) — `false` for the rest.  Platform-neutral emphasis
    *  token; each pack's template maps it to its button vocabulary. */
@@ -1900,7 +1907,15 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
     case "binary": {
       const left = emitExpr(expr.left, ctx);
       const right = emitExpr(expr.right, ctx);
-      // Datetime-involving `+`/`-` first: `until + days(7)` is a method call on
+      // Value-object `==` / `!=` first: a value object compares by its fields,
+      // and the host operator on the page-side representation compares
+      // references on most targets.  Only VO-typed comparisons reach the seam;
+      // a target that omits it, and every scalar `==`, render as before.
+      if (isValueObjectEquality(expr)) {
+        const valueEq = ctx.target.exprValueEquality?.(left, right, expr);
+        if (valueEq !== undefined && valueEq !== null) return valueEq;
+      }
+      // Datetime-involving `+`/`-` next: `until + days(7)` is a method call on
       // a target whose datetime is not numeric-ish (`.Add` on F#, `.add` on
       // Dart), and a plain operator everywhere else.  The seam returns null —
       // and a target that omits it stays byte-identical — for every pair it has

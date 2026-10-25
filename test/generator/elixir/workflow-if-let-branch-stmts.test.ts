@@ -18,6 +18,7 @@ system Shop {
       aggregate Order {
         open: bool
         operation confirm() { open := false }
+        operation close() { open := false }
       }
       repository Orders for Order { }
       domainService Adjust {
@@ -27,6 +28,18 @@ system Shop {
         create(d: bool) {
           if let o = Orders.find(Pending(d)) {
             Adjust.run(o)
+          }
+        }
+      }
+      domainService Shut {
+        operation run(target: Order) { target.close() }
+      }
+      workflow guardedServiceInIfLet {
+        create(d: bool) {
+          if let o = Orders.find(Pending(d)) {
+            precondition d
+            Shut.run(o)
+            o.confirm()
           }
         }
       }
@@ -78,5 +91,22 @@ describe("vanilla workflow if-let branch statements", () => {
     // the branch's documented contract).
     expect(wf).toContain("{:ok, _} = Context.confirm_order(o, %{})");
     expect(wf).not.toContain("# TODO: lower if-let branch statement kind");
+  });
+
+  it("keeps a `domain-service-call` in order inside a guarded (with-chain) branch", async () => {
+    const files = await generateSystemFiles(SRC);
+    const wf = [...files.entries()].find(([k]) =>
+      k.endsWith("workflows/guarded_service_in_if_let.ex"),
+    )?.[1];
+    expect(wf, "workflow module not emitted").toBeDefined();
+    // The guard puts the branch on the with-chain path.  The service's inlined
+    // save is a with-clause like the op-call after it — not a `=` match run in
+    // the do-branch AFTER every clause, which reversed the authored order and
+    // raised on a failed save instead of threading `{:error, _}`.
+    const close = wf!.indexOf("{:ok, _} <- Context.close_order(o, %{})");
+    const confirm = wf!.indexOf("{:ok, _} <- Context.confirm_order(o, %{})");
+    expect(close, wf).toBeGreaterThan(-1);
+    expect(confirm, wf).toBeGreaterThan(close);
+    expect(wf).not.toContain("{:ok, _} = Context.close_order");
   });
 });

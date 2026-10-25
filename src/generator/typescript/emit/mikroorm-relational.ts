@@ -18,9 +18,10 @@ import type {
   RetrievalIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -660,13 +661,11 @@ export function renderMikroRepository(
       // The find's OWN predicate reads the declared `currentUser` parameter;
       // the capability filters (`caps`) keep the ambient accessor, because they
       // ride reads that have no such parameter.
+      // A clause-less find still filters — by its implicit key match.
+      const own = effectiveFindFilter(f, agg);
       filter = withContextFilters(
-        f.filter
-          ? whereToMikroFilter(
-              f.filter,
-              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
-              agg.associations,
-            )
+        own
+          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
           : "{}",
         caps,
       );
@@ -702,12 +701,17 @@ export function renderMikroRepository(
         ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
         findParamBindings(f.params),
       );
+      // An unwhitelisted `sort` (the route's `""` default) takes the read's
+      // declared order (`defaultSortOrder`).
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `${t.field}: "${t.direction}"`)
+        .join(", ");
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
-        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
         `    const ${L.total} = await em.count(${row}, ${filter});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
@@ -906,7 +910,10 @@ export function renderMikroRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);

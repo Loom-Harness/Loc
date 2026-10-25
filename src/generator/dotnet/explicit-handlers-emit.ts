@@ -51,15 +51,27 @@ import type {
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../ir/util/paged-run.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
-import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
-import { CS_PAGED_QUERY_PARAMS } from "./emit/common.js";
-import { API_CLIENT_CLASS, renderCsType } from "./render-expr.js";
+import { csPagedQueryParams } from "./emit/common.js";
+import {
+  API_CLIENT_CLASS,
+  collectCsExprUsings,
+  renderCsExpr,
+  renderCsType,
+} from "./render-expr.js";
 import {
   buildResourceClasses,
   csWorkflowStmtTarget,
@@ -348,17 +360,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -409,6 +411,42 @@ function renderPagedQueryHandlerClass(
   const callArgs = [...critArgs, "query.Page", "query.PageSize", "query.Sort", "query.Dir"].join(
     ", ",
   );
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a ForbiddenException (→ 403) before the read; a gate reading `currentUser`
+  // resolves the actor through the injected accessor.
+  const gates = pagedRunGates(h);
+  const usesUser = pagedRunGatesUseCurrentUser(h);
+  const paramNames = new Set(h.params.map((p) => p.name));
+  const gateCtx = {
+    thisName: "this",
+    paramExpr: (n: string) => (paramNames.has(n) ? `query.${upperFirst(n)}` : undefined),
+  };
+  const extraUsings = new Set<string>();
+  for (const g of gates) collectCsExprUsings(g.expr, extraUsings, ns);
+  if (usesUser) extraUsings.add(`${ns}.Auth`);
+  extraUsings.delete(`${ns}.Domain.Common`);
+  const gateLines = [
+    ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
+    ...gates.map(
+      (g) =>
+        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+    ),
+  ];
+  const repoParam = `I${agg}Repository ${field.slice(1)}`;
+  const ctor = usesUser
+    ? [
+        "    private readonly ICurrentUserAccessor _currentUser;",
+        `    public ${h.name}Handler(${repoParam}, ICurrentUserAccessor currentUser)`,
+        "    {",
+        `        ${field} = ${field.slice(1)};`,
+        "        _currentUser = currentUser;",
+        "    }",
+      ].join("\n")
+    : `    public ${h.name}Handler(${repoParam}) => ${field} = ${field.slice(1)};`;
+  const extraUsingLines = [...extraUsings]
+    .sort()
+    .map((u) => `using ${u};\n`)
+    .join("");
   return `// Auto-generated.
 using System.Linq;
 using System.Threading;
@@ -420,17 +458,17 @@ using ${ns}.Domain.Ids;
 using ${ns}.Domain.ValueObjects;
 using ${ns}.Domain.Enums;
 using ${ns}.Application.${plural(agg)}.Responses;
-
+${extraUsingLines}
 namespace ${ns}.Application.${plural(agg)}.Queries;
 
 public sealed class ${h.name}Handler : IQueryHandler<${h.name}Query, Paged<${agg}Response>>
 {
     private readonly I${agg}Repository ${field};
-    public ${h.name}Handler(I${agg}Repository ${field.slice(1)}) => ${field} = ${field.slice(1)};
+${ctor}
 
     public async ValueTask<Paged<${agg}Response>> Handle(${h.name}Query query, CancellationToken cancellationToken)
     {
-        var domain = await ${field}.${upperFirst(run.retrievalName)}(${callArgs}, cancellationToken);
+${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${upperFirst(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
     }
 }
@@ -714,10 +752,9 @@ const HTTP_ATTR: Record<string, string> = {
  *  Route templates are ABSOLUTE and carry `API_BASE_PATH` — a `[Http*]`
  *  template with a leading slash is root-absolute in ASP.NET, so the prefix has
  *  to be IN the template; a class-level `[Route("api")]` would be ignored.
- *  `explicitRoutePath` decides which routes move (see
- *  `_api/explicit-route-mount.ts` for the scaffold-duplicate exception that
- *  keeps a colliding route at the root, where `AmbiguousMatchException` cannot
- *  fire). */
+ *  A slot shared with the auto-derived surface is this controller's alone: the
+ *  derived controller yields it (`_api/explicit-route-mount.ts`), so
+ *  `AmbiguousMatchException` cannot fire. */
 export function emitExplicitRouteController(
   apiName: string,
   routes: readonly RouteIR[],
@@ -726,7 +763,6 @@ export function emitExplicitRouteController(
   out: Map<string, string>,
 ): void {
   if (routes.length === 0) return;
-  const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map<string, EnrichedBoundedContextIR>(contexts.map((c) => [c.name, c]));
   const nsUsings = new Set<string>();
   const actions: string[] = [];
@@ -753,7 +789,7 @@ export function emitExplicitRouteController(
       );
       const actionParams = [
         ...h.params.map((p) => bind.get(p.name)!.actionParam),
-        ...CS_PAGED_QUERY_PARAMS,
+        ...csPagedQueryParams(pagedRunSortDefault(h, ctx)),
       ].join(", ");
       const queryArgs = [
         ...h.params.map((p) => bind.get(p.name)!.commandArg),
@@ -763,7 +799,7 @@ export function emitExplicitRouteController(
         "dir",
       ].join(", ");
       actions.push(
-        `    [HttpGet("${explicitRoutePath(r, derivedSlots)}")]\n` +
+        `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -837,6 +873,16 @@ export function emitExplicitRouteController(
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
         }
       }
+      // A scalar / id return crosses the same wire boundary.  An `<Agg> id` is a
+      // domain id RECORD, which System.Text.Json serialised as `{"value": "…"}`
+      // where every other backend answers the bare id; `money` / `datetime` /
+      // `decimal` likewise take their canonical wire spelling only through
+      // `projectToResponse`.  Found by the `handler-aggregate-ops` corpus
+      // fixture (M-T9.42 slice 2) — the per-backend string test pinned
+      // `return Ok(result);` and passed.
+      if (!h.extern && (info.refKind === "primitive" || info.refKind === "id")) {
+        okExpr = projectToResponse("result", retType, ctx);
+      }
       // A bare CLR `string` return must be sent as JSON EXPLICITLY (M-T6.73).
       // `Ok(<string>)` is the one value shape ASP.NET does not serialise as
       // JSON: `StringOutputFormatter` claims a raw string for `text/plain`, so
@@ -855,7 +901,7 @@ export function emitExplicitRouteController(
       sendBlock = `        await _mediator.Send(new ${rec}(${ctorArgs}));\n        return NoContent();`;
     }
     actions.push(
-      `    [${attr}("${explicitRoutePath(r, derivedSlots)}")]\n` +
+      `    [${attr}("${explicitRoutePath(r)}")]\n` +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );

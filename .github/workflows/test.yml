@@ -1,28 +1,20 @@
 name: Tests + coverage
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'test/**'
-      - 'web/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - 'vitest.config.ts'
-      - 'biome.json'
-      - 'biome.generated.json'
-      - 'designs/**'
-      - '.github/workflows/test.yml'
   # Deliberately UNFILTERED on pull requests: `tests passed` is a required
   # status check, and a required check that gets path-skipped never reports —
   # blocking the PR on "Expected" forever.  Running the fast suite on a
   # docs-only PR costs a few minutes; stranding the PR costs an admin bypass.
-  # It is also pr-gate's floor: at least one check reports on EVERY PR, so
-  # pr-gate's "nothing reported" arm stays a real failure signal
+  # It is also pr-gate's floor: at least one check reports on every non-draft
+  # PR, so pr-gate's "nothing reported" arm stays a real failure signal
   # (docs/ci-gating.md → "The `pr-gate` check").
+  #
+  # Draft-gated like the rest of the fan-out: drafts are train members, whose
+  # authors run the suite locally and whose train PR runs it once
+  # (docs/agent-runbook.md → "Trains").  A draft cannot merge, so a skipped
+  # required check on it strands nothing; `ready_for_review` runs it.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
   # Nightly: the coverage run.  Coverage is collected ONLY here — it taxed
   # every per-PR shard (v8 instrumentation + a blob-merge job that needed a
@@ -54,7 +46,7 @@ jobs:
   # denominators) together to add shards.
   test:
     name: test (shard ${{ matrix.shard }}/4)
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     strategy:
       # Don't cancel sibling shards when one fails — we want the full
@@ -71,6 +63,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # `npm ci` runs the `prepare` lifecycle (langium:generate + build),
       # which produces src/language/generated/ + out/ — required before
       # vitest transforms any file that imports the generated AST, and
@@ -85,7 +81,7 @@ jobs:
   # `.ddd`, 30–95 s per file.  One job, alongside the shards.
   corpus:
     name: test (corpus censuses)
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -96,6 +92,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 
@@ -117,6 +115,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 
@@ -166,7 +166,7 @@ jobs:
   # not wall-clock (docs/ci-gating.md, "Draft PRs and the runner queue").
   lint:
     name: lint + web-tsc
-    if: github.event_name != 'schedule'
+    if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -179,6 +179,8 @@ jobs:
             package-lock.json
             web/package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install (runs langium:generate + build)
         run: npm ci
 
@@ -232,8 +234,9 @@ jobs:
     # job fails, but SKIPS on cancellation — otherwise a superseded run's
     # skipped need trips the gate and the stale SHA shows a spurious failure
     # instead of "cancelled".  Not on the nightly coverage run: its needs
-    # are all skipped there, and nothing gates on a schedule.
-    if: ${{ !cancelled() && github.event_name != 'schedule' }}
+    # are all skipped there, and nothing gates on a schedule.  Not on a draft
+    # either, for the same reason: its needs are draft-gated.
+    if: ${{ !cancelled() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     steps:
       - name: Gate on upstream job results

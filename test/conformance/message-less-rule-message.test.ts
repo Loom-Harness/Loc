@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// RS-40 / D-MESSAGELESS-DEFAULT — a message-LESS wire rule refuses with the
+// RS-41 / D-MESSAGELESS-DEFAULT — a message-LESS wire rule refuses with the
 // sentence node's validator chain sends for it, on every backend.
 //
 // The expected set is DERIVED from node's emitted route module (every
@@ -74,7 +74,7 @@ async function nodeMessages(): Promise<Set<string>> {
   return out;
 }
 
-describe("RS-40 — a message-less rule answers node's sentence on every backend", () => {
+describe("RS-41 — a message-less rule answers node's sentence on every backend", () => {
   it("the derived set covers every rule shape the fixture declares", async () => {
     const node = await nodeMessages();
     expect([...node].sort()).toEqual(

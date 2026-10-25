@@ -54,7 +54,10 @@ const SRC = `
             qty: int
             cost: int internal
           }
-          create(code: string) { code := code  status := "new" }
+          // The declared params ARE the create input: listing the access-matrix
+          // survivors (editable, immutable, secret) is what puts them on the
+          // command record; managed / token / internal can never be listed.
+          create(code: string, status: string, slug: string, apiKey: string) { code := code }
           operation cancel() { status := "cancelled" }
           destroy { }
         }

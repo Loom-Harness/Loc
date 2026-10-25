@@ -750,6 +750,24 @@
     },
     {
       "id": "RS-39",
+      "title": "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
+      "trigger": "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
+      "observable": "no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. A REQUIRED parameter left out (by an empty body or by `{}`) is 422 with one `errors[]` entry per absent key, `{ pointer: \"/<key>\", message: \"Required\" }`, answered before the row is loaded — on operations, workflows and `route`d handlers alike. The OpenAPI `requestBody` of a parameterless command, and of a `create` with no input fields, is not `required`.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
+        "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415), and re-sends `{}` to the first instance command the tier sent a one-key body to (422 `Required`), on all seven wire-gated legs"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-40",
       "title": "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
       "trigger": "`wire-ingress.ddd`: `reprice` with `\"1.2.3\"`, `\"twelve\"` and `\"12,50\"`; `restock` with ±3000000000",
       "observable": "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
@@ -767,7 +785,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-40",
+      "id": "RS-41",
       "title": "A message-less rule's 422 carries node's sentence on every backend",
       "trigger": "`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: \"abc\")` against a regex precondition) and `intrinsics.ddd`'s blank-name create against `invariant name.trim().length > 0`",
       "observable": "the wire `errors[].message` is node's: `singleFieldMessage` for a single-field shape (\"Amount must be at least 1\", \"Code is not in the expected format\"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`",
@@ -787,7 +805,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-41",
+      "id": "RS-42",
       "title": "A string intrinsic counts and cases the same on every backend",
       "trigger": "`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`'s derived `middle` / `shout` fields over `\"a😀bc\"` and `\"straße\"`",
       "observable": "`\"a😀bc\".substring(1, 2)` is `\"😀b\"` and `.substring(2)` is `\"bc\"` (code points, the unit of `.length`); `\"straße\".toUpper()` is `\"STRASSE\"`",
@@ -805,7 +823,7 @@
       "tier": "static"
     },
     {
-      "id": "RS-42",
+      "id": "RS-43",
       "title": "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
       "trigger": "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
       "observable": "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",

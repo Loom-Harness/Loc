@@ -66,7 +66,11 @@ async function files(): Promise<Map<string, string>> {
 describe("java generator — auth surface (S6)", () => {
   it("emits the typed User record, verifier boundary, dev stub, and 401 filter", async () => {
     const f = await files();
-    expect(f.get(`${ROOT}/auth/User.java`)).toContain("public record User(UUID id, String role) {");
+    expect(f.get(`${ROOT}/auth/User.java`)).toContain(
+      "public record User(UUID id, String role, boolean isSystem, String causedBy) {",
+    );
+    // The claims-only constructor every verifier calls (ruling D1 system principal).
+    expect(f.get(`${ROOT}/auth/User.java`)).toContain("    public User(UUID id, String role) {");
     expect(f.get(`${ROOT}/auth/UserVerifier.java`)).toContain(
       "User verify(HttpServletRequest request);",
     );
@@ -122,7 +126,9 @@ describe("java generator — extern operations (domain extension point, Phase 2)
     const proj = (await files()).get(`${ROOT}/features/projects/Project.java`)!;
     expect(proj).toContain("public void syncFromVcs() {");
     // preconditions inline, then delegate, then invariants — the framework flow.
-    expect(proj).toContain('throw new DomainException("Precondition failed: active == true");');
+    expect(proj).toContain(
+      'throw new DomainException("Precondition failed: active == true", DomainException.Kind.PRECONDITION);',
+    );
     expect(proj).toContain("ProjectExtern.syncFromVcs(this);");
     expect(proj).toContain("this._assertInvariants();");
     // The `_raiseEvent` hook the extern impl uses to emit domain events.

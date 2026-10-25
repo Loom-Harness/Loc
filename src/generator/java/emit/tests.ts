@@ -20,16 +20,23 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
+import { javaThrowKind } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
-import { collectJavaExprImports, collectJavaTypeImports, renderJavaExpr } from "../render-expr.js";
+import {
+  collectJavaExprImports,
+  collectJavaTypeImports,
+  type JavaRenderContext,
+  renderJavaExpr,
+  withLambdaScope,
+} from "../render-expr.js";
 import { stubUserValue } from "./auth.js";
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → JUnit 5 test class (the xUnit/vitest analog).
 // Each block becomes a @Test method with @DisplayName carrying the source
-// name.  Explicit matchers lower to JUnit assertions; `expectThrows` to
-// assertThrows(DomainException.class, …); a bare boolean to assertTrue.
+// name.  Explicit matchers lower to JUnit assertions; a bare `toThrow()` to
+// an assertion over the domain-rejection family (`javaBareToThrow`); a bare
+// boolean to assertTrue.
 // Pure domain tests — no Spring context, they run under plain `mvn test`.
 // ---------------------------------------------------------------------------
 
@@ -182,7 +189,8 @@ function renderTest(
       .replace(/[^A-Za-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
       .replace(/^([0-9])/, "_$1") || "test";
-  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, imports, state, i));
+  const rctx = testBodyRenderContext(t, (name) => escapeJavaIdent(name));
+  const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, imports, state, i, rctx));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -191,6 +199,22 @@ function renderTest(
     `    }`,
     ``,
   ];
+}
+
+const TEST_CTX: JavaRenderContext = { thisName: "this" };
+
+/** The render context of one test method body: its `let` locals (in the
+ *  spelling `localOf` declares them) seed the lambda scope.  A Java lambda
+ *  parameter may not redeclare an enclosing local ("variable x is already
+ *  defined") while a Loom lambda binder legally shadows one, so a binder that
+ *  lands on a test local renders under `<name>_` — the same seam the domain
+ *  and workflow emitters use.  No collision, no rename. */
+export function testBodyRenderContext(
+  t: TestIR,
+  localOf: (name: string) => string,
+): JavaRenderContext {
+  const lets = t.statements.flatMap((s) => (s.kind === "let" ? [localOf(s.name)] : []));
+  return withLambdaScope(TEST_CTX, lets);
 }
 
 /** Coerce a raw test literal (rendered) to a strongly-typed Java factory /
@@ -237,6 +261,7 @@ export function renderOperationCall(
   e: ExprIR,
   ctx: BoundedContextIR,
   imports: Set<string>,
+  rctx: JavaRenderContext = TEST_CTX,
 ): string | null {
   if (e.kind !== "method-call" || e.isIntrinsicMatcher) return null;
   const rt = e.receiverType as { name?: string } | undefined;
@@ -249,10 +274,10 @@ export function renderOperationCall(
   );
   if (!op || op.params.length === 0) return null;
   collectJavaExprImports(e.receiver, imports);
-  const recv = renderJavaExpr(e.receiver);
+  const recv = renderJavaExpr(e.receiver, rctx);
   const args = e.args.map((a, i) => {
     collectJavaExprImports(a, imports);
-    const rendered = renderJavaExpr(a);
+    const rendered = renderJavaExpr(a, rctx);
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, rendered, imports) : rendered;
   });
@@ -266,6 +291,7 @@ export function renderCreateCall(
   e: ExprIR,
   ctx: BoundedContextIR,
   imports: Set<string>,
+  rctx: JavaRenderContext = TEST_CTX,
 ): string | null {
   if (e.kind !== "method-call" || e.member !== "create" || e.args.length !== 1) return null;
   const objArg = e.args[0];
@@ -280,7 +306,7 @@ export function renderCreateCall(
       collectJavaExprImports(v, imports);
       // A provided string literal renders as a raw value; coerce it to the
       // factory param's strong Java type (id record / Instant / …).
-      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v), imports);
+      return coerceLiteralToJavaType(f.type, v, renderJavaExpr(v, rctx), imports);
     }
     // Java has no optional or named parameters, so an omitted create input is
     // spelled `null` — the same signal the create DTO sends, and what the
@@ -298,7 +324,7 @@ export function renderCreateCall(
     const omission = createOmissionValue(f);
     if (omission.kind === "default" && isServerSourcedDefault(omission.expr)) {
       collectJavaExprImports(omission.expr, imports);
-      return renderJavaExpr(omission.expr);
+      return renderJavaExpr(omission.expr, rctx);
     }
     return "null";
   });
@@ -308,7 +334,11 @@ export function renderCreateCall(
 /** Explicit intrinsic matcher → a JUnit assertion.  Comparisons over
  *  BigDecimal receivers route through compareTo (BigDecimal's equals is
  *  scale-sensitive and `<`/`>` don't exist). */
-export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): string | null {
+export function renderExplicitMatcher(
+  expr: ExprIR,
+  imports: Set<string>,
+  rctx: JavaRenderContext = TEST_CTX,
+): string | null {
   if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
   const sig = intrinsicMatcherSig(expr.member);
   if (sig?.on !== "value") return null;
@@ -320,10 +350,10 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
   }
   const inner = receiver.kind === "paren" ? receiver.inner : receiver;
   collectJavaExprImports(inner, imports);
-  const actual = renderJavaExpr(inner);
+  const actual = renderJavaExpr(inner, rctx);
   const arg = expr.args[0];
   if (arg) collectJavaExprImports(arg, imports);
-  const rawExpected = arg !== undefined ? renderJavaExpr(arg) : "";
+  const rawExpected = arg !== undefined ? renderJavaExpr(arg, rctx) : "";
   // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
   // compares as an `Instant`, which never `equals` a `String`.
   const expected =
@@ -371,6 +401,47 @@ export function renderExplicitMatcher(expr: ExprIR, imports: Set<string>): strin
   }
 }
 
+/** The exception classes a BARE `toThrow()` accepts on Java: every way the
+ *  in-process domain floor refuses a call.
+ *
+ *    DomainException     — a `precondition`, an aggregate / part invariant, and
+ *                          a value object's invariant (`ValueObjectInvariantException`
+ *                          extends it);
+ *    DisallowedException — an operation's `when` state gate (a SIBLING of
+ *                          `DomainException`, so the advice can answer it 409);
+ *    ForbiddenException  — a `requires` left in the operation body.
+ *
+ *  All three are emitted unconditionally into `domain.common`, which every test
+ *  class imports by wildcard.  Not `RuntimeException`: a NullPointerException
+ *  out of broken generated code must FAIL a negative test, not pass it. */
+const JAVA_DOMAIN_REJECTIONS = ["DomainException", "DisallowedException", "ForbiddenException"];
+
+/** The bare `expect(<expr>).toThrow()` assertion (claims D17).
+ *
+ *  A `create(...)` or value-object construction can only be refused by an
+ *  invariant, so it keeps the exact `assertThrows(DomainException.class, …)`.
+ *  Anything else, an operation call above all, may be refused by a `when` gate
+ *  or a `requires` too, and `assertThrows` takes ONE class: catch the common
+ *  base, then require the domain family, so any other runtime error still
+ *  fails with its own name in the message. */
+export function javaBareToThrow(
+  e: ExprIR,
+  rendered: string,
+  local: string,
+  indent: string,
+): string[] {
+  const invariantOnly =
+    (e.kind === "method-call" && e.member === "create") ||
+    (e.kind === "call" && e.callKind === "value-object-ctor");
+  if (invariantOnly) return [`${indent}assertThrows(DomainException.class, () -> ${rendered});`];
+  const isDomain = JAVA_DOMAIN_REJECTIONS.map((n) => `${local} instanceof ${n}`).join(" || ");
+  return [
+    `${indent}RuntimeException ${local} = assertThrows(RuntimeException.class, () -> ${rendered});`,
+    `${indent}assertTrue(${isDomain},`,
+    `${indent}    "expected the domain to reject this call, but it threw: " + ${local});`,
+  ];
+}
+
 function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -379,65 +450,62 @@ function renderTestStmt(
   /** Position in the enclosing test body — only used to mint a collision-free
    *  local for a `toThrow(<kind>)` assertion's bound exception. */
   index = 0,
+  rctx: JavaRenderContext = TEST_CTX,
 ): string[] {
   // Only expect / expect-throws / let / expression / call survive the IR
   // validator (validateAggregateTestBodies).
   if (s.kind === "expect") {
-    const explicit = renderExplicitMatcher(s.expr, imports);
+    const explicit = renderExplicitMatcher(s.expr, imports, rctx);
     if (explicit) return [`        ${explicit}`];
     collectJavaExprImports(s.expr, imports);
-    return [`        assertTrue(${renderJavaExpr(s.expr)});`];
+    return [`        assertTrue(${renderJavaExpr(s.expr, rctx)});`];
   }
   if (s.kind === "expect-throws") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
+      renderCreateCall(s.expr, ctx, imports, rctx) ??
       withTestUser(
         s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
+        renderOperationCall(s.expr, ctx, imports, rctx) ?? render(s.expr, imports, rctx),
         state,
       );
-    // `toThrow(<kind>)` — bind the thrown `DomainException` and assert the
-    // rung's derived message prefix on it.  `assertThrows` already RETURNS the
-    // exception, so the rung costs one local and one assertion; the local is
-    // suffixed with the statement index so several throw assertions in one
-    // test body don't collide.
+    // `toThrow(<kind>)` — bind the thrown `DomainException` (a value object's
+    // `ValueObjectInvariantException` subclasses it) and assert its structural
+    // `getKind()`, never its message, which an authored `message "..."`
+    // replaces.  `assertThrows` already RETURNS the exception, so the rung
+    // costs one local and one assertion; the local is suffixed with the
+    // statement index so several throw assertions in one test body don't
+    // collide.
     if (s.throwKind) {
-      // `assertTrue` needs no import bookkeeping — the module shell already
+      // `assertEquals` needs no import bookkeeping — the module shell already
       // emits `import static org.junit.jupiter.api.Assertions.*;`.
       const local = `__thrown${index}`;
       return [
         `        DomainException ${local} = assertThrows(DomainException.class, () -> ${expr});`,
-        `        assertTrue(${local}.getMessage().startsWith(${JSON.stringify(
-          THROW_KIND_PREFIX[s.throwKind],
-        )}),`,
-        `            ${JSON.stringify(
-          `expected ${s.throwKind === "invariant" ? "an" : "a"} ${s.throwKind} to reject ` +
-            "this call, but it threw: ",
-        )} + ${local}.getMessage());`,
+        `        assertEquals(${javaThrowKind(s.throwKind)}, ${local}.getKind(), ${local}.getMessage());`,
       ];
     }
-    return [`        assertThrows(DomainException.class, () -> ${expr});`];
+    return javaBareToThrow(s.expr, expr, `__thrown${index}`, "        ");
   }
   if (s.kind === "let") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
+      renderCreateCall(s.expr, ctx, imports, rctx) ??
       withTestUser(
         s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
+        renderOperationCall(s.expr, ctx, imports, rctx) ?? render(s.expr, imports, rctx),
         state,
       );
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
   if (s.kind === "call") {
-    const args = s.args.map((a) => render(a, imports)).join(", ");
+    const args = s.args.map((a) => render(a, imports, rctx)).join(", ");
     return [`        ${s.name}(${args});`];
   }
   if (s.kind === "expression") {
     const expr =
-      renderCreateCall(s.expr, ctx, imports) ??
+      renderCreateCall(s.expr, ctx, imports, rctx) ??
       withTestUser(
         s.expr,
-        renderOperationCall(s.expr, ctx, imports) ?? render(s.expr, imports),
+        renderOperationCall(s.expr, ctx, imports, rctx) ?? render(s.expr, imports, rctx),
         state,
       );
     return [`        ${expr};`];
@@ -447,9 +515,9 @@ function renderTestStmt(
   );
 }
 
-function render(e: ExprIR, imports: Set<string>): string {
+function render(e: ExprIR, imports: Set<string>, rctx: JavaRenderContext): string {
   collectJavaExprImports(e, imports);
-  return renderJavaExpr(e);
+  return renderJavaExpr(e, rctx);
 }
 
 void upperFirst;

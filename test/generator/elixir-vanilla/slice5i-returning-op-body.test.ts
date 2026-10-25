@@ -56,7 +56,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
   it("hoists precondition/requires into a `with ensure(...)` denial chain (NOT a raise)", async () => {
     const ctx = get(await files(), "lib/api/stock.ex");
     // A param-only `precondition` denies on the wire-validation 422
-    // (`:validation_failed`, node's refine default — RS-40); `requires` denies
+    // (`:validation_failed`, node's refine default — RS-41); `requires` denies
     // 403 (`:forbidden`).  The guards run BEFORE the mutation/persist.
     expect(ctx).toContain(
       'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Invariant violated: delta != 0"}]})',
@@ -80,11 +80,11 @@ describe("vanilla — T2.c returning-op body statements", () => {
     expect(ctx).toContain(
       "loom_event_0 = %Api.Stock.Events.Adjusted{sku: record.sku, delta: delta}",
     );
-    expect(ctx).toContain('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
+    expect(ctx).toContain("Api.PostCommit.broadcast(loom_event_0)");
     // Ordering: persist_change comes BEFORE the broadcast (no phantom event on a
     // failed write).
     const persistAt = ctx.indexOf("ItemRepository.persist_change(changeset)");
-    const bcastAt = ctx.indexOf('Phoenix.PubSub.broadcast(Api.PubSub, "events", loom_event_0)');
+    const bcastAt = ctx.indexOf("Api.PostCommit.broadcast(loom_event_0)");
     expect(persistAt).toBeGreaterThan(-1);
     expect(persistAt).toBeLessThan(bcastAt);
     // No saga in this context → no Dispatcher routing (broadcast-only).

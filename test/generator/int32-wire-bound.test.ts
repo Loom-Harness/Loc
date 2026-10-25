@@ -42,7 +42,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
-/** The refusal every backend sends past the bound (RS-39), JSON-quoted. */
+/** The refusal every backend sends past the bound (RS-40), JSON-quoted. */
 const RANGE = JSON.stringify("Integer out of range");
 
 const src = (platform: string): string => `
@@ -111,7 +111,7 @@ describe("python — the Int32 alias carries the bound and the published format"
   it("wire_models.py declares the alias once", async () => {
     const wire = await file("python", "app/http/wire_models.py");
     expect(wire).toContain("Int32 = Annotated[");
-    // The bound refuses with the cross-backend range sentence (RS-39), not
+    // The bound refuses with the cross-backend range sentence (RS-40), not
     // pydantic's own "Input should be less than or equal to …".
     expect(wire).toContain(`if not ${INT32_MIN} <= value <= ${INT32_MAX}:`);
     expect(wire).toContain(`raise PydanticCustomError("int_range", ${RANGE})`);

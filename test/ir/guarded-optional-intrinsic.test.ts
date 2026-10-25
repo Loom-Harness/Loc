@@ -144,7 +144,7 @@ describe("F2 — the recommended form compiles on all five backends", () => {
   it("dotnet — `ToUpperInvariant()`, the SAME spelling the unguarded receiver gets", async () => {
     files ??= await generateSystemFiles(SRC);
     const src = emitted("Domain/Notes/Note.cs");
-    // The invariant spelling, completed for ß (RS-41) — the same on both.
+    // The invariant spelling, completed for ß (RS-42) — the same on both.
     const upper = '.ToUpperInvariant().Replace("\\u00DF", "SS", StringComparison.Ordinal)';
     expect(src).toContain(`this.Note2 != null ? this.Note2${upper} : "none"`);
     expect(src).toContain(`this.Title${upper}`);

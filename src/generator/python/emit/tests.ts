@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -11,7 +11,11 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import {
   coerceMatcherExpected,
@@ -19,7 +23,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 
 /** Python leaves for the shared test-literal coercion rule
@@ -131,7 +135,10 @@ function renderPySubjectTests(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refs)
     .sort();
   // Every aggregate + part in the context yields an id class in
@@ -196,6 +203,8 @@ function renderPySubjectTests(
   }
   if (bodyStr.includes(`pytest.raises(${DOMAIN_REJECTION_TUPLE})`)) {
     out.push(`from app.domain.errors import ${DOMAIN_REJECTION_ERRORS.join(", ")}`);
+  } else if (bodyStr.includes("pytest.raises(DomainError)")) {
+    out.push("from app.domain.errors import DomainError");
   }
   if (idNames.length > 0) {
     out.push(`from app.domain.ids import ${idNames.join(", ")}`);
@@ -330,7 +339,7 @@ export function renderCreateInput(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const declared = new Map(forCreateInput(agg.fields).map((f) => [f.name, f.type] as const));
+  const declared = new Map(createInputFields(agg).map((f) => [f.name, f.type] as const));
   // Emit EXACTLY the fields the test author wrote.
   //
   // Filling each omission from the create-input set would make the assertion
@@ -447,14 +456,17 @@ export function renderTestStmt(
   }
   if (s.kind === "expect-throws") {
     const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — `pytest.raises(match=...)` runs `re.search` over
-    // `str(exc)`, so the rung's derived prefix is passed anchored (`^…`).  The
-    // pattern is a raw string: the prefix is escaped for regex, and `r"…"`
-    // keeps any backslash that escaping introduces out of Python's own string
-    // grammar.
+    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
+    // `ValueObjectInvariantError` subclasses it) and assert its structural
+    // `kind`, never its message, which an authored `message "..."` replaces.
+    // `rejected` is rebound by each assertion, so several in one test body
+    // don't collide.
     if (s.throwKind) {
-      const pattern = throwKindPatternSource(s.throwKind);
-      return [`    with pytest.raises(Exception, match=r"${pattern}"):`, call];
+      return [
+        "    with pytest.raises(DomainError) as rejected:",
+        call,
+        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
+      ];
     }
     return [`    with pytest.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
   }

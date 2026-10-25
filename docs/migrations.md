@@ -370,6 +370,29 @@ as the DDL (`renderBackfillSql` is shared, so the DML is bit-identical).
 migration "clear-legacy-notes" { sql "UPDATE sales.orders SET note = '' WHERE note IS NULL" }
 ```
 
+**`sql before "…"`** — the opt-in modifier that emits the step *ahead* of the
+generation's structural steps instead. It exists for the fix-up the new DDL
+would otherwise reject — the canonical case is a dedupe that must run before
+a new `unique (…)` index is created over a populated table. Same exactly-once
+ledger, same declaration order among the `before` steps, same file (Ecto:
+`execute/1` first in `change/0`). On a module's **Initial** generation there is
+nothing to precede — none of its tables exist yet — so `before` keeps the
+trailing position there, on every backend. `before` is a placement word, not a
+reserved keyword — it stays usable as a field, workflow or `let` name — and any
+other placement is rejected (`loom.migration-sql-placement`).
+
+```ddd
+aggregate Account { number: string  unique (number) }   // unique added this generation
+migration "dedupe-account-numbers" {
+  sql before "UPDATE banking.accounts SET number = number || '-' || left(id::text, 4) WHERE id IN (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY number ORDER BY opened_at) rn FROM banking.accounts) x WHERE rn > 1)"
+}
+```
+```sql
+UPDATE banking.accounts SET number = number || '-' || left(id::text, 4) WHERE id IN (…);
+--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_number_uq" ON "banking"."accounts" ("number");
+```
+
 Raw SQL is verbatim — **schema-qualify every relation** (`sales.orders`, not
 `orders`): the generated DDL is schema-qualified, and the migration runners'
 `search_path` does not include context schemas, so an unqualified name fails
@@ -397,6 +420,63 @@ migration "vendor-to-sponsor" { Vendor -> Sponsor }   // Vendor is TPH under Par
 ```sql
 UPDATE "parties" SET "kind" = 'Sponsor' WHERE "kind" = 'Vendor';
 ```
+
+### A unique index on a populated table — `loom.migration-unique-on-existing-table`
+
+A diff cannot see the data. Adding `unique (…)` to an aggregate whose table
+already exists in the baseline emits a `CREATE UNIQUE INDEX` that fails at boot
+if any stored rows collide — the migration rolls back (cleanly; every backend
+applies a generation in one transaction), the service does not come up, and
+every later generation queues behind the failing one. So `generate system`
+warns, at derivation time, beside the other phase-⑨ advisories:
+
+```text
+loom.migration-unique-on-existing-table warning: migration for module "Retail": adds unique index accounts_number_uq on existing table banking.accounts (number). Rows already stored may violate it — … dedupe them AHEAD of the index in this same generation (declaring one silences this warning):
+    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }
+1 warning(s) in derived migrations.
+```
+
+Declaring any `sql before` step for the module in the same generation is read
+as "handled" and silences it; a plain (trailing) `sql` step does not — it runs
+after the index. Not raised for a table created this generation (empty), a
+module's first generation, or a rebuild of a unique index the baseline already
+had over the same columns (the drop + add a column rename causes, or a full
+unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
+`WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
+live rows. A warning never changes the exit code.
+
+### Amending a generation that never applied
+
+Once a generation is emitted it is frozen: the snapshot's `lastVersion` has
+moved past it, and the source-side ledger records its version. If that
+generation then FAILS at boot (the unique-index case above), adding the fix to
+the `.ddd` and regenerating lands the fix in the NEXT generation — behind the
+one that fails, so it never runs. A failed generation was never recorded by
+the migrator — each backend applies a generation inside a transaction on
+Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the python runner's
+`__loom_migrations`), so a failure leaves no history row (verified live on the
+banking evaluation's node stack) — and it is therefore safe to **re-issue the same version with different
+content** — as long as no database has applied it. The recipe:
+
+1. Restore the output tree (at least `.loom/snapshots/` and each owning
+   backend's migrations directory) **and** the source-side ledger
+   `<source-dir>/.loom/<source>.migration-history.json` to the last generation
+   every database has applied — from VCS (commit both after each `generate`) or
+   a copy. Restoring the tree alone is refused by guard (e) above ("refusing to
+   re-issue migration version … already recorded in …migration-history.json"),
+   which is the guard doing its job: it cannot tell "never applied" from
+   "applied somewhere".
+2. Amend the `.ddd` (e.g. add the `sql before` dedupe).
+3. `ddd generate system` again — it re-emits the same version, now carrying the
+   fix, and the next boot applies it.
+
+`--allow-rebaseline` instead of step 1's ledger restore also works, but it
+discards the ledger's history wholesale; prefer restoring it. If any database
+DID apply the generation, do not re-issue it — add a new generation instead.
+The other way out — running the fix by hand
+(`docker compose exec db psql -U postgres -d <db> -c "UPDATE …"`) and
+restarting the service so the frozen generation re-runs — works, but leaves the
+fix outside the model.
 
 **Down migrations are no-op by decision** (D-MIG-NO-DOWN): operators roll
 forward; recovery is backup + roll-forward. And data steps live in the DSL,
@@ -768,8 +848,8 @@ references. `undefined` means the unqualified `public` schema.
 ## The Postgres SQL renderer
 
 `renderPgStep(step)` ([`src/generator/sql-pg.ts`](../src/generator/sql-pg.ts))
-translates one `MigrationStep` to Postgres DDL. It is **shared by the TS, .NET,
-Python, and Java backends** — calling the same renderer means a migration written
+translates one `MigrationStep` to Postgres DDL. It is **shared by the TS, .NET
+(EF Core and Dapper), Python, and Java backends** — calling the same renderer means a migration written
 by any of them is bit-for-bit equivalent SQL. Phoenix is the exception: it stays
 in Ecto DSL (its output is Elixir, not SQL) so `ecto.migrate` keeps
 working, and translates `MigrationStep` itself in
@@ -784,6 +864,7 @@ seed SQL is bit-identical cross-backend).
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from `drizzle-orm/node-postgres/migrator` (also `npm run db:migrate`) |
 | .NET / EF Core | `Migrations/<slug>.cs` (`migrationBuilder.Sql(...)`) | `Database.Migrate()` → `__EFMigrationsHistory` |
+| .NET / Dapper | `Migrations/<slug>.cs` (a `LoomMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public.__loom_migrations` (see below) |
 | Phoenix / Ecto | `priv/repo/migrations/<ts>_create_<table>.exs` | `ecto.migrate` |
 | Java / Spring | `src/main/resources/db/migration/V<v>.<n>__<Mod>_<Name>.sql` | Flyway |
 | Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `__loom_migrations` tracking table |
@@ -808,6 +889,85 @@ What *is* still feature-local and hand-emitted per backend is the
 columns, which `ALTER` tables the module migration owns and so ship as a *late*
 migration (a far-future version like `29991231235959`) sorting after every
 module's initial migration.
+
+### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
+
+Until D-DAPPER-ALTER was built, the Dapper adapter applied **no** migrations:
+its `DbSchema.cs` ran `CREATE TABLE IF NOT EXISTS` (in `public`) on every boot,
+so after the first deploy every model change was silently ignored — added and
+renamed columns, backfills, `sql` / `sql before` steps, index flips. It now
+applies the same `MigrationsIR` chain EF applies
+([`dotnet/emit/dapper-migrations.ts`](../src/generator/dotnet/emit/dapper-migrations.ts)):
+
+- **Emission.** One `Migrations/<version>_<Module>_<Name>.cs` per generation —
+  the id EF gives the same migration — rendered by `renderPgStep` and split into
+  single statements (`splitPgStatements`, shared with the python runner). The
+  late provenance-column migration is the same statements EF's carries.
+- **One projection, not a third DDL copy.** The Dapper repositories store a
+  value object as ONE `jsonb` column, a scalar/enum list as `jsonb`, and a
+  value-object list as `jsonb` on the parent, where the canonical IR flattens /
+  uses arrays / a child table. The steps are projected onto that layout before
+  rendering — through the same `collapseVoGroups` / `collapseVoSteps`
+  ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
+  the Ecto emitter uses for its `:map` value objects. Value-object
+  null-consistency CHECKs drop out (the column is the whole value object).
+- **Placement.** Tables land in the binding's schema exactly as on EF
+  (`snake(<context>)` by default). The repositories keep naming tables
+  unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.
+  `public` first, so `__loom_migrations`, `__loom_seed` and `__loom_outbox` stay
+  where an unqualified `CREATE` puts them. A `schema:` is therefore honoured; a
+  `tablePrefix:` is still refused (`loom.dapper-unsupported#schema-ignored`).
+  The `#migrations` and `#schema-split` clauses are gone.
+- **Runner.** `DbSchema.EnsureAsync` takes a session advisory lock (so
+  concurrent replicas or restarts serialise), reads the applied set from
+  `public.__loom_migrations` (the table python already keeps, already
+  reset-preserved), and applies every pending migration in id order — an
+  applied **set**, not a watermark — each in its own transaction with its
+  history row. Idempotent: a reboot applies nothing. The exactly-once
+  `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
+  into exactly one generation's file, and that file runs once.
+
+#### The transition from the old bootstrap
+
+Two halves, one per place the old world left a trace.
+
+**At generate time — re-rooting the output tree**
+([`system/dapper-legacy-reroot.ts`](../src/system/dapper-legacy-reroot.ts)).
+The old toolchain wrote the module snapshot but no migration files, so guard (b)
+refused every later generate into that tree: its history is always exactly one
+`Initial`, and the snapshot it carries is the schema the old bootstrap
+provisioned. On a Dapper-owned module whose snapshot history has **no** file on
+disk, the generate re-emits that `Initial` from the snapshot (under the version
+the history records) ahead of this run's delta, and rewrites the history to name
+just those two. Any other backend in that state is still refused by guard (b).
+
+**At boot — baselining the database** (`BaselineLegacyAsync` in `DbSchema.cs`).
+A database with no `__loom_migrations` table is examined once, inside one
+transaction with the creation of that table. For each `Initial` (each carries
+the list of tables it creates):
+
+- every table present — in its schema, or still in `public` where the old
+  bootstrap put it → the `public` ones are moved (`ALTER TABLE … SET SCHEMA`)
+  and the `Initial` is recorded as applied **without running**;
+- every table absent → a module the old bootstrap never saw; left pending;
+- some of each → refuse to boot, naming the missing tables, rather than guess.
+
+Later migrations then apply normally, which is what finally brings the old
+database up to the model. The decision rests on the old bootstrap having
+provisioned the `Initial`'s shape. That holds column-for-column (checked over
+every `dapper*.ddd` compile fixture). It does not hold for constraints the old
+DDL never had: the FKs, enum CHECKs, `DEFAULT 1` on `version`, and money's
+`NUMERIC(19,4)` bounds stay absent on a baselined database until a later
+migration touches them. A model that already evolved under the old toolchain is
+also out of scope: such a tree could only be regenerated by deleting its
+snapshot and passing `--allow-rebaseline`, so its database is behind its
+snapshot in a way no tool recorded, and it needs reconciling by hand.
+
+Compose and k8s need nothing for this. The per-deployable `db-bootstrap`
+service (#3141) only ever creates the database; the schema inside it is the
+app's to migrate at boot, on every adapter. The chart runs no migration job
+either: each app migrates itself at boot, and the advisory lock makes that safe
+with more than one replica.
 
 ### The Drizzle journal's ordering key
 
@@ -898,13 +1058,14 @@ The shared harness ([`test/e2e/support/migration-evolution-harness.ts`](../test/
 owns the Postgres lifecycle (one server, `chain` + `fresh` databases), the
 fingerprint, and both assertion sequences; a thin per-backend `BackendDriver`
 supplies only the boot mechanics (mirroring the `tenancy-isolation` recipes).
-Opt-in, per backend: `npm run test:migration-evolution{,-python,-java,-dotnet,-elixir}`
+Opt-in, per backend: `npm run test:migration-evolution{,-python,-java,-dotnet,-dapper,-elixir}`
 (each gated on `LOOM_MIGRATION_E2E[_…]=1`; needs docker or `LOOM_MIGRATION_PG_URL`
-plus host `psql`). The gate is main-push + dispatch, not per-PR by default — a
-docker-heavy multi-boot on every migration-touching PR is a runner burst for a
-regression acceptable to catch one merge later — but applying the
-`run-migration-e2e` label to a PR runs all five legs against that branch before
-merge.
+plus host `psql`). The gate runs per-PR (path-scoped) and in the merge queue;
+see [`ci-gating.md`](ci-gating.md). The `dapper` leg runs every gate the `dotnet` leg runs on `persistence:
+dapper`, plus the transition case (`runDapperLegacyBaselineGate`): the old
+bootstrap's literal DDL (`dapper-legacy-bootstrap.sql`) plus one row, an old
+tree with no `Migrations/`, regenerate v2, then boot. The row must survive the
+baseline and the delta, and a reboot must change nothing.
 
 ## Semantic changes that emit no migration — exact `decimal` arithmetic (RS-37)
 

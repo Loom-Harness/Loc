@@ -448,6 +448,7 @@ defmodule {{webModule}}.CoreComponents do
   attr :id, :string, required: true
   attr :show, :boolean, default: false
   attr :on_cancel, JS, default: %JS{}
+  attr :close_label, :string, default: nil, doc: "accessible name of the close button"
   slot :title
   slot :inner_block, required: true
 
@@ -481,7 +482,7 @@ defmodule {{webModule}}.CoreComponents do
                   type="button"
                   phx-click={hide_modal(@on_cancel, @id)}
                   class="rounded-md p-1 text-base-content/50 hover:text-base-content"
-                  {{{chromeAttr "aria-label" "closeFlash"}}}
+                  aria-label={@close_label || {{{chromeValue "closeFlash"}}} }
                 >
                   &times;
                 </button>

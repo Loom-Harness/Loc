@@ -18,6 +18,8 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -44,7 +46,11 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../ir/util/inheritance.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -105,7 +111,7 @@ export function emittableFinds(repo: RepositoryIR | undefined): FindIR[] {
 
 /** The paramless `all` find a repository declares (or the enrichment
  *  synthesises) — the read the dedicated `all()` method serves. */
-function allFindOf(repo: RepositoryIR | undefined): FindIR | undefined {
+export function allFindOf(repo: RepositoryIR | undefined): FindIR | undefined {
   return repo?.finds.find((f) => f.name === "all" && f.params.length === 0);
 }
 
@@ -127,7 +133,7 @@ export function declaredAllFilterPredicate(
 
 /** The capability-filter predicate the `all()` read conjoins — the shared one,
  *  unless the `all` find declares an `ignoring` bypass. */
-function allFindCapabilityFilter(
+export function allFindCapabilityFilter(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
   ctx: EnrichedBoundedContextIR,
@@ -439,6 +445,13 @@ export function buildPyRepositoryFile(
   // Import narrowing via body scan (string literals stripped).
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
+  // A module-level FUNCTION (SQLAlchemy's `and_`/`select`/`func`, the
+  // `app.db.wire` helpers) is used only when CALLED or used as a receiver
+  // (`and_(`, `func.`).  A bare word match is not enough: a member named
+  // `and` / `or` / `not` escapes to `and_` / `or_` / `not_` (the shared python
+  // funnel, src/util/target-identifiers.ts), and `self.and_` / `and_=and_`
+  // would otherwise import an unused SQLAlchemy name (ruff F401).
+  const calls = (n: string): boolean => new RegExp(`(?<![.\\w])${n}(?=\\s*[(.])`).test(scan);
   const domainNames = [agg.name, ...agg.parts.map((p) => p.name)].filter(refersTo);
   const idNames = [
     ...new Set(
@@ -471,7 +484,10 @@ export function buildPyRepositoryFile(
       ].filter(refersTo),
     ),
   ].sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ]
     .filter(refersTo)
     .sort();
   const rowNames = [
@@ -485,7 +501,7 @@ export function buildPyRepositoryFile(
   ]
     .filter(refersTo)
     .sort();
-  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(refersTo);
+  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(calls);
 
   const hasProv = provenancedFieldsOf(agg).length > 0;
   const hasAudit = aggHasAuditedTarget(agg);
@@ -554,7 +570,7 @@ export function buildPyRepositoryFile(
     refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
     hasProv ? "from app.db.provenance import ProvenanceRecord" : null,
     rowNames.length > 0 ? `from app.db.schema import ${rowNames.join(", ")}` : null,
-    wireHelperImport(refersTo),
+    wireHelperImport(calls),
     aggregateIsVersioned(agg)
       ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
       : "from app.domain.errors import AggregateNotFoundError",
@@ -626,18 +642,30 @@ export function relationalFindMethod(
     const sortMap = sortableFields(agg)
       .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
+    const declaredOrder = defaultSortOrder(find.defaultSort)
+      ?.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`)
+      .join(", ");
     return lines(
       `    async def ${pythonIdent(find.name)}(${sig}) -> PagedResult[${agg.name}]:`,
       "        offset = (page - 1) * page_size",
       `        _sort_columns = {${sortMap}}`,
-      `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
-      '        _order = _sort_attr.desc() if dir == "desc" else _sort_attr.asc()',
+      ...(declaredOrder
+        ? [
+            // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            "        _sort_key = _sort_columns.get(sort)",
+            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(),) if _sort_key is not None else (${declaredOrder},)`,
+          ]
+        : [
+            `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+            '        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(),)',
+          ]),
       `        total = (`,
       `            await self._session.execute(select(func.count()).select_from(${root})${where})`,
       "        ).scalar_one()",
       "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
       `        rows = (`,
-      `            await self._session.execute(select(${root})${where}.order_by(_order).limit(page_size).offset(offset))`,
+      `            await self._session.execute(select(${root})${where}.order_by(*_order).limit(page_size).offset(offset))`,
       "        ).scalars().all()",
       `        items = ${hydrateListExpr(agg, bulkHydrate)}`,
       findExecutedLine(agg, find.name, "total"),
@@ -737,11 +765,8 @@ export function findExecutedLine(
 function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicate | null {
   const root = rowClassName(agg.name);
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   if (clauses.length === 0) return null;
   if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };
@@ -1467,9 +1492,19 @@ export function persistField(
   f: FieldIR,
   ctx: EnrichedBoundedContextIR,
 ): Array<[string, string]> {
+  return persistFieldValue(`${ownerExpr}.${pythonIdent(f.name)}`, f, ctx);
+}
+
+/** {@link persistField} over an arbitrary value expression `access` (the
+ *  field's current value) rather than `<owner>.<field>` — the workflow-state
+ *  row's value-object property setter writes its leaves from `value`. */
+export function persistFieldValue(
+  access: string,
+  f: FieldIR,
+  ctx: EnrichedBoundedContextIR,
+): Array<[string, string]> {
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
   const opt = f.optional || f.type.kind === "optional";
-  const access = `${ownerExpr}.${pythonIdent(f.name)}`;
   if (t.kind === "valueobject") {
     const pairs = persistVoLeaves(access, t.name, f.name, opt ? [access] : [], ctx);
     if (pairs !== undefined) return pairs;
@@ -1575,8 +1610,17 @@ function saveMethod(
 
   // Diff-sync each contained collection (recursing into nested part-in-part
   // containments, each keyed by its DIRECT parent's id).
+  // Every level's locals share one function scope and are named by DEPTH
+  // (`child` at the root, `__c<depth>` below), so two containment edges at
+  // the same depth rebind one name across part types — a `child` rebound from
+  // `Line` to `Photo` is a mypy --strict `Incompatible types in assignment`
+  // (eval-closure item 15a).  Such a tree names each level by its containment
+  // PATH instead; a single chain keeps the historical names byte-identical.
+  const pathNames = containmentDepthCollides(agg);
   for (const c of agg.contains) {
-    out.push(...syncContainment(agg, c, ctx, aggVar, `${aggVar}.id`, "        ", 0));
+    out.push(
+      ...syncContainment(agg, c, ctx, aggVar, `${aggVar}.id`, "        ", 0, pathNames ? "" : null),
+    );
   }
   // Diff-sync each reference-collection join table.
   for (const f of agg.fields.filter(isRefCollectionField)) {
@@ -1656,15 +1700,24 @@ function syncContainment(
   ownerIdExpr: string,
   indent: string,
   depth: number,
+  /** The enclosing containment path (`""` at the root) when the aggregate has
+   *  more than one containment edge — every local this level binds is then
+   *  prefixed by it, so two sibling collections (or two same-named ones under
+   *  different parents) never rebind one name to a different part type.
+   *  `null` keeps the historical names (a single edge: byte-identical). */
+  pathPrefix: string | null = null,
 ): string[] {
   const partRow = rowClassName(c.partName);
   const part = agg.parts.find((p) => p.name === c.partName);
-  const v = snake(c.name);
+  const path =
+    pathPrefix === null ? null : pathPrefix ? `${pathPrefix}_${snake(c.name)}` : snake(c.name);
+  const v = path ?? snake(c.name);
   // Depth 0 keeps the historical `child` / `child_row` / `__<v>_items` names so
   // single-level containment output is byte-identical; nested levels uniquify.
-  const loopVar = depth === 0 ? "child" : `__c${depth}`;
-  const rowVar = depth === 0 ? "child_row" : `__c${depth}_row`;
-  const itemsVar = depth === 0 ? `__${v}_items` : `__${v}_items${depth}`;
+  const loopVar = path !== null ? `__${path}` : depth === 0 ? "child" : `__c${depth}`;
+  const rowVar = path !== null ? `__${path}_row` : depth === 0 ? "child_row" : `__c${depth}_row`;
+  const itemsVar =
+    path !== null ? `__${path}_items` : depth === 0 ? `__${v}_items` : `__${v}_items${depth}`;
   // FK column = the child's DIRECT parent (`shipment_id` for a nested Label,
   // `order_id` for a root-level Shipment) — matching the shared migration DDL.
   const fkCol = `${snake(directParentName(agg, c.partName, tableOwnerName(agg, ctx.aggregates)))}_id`;
@@ -1680,11 +1733,12 @@ function syncContainment(
     if (isRefCollectionField(f) || isValueCollectionField(f)) continue;
     childPairs.push(...persistField(loopVar, f, ctx));
   }
-  const items = c.collection ? `${ownerExpr}.${pythonIdent(c.name)}` : itemsVar;
+  const field = pythonIdent(c.name);
+  const items = c.collection ? `${ownerExpr}.${field}` : itemsVar;
   const out: string[] = [];
   if (!c.collection) {
     out.push(
-      `${indent}${itemsVar} = [${ownerExpr}.${pythonIdent(c.name)}] if ${ownerExpr}.${pythonIdent(c.name)} is not None else []`,
+      `${indent}${itemsVar} = [${ownerExpr}.${field}] if ${ownerExpr}.${field} is not None else []`,
     );
   }
   out.push(
@@ -1711,10 +1765,37 @@ function syncContainment(
   // Recurse: each part's OWN nested containments, keyed by this child's id.
   for (const nested of part?.contains ?? []) {
     out.push(
-      ...syncContainment(agg, nested, ctx, loopVar, `${loopVar}.id`, `${indent}    `, depth + 1),
+      ...syncContainment(
+        agg,
+        nested,
+        ctx,
+        loopVar,
+        `${loopVar}.id`,
+        `${indent}    `,
+        depth + 1,
+        path,
+      ),
     );
   }
   return out;
+}
+
+/** True when two containment edges sit at the same depth of the aggregate's
+ *  containment tree — the case the depth-named save locals collide on. */
+function containmentDepthCollides(agg: EnrichedAggregateIR): boolean {
+  let level: readonly ContainmentIR[] = agg.contains;
+  const seen = new Set<string>();
+  while (level.length > 0) {
+    if (level.length > 1) return true;
+    const next: ContainmentIR[] = [];
+    for (const c of level) {
+      if (seen.has(c.partName)) continue;
+      seen.add(c.partName);
+      next.push(...(agg.parts.find((p) => p.name === c.partName)?.contains ?? []));
+    }
+    level = next;
+  }
+  return false;
 }
 
 function syncJoinTable(assoc: AssociationIR, f: FieldIR, aggVar: string): string[] {
@@ -1806,7 +1887,7 @@ export function recordAuditMethod(): string {
     '        status: str = "ok",',
     "    ) -> None:",
     // The actor is the ambient principal's declared shape, read here rather
-    // than threaded through every call site (RS-42).
+    // than threaded through every call site (RS-43).
     "        actor = audit_actor()",
     "        self._session.add(",
     "            AuditRecordRow(",

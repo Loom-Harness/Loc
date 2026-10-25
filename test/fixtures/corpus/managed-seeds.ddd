@@ -1,0 +1,58 @@
+// A SERVER-OWNED field with no default — `openedAt: datetime managed` — takes
+// the language-defined absent value on create (`src/ir/util/server-init-seed.ts`):
+// a datetime is created at now, a number at 0, a bool at false, a string at
+// "", a collection at []. `managed` keeps the field off the create input and
+// the field declares no `= <default>`, so the create factory is the only
+// place its value can come from.
+//
+// The split this fixture exists for: node and python seeded every row below.
+// .NET left the CLR default (`openedAt` read back as 0001-01-01; the string
+// and list went in as NULL and the create answered 500); java left the field
+// unassigned (NULL into the NOT NULL column for datetime / decimal / string /
+// list — 500); elixir set none of them (500 on all six).
+//
+// `seenAt: datetime internal` is the same rule under the other server-owned
+// modifier: never readable, so the row only proves the create succeeds.
+system ManagedSeeds {
+  subdomain Work {
+    context Desk {
+      aggregate Ticket {
+        title: string
+        openedAt: datetime managed
+        hits: int managed
+        weight: decimal managed
+        escalated: bool managed
+        note: string managed
+        labels: string[] managed
+        seenAt: datetime internal
+        create(title: string) { }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+  api DeskApi from Work
+  storage primary { type: postgres }
+  resource deskState { for: Desk, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a server-owned field with no default reads back at its language-defined seed" against d {
+    let t = api.tickets.create({ title: "Seeded" })
+    let read = api.tickets.getById(t)
+    expect(read.title).toBe("Seeded")
+    expect(read.hits).toBe(0)
+    expect(read.weight).toBe(0)
+    expect(read.escalated).toBe(false)
+    expect(read.note).toBe("")
+    expect(read.labels.length).toBe(0)
+    // `openedAt` is now — the wire golden pins that it is a timestamp, not null.
+    expect(read.openedAt).not.toBeNull()
+    let listed = api.tickets.all()
+    expect(listed.items.length).toBe(1)
+  }
+}

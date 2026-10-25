@@ -24,12 +24,13 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../ir/util/openapi-ids.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
+  workflowEmits,
 } from "../../ir/util/walk.js";
 import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
@@ -42,12 +43,14 @@ import {
   upperFirst,
   workflowFnSnake,
 } from "../../util/naming.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import { pyCommandBodyParam, usesOptionalBody } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { domainServiceImportLinesForWorkflow } from "./emit/domain-service.js";
@@ -229,10 +232,10 @@ export function buildPyWorkflowsFile(
     ),
   ].sort();
   const eventNames = [
-    ...new Set(wfs.flatMap((wf) => collectEmits(wf.statements).map((e) => e.eventName))),
+    ...new Set(wfs.flatMap((wf) => workflowEmits(wf.statements).map((e) => e.eventName))),
   ].sort();
   const idNames = [...new Set([...scanIdNames(scan, ctx)])].sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...ctx.enums.map((e) => e.name)]
+  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
     .filter(refersTo)
     .sort();
   const voModelImports = valueObjectPool(ctx)
@@ -264,6 +267,7 @@ export function buildPyWorkflowsFile(
     refersTo("Decimal") ? "from decimal import Decimal" : null,
     `from fastapi import ${[
       "APIRouter",
+      usesOptionalBody(scan) ? "Body" : null,
       "Depends",
       refersTo("Path") ? "Path" : null,
       refersTo("Request") ? "Request" : null,
@@ -625,16 +629,6 @@ export function collectLiveLetNames(
   return live;
 }
 
-function collectEmits(sts: WorkflowStmtIR[]): { eventName: string }[] {
-  return sts.flatMap((st) =>
-    st.kind === "emit"
-      ? [{ eventName: st.eventName }]
-      : st.kind === "for-each"
-        ? collectEmits(st.body)
-        : [],
-  );
-}
-
 function scanIdNames(scan: string, ctx: BoundedContextIR): string[] {
   // Hosted aggregates PLUS the foreign id brands this deployable emits into
   // `app/domain/ids.py` (M-T4.8).  Python imports id names explicitly — unlike
@@ -715,7 +709,7 @@ function workflowRoute(
   // before any rendered statement mentions the bare `current_user`.
   const usesUser = workflowUsesCurrentUser(wf) || callsUserGatedOp(wf.statements, ctx);
   const sig = [
-    `body: ${upperFirst(wf.name)}Request`,
+    pyCommandBodyParam(`${upperFirst(wf.name)}Request`, wf.params),
     ...(usesUser ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
@@ -794,7 +788,7 @@ function workflowRoute(
     out.push(`        __key = str(${snake(corrParam.name)})`);
     out.push(`        state = await _load_${snake(wf.name)}(session, __key)`);
     out.push("        if state is None:");
-    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf)})`);
+    out.push(`            state = ${wf.name}Row(${allocateKwargs(wf, ctx)})`);
     out.push("            session.add(state)");
   } else if (usesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow
@@ -830,7 +824,7 @@ function workflowRoute(
   for (const r of repos) {
     out.push(`        ${snake(r.repoName)} = ${r.aggName}Repository(session, ${dispatcherExpr})`);
   }
-  const hasEmit = collectEmits(wf.statements).length > 0;
+  const hasEmit = workflowEmits(wf.statements).length > 0;
   if (hasEmit) out.push("        workflow_events: list[DomainEvent] = []");
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way
@@ -1049,7 +1043,7 @@ export function pyWorkflowStmtTarget(
     indentUnit: "    ",
     precondition: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
-      `${i}    raise DomainError(${JSON.stringify(`Precondition failed: ${st.source}`)})`,
+      `${i}    raise DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))})`,
     ],
     requires: (st, i) => [
       `${i}if ${renderPyNegatedGuard(st.expr, rctx)}:`,
@@ -1172,9 +1166,18 @@ export function pyWorkflowStmtTarget(
       );
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
+      // A declared optional find (`findMethod`) already answers the row or
+      // `None`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${i}${v} = await ${snake(st.repoName)}.${snake(st.findMethod)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+          ]
+        : [
+            `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
+            `${i}${v} = ${hits}[0] if ${hits} else None`,
+          ];
       const out = [
-        `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
-        `${i}${v} = ${hits}[0] if ${hits} else None`,
+        ...lookup,
         `${i}if ${v} is not None:`,
         ...(thenAll.length > 0 ? thenAll : [`${inner}pass`]),
       ];

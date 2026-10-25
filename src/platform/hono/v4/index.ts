@@ -1,19 +1,14 @@
 // ---------------------------------------------------------------------------
-// hono@v4 — the versioned backend package (see
-// docs/backend-packages.md).  Owns its dep pins (`./pins.ts`) and
-// the `PlatformSurface` wiring; drives the shared TypeScript/Hono
-// emitter under `src/generator/typescript/`.  A future `hono@v5`
-// is a sibling directory that reuses the stable emitter slices by
-// ordinary import and overrides only what the Hono-major change
-// touches — no flat-file replacement, the previous version stays
-// loadable.
+// The shared Hono backend surface.  `makeHonoPlatform(pins)` builds the
+// `PlatformSurface` over the TypeScript/Hono emitter in this directory;
+// the registered package version (`../v5/`) owns the dep pins and calls
+// it.  This directory holds no registered version of its own.
 // ---------------------------------------------------------------------------
 
 import type {
   PlatformAdapterDefaults,
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
-import type { LoomBackendManifest } from "../../manifest.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
@@ -25,33 +20,11 @@ import { drizzlePersistenceAdapter } from "./adapters/drizzle-persistence.js";
 import { layeredStyleAdapter } from "./adapters/layered-style.js";
 import { mikroOrmPersistenceAdapter } from "./adapters/mikroorm-persistence.js";
 import { type BackendPins, generateTypeScriptForContexts } from "./emit.js";
-import { BACKEND_PINS } from "./pins.js";
-
-/** The descriptor the resolver discovers this package by.  In-tree
- *  today; becomes the `loom` key in this package's package.json when
- *  it is extracted.
- *
- *  `family: "node"` names the JS runtime platform; `loomVersion: "v4"`
- *  is the package's own version (the `hono: ^4.x` pin in `./pins.ts`),
- *  *not* a Node.js version — the same convention as `dotnet@v10` ↔
- *  .NET 10.  The `v5/` sibling (`node@v5`) is the current default — it
- *  reuses this package's `makeHonoPlatform` factory + shared emitter with
- *  a zod 4 / TS 6 pin set; v4 (zod 3 / TS 5) stays registered + loadable
- *  via an explicit `platform: node@v4` pin. */
-export const loomManifest: LoomBackendManifest = {
-  kind: "backend",
-  family: "node",
-  loomVersion: "v4",
-  core: "^1.0.0",
-};
-
-const honoPlatform: PlatformSurface = makeHonoPlatform(BACKEND_PINS);
 
 /** Build the Hono `PlatformSurface` for a given dep-pin set.  The
  *  surface shape is identical across Hono package versions — only the
- *  `BACKEND_PINS` fed to the shared emitter differ — so `v5` (zod 4 /
- *  TS 6) reuses this factory with its own `./pins.js` rather than
- *  copying the surface boilerplate. */
+ *  `BACKEND_PINS` fed to the shared emitter differ — so each registered
+ *  version passes its own `pins.ts` rather than copying the surface. */
 export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
   return {
     name: "node",
@@ -161,5 +134,3 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     },
   };
 }
-
-export default honoPlatform;

@@ -275,6 +275,25 @@
     {
       "seq": 16,
       "method": "POST",
+      "path": "/api/employees/{id}/promote",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/newGrade"
+          }
+        ],
+        "instance": "/api/employees/{id}/promote",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
       "path": "/api/employees",
       "status": 201,
       "body": {

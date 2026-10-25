@@ -87,7 +87,7 @@ system Demo {
     expect(routes).toContain("handle: WireStr = Field(min_length=1)");
     // Cross-field invariant → @model_validator that raises a typed
     // PydanticCustomError → 422 (never a bare ValueError, whose wire message is
-    // "Value error, …" — RS-40), instead of falling through to the domain's
+    // "Value error, …" — RS-41), instead of falling through to the domain's
     // DomainError → 400.
     expect(routes).toMatch(/from pydantic import .*\bField\b.*\bmodel_validator\b/);
     expect(routes).toMatch(/@model_validator\(mode="after"\)/);
@@ -178,7 +178,9 @@ describe("python routes", () => {
     expect(problem).toContain("@app.exception_handler(AggregateNotFoundError)");
     expect(problem).toContain("@app.exception_handler(RequestValidationError)");
     expect(problem).toContain('"pointer": _pointer(tuple(e["loc"])),');
-    expect(problem).toContain('"message": str(e["msg"]),');
+    expect(problem).toContain(
+      '"message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),',
+    );
     // a messaged rule's PydanticCustomError "msg.<hash>" type rides as errors[].code
     expect(problem).toContain('if code.startswith("msg."):');
     expect(problem).toContain('entry["code"] = code');

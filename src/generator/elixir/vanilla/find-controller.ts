@@ -105,8 +105,11 @@ export function findRoutes(
   const derivedByFind = new Map(
     derivedOps.filter((o) => o.kind === "find" && o.find).map((o) => [o.find, o]),
   );
-  return httpFindsOf(ctx, agg).map((f) => {
+  // A find whose slot an explicit `route` claims is served by that route alone
+  // (D-EXPLICIT-ROUTE-WINS) — its controller action stays, its router line goes.
+  return httpFindsOf(ctx, agg).flatMap((f) => {
     const entry = derivedByFind.get(f);
+    if (entry?.claimedByExplicitRoute) return [];
     return {
       method: "get" as const,
       path: entry ? `/${aggsPath}${plugRelativePath(entry)}` : `/${aggsPath}/${snake(f.name)}`,

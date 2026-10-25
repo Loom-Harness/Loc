@@ -154,6 +154,45 @@
     {
       "seq": 13,
       "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/close",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/tickets/{id}/close",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/tickets/{id}/close",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
       "path": "/api/tickets",
       "status": 201,
       "body": {
@@ -161,7 +200,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 17,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 403,
@@ -174,7 +213,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 18,
       "method": "POST",
       "path": "/api/tickets/{id}/close",
       "status": 204,

@@ -4,9 +4,8 @@
 //
 //   primitives + array-of-primitive map directly; system fields are skipped.
 //   enum → `Ecto.Enum` with a values list;
-//   valueobject → `:map` (JSONB) — sufficient for wire parity; an
-//     `embeds_one` rich-schema path can come later if richer typed
-//     query support is needed; id (foreign key reference) →
+//   valueobject → `Loom.ValueObject` over a jsonb column, cast and loaded
+//     into the constructor shape (value-object-type-emit.ts); id (foreign key reference) →
 //     `:binary_id` column; optional wrapper unwraps the inner type.
 // ---------------------------------------------------------------------------
 
@@ -20,8 +19,10 @@ import type {
   ExprIR,
   SystemIR,
   TypeIR,
+  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveDataSourceConfig,
@@ -48,8 +49,15 @@ import {
 import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
-import { isRefCollField, manyToManyLine, refCollFields } from "./ref-collection-emit.js";
+import {
+  foreignRefCollFields,
+  isRefCollField,
+  refCollFields,
+  refCollRelationLine,
+  renderRefRowSchema,
+} from "./ref-collection-emit.js";
 import { valueCollectionModule, valueCollectionsWithVo } from "./value-collection-schema-emit.js";
+import { valueObjectColumnType } from "./value-object-type-emit.js";
 
 /** An aggregate's nested entity-part containments are persisted RELATIONALLY
  *  (each part a child table the root `has_many`s + `cast_assoc`s, §11c) rather
@@ -77,7 +85,7 @@ export function emitVanillaSchemas(
   const ctxModule = upperFirst(ctx.name);
   // Per-context enum-lookup table so the schema can pull each enum's
   // values list for the Ecto.Enum constraint.
-  const enumsByName = new Map(ctx.enums.map((e) => [e.name, e]));
+  const enumsByName = new Map(enumPool(ctx).map((e) => [e.name, e]));
   const pool = ctx.aggregates;
   for (const agg of ctx.aggregates) {
     // Event-sourced aggregates have no state table — `eventsourced-emit.ts`
@@ -100,7 +108,8 @@ export function emitVanillaSchemas(
     const schemaPrefix = sys
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
       : undefined;
-    const schemaModule = isVanillaDocAgg(agg, ctx, sys)
+    const isDoc = isVanillaDocAgg(agg, ctx, sys);
+    const schemaModule = isDoc
       ? renderDocSchema(
           appModule,
           ctxModule,
@@ -109,6 +118,18 @@ export function emitVanillaSchemas(
           needsPureDomainCore(agg, ctx) ? renderAggregatePureCore(appModule, ctx, agg, sys) : [],
         )
       : renderSchema(appModule, ctxModule, agg, enumsByName, schemaPrefix, ctx, sys, pool);
+    // A reference collection over a FOREIGN target (no schema in this context)
+    // is a `has_many` onto its join-row schema — emit that module beside the
+    // owner, in the owner's Postgres schema (where the migration creates the
+    // join table).
+    if (!isDoc) {
+      for (const rc of foreignRefCollFields(agg, pool)) {
+        out.set(
+          `lib/${appSnake}/${ctxSnake}/${rc.assoc.joinTable}.ex`,
+          renderRefRowSchema(appModule, ctxModule, rc, schemaPrefix),
+        );
+      }
+    }
     // Append the Inspect-protocol redaction impl (sensitive-field leak guard)
     // after the schema module — emitted only for an aggregate carrying a
     // sensitive leaf; `null` otherwise, so unaffected aggregates stay
@@ -128,7 +149,15 @@ export function emitVanillaSchemas(
     for (const part of agg.parts) {
       out.set(
         `lib/${appSnake}/${ctxSnake}/${snake(part.name)}.ex`,
-        renderPartSchema(appModule, ctxModule, part, enumsByName, relational, agg),
+        renderPartSchema(
+          appModule,
+          ctxModule,
+          part,
+          enumsByName,
+          relational,
+          agg,
+          voColumnsOf(ctx),
+        ),
       );
     }
   }
@@ -175,10 +204,15 @@ function renderPartSchema(
   // part's DIRECT parent (a sibling part's table, not the aggregate root), so a
   // part-in-part FK lines up with the shared migration's `tableForPart` DDL.
   agg?: AggregateIR,
+  voColumns?: VoColumns,
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(part.name)}`;
+  // A part's `createdAt` / `updatedAt` are ordinary declared columns: nothing
+  // stamps a part (the audit lifecycle stamps the root only), the shared
+  // migration emits them as plain columns, and the wire list below names them —
+  // so they are schema fields the changeset casts, unlike the root's.
   const fieldLines = part.fields
-    .map((f) => renderFieldLine(f, enumsByName))
+    .map((f) => renderFieldLine(f, enumsByName, PART_SYSTEM_FIELDS, voColumns))
     .filter(Boolean)
     .join("\n");
   // Part-in-part containment.  On a relational owner it is a `has_many`/`has_one`
@@ -211,7 +245,7 @@ function renderPartSchema(
   // `cast_assoc` on a relational owner (its own child rows) or `cast_embed` on an
   // embedded owner (inline jsonb).
   const castCols = part.fields
-    .filter((f) => !SYSTEM_FIELDS.has(f.name) && mapTypeToEcto(f.type, enumsByName))
+    .filter((f) => !PART_SYSTEM_FIELDS.has(f.name) && mapTypeToEcto(f.type, enumsByName))
     .map((f) => `:${snake(f.name)}`);
   const castAssocVerb = relational ? "cast_assoc" : "cast_embed";
   const castEmbeds = (part.contains ?? [])
@@ -279,7 +313,9 @@ end
 `;
 }
 
-const SYSTEM_FIELDS = new Set(["id", "createdAt", "updatedAt"]);
+const SYSTEM_FIELDS: ReadonlySet<string> = new Set(["id", "createdAt", "updatedAt"]);
+/** A part's only system field is its `id` — see `renderPartSchema`. */
+const PART_SYSTEM_FIELDS: ReadonlySet<string> = new Set(["id"]);
 
 function renderSchema(
   appModule: string,
@@ -315,11 +351,15 @@ function renderSchema(
   // `{:array, :binary_id}` field would query a phantom column → runtime 500).
   const declaredLines = schemaFields
     .filter((f) => !isRefCollField(f))
-    .map((f) => renderFieldLine(f, enumsByName))
+    .map((f) => renderFieldLine(f, enumsByName, SYSTEM_FIELDS, ctx ? voColumnsOf(ctx) : undefined))
     .filter(Boolean);
   // `many_to_many :party, App.Ctx.Pokemon, join_through: "<schema>.trainer_party", …`
   // — the runtime side of the already-correct join migration.
-  const refCollLines = refCollFields(agg).map((rc) => manyToManyLine(appModule, ctxModule, rc));
+  // A FOREIGN target (no schema in this context) is a `has_many` onto its
+  // join-row schema instead — see `isForeignRefColl`.
+  const refCollLines = refCollFields(agg).map((rc) =>
+    refCollRelationLine(appModule, ctxModule, rc, pool),
+  );
   // Co-located provenance backing columns — one `<field>_provenance` jsonb
   // (the pass-through `Provenance.Json` Ecto type) per provenanced field,
   // holding the current lineage persisted on the row.  Never cast from client
@@ -431,16 +471,40 @@ interface AggField {
   default?: ExprIR;
 }
 
-function renderFieldLine(field: AggField, enumsByName: Map<string, EnumIR>): string {
+/** What a single value-object column needs to render its canonical-shape
+ *  type: the value objects (and enums) reachable from the context. */
+interface VoColumns {
+  readonly vos: ReadonlyMap<string, ValueObjectIR>;
+  readonly enums: ReadonlyMap<string, EnumIR>;
+}
+
+function voColumnsOf(ctx: BoundedContextIR): VoColumns {
+  return {
+    vos: new Map(valueObjectPool(ctx).map((v) => [v.name, v])),
+    enums: new Map(enumPool(ctx).map((e) => [e.name, e])),
+  };
+}
+
+function renderFieldLine(
+  field: AggField,
+  enumsByName: Map<string, EnumIR>,
+  skip: ReadonlySet<string> = SYSTEM_FIELDS,
+  voColumns?: VoColumns,
+): string {
   // Skip system-provided fields.  Reference-collection arrays (`X id[]`) are
   // filtered out by the caller before this point — they live in join tables and
   // are emitted as `many_to_many` relationships, not stored columns.
-  if (field.name === "id" || field.name === "createdAt" || field.name === "updatedAt") return "";
+  if (skip.has(field.name)) return "";
   // Value-object collection arrays (`charges: Money[]`) persist as a `has_many`
   // child schema (emitted separately), NOT a `{:array, :map}` column — skip the
   // scalar field line; `renderSchema` adds the `has_many` instead.
   if (isValueCollectionType(field.type as TypeIR)) return "";
-  const ectoType = mapTypeToEcto(field.type, enumsByName);
+  // A single value object is typed `Loom.ValueObject` (value-object-type-emit.ts),
+  // so a loaded, a posted and a constructed value are one canonical shape.
+  const voType = singleValueObjectName(field.type);
+  const ectoType =
+    (voType && voColumns && valueObjectColumnType(voType, voColumns.vos, voColumns.enums)) ||
+    mapTypeToEcto(field.type, enumsByName);
   if (!ectoType) return "";
   // A declared Loom default (`field: T = <lit>`) becomes the Ecto schema
   // `default:` so a fresh `%Agg{}` carries it — `base_changeset` then
@@ -449,6 +513,12 @@ function renderFieldLine(field: AggField, enumsByName: Map<string, EnumIR>): str
   // docs/audits/test-parity-generated-backends.md).
   const def = field.default ? renderEctoDefault(field.default) : null;
   return `    field :${snake(field.name)}, ${ectoType}${def ? `, default: ${def}` : ""}`;
+}
+
+/** The value object a (possibly optional) single-VO field holds, else null. */
+function singleValueObjectName(t: TypeIR): string | null {
+  if (t.kind === "optional") return singleValueObjectName(t.inner);
+  return t.kind === "valueobject" ? t.name : null;
 }
 
 /** Render a simple literal default to its Ecto `default:` value, or `null`
@@ -567,11 +637,10 @@ function mapLeafTypeToEcto(t: TypeIR): string | null {
       // wire shape parity (the agg JSON includes the FK value).
       return ":binary_id";
     case "valueobject":
-      // VO → `:map` (JSONB).  Simplest path that satisfies wire-shape
-      // parity: the JSON column holds the value object's own field shape.
-      // A richer `embeds_one`-backed path
-      // (with its own embedded schema module) can replace this later
-      // when typed queries on inner fields are needed.
+      // VO → `:map` (JSONB) for a caller with no value-object table to build
+      // the canonical `Loom.ValueObject` column type from (projection rows,
+      // dispatch params).  An aggregate or part column renders through
+      // `valueObjectColumnType` instead (`renderFieldLine`).
       return ":map";
     default:
       return null;

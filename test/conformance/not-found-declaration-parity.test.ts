@@ -149,7 +149,7 @@ const statuses = {
   /** OpenApiSpex: `NNN => %OpenApiSpex.Response{…}` inside the PathItem. */
   async elixir(path: string): Promise<number[]> {
     const src = await fileMatching(/_spec\.ex$/);
-    const at = src.indexOf(`"${path}" => %OpenApiSpex.PathItem{`);
+    const at = src.indexOf(`"/api${path}" => %OpenApiSpex.PathItem{`);
     expect(at, `elixir: no PathItem for ${path}`).toBeGreaterThan(-1);
     const next = src.indexOf("%OpenApiSpex.PathItem{", at + 40);
     const block = src.slice(at, next > 0 ? next : undefined);

@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   ChannelIR,
@@ -34,19 +34,24 @@ import { directParentOf } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import { isTpcBase, isTphBase, isTphConcrete, tableOwnerName } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { valueObjectFieldLookup, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  valueObjectFieldLookup,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import {
   effectiveSavingShape,
   resolveContextSchema,
@@ -135,6 +140,7 @@ import { renderJavaDispatcher } from "./emit/dispatch.js";
 import { renderJavaDocumentRepositoryImpl } from "./emit/document-store.js";
 import { renderJavaDomainServices } from "./emit/domain-service.js";
 import { renderDtoFiles, renderReadModelVoResponseDtos } from "./emit/dto.js";
+import { renderEmptyJsonBodyFilter } from "./emit/empty-body-filter.js";
 import { type OpFragment, renderJavaAbstractBaseEntity, renderJavaEntity } from "./emit/entity.js";
 import { renderJavaEnum, renderJavaValueObject } from "./emit/enums-vos.js";
 import { renderJavaEventSourcedRepositoryImpl } from "./emit/event-store.js";
@@ -583,6 +589,8 @@ function emitProjectFromContexts(
   place("CatalogLog.java", "config", renderCatalogLogger(basePkg));
   place("LifecycleCatalog.java", "config", renderLifecycleCatalog(basePkg));
   place("RequestCatalogFilter.java", "config", renderRequestCatalogFilter(basePkg));
+  // RS-39 — an empty request body reads as `{}`.
+  place("EmptyJsonBodyFilter.java", "config", renderEmptyJsonBodyFilter(basePkg));
   // Prometheus HTTP metrics — catalog-driven Micrometer meters, served at
   // /metrics (Actuator), recorded from RequestCatalogFilter's request_end seam.
   place("HttpMetrics.java", "config", renderHttpMetrics(basePkg));
@@ -856,7 +864,7 @@ function emitProjectFromContexts(
     for (const agg of ctx.aggregates) {
       const voNames = new Set<string>();
       referencedValueObjects(
-        forCreateInput(agg.fields).map((f) => f.type),
+        createInputFields(agg).map((f) => f.type),
         voNames,
       );
       for (const op of agg.operations) {
@@ -1273,6 +1281,7 @@ function emitProjectFromContexts(
       configPkg: pkgFor("config"),
       entityPkg: pkgFor("infra-persistence"),
       repoPkg: pkgFor("spring-data-repository"),
+      carriesOrigin: authRequired,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1291,15 +1300,17 @@ function emitProjectFromContexts(
           system.sys,
         )
       : [];
-  // The value objects / enums those foreign events reach: the event record
-  // names them, so the consumer must declare them (eval item 11).
-  const foreignValueTypes =
-    hasChannels && system
-      ? foreignEventValueTypes(foreignConsumedEvents, system.sys, {
-          valueObjects: contexts.flatMap((c) => c.valueObjects),
-          enums: contexts.flatMap((c) => c.enums),
-        })
-      : NO_FOREIGN_VALUE_TYPES;
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach: the event
+  // record / entity names them, so the deployable must declare them (eval
+  // item 11).  NOT channel-gated: the hosted half reaches a sibling type in a
+  // channel-less project, exactly as the foreign id brands below do.
+  const foreignValues = system
+    ? foreignValueTypes(foreignValueTypeSeeds(foreignConsumedEvents, contexts), system.sys, {
+        valueObjects: contexts.flatMap((c) => c.valueObjects),
+        enums: contexts.flatMap((c) => c.enums),
+      })
+    : NO_FOREIGN_VALUE_TYPES;
 
   // Foreign id brands are NOT channel vocabulary, and gating them on
   // `hasChannels` was a latent bug: a workflow starter param naming an
@@ -1316,8 +1327,8 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(contexts.flatMap((c) => c.workflows)),
+      ...valueObjectFieldTypes(foreignValues.valueObjects),
+      ...hostedContextIdTypeSources(contexts),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -1332,27 +1343,28 @@ function emitProjectFromContexts(
     }
   }
 
+  for (const e of foreignValues.enums) {
+    place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
+  }
+  for (const vo of foreignValues.valueObjects) {
+    place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
+  }
+  // A foreign VO's compact constructor throws the invariant exception the
+  // hosted-VO gate above only emits for a HOSTED invariant.
+  if (
+    !contexts.some(hasValueObjectInvariants) &&
+    foreignValues.valueObjects.some((v) => v.invariants.length > 0)
+  ) {
+    place(
+      "ValueObjectInvariantException.java",
+      "domain-common",
+      renderValueObjectInvariantException(basePkg),
+    );
+  }
+
   if (hasChannels && system) {
     for (const ev of foreignConsumedEvents) {
       place(`${ev.name}.java`, "event", renderJavaEvent(ev, basePkg));
-    }
-    for (const e of foreignValueTypes.enums) {
-      place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
-    }
-    for (const vo of foreignValueTypes.valueObjects) {
-      place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
-    }
-    // A foreign VO's compact constructor throws the invariant exception the
-    // hosted-VO gate above only emits for a HOSTED invariant.
-    if (
-      !contexts.some(hasValueObjectInvariants) &&
-      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0)
-    ) {
-      place(
-        "ValueObjectInvariantException.java",
-        "domain-common",
-        renderValueObjectInvariantException(basePkg),
-      );
     }
     const carriedEvents = [...contexts.flatMap((c) => c.events), ...foreignConsumedEvents];
     for (const [name, content] of renderJavaChannelFiles(
@@ -1367,8 +1379,9 @@ function emitProjectFromContexts(
         outboxRepoPkg: pkgFor("spring-data-repository"),
         valueObjects: [
           ...contexts.flatMap((c) => valueObjectPool(c)),
-          ...foreignValueTypes.valueObjects,
+          ...foreignValues.valueObjects,
         ],
+        carriesOrigin: authRequired,
       },
     )) {
       place(name, "config", content);
@@ -1382,6 +1395,8 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
+        carriesOrigin: authRequired,
+        basePkg,
       })) {
         place(f.name, f.category, f.content);
       }
@@ -1533,7 +1548,10 @@ function emitProjectFromContexts(
     }),
   );
   out.set("settings.gradle.kts", renderGradleSettings(slug));
-  out.set("src/main/resources/application.yml", renderApplicationYml(slug));
+  out.set(
+    "src/main/resources/application.yml",
+    renderApplicationYml(slug, system?.deployable.port ?? 8080),
+  );
   // logback.xml behind the observability catalog (CatalogLog logs through
   // SLF4J; logstash-logback-encoder renders the JSON envelope).
   out.set("src/main/resources/logback.xml", renderLogbackConfig());
@@ -1672,7 +1690,7 @@ function emitAggregate(
   // M-T6.36: enums whose java constants are mangled map through their generated
   // `<Enum>.Codec` converter rather than `@Enumerated(STRING)`, so the stored
   // value keeps the `.ddd` spelling.  Empty for every keyword-free model.
-  const mangledEnums = mangledEnumNames(ctx.enums);
+  const mangledEnums = mangledEnumNames(enumPool(ctx));
   const schema = sys ? resolveDataSourceConfig(agg, ctx, sys)?.schema : undefined;
   // Effective saving shape (D-DOCUMENT-AXIS): document aggregates are
   // plain domain classes round-tripping one jsonb column.

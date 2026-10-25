@@ -15,6 +15,13 @@ using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// A native `dotnet run` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:8081");
+}
+
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot
@@ -147,7 +154,7 @@ builder.Services.AddControllers(opts =>
         new CatalogApi.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new CatalogApi.Serialization.CanonicalInstantOffsetJsonConverter());
-    // An int literal past Int32 names itself (RS-39), so ValidationProblem
+    // An int literal past Int32 names itself (RS-40), so ValidationProblem
     // answers it as a 422 at the field instead of a 400 for the body.
     opts.JsonSerializerOptions.Converters.Add(
         new CatalogApi.Serialization.Int32RangeJsonConverter());
@@ -179,6 +186,8 @@ builder.Services.AddProblemDetails(opts =>
         ctx.ProblemDetails.Type = "about:blank";
         ctx.ProblemDetails.Status = status;
         ctx.ProblemDetails.Title ??= ReasonPhrases.GetReasonPhrase(status);
+        // A 415 carries the one sentence every backend sends for it (RS-39).
+        if (status == 415) ctx.ProblemDetails.Detail = "Content-Type must be application/json";
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
         ctx.ProblemDetails.Extensions.Remove("traceId");
@@ -523,6 +532,10 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();
+// An EMPTY request body is the empty JSON object (RS-39) — see
+// Middleware/EmptyJsonBodyMiddleware.cs.  Ahead of routing's endpoints so
+// model binding sees the normalised body.
+app.UseMiddleware<CatalogApi.Middleware.EmptyJsonBodyMiddleware>();
 // Serve the spec at /openapi.json (documentName "openapi" → "{documentName}.json").
 app.UseSwagger(c => c.RouteTemplate = "{documentName}.json");
 // Static sub-paths that a sibling `{id}` route would otherwise swallow under a

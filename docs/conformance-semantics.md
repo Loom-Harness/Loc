@@ -1630,7 +1630,7 @@ nothing and the test passes vacuously.
   When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
   merged as prose only, which made any new rule unlandable under the registry's
   gap-free assertion. That has since been closed: the registry was backfilled
-  (it now holds RS-1 … RS-42, contiguous), and `semantics-rules.test.ts` gained
+  (it now holds RS-1 … RS-43, contiguous), and `semantics-rules.test.ts` gained
   the prose-vs-registry parity assertion this finding asked for ("the prose and
   the registry describe the SAME set of rules", plus a per-rule title check), so
   a prose-only rule now fails CI instead of slipping past it.
@@ -1831,7 +1831,86 @@ nothing and the test passes vacuously.
   **behavioral** — `test/behavioral/wire-golden/datetime-wire.json`, diffed by all
   seven wire-gated legs, plus the witness's string assertions on every leg.
 
-### RS-39 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
+### RS-39 · An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415
+- **Guarantee.** On every body-carrying route, a request with **no body** (and
+  no `Content-Type`, or a JSON one) is answered exactly as `{}` is. A command
+  that declares no parameters therefore accepts all three of these:
+
+  ```bash
+  curl -X POST /api/appointments/$ID/confirm                                       # 204
+  curl -X POST /api/appointments/$ID/confirm -H 'Content-Type: application/json'   # 204
+  curl -X POST /api/appointments/$ID/confirm -H 'Content-Type: application/json' -d '{}'  # 204
+  ```
+
+  and a command with required fields earns the same 422 `errors[]` an explicit
+  `{}` does. Malformed JSON is `400 "Malformed JSON in request body"`. A body
+  under a foreign media type (`text/plain`, `application/x-www-form-urlencoded`)
+  — or content with no `Content-Type` at all — is
+  `415 "Content-Type must be application/json"`, **even when the body is
+  empty**: a declared media type is the caller's intent. Multipart (the file
+  upload transport) is untouched.
+- **Trigger.**
+
+  ```ddd
+  operation confirm() when status == Requested { status := Confirmed }
+  workflow Housekeeping { create() { … } }
+  ```
+
+  → `POST /api/appointments/{id}/confirm`, `POST /api/workflows/housekeeping`.
+- **The contract.** The parameterless command's OpenAPI `requestBody` is not
+  `required` (`commandBodyOptional`, `src/ir/util/command-body.ts`):
+
+  ```ts
+  // node — http/appointment.routes.ts
+  body: { content: { "application/json": { schema: ConfirmAppointmentRequest } }, required: false },
+  ```
+  ```python
+  # python — app/http/appointment_routes.py
+  body: Annotated[ConfirmAppointmentRequest, Body(default_factory=ConfirmAppointmentRequest)]
+  ```
+- **The split when measured** (the booking DX trial's `confirm()`, each backend
+  booted against Postgres):
+
+  | request | node | python | dotnet | java | elixir |
+  |---|---|---|---|---|---|
+  | no body, no CT | 415 | 422 | 415 | 204 | 204 |
+  | CT json, 0 bytes | 400 | 422 | 422 | 204 | 204 |
+  | `{}` | 204 | 204 | 204 | 204 | 204 |
+  | `{}` as `text/plain` | 415 | 422 | 415 | **204** | **204** |
+  | malformed JSON | 400 | 400 | 400 | **204** | 400 |
+
+  Java's zero-arg route never bound a body, so it accepted anything; elixir's
+  `pass: ["*/*"]` handed a foreign body to an action that never read it; python
+  had no 415 at all.
+- **Where it lives.** One normaliser per backend, ahead of routing: hono
+  `emptyBodyAsEmptyObject` (`http/problem-details.ts`), python
+  `JsonBodyMiddleware` (`app/http/problem.py`), .NET
+  `Middleware/EmptyJsonBodyMiddleware.cs` (which also resets
+  `IHttpRequestBodyDetectionFeature` — MVC's binder reads that, not the stream),
+  java `config/EmptyJsonBodyFilter.java` plus a body-reading zero-arg route, and
+  the Phoenix `BodyParser`. The 415 `detail` is one constant,
+  `UNSUPPORTED_MEDIA_TYPE_DETAIL` in `src/ir/util/openapi-errors.ts`.
+- **An absent required field is one 422 everywhere.** A command WITH
+  parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
+  422 with one `errors[]` entry per absent key —
+  `{ "pointer": "/reason", "message": "Required" }` — before the row is
+  loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  the nil to the operation body and answer **500**; the `require_command_params`
+  controller plug refuses it first. The sentence was each framework's own
+  (node `Invalid input: expected string, received undefined`, python `Field
+  required`, .NET `The reason field is required.`, java `must not be null`); it
+  is now `MISSING_FIELD_MESSAGE` (`src/ir/util/openapi-errors.ts`) on all five,
+  create and update included. A `create` with no input fields publishes an
+  optional `requestBody` like a parameterless command does.
+- **Conforms.** node, dotnet, java, python, elixir.
+- **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden
+  `__emptyCommandBodyProbes` (`test/behavioral/wire-differential.mjs`) replays
+  the first instance command each case POSTs `{}` to — against an absent id, so
+  the probe moves no state — with no body, with zero JSON bytes and as
+  `text/plain` (404, 404, 415), on all seven wire-gated legs; the emitted seams are pinned by
+  `test/generator/empty-command-body.test.ts`.
+
+### RS-40 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
 - **Guarantee.** A request number that does not fit its declared type is a
   **422** wire-validation refusal (RS-29's `Validation failed` rung) with one
   `errors[]` entry at the field's full pointer (RS-33), and the same message on
@@ -1883,7 +1962,7 @@ nothing and the test passes vacuously.
   grammar gate) and `test/conformance/numeric-ingress-parity.test.ts` (the
   range seam per backend).
 
-### RS-40 · A message-less rule's 422 carries node's sentence on every backend
+### RS-41 · A message-less rule's 422 carries node's sentence on every backend
 - **Guarantee.** A rule with no `message "…"` that rides the wire validator —
   an `invariant` over request fields, an operation `precondition` over its
   params — refuses with the sentence node's zod chain sends for it, at the
@@ -1922,7 +2001,7 @@ nothing and the test passes vacuously.
   `test/_helpers/wire-waivers.ts` deleted). Tier: **behavioral** —
   `wire-golden/validation-messages.json` and `wire-golden/intrinsics.json`.
 
-### RS-41 · A string intrinsic counts and cases the same on every backend
+### RS-42 · A string intrinsic counts and cases the same on every backend
 - **Guarantee.** `s.substring(start, len?)` counts **code points**, the unit of
   `s.length` (RS-31): `"a😀bc".substring(1, 2)` is `"😀b"` and
   `"a😀bc".substring(2)` is `"bc"` everywhere. `s.toUpper()` applies the Unicode
@@ -1950,7 +2029,7 @@ nothing and the test passes vacuously.
 - **Provenance.** Wave C3F packet F4. Tier: **unit** (the value table runs each
   backend's real renderer) plus **behavioral** (`wire-golden/intrinsics.json`).
 
-### RS-42 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
+### RS-43 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
 - **Guarantee.** The `actor` an `audited` command records — and its entity
   history (`GET /<aggregates>/{id}/history`) serves — is the request principal
   projected onto the system's declared `user { … }` fields, keyed by the

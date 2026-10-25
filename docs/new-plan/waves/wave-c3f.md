@@ -74,15 +74,15 @@ A packet that finishes early folds into the next open batch. Golden re-mints and
   - find params reached the query unchecked → `__check_find_params/2` answers 422 at the param.
   - F35 (elixir persists a VO's raw wire map) is minted **M-T6.89** and waived W37/W38. Hand-off: `handoffs/wave-c3f-f8.md`.
 - **F4 folded** (2026-10-11; `claude/c3f-f4` @ `4e5d52650`). **Cross-backend wire value contracts.** Three new RS rules and one ruling:
-  - **RS-39:** a decimal comma (.NET/Dapper, D22) and an int past int32 (D23) are refused at the field, with one message on every backend.
-  - **RS-40 / `D-MESSAGELESS-DEFAULT`:** every message-less wire rule answers node's sentence. This covers .NET, java and elixir (M-T6.86) and python's model-level invariant (D13). M-T6.86 is closed, and so is M-T6.87's rule half.
-  - **RS-41:** `substring` counts code points on every backend (D10), and .NET's `toUpper` maps `ß` to `SS` (D11).
+  - **RS-40:** a decimal comma (.NET/Dapper, D22) and an int past int32 (D23) are refused at the field, with one message on every backend.
+  - **RS-41 / `D-MESSAGELESS-DEFAULT`:** every message-less wire rule answers node's sentence. This covers .NET, java and elixir (M-T6.86) and python's model-level invariant (D13). M-T6.86 is closed, and so is M-T6.87's rule half.
+  - **RS-42:** `substring` counts code points on every backend (D10), and .NET's `toUpper` maps `ß` to `SS` (D11).
   - **M-T6.88:** java's payload mappers carry the path they sit at. Elixir answers at the leaf pointer too, so `/c/amount` is the same on every leg.
   - `WIRE_WAIVERS` is empty again.
   - The fold kept F3's and F1's additions to `corpus/intrinsics` and `corpus/wire-ingress` alongside F4's. Both goldens were re-minted from node.
   - F4's four new missions collided with F8's M-T6.89, so they are renumbered **M-T6.93–96**: the missing-required sentence, Feliz/Flutter UTF-16 units, the NUL contract, and elixir's changeset Ecto text. Hand-off: `handoffs/wave-c3f-f4.md`.
 - **F5 folded** (2026-10-11; `claude/c3f-f5` @ `3a7e2c707`). **Audit and principal cluster.** All six items are fixed:
-  - **D1:** every backend records the audit `actor` as the principal's declared `user {…}` shape, by declared name (the `/auth/me` body), or null without auth. This is minted as RS-39 and renumbered **RS-42** at the fold.
+  - **D1:** every backend records the audit `actor` as the principal's declared `user {…}` shape, by declared name (the `/auth/me` body), or null without auth. This is minted as RS-40 and renumbered **RS-43** at the fold.
   - **D2:** elixir's audited crudish update writes its row in one transaction.
   - **D3:** java's create audit snapshots the saved entity, so a `stamp` datetime no longer 500s.
   - **D4:** `mask unless` without auth is refused at validation (`loom.field-mask-principal-without-auth`).

@@ -893,7 +893,8 @@ function primitiveToggle(c: Ctx): string {
 
 /** Controlled Modal — a daisyUI dialog whose visibility is a bool state field
  *  (`open: <stateBool>`).  Open by dispatching a sibling action that sets it
- *  true; the built-in Close button dispatches `Set<Opened> false`.  Children are
+ *  true; the built-in Close button (named through `chrome.close`) dispatches
+ *  `Set<Opened> false`.  Children are
  *  the walked modal body (offside-safe on their own line inside `modal-box`). */
 function primitiveModalControlled(c: Ctx): string {
   const opened = String(c.opened ?? "");
@@ -910,7 +911,7 @@ function primitiveModalControlled(c: Ctx): string {
       `Html.h3 [ prop.className "text-lg font-bold"; ${textOrChildren(String(c.title ?? ""))} ]`,
     );
   const body = asElement(String(c.childrenJsx ?? ""));
-  const action = `Html.div [ prop.className "modal-action"; prop.children [ Html.button [ prop.className "btn"; prop.onClick (fun _ -> dispatch (${close} false)); prop.text "Close" ] ] ]`;
+  const action = `Html.div [ prop.className "modal-action"; prop.children [ Html.button [ prop.className "btn"; prop.onClick (fun _ -> dispatch (${close} false)); prop.text ${String(c.closeLabelExpr ?? '"Close"')} ] ] ]`;
   const boxKids = [...kids, body, action].join("\n    ");
   return `(Html.div [ prop.className (if ${model} then "modal modal-open" else "modal"); prop.children [\n  Html.div [ prop.className "modal-box"; prop.children [\n    ${boxKids}\n  ] ]\n] ])`;
 }

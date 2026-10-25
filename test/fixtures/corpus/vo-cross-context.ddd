@@ -86,6 +86,33 @@ system VoCrossContext {
       }
 
       repository Receipts for Receipt { }
+
+      // The SECOND axis, crossed with the first.  `Shipper` is a TPH concrete
+      // whose OWN required field is `Addr` — a value object declared in the
+      // SIBLING context `Directory`, not here.  The audit matrix measured both
+      // axes and found each covered only ALONE: `inheritance.ddd` puts a VO on
+      // an inheriting aggregate's own field but declares the VO in the SAME
+      // context, so the lookup never reaches `siblingValueObjects`; this file
+      // exercised the sibling pool but had no `extends` at all, so the TPH
+      // column path was never on it.  No corpus fixture crossed them.
+      //
+      // The crossing is what the subtype's column set depends on: a TPH
+      // concrete's own fields become NULLABLE columns on the shared base
+      // table, so the emitter narrows them back on read — and it must narrow
+      // the FLATTENED leaves the sibling pool produces (`ship_line1`,
+      // `ship_geo_lat`, `ship_geo_lng`), not the unflattened field name.  When
+      // the narrowing reads the field and the columns come from the pool, the
+      // two disagree and the row object has no such attribute.
+      abstract aggregate Party inheritanceUsing: sharedTable {
+        label: string
+        derived display: string = label
+      }
+
+      aggregate Shipper extends Party with crudish {
+        ship: Addr
+      }
+
+      repository Shippers for Shipper { }
     }
   }
 

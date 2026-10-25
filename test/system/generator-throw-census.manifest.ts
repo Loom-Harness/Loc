@@ -438,14 +438,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/explicit-handlers-emit.ts
-  "src/generator/dotnet/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Any `queryHandler H(...): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`, a let-bound paged find, or an aliased let) validates clean but crashes (repros also g2-pagedqh-find.ddd, g2-pagedqh-alias.ddd).",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/dotnet/projection-emit.ts
   "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
     guardedBy: ["loom.projection-fold-impure"],
@@ -671,14 +663,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
-  // src/generator/elixir/vanilla/explicit-handlers-emit.ts
-  "src/generator/elixir/vanilla/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A `queryHandler X(n): Thing paged { let xs = Things.byName(n) return xs }` (custom find, not a synthesized-criterion Repo.run) passes validation but has no synthCriterion repo-run.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
   "src/generator/elixir/vanilla/fold-stmt-emit.ts#renderFoldNewMap": {
     deferred:
@@ -693,7 +677,30 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/elixir/store-emit.ts
+  "src/generator/elixir/store-emit.ts#renderStoreStmt": {
+    guardedBy: ["loom.ui-body-statement-kind"],
+    note: "precondition / requires / return / match await in a LiveView store action are refused by the #liveview-store arm of the gate.",
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$2": {
+    guardedBy: ["loom.if-stmt-page-body-unsupported"],
+  },
+  "src/generator/elixir/store-emit.ts#renderStoreStmt$3": {
+    invariant:
+      "Scope resolution gives a ui body no aggregate to emit from, so an `emit` never lowers into a store action. (src/language/ddd-scope.ts)",
+  },
+
   // src/generator/elixir/vanilla/function-emit.ts
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock": {
+    guardedBy: ["loom.function-block-impure"],
+    note: "A call statement to anything but a pure function is #call-stmt.",
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$2": {
+    guardedBy: ["loom.function-block-impure"],
+  },
+  "src/generator/elixir/vanilla/function-emit.ts#renderPureBlock$3": {
+    guardedBy: ["loom.variant-match-placement"],
+  },
   "src/generator/elixir/vanilla/function-emit.ts#renderFunctionBodyLines": {
     deferred:
       "A workflow `function` with a non-tail `return` inside an `if` is never checked by the elixir if-gate but is rendered through renderFunctionBodyLines.",
@@ -803,10 +810,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
   "src/generator/feliz/fs-expr.ts#renderFsExpr$4": {
-    deferred:
-      "'b := this.b' (kind 'this') or 'let f = say' (kind 'action-ref') in a page action parse with 0 errors and hit the default arm.",
-    mission: "M-T9.81",
-    reviewUntil: "2027-01-31",
+    guardedBy: ["loom.ui-this-unbound"],
+  },
+  "src/generator/feliz/fs-expr.ts#renderFsExpr$5": {
+    invariant:
+      "authz-filter is built only by enrichment into an aggregate's contextFilters / writeScopeFilter, never into a ui body. (src/ir/util/tenant-stance.ts)",
   },
   "src/generator/feliz/fs-expr.ts#renderFsMethodCall": {
     deferred:
@@ -1082,14 +1090,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
-  // src/generator/java/explicit-handlers-emit.ts
-  "src/generator/java/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A queryHandler returning `Order paged` whose body is anything other than `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`) validates clean and throws here.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
     deferred:
@@ -1130,14 +1130,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
-  },
-
-  // src/generator/python/explicit-handlers-emit.ts
-  "src/generator/python/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Same as Java: any paged queryHandler body other than the exact let/return repo-run shape validates clean.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/generator/python/find-predicate.ts
@@ -1390,14 +1382,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/emit.ts#generateTypeScriptForContexts": {
     invariant:
       "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/v4/emit.ts:638-644; src/platform/hono/v4/emit.ts:1403-1416)",
-  },
-
-  // src/platform/hono/v4/explicit-handlers-builder.ts
-  "src/platform/hono/v4/explicit-handlers-builder.ts#emitPagedRunHandler": {
-    deferred:
-      "No validator pins the body of a `queryHandler H(...): <Agg> paged`; `return Orders.run(InRegion(rgn))` (or a let-rebinding, or `let r = Orders.findAll()`, or a compound criterion) validates clean on node and crashes the paged branch.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/platform/hono/v4/projection-builder.ts

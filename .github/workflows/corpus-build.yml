@@ -33,33 +33,6 @@ name: Corpus compile gates
 # job), plus push:main and manual dispatch.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Every phase `generate system` walks, whatever the backend: parse ->
-      # macro expand -> lower -> enrich -> IR validate -> compose, plus the
-      # util/ leaves (naming, code-builder, platform-axes) every emitter
-      # imports.  A change confined to one of these reaches this gate's
-      # subject, so it has to be able to trigger it -- none of them could
-      # before #2397.  Pinned by test/system/workflow-path-coverage.test.ts.
-      - 'src/language/**'
-      - 'src/macros/**'
-      - 'src/ir/**'
-      - 'src/system/**'
-      - 'src/util/**'
-      - 'src/generator/**'
-      - 'src/platform/**'
-      - 'test/fixtures/corpus/**'
-      - 'test/e2e/corpus-tsc-build.test.ts'
-      - 'test/e2e/corpus-dotnet-build.test.ts'
-      - 'test/e2e/corpus-dotnet-dapper-build.test.ts'
-      - 'test/e2e/corpus-java-build.test.ts'
-      - 'test/e2e/support/gradle.ts'
-      - 'test/e2e/support/java-werror.init.gradle'
-      - 'test/e2e/corpus-python-build.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/corpus-build.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -84,6 +57,8 @@ on:
       - 'test/e2e/support/gradle.ts'
       - 'test/e2e/support/java-werror.init.gradle'
       - 'test/e2e/corpus-python-build.test.ts'
+      - 'test/e2e/support/parallel.ts'
+      - 'test/e2e/support/npm-install.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/corpus-build.yml'
@@ -98,8 +73,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # TS/Hono — tsc --noEmit per feature.  No external SDK; npm install per
-  # feature dominates the wall time.
+  # TS/Hono — tsc --noEmit for every feature, PARALLELISM at a time.  Each
+  # distinct dependency set is npm-installed once and shared by every project
+  # that declares it.
   corpus-tsc:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
@@ -114,6 +90,8 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -146,6 +124,8 @@ jobs:
           key: nuget-${{ hashFiles('src/generator/dotnet/templates/program.tpl.ts') }}
           restore-keys: |
             nuget-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -181,6 +161,8 @@ jobs:
           key: nuget-${{ hashFiles('src/generator/dotnet/templates/program.tpl.ts') }}
           restore-keys: |
             nuget-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -216,6 +198,8 @@ jobs:
           key: gradle-${{ hashFiles('src/generator/java/emit/program.ts') }}
           restore-keys: |
             gradle-
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain
@@ -227,13 +211,16 @@ jobs:
       - name: gradle build against every corpus feature
         run: npm run test:java-corpus
 
-  # Python/FastAPI — uv sync + ruff + mypy --strict per feature.
+  # Python/FastAPI — uv sync + ruff + mypy --strict (+ pytest) for every
+  # feature, PARALLELISM at a time, each mypy run seeded with a warm cache.
   corpus-python:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # ~4 min for 101 features on a 4-core machine (19.5 min run serially from
+    # cold mypy caches); the headroom covers a contended runner pool.
     timeout-minutes: 45
     name: corpus × python (FastAPI)
     steps:
@@ -246,6 +233,8 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           cache-dependency-glob: 'src/generator/python/pins.ts'
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
       - name: Build toolchain

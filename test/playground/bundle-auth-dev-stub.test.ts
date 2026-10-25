@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { devStubEntryFor, makeEntryStdin, schemaPathFor } from "../../web/src/bundle/plugin.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // The playground's synthesised bundle entry registers the emitted DEV-STUB
@@ -57,12 +58,18 @@ describe("devStubEntryFor", () => {
     expect(devStubEntryFor(vfs(["d/http/index.ts", "d/db/schema.ts"]), HONO_ENTRY)).toBeUndefined();
   });
 
-  // An `auth { oidc }` deployable emits `auth/oidc.ts` and no dev stub: its
+  // An `auth { oidc }` deployable emits the dev stub beside `auth/oidc.ts`: its
   // verifier validates against the IdP's JWKS, and no IdP is reachable from the
-  // preview worker. Deliberately still unregistered.
-  it("is undefined for an OIDC deployable (no dev stub is emitted)", () => {
-    const oidc = vfs(["d/http/index.ts", "d/db/schema.ts", "d/auth/verifier.ts", "d/auth/oidc.ts"]);
-    expect(devStubEntryFor(oidc, HONO_ENTRY)).toBeUndefined();
+  // preview worker, so the preview registers the stub instead.
+  it("finds the dev stub of an OIDC deployable too", () => {
+    const oidc = vfs([
+      "d/http/index.ts",
+      "d/db/schema.ts",
+      "d/auth/verifier.ts",
+      "d/auth/oidc.ts",
+      "d/auth/dev-stub.ts",
+    ]);
+    expect(devStubEntryFor(oidc, HONO_ENTRY)).toBe("d/auth/dev-stub.ts");
   });
 });
 
@@ -89,6 +96,39 @@ describe("makeEntryStdin", () => {
         'export { getTableConfig } from "drizzle-orm/pg-core";',
         "",
       ].join("\n"),
+    );
+  });
+});
+
+// The chain end to end on a real generated tree: an `auth { oidc }` system's
+// Hono deployable carries a dev stub the preview entry finds and registers.
+// Without it the preview cannot boot such a system at all (`createApp` asserts
+// a verifier is registered), and the user is told to stand up a real IdP.
+describe("an auth { oidc } system in the preview", () => {
+  const OIDC_SYSTEM = `
+system Helpdesk {
+  user { id: string role: string }
+  auth { enforcement: opt  provider: auth0  oidc { issuer: "https://helpdesk.eu.auth0.com/"  clientId: env("OIDC_CLIENT_ID") } }
+  subdomain Support {
+    context Tickets {
+      aggregate Ticket with crudish { subject: string }
+      repository Tickets for Ticket { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Tickets, kind: state, use: primary }
+  api SApi from Support
+  deployable d { platform: node contexts: [Tickets] serves: SApi dataSources: [st] port: 4000 auth: required }
+}`;
+
+  it("registers the emitted dev stub at the preview entry", async () => {
+    const files = await generateSystemFiles(OIDC_SYSTEM);
+    expect(files.has("d/auth/oidc.ts"), "the generated app still verifies OIDC").toBe(true);
+    const vfsFiles = new Map([...files].map(([p, c]) => [`/${p}`, c]));
+    const stub = devStubEntryFor(vfsFiles, HONO_ENTRY);
+    expect(stub).toBe("d/auth/dev-stub.ts");
+    expect(makeEntryStdin(HONO_ENTRY, schemaPathFor(HONO_ENTRY), stub)).toContain(
+      "registerDevStubVerifier();",
     );
   });
 });

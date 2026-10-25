@@ -228,7 +228,7 @@ export function refineRenderable(e: ExprIR, decimal: RefineDecimalMode = "server
  *  violations to this same sentence (D-MESSAGELESS-RULE-WIRE-MESSAGE, #15d —
  *  `python/emit/wire-constraints.ts`), and so do .NET's FluentValidation arms,
  *  java's request validator and elixir's precondition rung
- *  (D-MESSAGELESS-DEFAULT, RS-40); elixir's create/update CHANGESET still
+ *  (D-MESSAGELESS-DEFAULT, RS-41); elixir's create/update CHANGESET still
  *  sends Ecto's own text (M-T6.96).  The message-LESS `.refine(…)`
  *  clause default (`"Invariant violated: <src>"`, in `refineClauseFor` below)
  *  is by contrast a CROSS-BACKEND string all five wire validators emit
@@ -285,10 +285,10 @@ export function chainSingleFieldNative(
   pattern: SingleFieldPattern,
   field: string,
 ): string {
-  // `{ message: … }` is the one options spelling BOTH pinned zod majors accept
-  // on `.min`/`.max`/`.gt`/`.lt`/`.regex`/`.refine` — zod 3 (`platform:
-  // node@v4` and the v1 react stack) and zod 4 (v5).  zod 4's `error` key does
-  // not exist in 3, and 3's bare-string overload is gone in 4.
+  // `{ message: … }` is the one options spelling both zod majors accept on
+  // `.min`/`.max`/`.gt`/`.lt`/`.regex`/`.refine`.  Every built-in stack pins
+  // zod 4, but a custom design pack may still pin zod 3: zod 4's `error` key
+  // does not exist in 3, and 3's bare-string overload is gone in 4.
   const msg = `{ message: ${JSON.stringify(singleFieldMessage(field, pattern))} }`;
   switch (pattern.kind) {
     case "min":
@@ -325,7 +325,7 @@ export function chainSingleFieldNative(
 
 /** Native-chain patterns first, code-point `len-*` refines LAST.
  *
- *  zod 3 (which `platform: node@v4` and the v1 react stack still pin) types
+ *  zod 3 (which a custom design pack may still pin) types
  *  `.refine()` as a `ZodEffects` WRAPPER that no longer exposes `.regex` /
  *  `.min` / `.max`.  A field carrying both a regex and a length bound —
  *  `invariant email.matches("…") && email.length <= 120`, the very example

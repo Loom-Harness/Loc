@@ -9,6 +9,7 @@
 // calls in the workflow body).
 // ---------------------------------------------------------------------------
 
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -27,11 +28,16 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  lifecycleGates,
+  lifecycleGatesUseCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -87,12 +93,13 @@ import {
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
+  renderOpGuardClause,
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
-import { refCollFieldNames } from "./ref-collection-emit.js";
+import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collection-emit.js";
 import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
@@ -304,7 +311,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -313,9 +320,9 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
     default:
       return null;
   }
@@ -337,7 +344,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
 /** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
  *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
- *  the cross-backend range sentence (RS-39, `INTEGER_RANGE_MESSAGE`), sent
+ *  the cross-backend range sentence (RS-40, `INTEGER_RANGE_MESSAGE`), sent
  *  bare — no value appended — exactly as the other four send it. */
 export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
 
@@ -590,7 +597,7 @@ ${auditRecordCall({
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const findLines = customFindsOf(repo).map((f) => {
       const findSnake = snake(f.name);
-      const baseArgs = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+      const baseArgs = f.params.map((p) => elixirLocal(p.name));
       // A `paged` find carries the same `page`/`page_size` + `sort`/`dir` arity
       // (with defaults) the repository fn declares, so the defdelegate matches
       // and the controller's paged call routes through (M-T2.6).
@@ -796,10 +803,114 @@ ${body}
     // unauthorized caller could not compute.
     const createValidateClause = isDoc
       ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
-      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(attrs), :insert)`;
+      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(${declaredCreateParamNames(agg) !== undefined ? `${changesetMod}.take_create_attrs(attrs)` : "attrs"}), :insert)`;
+    // The create BODY (`createBodyStatements`): its `precondition`s and
+    // `let`s join the same `with` chain, evaluated against the validated draft
+    // struct — `record`, exactly what an operation's guards read — with each
+    // read create param bound off it (a param IS its same-named field).  Its
+    // `emit`s dispatch after the insert, off the inserted row.
+    const body = createBodyStatements(agg);
+    const bodyRc: RenderCtx = {
+      thisName: "record",
+      contextModule: facadeMod,
+      agg: agg as EnrichedAggregateIR,
+    };
+    const bodyReadsRecord = body.some((st) => st.kind !== "emit");
+    const bodyClauses = [
+      ...createBodyParams(agg).map(
+        (p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`,
+      ),
+      ...body.flatMap((st) => {
+        // An empty wire set: a create precondition is not lifted into the
+        // create request validator on any backend, so it answers the domain
+        // floor (with its `errors[]` entry when messaged), like the other four.
+        if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
+        if (st.kind === "let")
+          return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+        return [];
+      }),
+    ];
+    const bodyEmits = body.some((st) => st.kind === "emit");
+    const emitAction = { ...agg.canonicalCreate!, statements: body };
+    const createHasDispatcher = contextHasDispatcher(
+      ctx as EnrichedBoundedContextIR,
+      extraChannels,
+    );
+    const durableCreateEmit = bodyEmits && opEmitsDurableEvent(emitAction, channels);
+    const validateClause =
+      bodyReadsRecord && body.length > 0
+        ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
+        : createValidateClause;
+    const insertCall = `${repoMod}.insert(attrs${stampActorArg ? ", current_user" : ""})`;
+    // A durable event's dispatch is an outbox INSERT, so it shares the
+    // insert's transaction; its PubSub broadcast waits for the commit.  The
+    // event structs are returned out of the transaction alongside the row so
+    // the broadcast can reach them.
+    const durableParts = durableCreateEmit
+      ? renderDurableEmitDispatchParts(
+          emitAction,
+          bodyRc,
+          createHasDispatcher,
+          {
+            bind: "              ",
+            dispatch: "              ",
+            broadcast: "          ",
+          },
+          undefined,
+          undefined,
+          channels,
+        )
+      : { bind: [], dispatch: [], broadcast: [] };
+    const durableVars = body.filter((st) => st.kind === "emit").map((_, i) => `loom_event_${i}`);
+    const createDo = !bodyEmits
+      ? `      ${insertCall}`
+      : durableCreateEmit
+        ? `      tx_result =
+        ${appModule}.Repo.transaction(fn ->
+          case ${insertCall} do
+            {:ok, record} ->
+${[...durableParts.bind, ...durableParts.dispatch].join("\n")}
+              {record, ${durableVars.join(", ")}}
+
+            {:error, reason} ->
+              ${appModule}.Repo.rollback(reason)
+          end
+        end)
+
+      case tx_result do
+        {:ok, {record, ${durableVars.join(", ")}}} ->
+${durableParts.broadcast.join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`
+        : `      case ${insertCall} do
+        {:ok, record} ->
+${renderEmitDispatchLines(emitAction, bodyRc, createHasDispatcher, "          ", undefined, undefined, channels).join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`;
+    // The body is DOMAIN logic, not authorization, so it runs in the entry
+    // every caller reaches — the ungated `create_<agg>`, or, when a `requires`
+    // gate splits the seam, `create_<agg>_unguarded` (workflow steps and event
+    // dispatch call that one, and run the body like every other backend's
+    // domain factory does).
+    const bodyEntry = (name: string): string =>
+      body.length === 0
+        ? `  defdelegate ${name}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        : `  @doc "Create a ${aggPascal}: validate, run the canonical \`create\` body's guards over the draft, insert, then dispatch its events."
+  def ${name}(attrs${stampActorArg}) do
+    with ${[validateClause, ...bodyClauses].join(",\n         ")} do
+${createDo}
+    end
+  end
+`;
     const createDelegate =
       createClauses.length === 0
-        ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        ? bodyEntry(`create_${aggSnake}`)
         : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
     lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
@@ -810,7 +921,7 @@ ${body}
   end
 
   @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
-  defdelegate ${unguardedName("create", agg.name)}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`;
+${bodyEntry(unguardedName("create", agg.name))}`;
     const deleteClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
@@ -853,7 +964,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       const retMod = `${facadeMod}.Retrievals.${upperFirst(r.name)}`;
       // `defdelegate` carries the function arity through to the target.
       // `\\\\ []` is the default for the trailing `opts` arg.
-      const args = r.params.map((p) => escapeElixirIdent(snake(p.name)));
+      const args = r.params.map((p) => elixirLocal(p.name));
       const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
       return `  defdelegate run_${retSnake}_${aggSnake}(${argList}), to: ${retMod}, as: :run`;
     });
@@ -877,7 +988,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // `contains` membership test; `__resolve_refs/2` (and its `import Ecto.Query`)
   // only by the mutation path.  Gate them separately so a contains-only op
   // doesn't emit an unused `__resolve_refs` (a `--warnings-as-errors` break).
-  const mutatesRefColl = contextMutatesRefColl(ctx);
+  const mutatesRefColl = contextMutatesRefColl(ctx, true);
   const refCollHelpers = contextUsesRefCollOp(ctx)
     ? `\n${renderContextRefCollHelpers(appModule, mutatesRefColl)}\n`
     : "";
@@ -976,7 +1087,8 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     // `ensure/2` defined (undefined function, not a warning).
     if (
       lifecycleGates(agg.canonicalCreate).length > 0 ||
-      lifecycleGates(agg.canonicalDestroy).length > 0
+      lifecycleGates(agg.canonicalDestroy).length > 0 ||
+      createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
       return true;
     }
@@ -994,9 +1106,10 @@ function contextEmitsEvent(ctx: BoundedContextIR): boolean {
   return ctx.aggregates.some(
     (agg) =>
       !isEventSourced(agg) &&
-      (agg.operations ?? []).some(
+      ((agg.operations ?? []).some(
         (op) => !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => s.kind === "emit"),
-      ),
+      ) ||
+        createBodyStatements(agg).some((s) => s.kind === "emit")),
   );
 }
 
@@ -1026,10 +1139,18 @@ function stmtHasRefCollContains(s: StmtIR): boolean {
  *  back to structs.  A read-only `contains` never touches it, so keeping this
  *  gate mutation-only avoids an emitted-but-unused `__resolve_refs` under
  *  `--warnings-as-errors`. */
-function contextMutatesRefColl(ctx: BoundedContextIR): boolean {
+function contextMutatesRefColl(ctx: BoundedContextIR, localOnly = false): boolean {
   return ctx.aggregates.some((agg) => {
     if (isEventSourced(agg)) return false;
-    const names = refCollFieldNames(agg);
+    // `localOnly`: count only same-context targets — a FOREIGN one persists
+    // through its join-row schema's `rows/2`, never `__resolve_refs`.
+    const names = localOnly
+      ? new Set(
+          refCollFields(agg)
+            .filter((rc) => !isForeignRefColl(rc, ctx.aggregates))
+            .map((rc) => snake(rc.field.name)),
+        )
+      : refCollFieldNames(agg);
     if (names.size === 0) return false;
     return (agg.operations ?? []).some(
       (op) =>
@@ -1261,7 +1382,7 @@ function renderExternOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
@@ -1356,7 +1477,7 @@ function renderNamedOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-
@@ -1458,6 +1579,7 @@ function renderNamedOpFunction(
     facadeMod.split(".")[0]!,
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
+    ctx.aggregates,
   );
   const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
   const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");

@@ -29,7 +29,86 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
+/** The Dapper deployable's DDL as the schema assertions read it: every
+ *  `Migrations/*.cs` statement (Dapper applies the shared migration chain —
+ *  M-T2.17), C# verbatim-string escaping undone, identifiers unquoted and
+ *  schema-unqualified, lowercased. */
+function dapperDdl(proj: string): string {
+  const dir = path.join(proj, "Migrations");
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".cs"))
+    .sort()
+    .map((f) => {
+      const c = fs.readFileSync(path.join(dir, f), "utf8");
+      return [...c.matchAll(/^ {12}@"((?:[^"]|"")*)",$/gm)].map((m) => m[1]).join("\n");
+    })
+    .join("\n")
+    .replace(/""/g, '"')
+    .replace(/"[a-z_0-9]+"\./g, "")
+    .replace(/"/g, "")
+    .toLowerCase();
+}
+
 const ENABLED = process.env.LOOM_DOTNET_BUILD === "1";
+
+interface UnitTestCounts {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+/** Build (`/warnaserror`) and RUN the xUnit project a .NET backend emits under
+ *  `<proj>/Tests/<Ns>.Tests/`, and return its TRX counters.  Returns `null`
+ *  when the project emitted no Tests csproj (no `test` blocks).
+ *
+ *  The root `dotnet build` every case runs never compiles the tests:
+ *  `<Ns>.csproj` carries `<Compile Remove="Tests/**" />`, so without this a test
+ *  project that does not compile leaves the gate green.  A run with zero tests
+ *  also fails here: an empty
+ *  `dotnet test` exits 0, and that is a false green.  The restore needs xunit /
+ *  AwesomeAssertions from NuGet, which the behavioural .NET leg already pulls
+ *  in CI. */
+function runEmittedUnitTests(proj: string): UnitTestCounts | null {
+  const testsDir = path.join(proj, "Tests");
+  if (!fs.existsSync(testsDir)) return null;
+  const csprojs = fs
+    .readdirSync(testsDir)
+    .map((d) => path.join(testsDir, d, `${d}.csproj`))
+    .filter((p) => fs.existsSync(p));
+  if (csprojs.length === 0) return null;
+  const counts: UnitTestCounts = { total: 0, passed: 0, failed: 0 };
+  for (const csproj of csprojs) {
+    execSync(`dotnet build "${csproj}" --nologo /warnaserror`, {
+      cwd: proj,
+      stdio: "inherit",
+      timeout: 300_000,
+    });
+    const trxDir = path.join(path.dirname(csproj), ".loom-trx");
+    fs.rmSync(trxDir, { recursive: true, force: true });
+    let runError: unknown = null;
+    try {
+      execSync(
+        `dotnet test "${csproj}" --no-build --nologo --logger "trx;LogFileName=unit.trx" --results-directory "${trxDir}"`,
+        { cwd: proj, stdio: "inherit", timeout: 300_000 },
+      );
+    } catch (e) {
+      runError = e;
+    }
+    const trx = path.join(trxDir, "unit.trx");
+    expect(fs.existsSync(trx), `${csproj}: dotnet test wrote no TRX (${String(runError)})`).toBe(
+      true,
+    );
+    const counters = /<Counters\b[^>]*>/.exec(fs.readFileSync(trx, "utf8"))?.[0] ?? "";
+    const n = (attr: string) => Number(new RegExp(`\\b${attr}="(\\d+)"`).exec(counters)?.[1] ?? 0);
+    counts.total += n("total");
+    counts.passed += n("passed");
+    counts.failed += n("failed");
+  }
+  expect(counts.total, `${proj}: the emitted xUnit project ran no tests`).toBeGreaterThan(0);
+  expect(counts.failed, `${proj}: emitted xUnit tests failed (see the output above)`).toBe(0);
+  return counts;
+}
 
 describe.skipIf(!ENABLED)(
   "generated .NET project compiles under `dotnet build /warnaserror` (LOOM_DOTNET_BUILD=1)",
@@ -135,6 +214,42 @@ describe.skipIf(!ENABLED)(
           ? fs.readdirSync(binDir).filter((f) => f.endsWith(".dll"))
           : [];
         expect(builtDlls.length, "expected at least one built .dll").toBeGreaterThan(0);
+        // The emitted xUnit project, when the example declares `test` blocks
+        // (`examples/sales.ddd` does): the build above never compiles it.
+        runEmittedUnitTests(outDir);
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 600_000);
+
+    // The emitted xUnit project — `Tests/<Ns>.Tests/`, its OWN csproj — must
+    // compile under /warnaserror AND pass.  The root build every other case
+    // runs cannot reach it (`<Compile Remove="Tests/**" />`).  The fixture pins
+    // three ways it breaks: a unit test omitting a plain-optional `create({…})`
+    // input (CS7036), `expect(<VO literal>).toThrow()` asserting the wrong
+    // exception type (fails only at run time), and a MailKit advisory the test
+    // csproj does not suppress (NU1902).  The exact count pins that the tests
+    // RAN: `dotnet test` on a project with no tests exits 0.
+    it("system emitted xUnit project — `create({…})` omissions, VO `toThrow()`, mailer audit — compile and pass", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-unit-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/dotnet-build/unit-test-create-omission.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "api");
+        execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
+        execSync(`dotnet build --no-restore --nologo /warnaserror`, {
+          cwd: proj,
+          stdio: "inherit",
+          timeout: 180_000,
+        });
+        // 5 Ticket tests + 3 Window tests.
+        expect(runEmittedUnitTests(proj)).toEqual({ total: 8, passed: 8, failed: 0 });
       } finally {
         try {
           fs.rmSync(outDir, { recursive: true, force: true });
@@ -762,19 +877,11 @@ describe.skipIf(!ENABLED)(
           ? fs.readdirSync(binDir).filter((f) => f.endsWith(".dll"))
           : [];
         expect(builtDlls.length, "expected at least one built .dll").toBeGreaterThan(0);
-        // The generated xUnit `Tests/` project is a SEPARATE csproj. Its
-        // emission + compile-readiness (currentUser actor + no void→var) is
-        // guarded by the fast generator test
-        // (test/generator/dotnet/aggregate-test-currentuser.test.ts), which
-        // needs no toolchain.  We assert it's emitted here, but do NOT
-        // `dotnet build` it in CI: the Tests project pulls test-only packages
-        // (AwesomeAssertions/xunit) that this runner's NuGet environment does
-        // not have cached, and build-time restore of them isn't reliable here.
-        // Actually compiling the Tests project is a Tier-1 follow-up (see
-        // docs/old/plans/runtime-conformance-harness.md) once the CI NuGet feed
-        // carries the test packages.
+        // The generated xUnit `Tests/` project is a SEPARATE csproj that the
+        // build above never compiles, so build it and run it here.
         const testProj = path.join(proj, "Tests", "DotnetApi.Tests", "DotnetApi.Tests.csproj");
         expect(fs.existsSync(testProj), "generated Tests project").toBe(true);
+        runEmittedUnitTests(proj);
       } finally {
         try {
           fs.rmSync(outDir, { recursive: true, force: true });
@@ -935,9 +1042,7 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        expect(
-          fs.readFileSync(path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"), "utf8"),
-        ).toContain("accounts_events");
+        expect(dapperDdl(proj)).toContain("create table accounts_events");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "AccountRepository.cs"),
@@ -971,13 +1076,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // The contained part gets NO child table — it folds from the stream.
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS ledger_lines");
-        expect(schema).toContain("accounts_events");
+        expect(schema).not.toContain("create table ledger_lines (");
+        expect(schema).toContain("create table accounts_events");
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
           cwd: proj,
@@ -1009,12 +1111,9 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS line_items");
-        expect(schema).toContain("references orders (id) on delete cascade");
+        const schema = dapperDdl(proj);
+        expect(schema).toContain("create table line_items (");
+        expect(schema).toContain("references orders on delete cascade");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "OrderRepository.cs"),
@@ -1051,14 +1150,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Grandchild tables FK their DIRECT parent part, not the aggregate root.
-        expect(schema).toContain("references shipments (id) on delete cascade");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS labels");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS stickers");
+        expect(schema).toContain("references shipments on delete cascade");
+        expect(schema).toContain("create table labels (");
+        expect(schema).toContain("create table stickers (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "OrderRepository.cs"),
           "utf8",
@@ -1094,10 +1190,7 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         expect(schema).toContain("tags jsonb not null");
         expect(schema).toContain("notes jsonb"); // optional list
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
@@ -1284,13 +1377,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Blob table, not a normalised per-field/child-table tree.
         expect(schema).toContain("data jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines");
+        expect(schema).not.toContain("create table cart_lines (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "CartRepository.cs"),
@@ -1330,13 +1420,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Flat root columns + jsonb containment columns; no child tables.
-        expect(schema).toContain("lines jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines");
+        expect(schema).toContain("lines jsonb"); // a JSONB column on the root row (the migration chain declares it nullable)
+        expect(schema).not.toContain("create table cart_lines (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "CartRepository.cs"),
@@ -1377,14 +1464,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Root containment is a jsonb column; nested part has NO child table.
-        expect(schema).toContain("boxes jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS boxes");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS items");
+        expect(schema).toContain("boxes jsonb"); // a JSONB column on the root row (the migration chain declares it nullable)
+        expect(schema).not.toContain("create table boxes (");
+        expect(schema).not.toContain("create table items (");
         // Nested snapshot ParentId brands to its DIRECT parent (BoxId).
         const snaps = fs.readFileSync(
           path.join(proj, "Domain", "Carts", "CartSnapshots.cs"),
@@ -1425,13 +1509,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Concrete tables carry merged fields; no table for the abstract base.
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS customers");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS parties");
+        expect(schema).toContain("create table customers (");
+        expect(schema).not.toContain("create table parties (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "PartyRepository.cs"),
@@ -1472,14 +1553,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // ONE shared table named for the base; concretes own none.
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS parties");
+        expect(schema).toContain("create table parties (");
         expect(schema).toContain("kind text not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
+        expect(schema).not.toContain("create table customers (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "CustomerRepository.cs"),
           "utf8",
@@ -1521,19 +1599,14 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Concrete owns no state table; its child + join tables FK the base row.
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS notes");
-        expect(schema).toContain(
-          "party_id uuid not null references parties (id) on delete cascade",
-        );
+        expect(schema).not.toContain("create table customers (");
+        expect(schema).toContain("create table notes (");
+        expect(schema).toContain("foreign key (party_id) references parties on delete cascade");
         // Part-in-part under the TPH concrete: the grandchild FKs its sibling part.
-        expect(schema).toContain("references notes (id) on delete cascade");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS customer_tags");
+        expect(schema).toContain("references notes on delete cascade");
+        expect(schema).toContain("create table customer_tags (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "CustomerRepository.cs"),
           "utf8",

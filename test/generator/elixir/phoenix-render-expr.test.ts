@@ -519,7 +519,7 @@ describe("phoenix renderExpr — member, method-call, call, new, list, lambda", 
     );
   });
 
-  it("renders string.substring in both arities over code points (RS-41)", () => {
+  it("renders string.substring in both arities over code points (RS-42)", () => {
     const twoArg: ExprIR = {
       kind: "method-call",
       receiver: thisProp("name"),

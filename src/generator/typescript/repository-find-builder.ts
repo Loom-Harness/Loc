@@ -27,8 +27,9 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { discriminatorValue } from "../../ir/util/inheritance.js";
-import { sortableFields } from "../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { indent, lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -459,6 +460,9 @@ export function findQueryMethod(
     const sortCols = sortableFields(agg)
       .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
       .join(", ");
+    const declaredOrder = defaultSortOrder(find.defaultSort)
+      ?.map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
+      .join(", ");
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -486,12 +490,20 @@ export function findQueryMethod(
       // it only guards null/undefined, and an inherited member is neither.
       // The route's zod enum is the outer boundary; this is the one that holds
       // for every OTHER caller of the repository.
-      `    const ${L.sortColumn} = Object.hasOwn(${L.sortColumns}, sort) ? ${L.sortColumns}[sort]! : schema.${tableName}.id;`,
-      `    const ${L.orderBy} = dir === "desc" ? desc(${L.sortColumn}) : asc(${L.sortColumn});`,
+      ...(declaredOrder
+        ? [
+            // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            `    const ${L.orderBy} = Object.hasOwn(${L.sortColumns}, sort) ? [dir === "desc" ? desc(${L.sortColumns}[sort]!) : asc(${L.sortColumns}[sort]!)] : [${declaredOrder}];`,
+          ]
+        : [
+            `    const ${L.sortColumn} = Object.hasOwn(${L.sortColumns}, sort) ? ${L.sortColumns}[sort]! : schema.${tableName}.id;`,
+            `    const ${L.orderBy} = dir === "desc" ? desc(${L.sortColumn}) : asc(${L.sortColumn});`,
+          ]),
       `    const ${L.countRows} = await this.db.select({ value: count() }).from(schema.${tableName})${whereClause};`,
       `    const ${L.total} = Number(${L.countRows}[0]?.value ?? 0);`,
       `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${L.orderBy}).limit(pageSize).offset(${L.offset});`,
+      `    const ${L.rootRows} = await this.db.select().from(schema.${tableName})${whereClause}.orderBy(${declaredOrder ? `...${L.orderBy}` : L.orderBy}).limit(pageSize).offset(${L.offset});`,
       `    if (${L.rootRows}.length === 0) {`,
       `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${find.name}", rows: 0`)}`,
       `      return ${pagedEnvelopeLiteral({ ...L, items: "[]" })};`,
@@ -754,13 +766,8 @@ export function buildFindWhereClause(
   // (a column rename desyncing from a find name produced bad runtime
   // SQL with no compile error) and is gone now.
   const conditions: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) {
-      conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
-    }
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
   }
   // TPH `kind` scope joins the convention-matched param conditions.
   if (kindPred) conditions.push(kindPred);

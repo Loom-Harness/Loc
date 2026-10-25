@@ -21,19 +21,25 @@ import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   resolveForeignEvents,
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
+  problemTitle,
+  UNSUPPORTED_MEDIA_TYPE_DETAIL,
+} from "../../ir/util/openapi-errors.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
@@ -218,12 +224,18 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     knownEventNames,
     args.sys,
   );
-  // The value objects / enums those foreign events reach join too:
-  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
-  // which must therefore declare them (eval item 11).
-  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach join too:
+  // `app/domain/events.py` and the aggregate modules import them from
+  // `app/domain/value_objects.py`, which must therefore declare them (eval
+  // item 11).
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, args.contexts),
+    args.sys,
+    mergedPre,
+  );
   const merged: EnrichedBoundedContextIR = {
-    ...withForeignValueTypes(mergedPre, foreignValueTypes),
+    ...withForeignValueTypes(mergedPre, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -561,8 +573,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-    ...workflowIdTypeSources(merged.workflows),
+    ...valueObjectFieldTypes(foreignValues.valueObjects),
+    ...hostedContextIdTypeSources([merged]),
     ...userClaimIdTypeSources(args.sys.user),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -637,6 +649,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     hasChannels,
     durableBrokerEvents,
     hasRealtime,
+    authRequired,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /
@@ -652,6 +665,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
         valueObjectPool(merged),
+        authRequired,
       ),
     );
   }
@@ -768,7 +782,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // repository-backed cross-aggregate test module reading LOOM_PG_URL, no HTTP.
   // Python merges the deployable's contexts into one app, so this is one
   // combined module (`merged.tests` carries every context's integration tests).
-  const integrationTests = renderPyContextIntegrationTest(merged);
+  // Its dispatcher is the one `app/dispatch.py` actually defines: that module
+  // exists only under a dispatch condition, and its pure-producer shape has no
+  // `InProcessDispatcher` — so the test reads the class off the emitted file.
+  const integrationTests = renderPyContextIntegrationTest(merged, {
+    inProcessDispatcher: /^class InProcessDispatcher\b/m.test(dispatchFile ?? ""),
+  });
   if (integrationTests) {
     out.set(`tests/test_${snake(merged.name)}_integration.py`, integrationTests);
   }
@@ -918,6 +937,17 @@ function renderPyproject(
     [...PYTHON_PINS.devDependencies, ...extraDevDeps].map(dep),
     "]",
     "",
+    "# A pip editable install (`pip install -e .`) builds the project, so it",
+    "# needs a backend and the one package to ship: `app`.  Automatic",
+    "# discovery refuses the flat layout, which also holds `migrations/` and",
+    "# `tests/` beside it.",
+    "[build-system]",
+    `requires = ["setuptools>=77"]`,
+    `build-backend = "setuptools.build_meta"`,
+    "",
+    "[tool.setuptools.packages.find]",
+    `include = ["app*"]`,
+    "",
     "# Application project, not a distributable package — uv installs the",
     "# dependency set without building/installing the project itself.",
     "[tool.uv]",
@@ -1031,11 +1061,35 @@ On a success status (< 400) the session is committed before the first
 response byte leaves; on an error status (or an exception) it is rolled
 back.  Repositories/handlers pull this session via \`get_session\`
 (app/db/engine.py) off the \`request_session\` ContextVar.
+
+Events drained during the request are NOT fanned out inside that
+transaction (D-WRITE-TX): \`PostCommitDispatcher\` queues them on the
+request's \`post_commit\` list, which runs only AFTER the commit — still
+before the response starts, so a client reading right after sees the
+reactors' effects — and is dropped on a rollback.  The deferred work runs
+in a fresh transaction on the same session, committed once it is done.
 """
 
+from collections.abc import Awaitable, Callable
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.db.engine import request_session, session_factory
+from app.domain.events import post_commit
+
+
+async def _run_post_commit(
+    session: AsyncSession, deferred: list[Callable[[], Awaitable[None]]]
+) -> None:
+    # Closed first: anything this work dispatches in turn runs inline.
+    post_commit.set(None)
+    if not deferred:
+        return
+    for work in deferred:
+        await work()
+    deferred.clear()
+    await session.commit()
 
 
 class TransactionMiddleware:
@@ -1049,6 +1103,8 @@ class TransactionMiddleware:
 
         async with session_factory() as session:
             token = request_session.set(session)
+            deferred: list[Callable[[], Awaitable[None]]] = []
+            deferred_token = post_commit.set(deferred)
             finalized = False
 
             async def send_wrapper(message: Message) -> None:
@@ -1057,7 +1113,9 @@ class TransactionMiddleware:
                     finalized = True
                     if message["status"] < 400:
                         await session.commit()
+                        await _run_post_commit(session, deferred)
                     else:
+                        deferred.clear()
                         await session.rollback()
                 await send(message)
 
@@ -1065,9 +1123,11 @@ class TransactionMiddleware:
                 await self.app(scope, receive, send_wrapper)
             except BaseException:
                 if not finalized:
+                    deferred.clear()
                     await session.rollback()
                 raise
             finally:
+                post_commit.reset(deferred_token)
                 request_session.reset(token)
 `;
 
@@ -1251,7 +1311,7 @@ function renderMain(
     ...routerAggs.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
-    `from app.http.problem import install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
+    `from app.http.problem import JsonBodyMiddleware, install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
     hasWorkflows ? "from app.http.workflows_routes import router as workflows_router" : null,
     hasProjections ? "from app.http.projections_routes import router as projections_router" : null,
     hasQueryProjections
@@ -1388,6 +1448,9 @@ function renderMain(
     ")",
     "install_error_handlers(app)",
     "install_openapi(app)",
+    "# Innermost: the request-body media-type contract (RS-39) runs closest to",
+    "# the routes, so every outer middleware still brackets a 415 it answers.",
+    "app.add_middleware(JsonBodyMiddleware)",
     "",
     ...staticSubpathGuard,
     // Starlette runs later-added middleware first, so AuthMiddleware is
@@ -1959,6 +2022,7 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
     : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
 
+import re
 from http import HTTPStatus
 from typing import Any, cast
 
@@ -1967,7 +2031,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from starlette.exceptions import HTTPException as StarletteHTTPException${integrityImport}
+from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send${integrityImport}
 
 from app.domain.errors import (
     AggregateNotFoundError,
@@ -2082,6 +2148,83 @@ def problem(
     )
 
 
+# The JSON media types a body-carrying route reads — the predicate hono's
+# validator applies: \`application/json\`, \`application/<x>+json\`, with params.
+_JSON_MEDIA_TYPE = re.compile(
+    r"^application/([a-z-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=([^;]+))*$", re.IGNORECASE
+)
+_BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}
+MISSING_FIELD = ${JSON.stringify(MISSING_FIELD_MESSAGE)}
+
+
+class JsonBodyMiddleware:
+    """The request-body media-type contract every backend shares (RS-39).
+
+    - An EMPTY body with no \`Content-Type\` (or a JSON one) is read as \`{}\` —
+      so a parameterless command (\`operation confirm()\`) answers a body-less
+      POST exactly as it answers \`{}\`, and a command WITH required fields
+      earns the same 422 \`errors[]\` a \`{}\` would.
+    - A body under a foreign \`Content-Type\` — or content with none — is
+      refused with the declared 415, not handed to pydantic as a 422.  An
+      empty body does not excuse a foreign media type: the caller declared it.
+
+    Multipart is the file-upload transport and passes through untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] not in _BODY_METHODS
+            or not str(scope["path"]).startswith("/api/")
+        ):
+            await self.app(scope, receive, send)
+            return
+        content_type = Headers(scope=scope).get("content-type")
+        if content_type is not None and content_type.lower().startswith("multipart/"):
+            await self.app(scope, receive, send)
+            return
+        chunks: list[bytes] = []
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                return
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        body = b"".join(chunks)
+        is_json = content_type is not None and _JSON_MEDIA_TYPE.match(content_type) is not None
+        if (content_type is not None and not is_json) or (content_type is None and body):
+            log("warn", "client_error", error=UNSUPPORTED_MEDIA_TYPE, status=415)
+            response = problem(
+                Request(scope), 415, "Unsupported Media Type", UNSUPPORTED_MEDIA_TYPE
+            )
+            await response(scope, receive, send)
+            return
+        if not body:
+            body = b"{}"
+            headers = [
+                (k, v)
+                for k, v in scope["headers"]
+                if k.lower() not in (b"content-type", b"content-length")
+            ]
+            headers += [(b"content-type", b"application/json"), (b"content-length", b"2")]
+            scope = {**scope, "headers": headers}
+        replayed = False
+
+        async def replay() -> Message:
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
 def _pointer(loc: tuple[object, ...]) -> str:
     """RFC 6901 pointer from a validation-error location (the leading
     source segment — body/query/path — is dropped)."""
@@ -2138,7 +2281,8 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         for e in err.errors():
             entry: dict[str, str] = {
                 "pointer": _pointer(tuple(e["loc"])),
-                "message": str(e["msg"]),
+                # An absent required field reads the same on every backend (RS-39).
+                "message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),
             }
             # A messaged rule raises PydanticCustomError with a "msg.<hash>"
             # type — the stable content-hash wire code (i18n key). A message-less

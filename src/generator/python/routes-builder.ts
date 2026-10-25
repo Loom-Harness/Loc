@@ -1,7 +1,7 @@
 import {
+  createInputFields,
   emitsRestCreate,
   forApiRead,
-  forCreateInput,
   wireFieldsFor,
 } from "../../ir/enrich/wire-projection.js";
 import {
@@ -35,6 +35,7 @@ import {
   deriveAggregateOperations,
   isAllFind,
   relativeOpPath,
+  servedOperations,
 } from "../../ir/util/api-surface.js";
 import { maskedHistoryFields } from "../../ir/util/audit-history.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
@@ -56,7 +57,11 @@ import {
   opGetById,
   opOperation,
 } from "../../ir/util/openapi-ids.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
@@ -78,6 +83,7 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyCommandBodyParam, usesOptionalBody } from "./command-body.js";
 import { pyStampAssignments } from "./emit/aggregate.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { domainServiceImportLinesForExprs } from "./emit/domain-service.js";
@@ -138,11 +144,13 @@ export function buildPyRoutesFile(
   // This file keeps what is genuinely python's: pydantic models, handler
   // bodies, the union-absent runtime translation, and the entity-history
   // route (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not routed here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const createOp = derivedOps.find((o) => o.kind === "create");
   const allOp = derivedOps.find((o) => isAllFind(o));
   const declaredFindOps = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
-  const getByIdOp = derivedOps.find((o) => o.kind === "getById")!;
+  const getByIdOp = derivedOps.find((o) => o.kind === "getById");
   const destroyOp = derivedOps.find((o) => o.kind === "destroy");
   const opEntries = derivedOps.filter((o) => o.kind === "operation");
   const probeEntries = derivedOps.filter((o) => o.kind === "gateProbe");
@@ -228,15 +236,11 @@ export function buildPyRoutesFile(
       ? `    return ${agg.name}Repository(session, make_dispatcher(session))`
       : `    return ${agg.name}Repository(session, NoopDomainEventDispatcher())`,
     createOp ? ["", "", createRoute(agg, ctx, createOp)] : null,
-    "",
-    "",
-    allRoute(agg, repo, allOp!),
+    allOp ? ["", "", allRoute(agg, repo, allOp)] : null,
     // Finds register before /{id}: Starlette matches in declaration
     // order, so the static find paths must win over the id pattern.
     ...declaredFindOps.flatMap((e) => ["", "", findRoute(agg, e.find!, ctx, e)]),
-    "",
-    "",
-    byIdRoute(agg, getByIdOp),
+    getByIdOp ? ["", "", byIdRoute(agg, getByIdOp)] : null,
     // Entity history (docs/audit.md) — two path segments, so no collision with
     // the `/{id}` pattern above.  Driven by the enrichment-derived `historyFind`
     // so the read surface cannot disagree with the gate / `ignoring` stance
@@ -254,7 +258,7 @@ export function buildPyRoutesFile(
   const body = `${models}\n\n\n${routes}`;
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const enumNames = ctx.enums
+  const enumNames = enumPool(ctx)
     .map((e) => e.name)
     .filter(refersTo)
     .sort();
@@ -292,7 +296,7 @@ export function buildPyRoutesFile(
       : null,
     refersTo("Decimal") ? "from decimal import Decimal" : null,
     refersTo("math") || refersTo("datetime") || refersTo("Decimal") ? "" : null,
-    `from fastapi import ${["APIRouter", "Depends", refersTo("Path") ? "Path" : null, refersTo("Query") ? "Query" : null, refersTo("Request") ? "Request" : null, refersTo("Response") ? "Response" : null].filter(Boolean).join(", ")}`,
+    `from fastapi import ${["APIRouter", usesOptionalBody(scan) ? "Body" : null, "Depends", refersTo("Path") ? "Path" : null, refersTo("Query") ? "Query" : null, refersTo("Request") ? "Request" : null, refersTo("Response") ? "Response" : null].filter(Boolean).join(", ")}`,
     refersTo("JSONResponse") ? "from fastapi.responses import JSONResponse" : null,
     `from pydantic import ${["BaseModel", refersTo("Field") ? "Field" : null, refersTo("RootModel") ? "RootModel" : null, refersTo("ValidationError") ? "ValidationError" : null, refersTo("ValidationInfo") ? "ValidationInfo" : null, refersTo("ValidatorFunctionWrapHandler") ? "ValidatorFunctionWrapHandler" : null, refersTo("field_validator") ? "field_validator" : null, refersTo("model_validator") ? "model_validator" : null].filter(Boolean).join(", ")}`,
     refersTo("PydanticCustomError")
@@ -328,7 +332,7 @@ export function buildPyRoutesFile(
       // A `currentUser.*` create-field default binds `current_user: User` in
       // the create handler for its per-request coalesce.
       (hasCreateFactory(agg) &&
-        forCreateInput(agg.fields).some(
+        createInputFields(agg).some(
           (f) =>
             f.default !== undefined &&
             isServerSourcedDefault(f.default) &&
@@ -665,7 +669,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
       "",
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   const available = new Set(inputs.map((f) => f.name));
   const constraints = createFieldConstraints(agg.invariants, available);
   return lines(
@@ -909,7 +913,7 @@ function createRoute(
       .join(", ");
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", status_code=201, response_model=Create${agg.name}Response, operation_id="${camelId(opCreate(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def create_${snake(agg.name)}(body: Create${agg.name}Request, session: SessionDep) -> dict[str, object]:`,
+      `async def create_${snake(agg.name)}(${pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg))}, session: SessionDep) -> dict[str, object]:`,
       `    created = ${agg.name}.create(${args})`,
       auditCreate ? "    repo = _repo(session)" : null,
       auditCreate ? "    await repo.save(created)" : "    await _repo(session).save(created)",
@@ -919,7 +923,7 @@ function createRoute(
       `    return {"id": created.id}`,
     );
   }
-  const inputs = forCreateInput(agg.fields);
+  const inputs = createInputFields(agg);
   // A server-sourced field default (`now()` / `currentUser.*`) is applied
   // per-request HERE (the request field is optional): the factory arg coalesces
   // the client's value with the freshly-evaluated default.  In the handler body
@@ -952,7 +956,7 @@ function createRoute(
   const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
-    `body: Create${agg.name}Request`,
+    pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
     ...(bindPrincipal ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");
@@ -1037,9 +1041,21 @@ function allRoute(
 }
 
 function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
+  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates this
+  // read, BEFORE the load (403 for an existing and a missing id alike).  That
+  // find is emittable, so its `User` / `ForbiddenError` imports are already in
+  // (`findRoute` renders the same gate on its own `/by_id` route).
+  const byIdFind = apiOp.find;
+  const gate = byIdFind?.requires;
+  const gateUsesUser = !!gate && exprUsesCurrentUser(gate);
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${camelId(opGetById(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
-    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
+    `async def get_${snake(agg.name)}_by_id(${ID_PARAM}, ${gateUsesUser ? "request: Request, " : ""}session: SessionDep) -> dict[str, object]:`,
+    gateUsesUser ? "    current_user: User = request.state.current_user" : null,
+    gate ? `    if ${renderPyNegatedGuard(gate)}:` : null,
+    gate
+      ? `        raise ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind!.name}`)})`
+      : null,
     "    repo = _repo(session)",
     `    return ${wireResp(agg, `await repo.get_by_id(${agg.name}Id(id))`)}`,
   );
@@ -1330,7 +1346,7 @@ function operationRoute(
       // error arms' statuses — this route always ANSWERED them (the
       // ProblemDetails translations below) but never declared them.
       `@router.post("${relativeOpPath(apiOp)}", response_model=None, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, body: ${upperFirst(op.name)}${agg.name}Request, request: Request, session: SessionDep) -> dict[str, object] | JSONResponse:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${ID_PARAM}, ${pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params)}, request: Request, session: SessionDep) -> dict[str, object] | JSONResponse:`,
       usesUser || gateUsesUser || stampUpdateUsesUser
         ? "    current_user: User = request.state.current_user"
         : null,
@@ -1363,7 +1379,7 @@ function operationRoute(
   const needsRequest = usesUser || gateUsesUser || stampUpdateUsesUser || versioned;
   const opSig = [
     ID_PARAM,
-    `body: ${upperFirst(op.name)}${agg.name}Request`,
+    pyCommandBodyParam(`${upperFirst(op.name)}${agg.name}Request`, op.params),
     ...(needsRequest ? ["request: Request"] : []),
     "session: SessionDep",
   ].join(", ");

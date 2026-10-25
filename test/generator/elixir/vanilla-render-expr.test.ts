@@ -121,7 +121,7 @@ describe("render-expr vanilla leaves", () => {
     const int = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
     const str = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
     // substring(start, len) → a code-point window over the charlist (start +
-    // LENGTH, clamping — the catalogue's contract, RS-41); substring(start)
+    // LENGTH, clamping — the catalogue's contract, RS-42); substring(start)
     // drops the first `start` code points.
     expect(renderExpr(call("substring", [int("0"), int("4")]), memCtx)).toBe(
       "List.to_string(Enum.slice(String.to_charlist(record.name), 0, 4))",

@@ -64,7 +64,7 @@ function claimLiterals(files: Map<string, string>): string[] {
     if (!/(^|\/)[Aa]uth[^/]*(\/|\.[a-z]+$)/.test(path)) continue;
     // The per-backend accessor names differ; the ARGUMENT is what matters.
     for (const m of text.matchAll(
-      /(?:_claim|get_claim|claim|ClaimString|claimStringOrEmpty|claimString)\s*\(\s*\w+\s*,\s*"([^"]+)"/g,
+      /(?:_claim|get_claim|claim|ClaimString|claimString)\s*\(\s*\w+\s*,\s*"([^"]+)"/g,
     )) {
       out.push(m[1]!);
     }

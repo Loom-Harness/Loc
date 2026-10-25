@@ -127,6 +127,8 @@ describe("smokeSpec — one navigation assertion per param-less route", () => {
       'test("OrderList loads", async ({ page }) => {\n' +
         '  await page.goto("/orders");\n' +
         '  await expect(page).toHaveURL(new RegExp("/orders$"));\n' +
+        "  // The route's lazy page chunk has loaded (its Suspense fallback is gone).\n" +
+        '  await expect(page.getByTestId("route-loading")).toHaveCount(0);\n' +
         "  // The app mounted rather than crashing into its root error boundary.\n" +
         '  await expect(page.getByTestId("app-error")).toHaveCount(0);\n' +
         "});",
@@ -135,7 +137,7 @@ describe("smokeSpec — one navigation assertion per param-less route", () => {
 
   // The URL assertion above restates `page.goto`'s own argument, so on its own
   // it cannot fail on anything the app does.  That is not a nitpick: a pack
-  // whose shell threw on mount (mui@v5 handing React a CJS module object)
+  // whose shell threw on mount (a CJS module object handed to React)
   // rendered nothing but its error boundary and passed this gate, `tsc
   // --noEmit` and `vite build`.  Every case must therefore also assert the app
   // did not crash into that boundary.
@@ -146,6 +148,19 @@ describe("smokeSpec — one navigation assertion per param-less route", () => {
     expect(cases).toBeGreaterThan(0);
     expect(
       spec.match(/await expect\(page\.getByTestId\("app-error"\)\)\.toHaveCount\(0\);/g),
+    ).toHaveLength(cases);
+  });
+
+  // Routed pages are lazy chunks on the React shells: right after `goto` the
+  // content slot may still be the Suspense fallback, so a route case must wait
+  // for it to clear before its error-boundary check means anything.
+  it("waits for the lazy route's Suspense fallback to clear — on EVERY route case", async () => {
+    const ui = await loadUi();
+    const spec = smokeSpec(ui, CTX);
+    const cases = titles(spec).length;
+    expect(cases).toBeGreaterThan(0);
+    expect(
+      spec.match(/await expect\(page\.getByTestId\("route-loading"\)\)\.toHaveCount\(0\);/g),
     ).toHaveLength(cases);
   });
 

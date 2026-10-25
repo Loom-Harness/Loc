@@ -41,7 +41,7 @@
 //     `stamp onCreate/onUpdate` capability, and no trail entry names
 //     `createdAt` / `updatedAt`.
 // The masked-field DROP is driven through `field-mask`'s audited aggregate,
-// which also pins the trail's `actor` (RS-42) under auth.
+// which also pins the trail's `actor` (RS-43) under auth.
 system AuditHistorySystem {
   // A lifecycle-stamp capability on the audited `Order`: the stamp columns
   // are written by the save, after the command's own state change, so they

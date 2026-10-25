@@ -28,7 +28,7 @@ export function renderRequestContext(
     actorIdProp?: string;
     hasVersioned?: boolean;
     /** Declared `user { … }` field names, in declaration order — the shape
-     *  the audit `actor` records (RS-42), the same one `/auth/me` answers. */
+     *  the audit `actor` records (RS-43), the same one `/auth/me` answers. */
     userFields?: readonly string[];
   },
 ): string {
@@ -81,7 +81,7 @@ export function renderRequestContext(
   // `PrincipalJson()` without referencing the auth-only CurrentUser slice or
   // the Auth namespace — when there is no principal slice it is simply null.
   //
-  // The actor is the DECLARED `user { … }` shape, by declared name (RS-42) —
+  // The actor is the DECLARED `user { … }` shape, by declared name (RS-43) —
   // the `/auth/me` projection.  Serialising the `User` record itself wrote
   // PascalCase property names plus its derived tenancy members; a dictionary
   // keeps the declared key spelling verbatim.
@@ -114,8 +114,11 @@ ${actorEntries}
     hasAuth && actorIdProp
       ? `
     /// <summary>The bound principal's id (audit / provenance "who computed"),
-    /// or null before authentication has run.</summary>
-    public string? ActorId => CurrentUser?.${actorIdProp}.ToString();
+    /// or null before authentication has run.  A reactor frame's system
+    /// principal answers its originating user (<c>CausedBy</c>, ruling D1).</summary>
+    public string? ActorId => CurrentUser is { IsSystem: true } system
+        ? system.CausedBy
+        : CurrentUser?.${actorIdProp}.ToString();
 `
       : `
     /// <summary>No principal slice on this carrier (no auth), so there is no

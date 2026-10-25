@@ -1,4 +1,5 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { isStringField } from "./changeset-ingress.js";
 import {
@@ -58,7 +59,10 @@ function renderValueObjectModule(
   vo: ValueObjectIR,
 ): string {
   const moduleName = voModule(appModule, ctx, vo);
-  const typeEntries = vo.fields.map((f) => `${snake(f.name)}: ${voEctoType(f.type)}`).join(", ");
+  const enums = new Map(enumPool(ctx).map((e) => [e.name, e]));
+  const typeEntries = vo.fields
+    .map((f) => `${snake(f.name)}: ${voEctoType(f.type, enums)}`)
+    .join(", ");
   const tagging = messageCodeTagging(vo);
   const validators = [...voConstraintLines(vo), ...(tagging.pipe ? [tagging.pipe] : [])].join("\n");
   const tagDefs = tagging.defs ? `\n${tagging.defs}` : "";

@@ -22,29 +22,6 @@ name: Behavioral e2e (headless, no docker)
 # emitters the boot path bundles, or the harness itself.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'bin/**'
-      - 'web/src/testing/**'
-      - 'web/src/runtime/ddl.ts'
-      - 'web/src/examples/sales-system.ddd'
-      - 'web/src/examples/storefront-system.ddd'
-      - 'test/behavioral/**'
-      # The typed corpus manifest + its fixtures are this tier's CASE LIST:
-      # `cases.mjs` derives every feature case from them, so a fixture that
-      # grows a `test e2e`/`test` block mints a case (and needs a wire golden)
-      # here.  Without this a pure-fixture PR fires none of the behavioural
-      # legs — `corpus-build.yml` watches the same dir for the compile tier.
-      - 'test/fixtures/corpus/**'
-      # The cross-backend wire differential (M-T9.11): a change to the differ or
-      # to the canonical goldens must re-verify THIS backend against them.
-      - 'test/_helpers/wire-record.ts'
-      - 'test/_helpers/wire-waivers.ts'
-      - 'test/_helpers/response-diff.ts'
-      - 'package.json'
-      - '.github/workflows/behavioral-e2e.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -111,6 +88,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Build the Loom toolchain so `bin/cli.js generate system` works
       # (`prepare` lifecycle runs langium:generate).
       - name: Install Loom toolchain
@@ -137,3 +116,12 @@ jobs:
       - name: Run paged-list acceptance (1000-row seed)
         working-directory: test/behavioral
         run: node pagination.mjs
+
+      # A declared `create(…)`'s parameter list is the POST contract: post a
+      # FORGED body (a `when`-gated `status`, `notes`, defaulted fields) to the
+      # booted backend and assert each took its declared default.  The emitted
+      # DSL `test e2e` cannot express it — its create call is checked against
+      # the contract at compile time, so it cannot send a forged key.
+      - name: Run create-contract acceptance (forged create body)
+        working-directory: test/behavioral
+        run: node create-contract.mjs

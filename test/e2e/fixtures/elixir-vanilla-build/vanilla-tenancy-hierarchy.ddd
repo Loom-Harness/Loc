@@ -38,7 +38,10 @@ system TenancyHierarchyShop {
       aggregate Organization with tenantRegistry {
         name: string
       }
-      repository Organizations for Organization { }
+      repository Organizations for Organization {
+        find all(): Organization paged requires true
+        find byId(id: Organization id): Organization? requires true
+      }
 
       aggregate Account with tenantOwned {
         balance: int
@@ -46,7 +49,10 @@ system TenancyHierarchyShop {
         // resolved from the registry `data_key` by the auth plug.
         filter this.balance >= 0
       }
-      repository Accounts for Account { }
+      repository Accounts for Account {
+        find all(): Account paged requires true
+        find byId(id: Account id): Account? requires true
+      }
       // P2.5: `global` widens Account's tenant floor to the caller's ROOT-org
       // subtree — the rootOrg-anchored materialized-path fragment.  Compile-
       // checks `current_user.root_org` + the global filter path.

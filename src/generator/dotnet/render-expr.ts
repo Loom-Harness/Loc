@@ -39,6 +39,7 @@ import {
 } from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
+import { csReadOwnParams } from "./local-names.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the .NET / C# backend.
@@ -117,6 +118,12 @@ export interface CsRenderContext {
    *  everywhere else (a `repo-read` reaching a non-service context is a
    *  validator-caught bug). */
   repoReadHandle?: (repo: string) => string;
+  /** The declared parameter names of the context retrieval `name` — a
+   *  criterion read renders against `Run<Name>Async`, whose own trailing
+   *  `cancellationToken` yields to a same-named retrieval param
+   *  (`csReadOwnParams`), so the named token argument must use that name.  Set
+   *  alongside `repoReadHandle`. */
+  retrievalParamNames?: (name: string) => readonly string[];
   /** Injected-service call resolver for a `reading`-tier domain-service call
    *  (domain-services.md rev. 4).  On .NET a `reading` service is a
    *  DI'd `sealed class`, so the orchestrating workflow injects it (`_registration`)
@@ -845,7 +852,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       // shared `<Wf>Functions` class.
       return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}`;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     case "current-user":
       // Magic identifier for the system's `user { ... }` shape.  The
       // emitter for each per-request context (operation, workflow)
@@ -1150,7 +1157,12 @@ export const CS_COLLECTION_RENDERERS: Record<
   string,
   (recv: string, args: string[], e?: Extract<ExprIR, { kind: "method-call" }>) => string
 > = {
-  count: (recv) => `${recv}.Count()`,
+  // Every collection-typed C# value (`List<T>`, `IReadOnlyList<T>`, an EF
+  // owned/primitive collection) has a `Count` property, and LINQ's `Count()`
+  // over one is CA1829 — an error under `/warnaserror`.  EF translates the
+  // property in a query position too.  (`min`/`max` below read `.Count` for
+  // the same receivers.)
+  count: (recv) => `${recv}.Count`,
   sum: (recv, args) => (args.length === 1 ? `${recv}.Sum(${args[0]})` : `${recv}.Sum()`),
   all: (recv, args) => `${recv}.All(${args[0] ?? "_ => true"})`,
   any: (recv, args) => `${recv}.Any(${args[0] ?? "_ => true"})`,
@@ -1317,15 +1329,22 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // one the workflow `repo-run` uses — so the criterion actually filters
         // the query instead of dropping to the whole-table `All()`.  The token
         // is passed NAMED (an optional `page` sits ahead of it), and a
-        // single-result `find` takes `.FirstOrDefault()`.
+        // single-result `find` takes the first row or null.  The run method
+        // returns an `IReadOnlyList<T>`, where LINQ's `FirstOrDefault()` is
+        // CA1826 (an error under `/warnaserror`), so the first row is read by
+        // a list pattern — its variable is scoped to its own arm, so two finds
+        // in one expression cannot collide.
         if (read.readKind !== "named" && read.retrievalName) {
           const method = `Run${upperFirst(read.retrievalName)}Async`;
+          const { ct } = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
           const callArgs =
             argList.length > 0
-              ? `${argList}, cancellationToken: cancellationToken`
-              : "cancellationToken: cancellationToken";
+              ? `${argList}, ${ct}: cancellationToken`
+              : `${ct}: cancellationToken`;
           const call = `${handle}.${method}(${callArgs})`;
-          return read.readKind === "find" ? `(await ${call}).FirstOrDefault()` : `(await ${call})`;
+          return read.readKind === "find"
+            ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
+            : `(await ${call})`;
         }
         const method = csRepoReadMethod(read.method, read.readKind);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";

@@ -16,6 +16,7 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -52,6 +53,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -142,6 +144,10 @@ export function generateAngularForContexts(
   // overrides it with VITE_API_PROXY_TARGET (→ the backend SERVICE); a local
   // `node server.mjs` falls back to the backend on localhost.
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native run (`ng serve`, `node server.mjs`) listens on this deployable's
+  // declared port.  Only a standalone frontend (one that `targets:` a
+  // backend) has a port of its own; the image sets PORT to its container port.
+  const devPort = target ? deployable.port : undefined;
   // Sub-path the bundle is served under (Phoenix `/app`).  Angular threads a
   // single `baseHref` into (a) the angular.json build option and (b) the
   // `<base href>` tag in index.html; the router reads it back off the `<base>`
@@ -186,9 +192,19 @@ export function generateAngularForContexts(
     "angular.json",
     pack.render("angular-json", {
       baseHref: basePath ? baseHref : undefined,
+      port: devPort,
+      proxyConfig: target ? "proxy.conf.json" : undefined,
       highlightThemeStyle: usesCodeBlock ? HIGHLIGHT_THEME_ANGULAR_STYLE : undefined,
     }),
   );
+  // `ng serve` reaches the backend the way `server.mjs` does: a same-origin
+  // `/api` proxy, here to the target backend's declared port.
+  if (target) {
+    out.set(
+      "proxy.conf.json",
+      `${JSON.stringify({ "/api": { target: apiProxyTarget, secure: false } }, null, 2)}\n`,
+    );
+  }
   out.set("tsconfig.json", pack.render("tsconfig", {}));
   out.set("tsconfig.app.json", pack.render("tsconfig-app", {}));
   out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
@@ -698,7 +714,12 @@ export function generateAngularForContexts(
   for (const { agg } of aggregates) {
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildAngularApiModule(agg, repoByAggregate.get(agg.name), bcByAggregate.get(agg.name)),
+      buildAngularApiModule(
+        agg,
+        repoByAggregate.get(agg.name),
+        bcByAggregate.get(agg.name),
+        pagedFindRoutes(sys, target ?? deployable),
+      ),
     );
   }
   // Workflows API module — the Angular-native sibling of the
@@ -762,7 +783,7 @@ export function generateAngularForContexts(
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
   // origin.  See the Dockerfile (runs `node server.mjs`).
-  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget));
+  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget, devPort ?? 3000));
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -772,6 +793,10 @@ export function generateAngularForContexts(
   if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
     out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
   }
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Fullstack embed: relocate the whole project under the host's prefix
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
@@ -884,7 +909,7 @@ function defaultAngularNavSection(
  * service) overrides it at runtime.  Kept template-literal-free internally so
  * it embeds cleanly here.
  */
-function renderAngularServerMjs(devTarget: string): string {
+function renderAngularServerMjs(devTarget: string, devPort: number): string {
   return `// Auto-generated.
 // Static host for the built Angular bundle (SPA fallback) + a same-origin
 // "/api" reverse proxy.  The bundle fetches /api RELATIVE; under compose / k8s
@@ -899,7 +924,7 @@ import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("./browser/", import.meta.url));
-const PORT = Number(process.env.PORT ?? "3000");
+const PORT = Number(process.env.PORT ?? "${devPort}");
 const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(devTarget)};
 
 const MIME = {

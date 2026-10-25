@@ -1,5 +1,5 @@
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
-import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
+import { enumPool, orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
@@ -172,7 +172,7 @@ export const PY_INT32 = "Int32";
  *  every other bad field gets), `WithJsonSchema` supplies the published
  *  SCHEMA, so the spec reads `{"type": "integer", "format": "int32"}` exactly
  *  as .NET's and java's do.  A `PydanticCustomError`, not `Field(ge=…, le=…)`:
- *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-39),
+ *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-40),
  *  and `Field`'s would be pydantic's own "Input should be less than or equal
  *  to 2147483647".  It runs AFTER the int coercion and any declared bound, so
  *  a field whose rule states a tighter range answers that rule's sentence
@@ -534,7 +534,9 @@ export function renderPyWireModels(ctx: BoundedContextIR): string {
   );
   const body = models.join("") + (hasProv ? lines(...provenancedModel()) : "");
   const uses = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(body);
-  const enumNames = ctx.enums.map((e) => e.name).filter(uses);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(uses);
   const pydanticNames = [
     ctx.valueObjects.length > 0 || hasProv ? "BaseModel" : null,
     // `Field` only where a model uses it: `Int32` states its bound through

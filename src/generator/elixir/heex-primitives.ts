@@ -13,14 +13,20 @@
 // ---------------------------------------------------------------------------
 
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
+import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { EnumIR, ExprIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  exprUsesCurrentUser,
+} from "../../ir/types/loom-ir.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, plural, snake } from "../../util/naming.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
-import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import { chromeKey, chromeMessage, opDialogChrome } from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
@@ -41,7 +47,7 @@ import {
   renderPrimitive,
   type WalkContext,
 } from "./heex-walker-core.js";
-import { elixirI18nString } from "./i18n.js";
+import { elixirI18nString, formChromeAttr } from "./i18n.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +160,9 @@ export function renderAnchor(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  walker's `emitModal`. */
 export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let title = "";
+  // The English the submit button shows — the literal title when authored,
+  // else the humanized op name — for the op-dialog chrome rule.
+  let titleEnglish: string | undefined;
   let triggerExpr: ExprIR | undefined;
   let openExpr: ExprIR | undefined;
   const positional: ExprIR[] = [];
@@ -163,6 +172,7 @@ export function renderModal(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     if (name === "title") {
       // A user-visible named slot (`modalTitle`) — translated under i18n,
       // the raw escaped literal otherwise (byte-identical).
+      if (arg.kind === "literal" && typeof arg.value === "string") titleEnglish = arg.value;
       title =
         arg.kind === "literal"
           ? renderInTemplate(arg, ctx, "modalTitle")
@@ -269,6 +279,13 @@ ${heading}${childrenHeex}
   }
   const testidAttr = testIdAttr(expr, ctx);
   const heading = title || humanize(opName);
+  // The modal's close icon is named by the shared op-dialog rule, so it never
+  // shares the submit button's accessible name (`operation close` → "Close
+  // dialog").
+  const closeLabel = formChromeAttr(
+    opDialogChrome(titleEnglish ?? humanize(opName)).close,
+    Boolean(ctx.i18nPrefix),
+  );
 
   const inputs =
     params.length > 0
@@ -297,7 +314,7 @@ ${heading}${childrenHeex}
   const submitDisabled = gated ? ` disabled={!${canAssign}}` : "";
   return [
     `<.button phx-click={show_modal("${modalId}")}${disabledAttr}${testidAttr}>${label}</.button>`,
-    `<.modal id="${modalId}">`,
+    `<.modal id="${modalId}" close_label=${closeLabel}>`,
     `  <:title>${heading}</:title>`,
     `  <.simple_form for={@${formAssign}} phx-change="validate_${opSnake}" phx-submit="submit_${opSnake}">`,
     ...inputs,
@@ -371,6 +388,12 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   // `handle_event("run_<wf>", …)` clause.  Without that clause
   // `phx-submit="run_<wf>"` raises `FunctionClauseError` and kills the LiveView.
   const runsWorkflow = runsPascal ? ctx.workflowsByName.get(runsPascal) : undefined;
+  // An event-only saga (`create(e: Event) by …`) has no command surface — the
+  // backend emits no `run/2` for it (`emitsCommandRoute`) — so there is
+  // nothing for `phx-submit` to call.  Same give-up as the shared walker.
+  if (runsWorkflow && !emitsCommandRoute(runsWorkflow)) {
+    return `<%!-- ${giveUpText("loom.page-ref-unreachable", `WorkflowForm(runs: ${runsWorkflow.name}): an event-triggered workflow has no command route to submit to`)} --%>`;
+  }
   if (ofPascal) {
     ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {
@@ -1102,6 +1125,72 @@ function contextReadFn(
   }
 }
 
+/** The LiveView socket's principal — what `LiveAuth` assigns on mount. */
+const SOCKET_ACTOR = "Map.get(socket.assigns, :current_user)";
+
+/** The defaults of the paged `list/5` (`page`, `page_size`, `sort`, `dir`) and
+ *  a paged find's trailing paging params, in order — filled in front of the
+ *  actor when the page's call passed fewer, so the actor never lands in a
+ *  paging slot. */
+const PAGED_READ_DEFAULTS = ["1", "20", '"id"', '"asc"'];
+
+/** The trailing arguments that thread the request principal into a LiveView
+ *  read, or `undefined` when the read takes none.
+ *
+ *  A principal-scoped read (a tenancy / `currentUser` capability filter on the
+ *  aggregate, or a `currentUser` in the read's own `where`) pins its query to
+ *  `current_user && current_user.<claim>`; the controller threads the actor
+ *  from `conn.assigns`, and a read called WITHOUT one binds `nil` and answers
+ *  no rows (fail-closed).  The LiveView must thread the socket's actor the same
+ *  way, through the same parameter its context function declares:
+ *
+ *  the list (`list_<agg>s`) / by-id (`get_<agg>`) / find delegates take it
+ *  POSITIONALLY after their own args (paging defaults filled first when the
+ *  page passed fewer). */
+function readActorArgs(
+  aggName: string,
+  isSingle: boolean,
+  ctx: WalkContext,
+  detected: DetectedApiCall | null,
+  ofArgNode: ExprIR | undefined,
+): string[] | undefined {
+  const bc = ctx.bcByAggregate.get(aggName);
+  const agg = bc?.aggregates.find((a) => a.name === aggName);
+  if (!agg) return undefined;
+  const principal = aggregateUsesPrincipalContextFilter(agg);
+  const argCount = queryCallArgs(ofArgNode, ctx)?.length ?? 0;
+  const operation =
+    detected?.kind === "aggregate" && detected.aggregateName === aggName
+      ? detected.operation
+      : isSingle
+        ? "byId"
+        : "all";
+  const target = resolveAggregateRead(operation, findsOfAggregate(aggName, bc));
+  switch (target.kind) {
+    case "by-id":
+      return principal ? [SOCKET_ACTOR] : undefined;
+    case "find-all": {
+      if (!principal) return undefined;
+      const all = bc?.repositories
+        .find((r) => r.aggregateName === aggName)
+        ?.finds.find((f) => f.name === "all");
+      const paged = !!all && !!pagedReturn(all.returnType);
+      return paged ? [...PAGED_READ_DEFAULTS.slice(argCount), SOCKET_ACTOR] : [SOCKET_ACTOR];
+    }
+    case "find": {
+      const f = target.find;
+      const actor = principal || exprUsesCurrentUser(f.filter);
+      if (!actor) return undefined;
+      const fill = pagedReturn(f.returnType)
+        ? PAGED_READ_DEFAULTS.slice(Math.max(0, argCount - f.params.length))
+        : [];
+      return [...fill, SOCKET_ACTOR];
+    }
+    default:
+      return undefined;
+  }
+}
+
 export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let ofExpr = "";
   let ofArgNode: ExprIR | undefined;
@@ -1288,6 +1377,8 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
       // (This subsumes the earlier `retrieval` slot, which derived the same
       // `list_<agg>s` / `<find>_<agg>` choice from the call's SHAPE.)
       readFn: contextReadFn(aggName, isSingle, ctx, detected),
+      // The request principal, when the read's repository function takes one.
+      actorArgs: readActorArgs(aggName, isSingle, ctx, detected, ofArgNode),
       // …and only when the enclosing `match` arm is the one being rendered.
       gate: isSingle ? undefined : ctx.matchGate,
     });
@@ -1421,7 +1512,13 @@ export function renderAlert(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
   return `<div class="alert ${alertVariant(color)}" role="alert"${testidAttr}>${titleEl}${message}</div>`;
 }
 
-/** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>` */
+/** `IdLink(value, of: Aggregate)` → `<.link navigate={...}>value</.link>`.
+ *
+ *  Null-guarded when the reference is OPTIONAL (`lastKnownLocation: Location
+ *  id?`), like the six JSX-family targets (`_walker/primitives/id-link.ts`):
+ *  an absent reference renders an em dash and no link, rather than
+ *  `~p"/locations/#{nil}"` — a link to `/locations/` (L1-E / E6, #2885).  A
+ *  REQUIRED reference stays byte-identical. */
 export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   let aggName = "";
   let target = "";
@@ -1449,9 +1546,35 @@ export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
       ctx.refLabelBindings.add(target);
       valueHeex = `<%= Map.get(@${snake(target)}_labels, ${idVal}) || ${idVal} %>`;
     }
-    return `<.link navigate={~p"/${aggName}/#{${idVal}}"}${testidAttr}>${valueHeex}</.link>`;
+    const link = `<.link navigate={~p"/${aggName}/#{${idVal}}"}${testidAttr}>${valueHeex}</.link>`;
+    if (!isOptionalReference(valueExpr, target, ctx)) return link;
+    return `<%= if ${idVal} do %>${link}<% else %><span${testidAttr}>—</span><% end %>`;
   }
   return `<span${testidAttr}>${valueHeex}</span>`;
+}
+
+/** Whether an `IdLink`'s value reads a field the model declares as an
+ *  OPTIONAL reference to `ofAggregate`.
+ *
+ *  The IR does not type a page body's record chain (a row binding's
+ *  `o.last_known_location` carries the placeholder `string`), and the HEEx
+ *  walk context carries no row-binding → aggregate map the way the JSX walker's
+ *  does.  So the member name is resolved against the model instead: the value
+ *  is optional when some aggregate or part declares a field of that name typed
+ *  `<ofAggregate> id?`.  A false positive only adds a guard whose else-arm never
+ *  runs; a value that is not a member read (a route param, a literal) is
+ *  treated as required, which is the output this primitive always emitted. */
+function isOptionalReference(valueExpr: ExprIR, ofAggregate: string, ctx: WalkContext): boolean {
+  if (valueExpr.kind !== "member" || !ofAggregate) return false;
+  const isOptionalRef = (t: TypeIR): boolean =>
+    t.kind === "optional" && t.inner.kind === "id" && t.inner.targetName === ofAggregate;
+  for (const agg of ctx.aggregatesByName.values()) {
+    const shapes = [agg.fields, ...agg.parts.map((p) => p.fields)];
+    for (const fields of shapes) {
+      if (fields.some((f) => f.name === valueExpr.member && isOptionalRef(f.type))) return true;
+    }
+  }
+  return false;
 }
 
 /** `FileLink(<file-ref>)` → a plain download anchor for a `File` field.  The

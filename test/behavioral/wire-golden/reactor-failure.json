@@ -305,6 +305,45 @@
         "title": "Not Found",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/resolve",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 404,
+      "body": {
+        "detail": "Ticket {id} not found",
+        "instance": "/api/tickets/{id}/resolve",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/tickets/{id}/resolve",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/tickets/{id}/resolve",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
     }
   ]
 }

@@ -49,7 +49,7 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
     // substring — code points, clamping, 2-arg arity (invariant)
     expect(domain).toContain(
       // Both the window and the trailing `.length` count CODE POINTS (RS-31,
-      // RS-41); Skip/Take clamp.
+      // RS-42); Skip/Take clamp.
       "string.Concat(this.Name.EnumerateRunes().Skip(0).Take(3)).EnumerateRunes().Count() <= 3",
     );
   });

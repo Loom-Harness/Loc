@@ -1,6 +1,6 @@
 import {
+  createInputFields,
   emitsRestCreate,
-  forCreateInput,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
 import type {
@@ -113,7 +113,7 @@ export interface ServiceCtx {
   /** auth: required + system user block — gates currentUser threading. */
   authed?: boolean;
   /** Declared `user { … }` field names, in declaration order — the shape the
-   *  audit `actor` records (RS-42).  Empty without auth. */
+   *  audit `actor` records (RS-43).  Empty without auth. */
   userFields?: readonly string[];
   /** The enclosing context — resolves exception-less return unions. */
   boundedContext: EnrichedBoundedContextIR;
@@ -148,7 +148,7 @@ export function renderJavaService(
   const dispatches = true;
   const idJava = javaValueTypeForId(agg.idValueType);
   if (idJava === "UUID") imports.add("java.util.UUID");
-  const createInputs = forCreateInput(agg.fields);
+  const createInputs = createInputFields(agg);
   const eff = (t: TypeIR, optional: boolean): TypeIR =>
     optional && t.kind !== "optional" ? { kind: "optional", inner: t } : t;
   // A `mask unless` aggregate projects RESPONSE reads through the redacting
@@ -496,7 +496,7 @@ export function renderJavaService(
   if (anyLifecycleAudited) {
     imports.add("tools.jackson.databind.node.NullNode");
   }
-  // The audit row's `actor` (RS-42): the principal's DECLARED `user { … }`
+  // The audit row's `actor` (RS-43): the principal's DECLARED `user { … }`
   // shape by declared name — the `/auth/me` projection — or null.  Handing
   // Jackson the `User` record instead let its introspection decide the keys.
   const auditActorLines =

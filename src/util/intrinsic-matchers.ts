@@ -54,9 +54,8 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   //                       are hard keywords), carried on `expect-throws` as
   //                       `throwKind`, and lowered per-backend.
   //
-  // The split is not cosmetic.  In-process the kind is observable — Elixir
-  // carries a structural `:kind` on `GuardError`, the other four a stable
-  // message prefix ("Precondition failed: " / "Invariant violated: ").  Over
+  // The split is not cosmetic.  In-process the kind is observable — every
+  // backend's domain error carries it as a structural `kind` field.  Over
   // HTTP both rungs are a 422 whose only discriminator is the RFC 7807
   // `detail` sentence, which an authored `message "..."` overwrites.  Letting
   // one matcher mean both would make it two strengths of claim under one name

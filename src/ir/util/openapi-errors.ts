@@ -82,6 +82,15 @@ export const PROBLEM_SCHEMA = "ProblemDetails";
  *  found from this table by grep. */
 export const UNSUPPORTED_MEDIA_TYPE = 415;
 
+/** The `detail` every backend sends with that 415 (RS-39) — one sentence, so
+ *  the refusal reads the same whichever framework layer raised it. */
+export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
+
+/** The `errors[].message` every backend sends for a REQUIRED request field the
+ *  body leaves out (RS-39) — one word, so the 422 for an absent field reads the
+ *  same whichever framework noticed the absence. */
+export const MISSING_FIELD_MESSAGE = "Required";
+
 /** The wire-validation tier every route that PARSES a request part answers on
  *  a parse failure — a malformed `{id}`, an out-of-range `?page=`, a body field
  *  of the wrong type.  Named for the same reason `UNSUPPORTED_MEDIA_TYPE` is:
@@ -204,8 +213,15 @@ export function errorStatuses(
     // here rather than per-backend: `getById` is also what the history read and
     // the workflow-instance-by-id read declare against, and all three validate
     // the same `{id}`.
+    //
+    // A `find byId(id: T id): T? requires <expr>` gates it (M-T3.19,
+    // `byIdReadGate` in `read-gates.ts`): the gate runs BEFORE the load, so a
+    // denied caller answers 403 whether or not the id exists — the by-id read
+    // is not an existence oracle for a caller the gate refuses.
     case "getById":
-      return set(notFound, UNPROCESSABLE_ENTITY);
+      return guarded
+        ? set(forbidden, notFound, UNPROCESSABLE_ENTITY)
+        : set(notFound, UNPROCESSABLE_ENTITY);
     // destroy (DELETE /<aggs>/{id}) → 404 (not found) + 409 (still
     // referenced: cross-aggregate `X id` FK is ON DELETE RESTRICT — the
     // `ReferencedInUse` structural conflict, remappable via `httpStatus`).

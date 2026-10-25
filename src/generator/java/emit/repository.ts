@@ -9,7 +9,8 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
@@ -483,10 +484,12 @@ export function renderJavaSpringDataRepository(
   const methodLines = finds.flatMap((f) => {
     if (f.params.length > 0) imports.add("org.springframework.data.repository.query.Param");
     imports.add("org.springframework.data.jpa.repository.Query");
+    // A clause-less find (`find byReference(reference: string)`) still filters
+    // — by its implicit key match.  Without it the @Query selects every row:
+    // a miss answers 200 with some other row, two rows a non-unique 500.
+    const own = effectiveFindFilter(f, agg);
     const where = jpqlWhere(
-      f.filter
-        ? renderJpqlWhere(f.filter, { alias: "e", enumsPkg, mode: "jpql-spring-data" })
-        : null,
+      own ? renderJpqlWhere(own, { alias: "e", enumsPkg, mode: "jpql-spring-data" }) : null,
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map((p) => {
@@ -830,13 +833,20 @@ export function renderJavaRepositoryImpl(
       const sortWhitelist = sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `Sort.Order.${t.direction}(${JSON.stringify(jid(t.field))})`)
+        .join(", ");
       return [
         `    @Override`,
         `    public ${sig} {`,
         ...wrapBypass(findBypass, [
           `        String __sortField = java.util.List.of(${sortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
+          // An unwhitelisted `sort` (the route's `""` default) takes the read's
+          // declared order (`defaultSortOrder`).
+          declaredOrder
+            ? `        Sort __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)}) : Sort.by(${declaredOrder});`
+            : `        Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, ${sortPropertyVar(agg)});`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,

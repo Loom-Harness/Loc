@@ -40,6 +40,7 @@ import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
@@ -1230,6 +1231,10 @@ export const flutterTarget: WalkerTarget = {
   // host's operators mean the wrong thing: `+` concatenates and `<` does not
   // compile.  Every money-involving operator routes through `LoomMoney`.
   exprMoneyBinary: (left, right, e) => dartMoneyBinary(left, right, e),
+  // The wire models declare no `operator ==`, so Dart's `==` on two value
+  // objects is identity.  `loomValueEquals` (`lib/value_equals.dart`) compares
+  // their fields.
+  exprValueEquality: (left, right, e) => renderValueEqualsCall(left, right, e.op),
 
   // Scalar intrinsics — the ONE table both the page-view walk and the
   // Notifier/action-body walk consume (both route through the shared

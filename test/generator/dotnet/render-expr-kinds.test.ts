@@ -179,7 +179,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("this.Name.Trim()");
   });
 
-  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()` completed for ß (RS-41)", () => {
+  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()` completed for ß (RS-42)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -301,7 +301,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("Math.Ceiling(this.Rate)");
   });
 
-  it("renders 2-arg `string.substring(start, len)` over code points, clamping (RS-41)", () => {
+  it("renders 2-arg `string.substring(start, len)` over code points, clamping (RS-42)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -314,7 +314,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("string.Concat(this.Name.EnumerateRunes().Skip(0).Take(3))");
   });
 
-  it("renders 1-arg `string.substring(start)` over code points, clamping (RS-41)", () => {
+  it("renders 1-arg `string.substring(start)` over code points, clamping (RS-42)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -366,7 +366,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe('this.Name.Split(",").ToList()');
   });
 
-  it("renders collection-op `count` as `.Count()`", () => {
+  it("renders collection-op `count` as the `.Count` property (CA1829)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -376,7 +376,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: { kind: "array", element: STRING },
         isCollectionOp: true,
       }),
-    ).toBe("(this.Items).Count()");
+    ).toBe("(this.Items).Count");
   });
 
   it("renders collection-op `where(λ)` as `.Where(λ).ToList()`", () => {

@@ -1,3 +1,4 @@
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -11,11 +12,14 @@ import {
   isAllFind,
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
   problemTitle,
   UNPROCESSABLE_ENTITY,
+  UNSUPPORTED_MEDIA_TYPE_DETAIL,
 } from "../../../ir/util/openapi-errors.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
@@ -41,6 +45,7 @@ import {
 } from "../render-expr.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
+import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import { declaredFinds, isPagedAutoAll, isPagedFind } from "./repository.js";
 import { returnUnionSpec, unionWireCtorArgs } from "./unions.js";
 import { javaCommandValidatorNames } from "./validator.js";
@@ -115,7 +120,14 @@ export function renderJavaController(
   const probeByOp = new Map<unknown, ApiOperationIR>(
     derivedOps.filter((o) => o.kind === "gateProbe").map((o) => [o.operation, o]),
   );
-  const findEntries = derivedOps.filter((o) => o.kind === "find" && !isAllFind(o));
+  // A slot an explicit `route` claims is served by that route's controller alone
+  // (D-EXPLICIT-ROUTE-WINS), so no mapping is rendered for it here.  The service
+  // methods and request records stay — the explicit handler may call them.
+  const routed = (o: ApiOperationIR | undefined): ApiOperationIR | undefined =>
+    o?.claimedByExplicitRoute ? undefined : o;
+  const findEntries = derivedOps.filter(
+    (o) => o.kind === "find" && !isAllFind(o) && !o.claimedByExplicitRoute,
+  );
   // Optimistic concurrency (`versioned`): a mutation carries the client's
   // expected version in the `If-Match` header (think-time CAS), forwarded to the
   // service.  Non-versioned aggregates thread nothing → byte-identical routes.
@@ -222,7 +234,7 @@ export function renderJavaController(
   // without invoking it.  The service owns the load + predicate; the
   // controller wraps the boolean in the shared `CanResponse` record.
   const canRouteLines = (op: (typeof agg.operations)[number]): string[] => {
-    const probe = probeByOp.get(op);
+    const probe = routed(probeByOp.get(op));
     if (!probe) return [];
     return [
       `    @GetMapping("${relativeOpPath(probe)}")`,
@@ -234,6 +246,7 @@ export function renderJavaController(
   };
   const opRoutes = opEntries.flatMap((entry) => {
     const op = entry.operation!;
+    if (entry.claimedByExplicitRoute) return canRouteLines(op);
     // NAMED FIX (unification): the mount honors `routeSlug` — java was the
     // only backend rendering `snake(op.name)` here, so a `urlStyle: resource`
     // op mounted at a URL the other four backends (and every generated
@@ -286,7 +299,7 @@ export function renderJavaController(
           opMapping,
           hasParams
             ? `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+            : `    public ResponseEntity<?> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
@@ -317,7 +330,7 @@ export function renderJavaController(
           opMapping,
           hasParams
             ? `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+            : `    public ResponseEntity<${wireRet}> ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
           `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
           `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
           hasParams
@@ -334,7 +347,7 @@ export function renderJavaController(
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
         hasParams
           ? `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, @Valid @RequestBody ${reqType} request${ifMatchHeaderParam}) {`
-          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id${ifMatchHeaderParam}) {`,
+          : `    public void ${op.name}${agg.name}(@PathVariable ${idJava} id, ${EMPTY_COMMAND_BODY_PARAM}${ifMatchHeaderParam}) {`,
         `        CatalogLog.event(${javaLogEvent("operationInvoked")}, "aggregate", "${agg.name}", "op", "${op.name}", "id", id);`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "${op.name}");`,
         hasParams
@@ -480,7 +493,7 @@ export function renderJavaController(
   // (canonical destroy), not `destroys.length > 0` — a named-only destroy is a
   // domain command, and java was the only backend mounting a generic DELETE
   // for it (a route its own OpenAPI customizer refused to document).
-  const destroyEntry = derivedOps.find((o) => o.kind === "destroy");
+  const destroyEntry = routed(derivedOps.find((o) => o.kind === "destroy"));
   const destroyRoutes = destroyEntry
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
@@ -492,11 +505,13 @@ export function renderJavaController(
       ]
     : [];
 
-  const createEntry = derivedOps.find((o) => o.kind === "create");
+  const createEntry = routed(derivedOps.find((o) => o.kind === "create"));
   const createRoute = createEntry
     ? [
         `    @PostMapping${relativeOpPath(createEntry) === "" ? "" : `("${relativeOpPath(createEntry)}")`}`,
-        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody Create${agg.name}Request request) {`,
+        // RS-39 — a create with no input fields publishes an optional body (the
+        // filter hands an empty one over as `{}`, so `request` is never null).
+        `    public ResponseEntity<Create${agg.name}Response> create${agg.name}(@Valid @RequestBody${commandBodyOptional(createInputFields(agg)) ? "(required = false)" : ""} Create${agg.name}Request request) {`,
         `        var id = service.create${agg.name}(request);`,
         `        CatalogLog.event(${javaLogEvent("aggregateCreated")}, "aggregate", "${agg.name}", "id", id.value());`,
         `        httpMetrics.recordDomainOperation("${agg.name}", "create");`,
@@ -507,19 +522,29 @@ export function renderJavaController(
       ]
     : [];
   const pagedAutoAll = isPagedAutoAll(repo);
-  const getByIdEntry = derivedOps.find((o) => o.kind === "getById")!;
+  const getByIdEntry = routed(derivedOps.find((o) => o.kind === "getById"));
+  const allClaimed = derivedOps.find((o) => isAllFind(o))?.claimedByExplicitRoute === true;
   const body = [
     ...createRoute,
-    `    @GetMapping("${relativeOpPath(getByIdEntry)}")`,
-    `    public ResponseEntity<${agg.name}Response> get${agg.name}ById(@PathVariable ${idJava} id) {`,
-    // RS-27 — the service THROWS AggregateNotFoundException on a miss (it
-    // never returns null), so the `@RestControllerAdvice` renders the RFC-9457
-    // envelope with the `"<Agg> <id> not found"` detail.  Answering
-    // `ResponseEntity.notFound().build()` here would send Spring's own bare 404
-    // with an EMPTY BODY instead.
-    `        return ResponseEntity.ok(service.get${agg.name}ById(new ${idClass}(id)));`,
-    `    }`,
-    ``,
+    ...(getByIdEntry
+      ? [
+          `    @GetMapping("${relativeOpPath(getByIdEntry)}")`,
+          `    public ResponseEntity<${agg.name}Response> get${agg.name}ById(@PathVariable ${idJava} id) {`,
+          // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+          // this read, BEFORE the load (403 for an existing and a missing id alike).
+          // That find is a declared find, so it is already in `gatedFinds` — its
+          // imports and the principal accessor are wired above.
+          ...(getByIdEntry.find?.requires ? findGateLines(getByIdEntry.find) : []),
+          // RS-27 — the service THROWS AggregateNotFoundException on a miss (it
+          // never returns null), so the `@RestControllerAdvice` renders the RFC-9457
+          // envelope with the `"<Agg> <id> not found"` detail.  Answering
+          // `ResponseEntity.notFound().build()` here would send Spring's own bare 404
+          // with an EMPTY BODY instead.
+          `        return ResponseEntity.ok(service.get${agg.name}ById(new ${idClass}(id)));`,
+          `    }`,
+          ``,
+        ]
+      : []),
     // Entity history — two path segments, so no collision with the `/{id}`
     // pattern above.
     ...(historyFind ? renderJavaHistoryRoute(agg, historyFind, idJava, idClass) : []),
@@ -528,24 +553,26 @@ export function renderJavaController(
     // `<Agg>Paged` envelope + page/pageSize/sort/dir controls, matching every
     // other backend.  A non-paged findAll (document/embedded/inheritance) keeps
     // the bare-array `List<<Agg>Response>`.
-    ...(pagedAutoAll
-      ? [
-          `    @GetMapping`,
-          `    public ${agg.name}Paged all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
-          ...(listReadGated ? findGateLines(listReadGated) : []),
-          `        var result = service.all${agg.name}(page, pageSize, sort, dir);`,
-          `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
-          `    }`,
-          ``,
-        ]
-      : [
-          `    @GetMapping`,
-          `    public List<${agg.name}Response> all${agg.name}() {`,
-          ...(listReadGated ? findGateLines(listReadGated) : []),
-          `        return service.all${agg.name}();`,
-          `    }`,
-          ``,
-        ]),
+    ...(allClaimed
+      ? []
+      : pagedAutoAll
+        ? [
+            `    @GetMapping`,
+            `    public ${agg.name}Paged all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
+            ...(listReadGated ? findGateLines(listReadGated) : []),
+            `        var result = service.all${agg.name}(page, pageSize, sort, dir);`,
+            `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
+            `    }`,
+            ``,
+          ]
+        : [
+            `    @GetMapping`,
+            `    public List<${agg.name}Response> all${agg.name}() {`,
+            ...(listReadGated ? findGateLines(listReadGated) : []),
+            `        return service.all${agg.name}();`,
+            `    }`,
+            ``,
+          ]),
     ...findRoutes,
     ...destroyRoutes,
   ];
@@ -1002,9 +1029,11 @@ export function renderApiExceptionAdvice(
     // authored English — when the bundle has no entry for this locale.  The
     // message-less sentinel code resolves to nothing and keeps its default, so
     // no branching is needed here (M-T1.11).
+    // An absent required field (`@NotNull` on the boxed record component) reads
+    // the same on every backend (RS-39).
     localizeMessages
-      ? `                entry.put("message", resolveMessage(err, locale));`
-      : `                entry.put("message", err.getDefaultMessage());`,
+      ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : resolveMessage(err, locale));`
+      : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
     `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
     `                return entry;`,
@@ -1182,7 +1211,7 @@ export function renderApiExceptionAdvice(
     // does not fit.  Jackson refuses it while binding, as an
     // InputCoercionException carrying the field's path, so it surfaces here
     // rather than at Bean Validation — and the answer is the wire-validation
-    // 422 at that field with the cross-backend range sentence (RS-39), the
+    // 422 at that field with the cross-backend range sentence (RS-40), the
     // same body node, python, .NET and elixir send.  Every other unreadable
     // body stays the 400.
     `    @ExceptionHandler(HttpMessageNotReadableException.class)`,
@@ -1356,6 +1385,7 @@ export function renderApiExceptionAdvice(
     `            var detail = switch (status) {`,
     `                case 404 -> "no route for " + servletRequest.getMethod() + " " + path;`,
     `                case 405 -> "method " + servletRequest.getMethod() + " is not supported for " + path;`,
+    `                case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,
     `                default -> er.getBody().getDetail() != null ? er.getBody().getDetail() : reason;`,
     `            };`,
     `            CatalogLog.event(${javaLogEvent("clientError")}, "error", detail, "status", status);`,
