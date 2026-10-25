@@ -23,6 +23,7 @@ import {
   type TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -48,6 +49,11 @@ import {
   renderPyStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import {
+  stampRules as insertOrUpdateStampRules,
+  type StampEvent,
+  stampEventsFor,
+} from "../stamp-call.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderPyAggregate` (when `opFragments` is
@@ -437,7 +443,7 @@ function renderEntity(
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
           `            raise ${PY.DisallowedError}(${JSON.stringify(
-            `operation '${op.name}' is not allowed in the current state of ${e.name}.`,
+            disallowedDetail(op.name, e.name, op.whenSource),
           )})`,
         ]
       : [];
@@ -541,8 +547,11 @@ function renderEntity(
   // the principal id (`current_user.<idAttr>`, threaded from
   // `request.state.current_user`).  Root-only; event-sourced aggregates and
   // principal stamps without auth are gated upstream.
-  const stampRules = (event: "create" | "update"): readonly ContextStampAssignmentIR[] =>
-    e.isRoot ? pyStampAssignments(e, event) : [];
+  // `_stamp_on_create` runs the `onCreate` rules then the `onUpdate` ones
+  // (`stampRules` in `stamp-call.ts`), so every insert site — REST route,
+  // workflow, handler, reactor — writes `updated_*` alongside `created_*`.
+  const stampRules = (event: StampEvent): ContextStampAssignmentIR[] =>
+    e.isRoot ? insertOrUpdateStampRules(e, event) : [];
   const renderStampValue = (value: ExprIR): string =>
     value.kind === "ref" && value.refKind === "current-user"
       ? `current_user.${principalIdAttr ?? "id"}`
@@ -556,7 +565,10 @@ function renderEntity(
     // database's to report as an opaque 500.  An OPTIONAL target is left alone:
     // null is legal there, and guarding it would refuse the claim-less signup
     // bootstrap.
-    const guards = requiredClaimStamps(e, event).flatMap((stamp) => [
+    const claimStamps = new Map(
+      stampEventsFor(event).flatMap((ev) => requiredClaimStamps(e, ev).map((c) => [c.field, c])),
+    );
+    const guards = [...claimStamps.values()].flatMap((stamp) => [
       `        if not current_user.${snake(stamp.claim)}:`,
       `            raise ${PY.ForbiddenError}(${JSON.stringify(missingClaimMessage(stamp))})`,
     ]);
@@ -891,24 +903,4 @@ function shellSeed(f: FieldIR): string {
 function renderPyOperationReturnType(t: TypeIR): string {
   if (t.kind === "union") return "dict[str, object]";
   return renderPyType(t);
-}
-
-/** The stamp assignments a lifecycle event applies.  A fresh row is stamped
- *  with the create AND the update set (a create assignment wins on a shared
- *  field): `updatedAt` / `updatedBy` describe the last write, and an insert is
- *  one — the same set node's `stampInsert` and JPA's persist-time auditing
- *  fill.  Stamping the create set alone left `updatedBy` at its empty default.
- *  Shared with the routes builder, which threads `current_user` by it. */
-export function pyStampAssignments(
-  agg: {
-    contextStamps?: readonly { event: string; assignments: readonly ContextStampAssignmentIR[] }[];
-  },
-  event: "create" | "update",
-): ContextStampAssignmentIR[] {
-  const of = (ev: string): ContextStampAssignmentIR[] =>
-    (agg.contextStamps ?? []).filter((r) => r.event === ev).flatMap((r) => [...r.assignments]);
-  if (event === "update") return of("update");
-  const create = of("create");
-  const created = new Set(create.map((a) => a.field));
-  return [...create, ...of("update").filter((a) => !created.has(a.field))];
 }

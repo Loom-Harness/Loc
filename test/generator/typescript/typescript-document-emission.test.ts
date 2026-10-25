@@ -220,9 +220,11 @@ describe("document save() applies the onCreate stamps", () => {
 
   it("stamps the doc payload on the INSERT branch", () => {
     const src = thingRepo();
-    expect(src).toContain('import { stampThingInsert as stampInsert } from "../audit-stamp";');
+    expect(src).toContain('import { stampInsertThing } from "../audit-stamp";');
     // The insert carries the stamped payload…
-    expect(src).toMatch(/\.insert\(schema\.things\)\.values\(\{[^}]*data: stampInsert\(data\)/);
+    expect(src).toMatch(
+      /\.insert\(schema\.things\)\.values\(\{[^}]*data: stampInsertThing\(data\)/,
+    );
   });
 
   it("does NOT stamp the UPDATE branch — it writes the whole blob", () => {

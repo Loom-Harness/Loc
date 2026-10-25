@@ -361,7 +361,7 @@ using (var migrationScope = app.Services.CreateScope())
     }
     catch (Exception migrationError)
     {
-        migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", migrationError.Message);
+        migrationLog.LogError(migrationError, "{Event} error={Error}", "migration_failed", (migrationError as Npgsql.PostgresException ?? migrationError.InnerException as Npgsql.PostgresException) is { } pgError ? $"{pgError.SqlState}: {pgError.MessageText} detail: {pgError.Detail} constraint: {pgError.ConstraintName}" : migrationError.Message);
         throw;
     }
 }

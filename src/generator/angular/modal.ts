@@ -8,7 +8,7 @@ import {
   localizedPageChromeText,
   localizedText,
 } from "../_walker/i18n-emit.js";
-import { opGateFor } from "../_walker/op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
 import {
@@ -236,7 +236,7 @@ export function renderAngularModal(
   // is markup TEXT here, so an i18n `t(…)` call arrives ready to interpolate.
   const titleId = `${ns}-title`;
   const title = modalTitleOf(call, ctx) ?? label;
-  return [
+  const modal = [
     `<div class="loom-modal">`,
     `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
     `${inner}@if (${openSig}()) {`,
@@ -251,6 +251,12 @@ export function renderAngularModal(
     `${inner}}`,
     `${close}</div>`,
   ].join("\n");
+  // A currentUser-only `requires` hides the whole dialog (trigger included)
+  // for a principal it refuses — the shared `opRequiresClientGate`.
+  const clientGate = opRequiresClientGate(op, ctx);
+  return clientGate === null
+    ? modal
+    : ctx.target.renderConditionalChild(clientGate, modal, "null", depth);
 }
 
 /** The authored `Modal { title: … }` as Angular template TEXT — translated when

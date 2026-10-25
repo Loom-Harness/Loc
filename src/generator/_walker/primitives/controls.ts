@@ -6,13 +6,12 @@
 import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-import { tryRenderGate } from "../../_frontend/gate-expr.js";
 import { tryDetectApiHook } from "../api-hook-detector.js";
 import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
 import { localizedAriaLabelAttr, localizedNamedValue, localizedText } from "../i18n-emit.js";
 import { lookupBuiltinIcon } from "../icons.js";
-import { opGateFor } from "../op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { queryShape } from "../paged-query.js";
 import { renderPrimitive } from "../render-primitive.js";
 import {
@@ -443,18 +442,11 @@ function gateAction(
   ctx: WalkContext,
   depth: number,
 ): string {
-  if (!ctx.authUi) return button;
-  const gates = op.statements.filter((s) => s.kind === "requires").map((s) => s.expr);
-  if (gates.length === 0) return button;
-  const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
-  if (!parts.every((p) => p !== null)) return button;
-  ctx.usesCurrentUser = true;
-  return ctx.target.renderConditionalChild(
-    parts.map((p) => `(${p})`).join(" && "),
-    button,
-    "null",
-    depth,
-  );
+  const clientGate = opRequiresClientGate(op, ctx);
+  if (clientGate !== null) {
+    return ctx.target.renderConditionalChild(clientGate, button, "null", depth);
+  }
+  return button;
 }
 
 /** Render an `Action`'s `then:` effect — the JS run after the

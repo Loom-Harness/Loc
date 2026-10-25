@@ -42,8 +42,10 @@ describe("document onCreate stamps — node", () => {
   it("stamps the doc payload on the INSERT branch, and only there", async () => {
     const files = await generateSystemFiles(sourceFor("node"));
     const repo = fileEndingWith(files, "db/repositories/thing-repository.ts");
-    expect(repo).toContain('import { stampThingInsert as stampInsert } from "../audit-stamp";');
-    expect(repo).toMatch(/\.insert\(schema\.things\)\.values\(\{[^}]*data: stampInsert\(data\)/);
+    expect(repo).toContain('import { stampInsertThing } from "../audit-stamp";');
+    expect(repo).toMatch(
+      /\.insert\(schema\.things\)\.values\(\{[^}]*data: stampInsertThing\(data\)/,
+    );
     // `stampUpdate` STRIPS the create-only fields — right for a relational
     // partial `set`, catastrophic here where the whole blob is rewritten.
     expect(repo).not.toContain("stampUpdate");
@@ -118,9 +120,9 @@ describe("document onCreate stamps — node/mikroorm (the SIXTH emission site)",
   it("stamps the doc payload on the INSERT branch, and only there", async () => {
     const files = await generateSystemFiles(mikroormSource());
     const repo = fileEndingWith(files, "db/repositories/thing-repository.ts");
-    expect(repo).toContain('import { stampThingInsert as stampInsert } from "../audit-stamp";');
+    expect(repo).toContain('import { stampInsertThing } from "../audit-stamp";');
     expect(repo).toMatch(
-      /em\.insert\(ThingRow, \{ id: aggregate\.id as string, data: stampInsert\(data\)/,
+      /em\.insert\(ThingRow, \{ id: aggregate\.id as string, data: stampInsertThing\(data\)/,
     );
     // The whole blob is rewritten on update, so a strip would delete the tenant.
     expect(repo).not.toContain("stampUpdate");

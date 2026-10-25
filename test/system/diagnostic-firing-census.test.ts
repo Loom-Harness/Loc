@@ -1691,6 +1691,25 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
+  // the aggregate's own function: the document write seam has no record to
+  // evaluate it against.
+  "loom.stamp-reads-aggregate-unsupported": `
+system P {
+  subdomain D { context Orders {
+    aggregate Order shape: document with crudish {
+      qty: int
+      total: int managed
+      function doubled(): int = qty * 2
+      stamp onCreate { total := doubled() }
+    }
+    repository Orders for Order { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
   // --- workflow-checks.ts --------------------------------------------------
   // M-T9.19 recorded FOUR of this file's codes as unemittable from source.
   // Driving each one instead of re-reading the note found that claim wrong for
@@ -1728,6 +1747,23 @@ system P {
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
+  // Declared names differ only in case, so the namespace gate above passes —
+  // but both derive the table `sweeps`.
+  // `count` takes no column; the grouped select passes one.
+  "loom.projection-aggregate-arity":
+    repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
+    repository Tickets for Ticket { }
+    projection ByQueue { queue: string  breached: int
+      from Ticket as t
+      group by t.queue
+      select queue = t.queue, breached = count(t.breached) }`),
+  // A single-row find on `number`, which no `unique (number)` covers.
+  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
+    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
+  "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
+    repository Sweeps for Sweep { }
+    event Tick { sweep: Sweep id }
+    workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
   // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
   // it neither way: `oid` does not name-match `orderId`, and the body never
   // assigns `orderId := oid` either — so the body would render against an
@@ -3892,6 +3928,12 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // pair, and NO warning on a pair carrying a declared backfill (which proves
   // it tracks the COLLAPSE, not merely the diff shape).
   "loom.migration-rename-inferred": "test/ir/migrations-builder.test.ts",
+  // Phase ⑨ again: "this block is spent" is a judgement against a BASELINE
+  // SNAPSHOT (the schema and the applied-data ledger), which `validate()` does
+  // not have. The pointed-at file drives two generations and asserts it fires
+  // on the second, and stays silent on the first run, on the generation that
+  // runs the block, and while one sql step is still unledgered.
+  "loom.migration-block-applied": "test/ir/migrations-builder.test.ts",
   // Phase ⑨, same reason (B-20b): a unique index added to a table the
   // BASELINE already has — no baseline reaches `validate()`.  The pointed-at
   // file drives the warning, its `sql before` silencing, and the rebuild /

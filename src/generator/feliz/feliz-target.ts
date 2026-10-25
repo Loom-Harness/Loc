@@ -930,7 +930,14 @@ export const felizTarget: WalkerTarget = {
     // the enclosing Group's children list; paren-wrapped against sibling absorption.
     // A native <details> styled as a daisyUI `collapse` disclosure — the summary
     // is the trigger, the operation form the revealed `collapse-content`.
-    return `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
+    const disclosure = `(Html.details [ prop.className "collapse collapse-arrow border border-base-300 bg-base-200"; prop.children [ Html.summary [ ${summaryTid}${summaryGate}prop.className "collapse-title font-medium"; ${summaryText} ]; Html.div [ prop.className "collapse-content"; prop.children [ ${title}${form} ] ] ] ])`;
+    // A currentUser-only `requires` hides the disclosure for a principal it
+    // refuses — the same one-line `match` over the decoded claims `Action` uses.
+    const found = ctx.authUi ? modalOp(formChild, ctx) : undefined;
+    const userGate = found ? opActionGate(found.op) : null;
+    return userGate
+      ? `(match model.CurrentUser with Some currentUser when ${userGate} -> ${disclosure} | _ -> Html.none)`
+      : disclosure;
   },
 
   defaultInitFor: (type) => fsZeroValue(type),
@@ -1371,7 +1378,8 @@ export { fsString };
 /** The `can_<op>` gate of a `Modal`'s `OperationForm` child — resolved through
  *  the same two shapes `renderOperationForm` accepts — or undefined when the op
  *  is ungated / unresolvable. */
-function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
+/** The aggregate + public operation a Modal's `OperationForm` child names. */
+function modalOp(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   const names = formChild.argNames ?? [];
   const ofArg = names.indexOf("of") >= 0 ? formChild.args[names.indexOf("of")] : undefined;
   const opArg = names.indexOf("op") >= 0 ? formChild.args[names.indexOf("op")] : undefined;
@@ -1389,5 +1397,12 @@ function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   }
   const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
-  return agg && op ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name)) : undefined;
+  return agg && op ? { agg, op } : undefined;
+}
+
+function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
+  const found = modalOp(formChild, ctx);
+  return found
+    ? opGateFor(ctx, found.agg, found.op, canProbeFieldName(found.agg.name, found.op.name))
+    : undefined;
 }

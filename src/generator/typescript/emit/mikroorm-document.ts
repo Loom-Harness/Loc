@@ -31,7 +31,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited, auditStampImport } from "./audit-stamp.js";
+import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
@@ -181,7 +181,7 @@ export function renderMikroDocumentRepository(
   // failed while drizzle passed.
   // Property SHORTHAND when unaudited (`data`, not `data: data`) so an
   // aggregate with no lifecycle stamps emits byte-identically to before.
-  const docData = docAudited ? "data: stampInsert(data)" : "data";
+  const docData = docAudited ? `data: ${stampInsertCall(agg, "data")}` : "data";
   const saveLines = versioned
     ? [
         `    const expected = expectedVersion ?? aggregate.version;`,
@@ -322,7 +322,7 @@ export function renderMikroDocumentRepository(
         ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
         : `import { AggregateNotFoundError } from "../../domain/errors";`,
       `import type { DomainEventDispatcher } from "../../domain/events";`,
-      docAudited && auditStampImport(agg, { update: false }),
+      docAudited && stampImportLine(agg, { update: false }),
       `import { requestLog } from "../../obs/als";`,
       "",
       body,

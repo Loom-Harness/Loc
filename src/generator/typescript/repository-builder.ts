@@ -15,7 +15,7 @@ import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
-import { aggregateIsAudited, auditStampImport } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
   contextFilterPredicate,
@@ -258,7 +258,7 @@ export function buildRepositoryFile(
     // Persist-time audit stamping helper — pulled in only when this aggregate's
     // `save()` stamps (audited).  Stamps the audit columns from the ambient
     // request principal at the upsert (db/audit-stamp.ts).
-    aggregateIsAudited(agg) && auditStampImport(agg, { update: true }),
+    aggregateIsAudited(agg) && stampImportLine(agg, { update: true }),
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,

@@ -1228,23 +1228,23 @@ describe("mikroorm — persist-time audit stamping", () => {
     expect(helper).toBeDefined();
     // Adapter-agnostic principal source.
     expect(helper).toContain('import { requestContext } from "../obs/als";');
-    expect(helper).toContain("export function stampOrderInsert");
+    expect(helper).toContain("export function stampInsertOrder");
     expect(helper).toContain("createdBy: ctx.actorId");
   });
 
   it("the mikro versioned save wraps insert in stampInsert and the CAS update in stampUpdate (M-T3.4)", async () => {
     const { files } = await emit(AUDIT_SRC);
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    expect(repo).toContain(
-      'import { stampOrderInsert as stampInsert, stampOrderUpdate as stampUpdate } from "../audit-stamp";',
-    );
+    expect(repo).toContain('import { stampInsertOrder, stampUpdateOrder } from "../audit-stamp";');
     // Default-on versioning turns the blind upsert into a guarded write: the
     // create branch stamps + seeds version 1; the update branch is a version-CAS
     // `nativeUpdate` whose `stampUpdate` only touches updatedAt/updatedBy, so the
     // create-only createdAt/createdBy stay at their loaded values (immutable).
-    expect(repo).toMatch(/await em\.insert\(OrderRow, stampInsert\([\s\S]*?version: 1 \}\)\);/);
     expect(repo).toMatch(
-      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdate\([\s\S]*?version: expected \+ 1 \}\)\);/,
+      /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?version: 1 \}\)\);/,
+    );
+    expect(repo).toMatch(
+      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdateOrder\([\s\S]*?version: expected \+ 1 \}\)\);/,
     );
   });
 

@@ -137,18 +137,7 @@ export const BEHAVIOURAL_SKIP = {
  * exit landed, delete the entry), names a missing corpus case, or carries no
  * mission / PR id.  Empty is the target state.
  */
-export const ADAPTER_ONLY_CASES = {
-  "dotnet { persistence: dapper }": {
-    // #3224: a `transactional` Dapper workflow commits atomically.  Pre-fix the
-    // Dapper leg fails this case (`expected 80 to be 90` — the first handle's
-    // save had committed on its own connection); post-fix it passes.  The EF leg
-    // fails it for a different reason (two `getById` loads are one tracked
-    // entity, so `debitTwice` never conflicts), filed as M-T6.90; when that
-    // lands, `dotnet` joins the manifest set and this entry goes.
-    "transactional-workflow-event-rollback":
-      "M-T6.90 — EF's identity map makes the duplicate-handle conflict unreachable on the default .NET adapter; Dapper gates #3224's atomicity fix",
-  },
-};
+export const ADAPTER_ONLY_CASES = {};
 
 /** The shared `systems/*.ddd` cases, DERIVED from the directory rather than a
  *  hand-list — a new shared system is gated the moment it lands, and a golden

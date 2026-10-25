@@ -885,10 +885,17 @@ export const flutterTarget: WalkerTarget = {
       `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
       `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)}))))`;
-    return (
+    const triggerWidget =
       gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
-      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`
-    );
+      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`;
+    // A currentUser-only `requires` hides the trigger for a principal it
+    // refuses, exactly as `renderAction` hides a one-click op button.
+    const userGate = ctx.authUi ? opActionGate(op) : null;
+    if (userGate) {
+      ctx.usesCurrentUser = true;
+      return `(${userGate}) ? ${triggerWidget} : const SizedBox.shrink()`;
+    }
+    return triggerWidget;
   },
 
   // `FileLink(<file-ref>)` → a null-guarded, selectable file reference.  The

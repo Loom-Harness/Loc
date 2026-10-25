@@ -10,6 +10,7 @@ import type {
   SystemIR,
   TestIR,
 } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import {
@@ -21,13 +22,7 @@ import {
 } from "../../../util/naming.js";
 import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import {
-  denialMessage,
-  denialTerm,
-  disallowedMessage,
-  guardErrorModule,
-  guardRaiseLine,
-} from "./denial.js";
+import { denialMessage, denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { esInvariantChecks, isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
@@ -467,7 +462,7 @@ function renderPureOp(
   const whenGate = op.when
     ? [
         `    if not (${renderExpr(op.when, rc)}), do: raise(${guardErrorModule(appModule)}, kind: :disallowed, message: ${elixirString(
-          disallowedMessage(agg.name, op.name),
+          disallowedDetail(op.name, agg.name, op.whenSource),
         )})`,
       ]
     : [];

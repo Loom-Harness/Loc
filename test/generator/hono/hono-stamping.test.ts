@@ -2,11 +2,10 @@
 // Hono (node) backend — lifecycle stamps (`stamp onCreate`/`onUpdate`, the
 // audit / softDelete capability stamps).  node-persist-time-auditing relocated
 // stamping out of the domain method + handler into the drizzle persistence
-// layer: a per-project `db/audit-stamp.ts` helper exposes a
-// `stamp<Agg>Insert` / `stamp<Agg>Update` pair per aggregate (imported as
-// `stampInsert` / `stampUpdate`), and the aggregate's `save()` wraps the write
-// (`.values(stampInsert(...))` on the insert branch, `.set(stampUpdate(...))`
-// on the update branch).  M-T3.4 — versioning is default-on, so the save is a
+// layer: a per-project `db/audit-stamp.ts` helper exposes one
+// `stampInsert<Agg>` / `stampUpdate<Agg>` pair per stamping aggregate, and the
+// aggregate's `save()` wraps the write (`.values(stampInsertOrder(...))` on the
+// insert branch, `.set(stampUpdateOrder(...))` on the update branch).  M-T3.4 — versioning is default-on, so the save is a
 // guarded insert/update (not `.onConflictDoUpdate`); the stamps wrap each
 // branch's row object all the same.  The principal comes from the ambient
 // request context (`requestContext().actorId`); the domain entity is pure (no
@@ -169,9 +168,9 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     // unstamped.
     expect(helper).toContain("if (!ctx) return row;");
     // now()-only stamps → `new Date()` on both branches; no actor (no auth).
-    expect(helper).toContain("export function stampOrderInsert");
+    expect(helper).toContain("export function stampInsertOrder");
     expect(helper).toContain("createdAt: new Date()");
-    expect(helper).toContain("export function stampOrderUpdate");
+    expect(helper).toContain("export function stampUpdateOrder");
     // createdAt is stripped from the update result so the upsert `set` leaves
     // it immutable.
     expect(helper).toContain("const { createdAt: _createdAt, ...rest } = row;");
@@ -179,17 +178,15 @@ describe("Hono (node) generator — lifecycle stamps", () => {
 
   it("the save() guarded write stamps via stampInsert (values) + stampUpdate (set) — default-on (M-T3.4)", async () => {
     const repo = find(await build(SRC), /repositories\/order-repository\.ts$/);
-    expect(repo).toContain(
-      'import { stampOrderInsert as stampInsert, stampOrderUpdate as stampUpdate } from "../audit-stamp";',
-    );
+    expect(repo).toContain('import { stampInsertOrder, stampUpdateOrder } from "../audit-stamp";');
     // Insert branch: the seeded row (version: 1) is wrapped by stampInsert.
     expect(repo).toMatch(
-      /\.values\(stampInsert\(\{ id: aggregate\.id as string,[\s\S]*?version: 1 \}\)\)/,
+      /\.values\(stampInsertOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: 1 \}\)\)/,
     );
     // Update branch: the version-bumped row (version: expected + 1) is wrapped
     // by stampUpdate, and the write is guarded on the expected version.
     expect(repo).toMatch(
-      /\.set\(stampUpdate\(\{ id: aggregate\.id as string,[\s\S]*?version: expected \+ 1 \}\)\)/,
+      /\.set\(stampUpdateOrder\(\{ id: aggregate\.id as string,[\s\S]*?version: expected \+ 1 \}\)\)/,
     );
     expect(repo).toContain("eq(schema.orders.version, expected)");
   });
@@ -226,18 +223,18 @@ describe("Hono (node) generator — lifecycle stamps", () => {
     };
     // A MikroORM insert names every key it is handed, so a foreign column is a
     // 500; a foreign claim guard refuses a principal the aggregate never reads.
-    const ticketInsert = fn("stampTicketInsert");
+    const ticketInsert = fn("stampInsertTicket");
     expect(ticketInsert).toContain("ownerRole: currentUser.role");
     expect(ticketInsert).not.toContain("updatedAt");
     expect(ticketInsert).not.toContain("updatedBy");
-    const noteInsert = fn("stampNoteInsert");
+    const noteInsert = fn("stampInsertNote");
     expect(noteInsert).toContain("updatedBy: ctx.actorId");
     expect(noteInsert).not.toContain("ownerRole");
     expect(noteInsert).not.toContain('"role"');
-    expect(fn("stampTicketUpdate")).not.toContain("updatedAt");
+    expect(fn("stampUpdateTicket")).not.toContain("updatedAt");
     // Each repository binds its own pair.
     expect(find(files, /repositories\/note-repository\.ts$/)).toContain(
-      'import { stampNoteInsert as stampInsert, stampNoteUpdate as stampUpdate } from "../audit-stamp";',
+      'import { stampInsertNote, stampUpdateNote } from "../audit-stamp";',
     );
   });
 

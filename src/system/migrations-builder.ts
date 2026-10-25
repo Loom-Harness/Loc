@@ -1229,6 +1229,9 @@ export interface MigrationWarning {
   readonly module: string;
   /** Rendered via `diagMessage(code, …)` — never an inline literal. */
   readonly message: string;
+  /** `suggestion` for a pure advisory that names no defect (a `migration`
+   *  block that is spent and may be removed); absent means `warning`. */
+  readonly severity?: "suggestion";
 }
 
 /** B-20b: a `unique (…)` index added to a table the BASELINE already has.
@@ -1447,6 +1450,17 @@ function qualifiedName(schema: string | undefined, name: string): string {
  *  rewrite (field default → add-with-default + DROP DEFAULT) clear this gate
  *  without a `--allow-destructive` flag or a TODO comment — the rewrite is
  *  applied upstream of this predicate, in the weaving pass. */
+/** The Postgres empty-array literal for an inline collection column, or
+ *  undefined for every other column.  An array-typed column that carries a
+ *  `valueArrayChildTable` is a carrier no DDL path creates (its elements live
+ *  in the child table), so it never gets one.  Derived from the column type at
+ *  the one site that needs it rather than stamped on the column, so the
+ *  rename-collapse heuristic — which treats a *declared* default as a contrary
+ *  signal — keeps seeing only what the author wrote. */
+function emptyCollectionDefault(c: ColumnShape): string | undefined {
+  return c.type.kind === "array" && c.valueArrayChildTable === undefined ? "'{}'" : undefined;
+}
+
 function isBlockingNotNullAdd(s: MigrationStep): boolean {
   return s.op === "addColumn" && !s.column.nullable && s.column.default === undefined;
 }
@@ -1705,8 +1719,17 @@ export function applyDestructivePolicy(
       // Guarded on `blocking` (NOT NULL, no default of its own): a nullable add
       // needs no backfill to succeed, and a column that legitimately carries a
       // DB default (`gen_random_uuid()` on a system table) must keep it.
-      if (isBlockingNotNullAdd(s) && s.column.addColumnDefault !== undefined) {
-        const lit = s.column.addColumnDefault;
+      //
+      // A NOT NULL inline-collection column (`tags: string[]`, `skills:
+      // Skill[]` → a Postgres array) needs no declared default: its empty
+      // value is derivable from the column type alone, and an empty
+      // collection is the only value every pre-existing row can honestly
+      // hold.  It rides the same add-WITH-DEFAULT → DROP DEFAULT pair, so the
+      // column ends up identical to a fresh `CREATE TABLE`.  A declared field
+      // default still wins, and a declared backfill wins over both.
+      const addDefault = s.column.addColumnDefault ?? emptyCollectionDefault(s.column);
+      if (isBlockingNotNullAdd(s) && addDefault !== undefined) {
+        const lit = addDefault;
         const withDefault: ColumnShape = { ...s.column, default: lit };
         const add: MigrationStep = s.fk
           ? { op: "addColumn", table: s.table, schema: s.schema, column: withDefault, fk: s.fk }
@@ -2200,6 +2223,17 @@ export function buildMigrations(
    *  kept verbatim, pre-`seq` ones carrying the backfill above. */
   const withSeq = (module: string, history: readonly MigrationHistoryEntry[]) =>
     history.map((e) => ({ ...e, seq: e.seq ?? historySeq.get(seqKey(module, e.version, e.name)) }));
+  // Per-block spent tracking for `loom.migration-block-applied`: a block is
+  // spent when, in every module it touches, each of its steps is already
+  // reflected in that module's BASELINE snapshot.  `judged` guards the
+  // vacuous case — a block nothing resolved against is never called spent.
+  const blockSpent = new Map<string, { judged: boolean; live: boolean }>();
+  const markBlock = (block: string, spent: boolean): void => {
+    const e = blockSpent.get(block) ?? { judged: false, live: false };
+    e.judged = true;
+    if (!spent) e.live = true;
+    blockSpent.set(block, e);
+  };
   for (const m of sys.subdomains) {
     if (!m.migrationsOwner) continue;
     // Binding-aware saving-shape resolver: resolve each aggregate's
@@ -2336,6 +2370,10 @@ export function buildMigrations(
       ...tableRenamePlan.dataFixups,
     ].filter((d) => !applied.has(d.key));
     const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
+    judgeBlocksAgainstBaseline(m, baseline, options, sqlForModule, structuralSteps, markBlock, {
+      schemaOf,
+      contextSchemaOf,
+    });
     // B-20b — announce a `unique (…)` landing on a populated table, unless the
     // author already declared a `sql before` step for this generation.
     if (options.warnings && !newData.some((d) => d.before)) {
@@ -2420,7 +2458,99 @@ export function buildMigrations(
       name,
     });
   }
+  for (const [block, e] of blockSpent) {
+    if (!e.judged || e.live) continue;
+    options.warnings?.push({
+      code: "loom.migration-block-applied",
+      module: [...(blockModules.get(block) ?? [])].join(", "),
+      message: diagMessage("loom.migration-block-applied", { block }),
+      severity: "suggestion",
+    });
+  }
   return out;
+}
+
+/** Judge each `migration` block's steps for ONE module against that module's
+ *  baseline snapshot, reporting per step whether it is already spent.  What
+ *  makes a step spent is read off the snapshot, never guessed:
+ *
+ *   - a raw `sql` step / TPH fix-up — its key is in `appliedDataMigrations`,
+ *     the ledger that stops it re-running;
+ *   - a column rename — the table has the new column and not the old one;
+ *   - a table rename — the new relation exists and the old one does not;
+ *   - a backfill — the column is already in the table and this generation
+ *     emits no UPDATE for it (the add or flip it rode is behind us, so the
+ *     step is inert from here on).
+ *
+ *  A missing baseline (first run), or a table the snapshot does not have,
+ *  makes the step live: the advisory stays silent rather than guess. */
+function judgeBlocksAgainstBaseline(
+  m: EnrichedSubdomainIR,
+  baseline: SchemaSnapshot | null,
+  options: BuildMigrationsOptions,
+  sqlForModule: readonly { migration: string; index: number }[],
+  structuralSteps: readonly MigrationStep[],
+  mark: (block: string, spent: boolean) => void,
+  resolvers: {
+    schemaOf: (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR) => string | undefined;
+    contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined;
+  },
+): void {
+  const applied = new Set(baseline?.appliedDataMigrations ?? []);
+  const tableOf = (schema: string | undefined, name: string): TableShape | undefined => {
+    if (!baseline) return undefined;
+    const exact = baseline.tables.find((t) => qkey(t.schema, t.name) === qkey(schema, name));
+    if (exact) return exact;
+    const bare = baseline.tables.filter((t) => t.name === name);
+    return bare.length === 1 ? bare[0] : undefined;
+  };
+  const hasCol = (t: TableShape, col: string): boolean => t.columns.some((c) => c.name === col);
+  // A backfill this very generation runs (a NULL → NOT NULL flip of a column
+  // the baseline already has) is live until the NEXT generation.
+  const runningNow = new Set(
+    structuralSteps.flatMap((st) =>
+      st.op === "backfillColumn" ? [`${qkey(st.schema, st.table)}.${st.column}`] : [],
+    ),
+  );
+  const columnRenameSpent = (r: TableColumnRename): boolean => {
+    const t = tableOf(r.schema, r.table);
+    return t !== undefined && hasCol(t, r.to) && !hasCol(t, r.from);
+  };
+  const blocks = new Set<string>([
+    ...(options.renameIntents ?? []).map((i) => i.migration),
+    ...(options.tableRenameIntents ?? []).map((i) => i.migration),
+    ...(options.backfillIntents ?? []).map((i) => i.migration),
+    ...sqlForModule.map((st) => st.migration),
+  ]);
+  for (const block of blocks) {
+    for (const st of sqlForModule) {
+      if (st.migration === block) mark(block, applied.has(`${st.migration}#${st.index}`));
+    }
+    const ofBlock = <T extends { migration: string }>(xs: readonly T[] | undefined): T[] =>
+      (xs ?? []).filter((x) => x.migration === block);
+    for (const r of resolveRenames(m, ofBlock(options.renameIntents), resolvers.schemaOf)) {
+      mark(block, columnRenameSpent(r));
+    }
+    const plan = resolveTableRenames(
+      m,
+      ofBlock(options.tableRenameIntents),
+      resolvers.schemaOf,
+      resolvers.contextSchemaOf,
+    );
+    for (const tr of plan.tableRenames) {
+      mark(
+        block,
+        tableOf(tr.schema, tr.to) !== undefined && tableOf(tr.schema, tr.from) === undefined,
+      );
+    }
+    for (const r of plan.columnRenames) mark(block, columnRenameSpent(r));
+    for (const f of plan.dataFixups) mark(block, applied.has(f.key));
+    for (const b of resolveBackfills(m, ofBlock(options.backfillIntents), resolvers.schemaOf)) {
+      const t = tableOf(b.schema, b.table);
+      const now = runningNow.has(`${qkey(b.schema, b.table)}.${b.column}`);
+      mark(block, !now && t !== undefined && hasCol(t, b.column));
+    }
+  }
 }
 
 /** Resolve a model's rename intents to per-table column renames for ONE module

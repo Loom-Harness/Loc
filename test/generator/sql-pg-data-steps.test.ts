@@ -221,3 +221,59 @@ describe("sqlRenderableExpr (M-T2.3 honest gate)", () => {
     expect((r as { reason: string }).reason).toMatch(/'call'/);
   });
 });
+
+// `datetime ± duration` is the one shape a duration may take in a backfill:
+// `Ticket.dueAt = createdAt + hours(24)` becomes Postgres interval arithmetic,
+// which adds the same absolute span every backend's runtime adds.  Anything
+// else carrying a duration — a bare one, `duration ± duration`, a duration
+// minus a datetime — has no column to land in and stays refused.
+describe("datetime ± duration in a backfill", () => {
+  const DATETIME: TypeIR = { kind: "primitive", name: "datetime" };
+  const dt = (name: string): ExprIR => ({
+    kind: "ref",
+    name,
+    refKind: "this-prop",
+    type: DATETIME,
+  });
+  const hours = (n: string): ExprIR => ({ kind: "duration", unit: "hours", amount: lit("int", n) });
+  const minutes = (amount: ExprIR): ExprIR => ({ kind: "duration", unit: "minutes", amount });
+  const tctx = {
+    columnFor: (f: string) => ({ createdAt: "created_at", slaMins: "sla_mins" })[f],
+  };
+
+  it("renders datetime + hours(n) as make_interval, and minutes as mins", () => {
+    const plus: ExprIR = { kind: "binary", op: "+", left: dt("createdAt"), right: hours("24") };
+    expect(sqlRenderableExpr(plus)).toBe(true);
+    expect(renderSqlScalarExpr(plus, tctx)).toBe(`("created_at" + make_interval(hours => 24))`);
+    const minus: ExprIR = {
+      kind: "binary",
+      op: "-",
+      left: dt("createdAt"),
+      right: minutes(prop("slaMins")),
+    };
+    expect(sqlRenderableExpr(minus)).toBe(true);
+    expect(renderSqlScalarExpr(minus, tctx)).toBe(
+      `("created_at" - make_interval(mins => "sla_mins"))`,
+    );
+  });
+
+  it("admits the duration on either side of +, and only the right of -", () => {
+    const flipped: ExprIR = { kind: "binary", op: "+", left: hours("1"), right: dt("createdAt") };
+    expect(renderSqlScalarExpr(flipped, tctx)).toBe(`("created_at" + make_interval(hours => 1))`);
+    const durMinusDt: ExprIR = {
+      kind: "binary",
+      op: "-",
+      left: hours("1"),
+      right: dt("createdAt"),
+    };
+    expect(sqlRenderableExpr(durMinusDt)).not.toBe(true);
+  });
+
+  it("refuses a bare duration, duration ± duration, and a non-datetime side", () => {
+    expect(sqlRenderableExpr(hours("1"))).not.toBe(true);
+    const twoDur: ExprIR = { kind: "binary", op: "+", left: hours("1"), right: hours("2") };
+    expect(sqlRenderableExpr(twoDur)).not.toBe(true);
+    const intPlusDur: ExprIR = { kind: "binary", op: "+", left: prop("qty"), right: hours("2") };
+    expect(sqlRenderableExpr(intPlusDur)).not.toBe(true);
+  });
+});

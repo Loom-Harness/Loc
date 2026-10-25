@@ -1,4 +1,5 @@
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -10,6 +11,7 @@ import {
 } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import type { DurationUnit } from "../../util/temporal.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { javaSubtreeLikePattern, spelSubtreeLikePattern } from "../_expr/subtree-like.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { jid } from "./java-ident.js";
@@ -86,6 +88,15 @@ const SUBTREE_LIKE_BIND = "subtreeLike:";
  *  a bare claim accessor, or a `subtreeLike:<accessor>` derived pattern.
  *  Prefixed so it cannot collide with a find's own `:param` bindings. */
 export function principalParamName(entry: string): string {
+  if (entry.startsWith(PRINCIPAL_TERM_BIND)) {
+    const text = entry.slice(PRINCIPAL_TERM_BIND.length);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return `__pt${h.toString(16).padStart(8, "0")}`;
+  }
   if (entry.startsWith(CLAIM_IS_NULL_BIND)) {
     const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
     return `__cuIsNull${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
@@ -102,6 +113,9 @@ export function principalParamName(entry: string): string {
  *  from drifting: a new derived binding kind adds an arm here rather than
  *  needing every call site to learn about it. */
 export function principalBindExpr(entry: string, principalVar: string): string {
+  if (entry.startsWith(PRINCIPAL_TERM_BIND)) {
+    return entry.slice(PRINCIPAL_TERM_BIND.length).split(PRINCIPAL_VAR_HOLE).join(principalVar);
+  }
   if (entry.startsWith(CLAIM_IS_NULL_BIND)) {
     const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
     return `${principalVar} != null && ${principalVar}.${accessor}() == null`;
@@ -362,7 +376,82 @@ const HQL_DURATION_UNIT: Record<DurationUnit, string> = {
   minutes: "minute",
 };
 
+/** Marker prefix for a recorded `principalAccessors` binding that is a whole
+ *  principal term, decided in Java: the rest of the entry is the boolean
+ *  expression with {@link PRINCIPAL_VAR_HOLE} standing for the principal. */
+const PRINCIPAL_TERM_BIND = "principalTerm:";
+const PRINCIPAL_VAR_HOLE = "__loomPrincipal__";
+
+/** A principal term (`currentUser.role == "agent"`) as a Java boolean over the
+ *  nullable principal `base` — false when there is no principal, so the term
+ *  fails closed.  Shared by the JPQL EntityManager binding and the Criteria
+ *  `tenantScope` factory; `enumRef` spells an enum value for the call site. */
+export function javaPrincipalTest(
+  pt: PrincipalTerm,
+  base: string,
+  enumRef: (enumName: string, value: string) => string,
+): string | null {
+  const longClaim = [pt.left, pt.right].some((o) => {
+    if (o.kind !== "claim") return false;
+    const t = o.type.kind === "optional" ? o.type.inner : o.type;
+    return t.kind === "primitive" && t.name === "long";
+  });
+  const test = renderPrincipalTest(pt, {
+    claim: (field) => `${base}.${field}()`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value" && v.enumName)
+        return enumRef(v.enumName, jid(v.name));
+      if (v.kind !== "literal") return null;
+      if (v.lit === "string") return JSON.stringify(v.value);
+      if (v.lit === "int" || v.lit === "long") return longClaim ? `${v.value}L` : v.value;
+      if (v.lit === "bool") return v.value;
+      return null;
+    },
+    isNull: (x) => `${x} == null`,
+    isNotNull: (x) => `${x} != null`,
+    eq: (l, r) => `java.util.Objects.equals(${l}, ${r})`,
+    ne: (l, r) => `!java.util.Objects.equals(${l}, ${r})`,
+  });
+  return test === null ? null : `(${base} != null && ${test})`;
+}
+
+/** A principal term in JPQL.  Its truth is fixed for the request, so it is
+ *  decided outside the query and bound as one Boolean compared to `true`: SpEL
+ *  in a Spring Data `@Query`, Java at the `setParameter` site in EntityManager
+ *  mode.  Both forms are false without a principal (fail-closed). */
+function renderPrincipalTermJpql(pt: PrincipalTerm, ctx: JpqlCtx): string {
+  const enumRef = (enumName: string, value: string): string =>
+    `${ctx.enumsPkg}.${enumName}.${value}`;
+  if (isEntityManagerMode(ctx)) {
+    const test = javaPrincipalTest(pt, PRINCIPAL_VAR_HOLE, enumRef);
+    if (test === null) throw unsupported(ctx, "principal term operand");
+    const entry = `${PRINCIPAL_TERM_BIND}${test}`;
+    ctx.principalAccessors?.add(entry);
+    return `:${principalParamName(entry)} = true`;
+  }
+  const user = `@${CURRENT_USER_BEAN}.user()`;
+  const test = renderPrincipalTest(pt, {
+    claim: (field) => `${user}.${field}()`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value" && v.enumName)
+        return `T(${ctx.enumsPkg}.${v.enumName}).${jid(v.name)}`;
+      if (v.kind !== "literal") return null;
+      if (v.lit === "string") return `'${v.value.replace(/'/g, "''")}'`;
+      if (v.lit === "int" || v.lit === "long" || v.lit === "bool") return v.value;
+      return null;
+    },
+    isNull: (x) => `${x} == null`,
+    isNotNull: (x) => `${x} != null`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+  if (test === null) throw unsupported(ctx, "principal term operand");
+  return `:#{${user} != null and (${test})} = true`;
+}
+
 function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, ctx: JpqlCtx): string {
+  const pt = principalTerm(e);
+  if (pt) return renderPrincipalTermJpql(pt, ctx);
   // A5 temporal — `datetime ± days/hours/minutes(n)` renders as HQL
   // duration arithmetic: `(e.dueDate + 30 day)`.  Works on BOTH sides of a
   // comparison (a column path navigates, a `:param` datetime binds, and the

@@ -30,7 +30,7 @@ describe("hono routes — when canCommand gate", () => {
   it("gates the operation route with DisallowedError before the body", async () => {
     const r = await routes();
     expect(r).toContain(
-      "if (!(aggregate.status !== OrderStatus.Shipped && aggregate.status !== OrderStatus.Cancelled)) throw new DisallowedError(\"operation 'cancel' is not allowed in the current state of Order.\");",
+      "if (!(aggregate.status !== OrderStatus.Shipped && aggregate.status !== OrderStatus.Cancelled)) throw new DisallowedError(\"operation 'cancel' is not allowed in the current state of Order (when this.status != Shipped && this.status != Cancelled).\");",
     );
     // The route declares the 409 outcome.
     expect(r).toContain(
