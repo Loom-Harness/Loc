@@ -800,7 +800,7 @@ const FEATURES: readonly Feature[] = [
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
     marker: {
-      node: '.from(schema.products).where(ne(schema.products.name, ""));',
+      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id));',
       dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
       // ^ the SINGLETON list is load-bearing: it also pins that the model under
       // test carries exactly one capability filter (see the fixture note above).
