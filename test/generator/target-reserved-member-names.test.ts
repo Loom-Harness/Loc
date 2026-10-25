@@ -168,7 +168,7 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(thing).toContain("    def def_(self) -> str:");
     expect(thing).toContain("    def raise_(self) -> int:");
     expect(thing).toContain("    def nonlocal_(self, del_: int) -> int:");
-    expect(thing).toContain("        return del_ + self.lambda_");
+    expect(thing).toContain("        return del_ + self._lambda");
     expect(thing).toContain("    def class_(self, except_: int) -> None:");
     expect(thing).toContain("        self._lambda = self.nonlocal_(except_)");
     // The backing field `_assert_invariants` belongs to the MEMBER now; the
@@ -419,15 +419,15 @@ describe("node + react: JS/TS reserved words as field / parameter names", async 
     expect(thing).toContain(
       "  public touch(class_: string, new_: number, default_: boolean, interface_: string): void {",
     );
-    expect(thing).toContain("    const public_ = Calc.sum(new_, this.yield);");
+    expect(thing).toContain("    const public_ = Calc.sum(new_, this._yield);");
     expect(thing).toContain("    this._class = class_;");
     expect(thing).toContain("    this._new = public_;");
     expect(thing).toContain(
-      "  public delete(package_: number, implements_: number): number { return package_ + implements_ + this.yield; }",
+      "  public delete(package_: number, implements_: number): number { return package_ + implements_ + this._yield; }",
     );
     // Property positions keep the declared name.
     expect(thing).toContain("  get class(): string { return this._class; }");
-    expect(thing).toContain("  get protected(): number { return this.new + this.yield; }");
+    expect(thing).toContain("  get protected(): number { return this._new + this._yield; }");
   });
 
   it("escapes value-object, domain-service and workflow bindings", () => {

@@ -5,17 +5,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Derived-property wire projection on vanilla — the EXPLICIT-receiver spelling.
 //
 // `derived throws: int = this.synchronized + 1` and `derived plus: int =
-// synchronized + 1` are one expression, but they lower differently: the bare
-// name is a `this-prop` ref, the `this.` form a `member` on a `this` node.  The
-// serializer's renderability walk (`derivedRenderable`, wire-serialize.ts)
-// declined every `this` receiver, so a derived spelled with `this.` was
-// silently dropped off the wire on this backend alone — the `java-reserved-
-// words` corpus e2e read `throws` back as undefined (behavioral-elixir, PR
-// #2907), while the served OpenAPI listed it in `required:`.  The renderer
-// emits the same `record.<field>` for both spellings, so both project now.
-// A `this.<derived>` member read still declines (the renderer does not inline
-// the member spelling — only the `this-derived` ref — so it would emit a
-// KeyError-raising `record.<derived>`).
+// synchronized + 1` are one expression and lower to one IR shape (a
+// `this-prop` ref), so both project identically.  A `this.<derived>` read
+// lowers to the `this-derived` ref the renderer inlines, so it projects too.
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
@@ -26,7 +18,7 @@ system DerivedThis {
         synchronized: int
         derived throws: int = this.synchronized + 1
         derived plus: int = synchronized + 1
-        // A this.<derived> read — not inlined by the renderer, must stay skipped.
+        // A this.<derived> read — the this-derived ref, inlined by the renderer.
         derived chained: int = this.throws * 2
       }
       repository Tickets for Ticket { }
@@ -46,14 +38,14 @@ system DerivedThis {
 `;
 
 describe("vanilla wire projection — a derived spelled `this.<prop>` projects like the bare form", () => {
-  it("both spellings render the same record read; the this.<derived> read stays skipped", async () => {
+  it("every spelling renders the same record read, including the this.<derived> read", async () => {
     const files = await generateSystemFiles(SOURCE);
     const key = [...files.keys()].find((k) => k.endsWith("/controllers/ticket_controller.ex"))!;
     expect(key, "ticket controller not emitted").toBeDefined();
     const ctrl = files.get(key)!;
     expect(ctrl).toContain('"throws" => record.synchronized + 1');
     expect(ctrl).toContain('"plus" => record.synchronized + 1');
-    expect(ctrl).not.toContain('"chained"');
+    expect(ctrl).toContain('"chained" => (record.synchronized + 1) * 2');
     expect(ctrl).not.toContain("record.throws");
   });
 });

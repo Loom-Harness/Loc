@@ -181,6 +181,12 @@ export interface Env {
    *  `Table { onRowClick: r => … }`, a nested `Column { field: r => … }` —
    *  binds its parameter at the real element type.  Undefined outside one. */
   rowElem?: TypeIR;
+  /** Set while lowering DOMAIN-LOGIC bodies (invariant / derived / function /
+   *  operation), where `this.<prop>` is an ordinary property read and lowers to
+   *  the same `this-prop` / `this-derived` ref as the bare spelling.  Unset in
+   *  query positions (`find` where, `filter`, criterion, projection) and page
+   *  bodies, whose consumers root a column path at `member(this, …)`. */
+  thisPropRead?: boolean;
   /** Stores in scope while lowering any page/component/store body — keyed by
    *  store name to its field types + action param types (named-actions-and-
    *  stores.md §3, Stage 5).  Drives dotted-name resolution so `Cart.lines`

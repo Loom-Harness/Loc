@@ -60,14 +60,14 @@ describe("`when` gate — the predicate's own imports/usings are collected (A17)
   it("java entity: Objects + Pattern imported, and the regex literal is hoisted", async () => {
     const files = await generateSystemFiles(SRC);
     const entity = files.get(`${JAVA}/Order.java`)!;
-    expect(entity).toContain('Objects.equals(this.owner(), "system")');
+    expect(entity).toContain('Objects.equals(this.owner, "system")');
     expect(entity).toContain("import java.util.Objects;");
     // The gate is a per-call hot path like an invariant, so its regex literal
     // hoists to a `private static final Pattern` rather than recompiling.
     expect(entity).toContain(
       'private static final Pattern MATCHES_PATTERN_0 = Pattern.compile("^sys");',
     );
-    expect(entity).toContain("MATCHES_PATTERN_0.matcher(this.code()).find()");
+    expect(entity).toContain("MATCHES_PATTERN_0.matcher(this.code).find()");
     expect(entity).toContain("import java.util.regex.Pattern;");
   });
 
