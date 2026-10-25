@@ -3,6 +3,7 @@
   import { page } from "$app/state";
 {{#if i18nEnabled}}  import { t } from "$lib/i18n";
 {{/if}}{{#if navUsesSession}}  import { useSession } from "$lib/auth/AuthGate.svelte";
+{{/if}}{{#if authUi}}  import { signOut } from "$lib/auth/session";
 {{/if}}
   let { children } = $props();
   let opened = $state(false);
@@ -30,7 +31,8 @@
       onclick={() => { opened = !opened; }}
     >☰</button>
     <span class="text-base font-semibold" data-testid="app-title">{{systemNameHuman}}</span>
-  </header>
+{{#if authUi}}    <button type="button" class="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700" onclick={signOut} data-testid="sign-out">{{{chrome "signOut"}}}</button>
+{{/if}}  </header>
   <div class="flex flex-1">
     <nav {{{primaryNavAria}}} class={"w-56 shrink-0 border-r bg-background p-3 " + (opened ? "block" : "hidden sm:block")}>
       <div class="flex flex-col gap-1">

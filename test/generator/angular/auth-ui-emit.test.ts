@@ -62,13 +62,16 @@ describe("angular auth: ui guard — emission", () => {
     expect(gate).toContain('selector: "app-auth-gate"');
     expect(gate).toContain("<ng-content />");
     expect(gate).toContain("session.signIn()");
-    expect(gate).toContain("session.signOut()");
+    // Sign out is shell chrome (the toolbar), not a gate overlay.
+    expect(gate).not.toContain("session.signOut()");
 
     const shell = find(files, "web/src/app/app.component.ts");
     expect(shell).toContain('import { AuthGateComponent } from "./auth/auth-gate.component"');
     expect(shell).toContain("AuthGateComponent,");
     expect(shell).toContain("<app-auth-gate>");
     expect(shell).toContain("</app-auth-gate>");
+    expect(shell).toContain('(click)="session.signOut()"');
+    expect(shell).toContain("readonly session = inject(SessionService);");
   });
 
   it("omits all auth wiring when the frontend has no auth: ui", async () => {
