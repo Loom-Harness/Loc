@@ -60,6 +60,78 @@ per-element composers, which fan out to leaf macros.
 **leaves** — they don't invoke other macros.  Everything else is a
 composer that delegates via `invokeMacro`.
 
+### What the aggregate pages show by default
+
+Every choice below is derived from the aggregate and its repository — nothing
+is configured, and `unfold` shows the result as ordinary page source.
+
+```ddd
+aggregate Ticket {
+  number: string
+  subject: string
+  status: TicketStatus = Open
+  customer: Customer id
+  implements auditable
+  derived display: string = number + " " + subject
+  derived isOpen: bool = status != Resolved && status != Closed
+  operation assign(agent: Agent id) when isOpen { requires currentUser.role == "agent" … }
+  operation close() when isOpen { requires currentUser.role == "agent" || currentUser.customerId == customer … }
+}
+repository Tickets for Ticket {
+  find all(): Ticket[]
+  find unassigned(): Ticket[] where assignee == null
+}
+policy { read Ticket requires currentUser.role == "agent" }
+```
+
+- **List columns.** The row's label — `derived display: string`, the name
+  every `X id` picker already shows — is the first column and the link to
+  Detail, so there is no raw-id column (an aggregate with no `display` keeps
+  one).  The fields `display` reads (`number`, `subject`) and `auditable`'s
+  `updatedAt` / `createdBy` / `updatedBy` get no column, and at most six data
+  columns follow in declaration order.  Detail still shows every field.
+
+  ```ddd
+  Column("Ticket", o => Anchor(o.display, to: "/tickets/" + o.id)),
+  Column("Status", o => EnumBadge(o.status), sortable: true, field: "status"),
+  Column("Customer", o => IdLink(o.customer, of: Customer), sortable: true, field: "customer"),
+  Column("Created At", o => DateDisplay(o.createdAt), sortable: true, field: "createdAt")
+  ```
+  ```tsx
+  <Table.Td><Anchor component={RouterLink} to={("/tickets/" + row.id)}>{row.display}</Anchor></Table.Td>
+  ```
+  The label is not a stored column, so its header does not sort (the server
+  has no `?sort=` key for it, and a LiveView row has no field to sort by).
+
+- **Derived values on Detail.** Each scalar `derived` renders read-only after
+  the stored fields (`KeyValueRow("Is Open", Text(data.isOpen ? "Yes" : "No"))`).
+
+- **A page per declared view.** A parameterless list find becomes
+  `area Tickets { page Unassigned { route: "/tickets/views/unassigned"
+  requires currentUser.role == "agent" … } }` with a sidebar entry
+  "Tickets: Unassigned".  A find with parameters stays a filter-bar arm on the
+  List page.  Each view page carries the aggregate's `policy { read … }`
+  gate; when the browser cannot evaluate it (a `null` literal, a `policy`
+  reference, a call other than `.contains`) no view page is emitted, since the
+  page gate check would refuse its copy.
+
+- **Home cards.** Home links only to List pages with no `requires`.  A gated
+  List stays reachable from the sidebar, which hides it per principal; Home is
+  a static body and cannot.
+
+- **Operation buttons.** A `when` gate disables a Detail button while the
+  state forbids the op.  On an `auth: ui` frontend, a `requires` that reads
+  only `currentUser` also hides it for a principal it refuses: `assign` above
+  is hidden from customers, while `close` (its gate reads the record's
+  `customer`) stays visible and the backend decides.
+
+  ```tsx
+  {(currentUser.role === "agent") ? (<Button … data-testid="tickets-op-assign">Assign</Button>) : null}
+  ```
+  ```heex
+  <%= if ((@current_user.role == "agent")) do %><.button phx-click={show_modal("ticket-op-assign-modal")} …>Assign</.button> … <% end %>
+  ```
+
 ### `scaffoldDashboard` — KPIs computed by the database
 
 ```ddd
@@ -302,6 +374,34 @@ Pass `with crudish(updateOnly: true)` to emit only `update` — no
 canonical `create`/`destroy`.  Use it when another macro owns the
 create/delete lifecycle, e.g. `with crudish(updateOnly: true),
 softDeletable` leaves the soft-delete terminator uncontested.
+
+### `crudish` delete under `softDeletable` — `loom.crudish-hard-delete`
+
+`softDeletable` is a pure mixin: it adds `isDeleted`/`deletedAt` and the
+`!this.isDeleted` read filter, and **no operation**. It does not change what
+`crudish`'s `destroy` does, so on a `with softDeletable, crudish` aggregate
+`DELETE /{id}` is still a **hard delete** on every backend: the row is gone,
+not flagged. This is deliberate. A capability never rewrites another macro's
+operation, and a physical delete (an admin purge, an erasure request) is a
+legitimate thing to keep. Loom raises the advisory `loom.crudish-hard-delete`
+(a `Suggestions:` hint, never an error) so the shape is not a surprise:
+
+```ddd
+aggregate Account with softDeletable, crudish { number: string }
+// DELETE /accounts/{id}  →  DELETE FROM accounts WHERE id = $1   (row removed)
+```
+
+To make soft delete the only way out, drop the canonical destroy and add the
+operations:
+
+```ddd
+aggregate Account with crudish(updateOnly: true), softDeletable, softDelete {
+  number: string
+  create(number: string) { number := number }
+}
+// POST /accounts/{id}/soft_delete  →  UPDATE accounts SET is_deleted = true, deleted_at = now() …
+// no DELETE /accounts/{id} route (no destroy)
+```
 
 ### `requires:` — gating the emitted members
 

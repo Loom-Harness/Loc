@@ -2067,6 +2067,12 @@ export const DIAGNOSTIC_MESSAGES = {
         : ` 'create' still accepts it too, so a client can start an instance in any state; give it a default and mark it 'managed' if the initial state must not be client-chosen.`),
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/crudish-hard-delete-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.crudish-hard-delete": (p: { name: unknown }) =>
+    `'${p.name}' is 'softDeletable', but the 'destroy' that 'crudish' emits is a HARD delete: 'DELETE /{id}' removes the row, it does not set 'isDeleted'. To make soft delete the only way out, write 'with crudish(updateOnly: true), softDeletable, softDelete' (and declare the 'create' you still want) — the soft delete is then 'POST /{id}/soft_delete'. Keep 'crudish' as it is if a physical delete (an admin purge, an erasure request) is what you mean.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
   // ----------------------------------------------------------------------
   "loom.backfill-target-invalid#backfill-a-aggregate-stores": (p: {
@@ -2082,6 +2088,11 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': the field is not a single scalar column (value-object, collection and entity fields cannot be backfilled — Phoenix stores a value object as one map column, so a leaf UPDATE would not be portable).`,
+  "loom.backfill-target-invalid#backfill-collection-needs-none": (p: {
+    aggregate: unknown;
+    field: unknown;
+  }) =>
+    `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2122,10 +2133,28 @@ export const DIAGNOSTIC_MESSAGES = {
    *  ANNOUNCES itself: a warning (never an error — an error would break every
    *  model relying on the collapse) so the one case it gets wrong is a line on
    *  stderr instead of a silently misattributed column. */
+  "loom.migration-block-applied": (p: { block: unknown }) =>
+    `migration "${p.block}" is fully applied: every step is already recorded in the schema snapshot (its renames and backfills are reflected in the schema, its sql steps are in the applied ledger), so it has no further effect. You may remove it from the source; the migration files already emitted keep its SQL.`,
   "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** One line of `loom.migration-destructive` for a NOT NULL column a built-in
+   *  CAPABILITY adds to an existing table, when Loom cannot know what the rows
+   *  already there should hold (`tenantOwned`'s tenant, `auditable`'s
+   *  creation stamps).  The author never spelled the column, so the line names
+   *  the capability and the field and says why there is no automatic backfill
+   *  (`softDeletable`'s flag has one and never reaches this). */
+  "loom.migration-destructive#capability-column": (p: {
+    column: unknown;
+    capability: unknown;
+    why: unknown;
+  }) =>
+    `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  "loom.migration-destructive#capability-tenant-owned":
+    "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
+  "loom.migration-destructive#capability-auditable":
+    "The real creation time and author of a row written before auditing are unknown, so there is no automatic backfill.",
   /** B-20b — a `unique (…)` index added to a table the baseline already has.
    *  Rows may already violate it, which fails the migration at boot and
    *  queues every later generation behind it.  Silenced by declaring a
@@ -2233,6 +2262,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.op}(…)' produces '${p.result}'. The DECLARED type is what the response ` +
     `schema and every backend's numeric coercion are built from, so the mismatch ` +
     `would silently re-code the value. Declare '${p.field}: ${p.result}'${p.hint}.`,
+  "loom.projection-aggregate-arity#count": (p: { name: unknown; field: unknown }) =>
+    `projection '${p.name}': 'select ${p.field} = count(…)' passes a column to 'count', which ` +
+    `takes none — 'count()' counts the rows (per group under 'group by'), never the values of ` +
+    `a column. To count only the rows where a condition holds, narrow them with the ` +
+    `projection's 'where' (in a projection of its own), or keep an int 0/1 column and 'sum' it.`,
+  "loom.projection-aggregate-arity#column": (p: {
+    name: unknown;
+    field: unknown;
+    op: unknown;
+    argCount: unknown;
+  }) =>
+    `projection '${p.name}': 'select ${p.field} = ${p.op}(…)' passes ${p.argCount} argument(s), ` +
+    `but '${p.op}' aggregates exactly one source column — write '${p.op}(<alias>.<field>)'.`,
   "loom.projection-select-unresolved": (p: {
     name: unknown;
     field: unknown;
@@ -3413,6 +3455,20 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
     `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+  "loom.stamp-reads-aggregate-unsupported": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    name: unknown;
+    field: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts document-shaped aggregate ` +
+    `'${p.ctxName}.${p.name}' whose lifecycle stamp of '${p.field}' reads the aggregate itself ` +
+    `(a field, derived value or function of '${p.name}'). This backend merges a document ` +
+    `aggregate's stamps into the request attributes before any record exists, so there is ` +
+    `nothing to evaluate the value against. Compute the value in the create/operation body ` +
+    `instead, keep the stamp to values that do not read the aggregate (now(), currentUser, ` +
+    `literals), or store the aggregate relationally.`,
   "loom.dapper-unsupported": (p: { name: unknown; subject: unknown; reason: unknown }) =>
     `Deployable '${p.name}' selects 'persistence: dapper', but ${p.subject} ${p.reason}. ` +
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +
@@ -4723,6 +4779,26 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
+  "loom.single-row-find-not-unique": (p: {
+    repo: unknown;
+    find: unknown;
+    agg: unknown;
+    cols: unknown;
+  }) =>
+    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
+    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
+    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
+    `(it also derives the DB unique index and the 409 on a duplicate), or return a list.`,
+  "loom.persisted-table-collision": (p: {
+    ctx: unknown;
+    first: unknown;
+    second: unknown;
+    table: unknown;
+  }) =>
+    `context '${p.ctx}': ${p.first} and ${p.second} both persist to table '${p.table}' — ` +
+    `table names are derived from declared names (snake case, pluralised), so the migration ` +
+    `would create '${p.table}' twice and every backend would bind two models to one relation. ` +
+    `Rename one of them.`,
   "loom.workflow-function-uses-state": (p: { ctxName: unknown; name: unknown; fnName: unknown }) =>
     `context '${p.ctxName}': workflow '${p.name}' function '${p.fnName}' reads the workflow's state (\`this\`). A workflow function is a pure helper over its parameters — pass the value in as an argument instead.`,
   "loom.canonical-create-duplicate-workflow": (p: { name: unknown; length: unknown }) =>
@@ -5212,6 +5288,18 @@ export const DIAGNOSTIC_MESSAGES = {
   // reading of a file whose braces are fine.  Say where the declaration
   // belongs and how to move it there; the valid scopes are derived from the
   // grammar (`src/language/misplaced-declaration.ts`).
+  // A vendor setting written beside `type:` in a `storage` block.  The block
+  // takes a fixed clause set and every vendor parameter is a `config` entry,
+  // so the remedy is to move the key — not to rename it (which is what the
+  // reserved-name text would say for `from`), and not to balance a brace
+  // (which is what chevrotain's "Expecting '}'" suggests for `bucket`).
+  "loom.parse-error#storage-config-key": (p: {
+    key: unknown;
+    storage: unknown;
+    clauses: unknown;
+  }) =>
+    `'${p.key}' is not a clause of \`storage ${p.storage}\` (it takes ${p.clauses}) — ` +
+    `vendor settings go inside its config map: \`config: { ${p.key}: … }\`.`,
   "loom.parse-error#misplaced-declaration": (p: {
     keyword: unknown;
     where: unknown;

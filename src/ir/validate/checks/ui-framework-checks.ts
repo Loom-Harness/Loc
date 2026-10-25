@@ -17,6 +17,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser, stmtUsesCurrentUser } from "../../types/loom-ir.js";
+import type { OriginRef } from "../../types/origin.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { componentChildrenHosts } from "../../util/component-children.js";
 import { dataGridHosts } from "../../util/data-grid.js";
@@ -303,11 +304,15 @@ export function validateChartSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
       if (CHART_FRAMEWORKS.has(fw)) continue;
       // Components render into pages, so a chart moved into one must not slip
       // the gate — same body coverage as `validateUiProjectionReadFramework`.
-      const bodies: Array<{ what: string; body: ExprIR | undefined }> = [
-        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body })),
-        ...ui.components.map((c) => ({ what: `component '${c.name}'`, body: c.body })),
+      const bodies: Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> = [
+        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body, origin: p.origin })),
+        ...ui.components.map((c) => ({
+          what: `component '${c.name}'`,
+          body: c.body,
+          origin: c.origin,
+        })),
       ];
-      for (const { what, body } of bodies) {
+      for (const { what, body, origin } of bodies) {
         if (!bodyUsesChart(body)) continue;
         diags.push({
           severity: "error",
@@ -318,6 +323,7 @@ export function validateChartSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             uiFramework: fw || "unknown",
           }),
           source: `${ui.name}/${what}`,
+          origin,
         });
       }
     }
@@ -371,11 +377,15 @@ export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiag
       const handles = new Set(ui.apiParams.map((p) => p.name));
       // Components read projections too — F3 walks their bodies, so this half
       // must as well or a read simply moved into a component slips the gate.
-      const bodies: Array<{ what: string; body: ExprIR | undefined }> = [
-        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body })),
-        ...ui.components.map((c) => ({ what: `component '${c.name}'`, body: c.body })),
+      const bodies: Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> = [
+        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body, origin: p.origin })),
+        ...ui.components.map((c) => ({
+          what: `component '${c.name}'`,
+          body: c.body,
+          origin: c.origin,
+        })),
       ];
-      for (const { what, body } of bodies) {
+      for (const { what, body, origin } of bodies) {
         for (const name of projectionReads(body, handles, readable)) {
           diags.push({
             severity: "error",
@@ -390,6 +400,7 @@ export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiag
               frameworks: [...PROJECTION_READ_FRAMEWORKS].sort().join(", "),
             }),
             source: `${ui.name}/${what}`,
+            origin,
           });
         }
       }
@@ -477,6 +488,7 @@ export function validateCurrentUserNeedsAuthUi(sys: SystemIR, diags: LoomDiagnos
             dName: d.name,
           }),
           source: `${ui.name}/${what}`,
+          origin: host.origin,
         });
       }
     }
@@ -500,6 +512,7 @@ interface UiRenderHost {
   state: { init?: ExprIR }[];
   derived: { expr: ExprIR }[];
   actions: { body: StmtIR[] }[];
+  origin?: OriginRef;
 }
 
 function hostReadsCurrentUser(host: UiRenderHost): boolean {

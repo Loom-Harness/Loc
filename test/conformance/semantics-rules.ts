@@ -353,7 +353,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "an `operation … when <pred>` invoked in a state the predicate rejects — the 409 rung of the denial ladder",
     observable:
-      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg>.". The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
+      'every backend answers 409 with title "Disallowed" and the occurrence-specific detail "operation \'<op>\' is not allowed in the current state of <Agg> (when <predicate source>).", built once by `disallowedDetail` (src/ir/util/denial-detail.ts). The TITLE is the error NAME, not the status reason phrase — the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict) are the ones titled "Conflict".',
     // Two independent divergences, and the split was NOT the one first recorded.
     //   * `detail` — elixir alone sent a fixed sentence ("Operation not allowed
     //     in the current state") because `:disallowed` was a bare atom carrying

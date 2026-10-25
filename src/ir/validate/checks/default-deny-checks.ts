@@ -217,6 +217,8 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // route builder renders — so the check covers exactly the routes that
       // exist (abstract bases serve neither).
       for (const op of deriveContextOperations(c)) {
+        const aggregateOrigin = (name: string) =>
+          c.aggregates.find((a) => a.name === name)?.origin ?? c.origin;
         if (isAllFind(op)) {
           // A declared `find all` reports here too — the declared-find loop
           // below skips `all`, so it is this warning or nothing.
@@ -231,7 +233,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
               path: op.path,
             }),
             source: `${c.name}/${op.aggregate}/all`,
-            origin: c.origin,
+            // The silencing gate is a `policy { read X requires … }` line
+            // about the aggregate, so the warning points at the aggregate.
+            origin: aggregateOrigin(op.aggregate),
           });
           continue;
         }
@@ -249,7 +253,9 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             path: op.path,
           }),
           source: `${c.name}/${op.aggregate}`,
-          origin: c.origin,
+          // The aggregate whose synthesised read this is — not the context,
+          // which would put every aggregate's warning on one line.
+          origin: aggregateOrigin(op.aggregate),
         });
       }
       // Repository finds: each author-declared named find is its own GET route

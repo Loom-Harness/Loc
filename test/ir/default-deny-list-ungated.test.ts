@@ -49,7 +49,9 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     expect(list).toHaveLength(1);
     expect(list[0]!.severity).toBe("warning");
     expect(list[0]!.source).toBe("Vault/Secret/all");
-    // Names the route and the exact line that gates it.
+    // Names the route and the exact line that gates it — spelled `paged`,
+    // the shape the injected read already answers, so following the advice
+    // does not swap the `Paged<T>` envelope for a bare array.
     expect(list[0]!.message).toContain("GET /api/secrets");
     expect(list[0]!.message).toContain("policy { read Secret requires <expr> }");
     expect(list[0]!.message).toContain("REFUSED AT RUNTIME (403)");

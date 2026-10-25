@@ -68,19 +68,20 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    session), so the dispatch half has no discriminating power there; armed
  *    because it honestly passes.  Its 409 `detail` is node's sentence since
  *    M-T6.91 (RS-40), so no wire waiver.
- *  - .NET DAPPER: armed adapter-only via `ADAPTER_ONLY_CASES`
- *    (test/behavioral/registers.mjs).  Discriminates #3224's atomicity fix:
- *    pre-fix the saves committed on their own connections (`expected 80 to
- *    be 90`).  Same 409 `detail` (RS-40).
- *  - .NET EF (the `dotnet` key): FAILS — two `getById` loads of one row are
- *    one tracked entity, so `debitTwice` never conflicts and the double debit
- *    commits (M-T6.90).  The key returns with that fix.
+ *  - .NET (the `dotnet` key — both persistence adapters, since the Dapper
+ *    leg reads the same key): EF discriminates M-T6.90 — two `getById` loads of
+ *    one row were ONE tracked entity, so `debitTwice` never conflicted and the
+ *    double debit committed (`expected the call to reject, but it resolved`);
+ *    the second handle now loads into a forked change tracker and its stale
+ *    save 409s.  Dapper discriminates #3224's atomicity fix: pre-fix the saves
+ *    committed on their own connections (`expected 80 to be 90`).  Same 409
+ *    `detail` (RS-40).
  *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
  *    the workflow's `Repo.transaction` rolled back but answered 500: the
  *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
  *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
  *    Same 409 `detail` waiver (M-T6.91).
- *  - java: FAILS on `debitTwice`, for the EF reason above — JPA's
+ *  - java: FAILS on `debitTwice`, for the reason EF had before M-T6.90 — JPA's
  *    persistence context hands both `getById` loads the SAME managed entity,
  *    so the second save is never stale and the double debit commits (booted:
  *    `expected the call to reject, but it resolved`; java's half of M-T6.90).
@@ -88,7 +89,22 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    publishes, after the commit) and gated by
  *    `transactional-workflow-post-commit-dispatch`, which runs on every
  *    backend. */
-const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
+const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
+
+/** The backends where two `getById` loads of one row inside a workflow are two
+ *  independent handles over a contained collection
+ *  (`workflow-two-handles-containment`, M-T6.90).  Every leg was booted:
+ *  - node, python, .NET Dapper: pass (the loads were always two objects).
+ *  - .NET EF: passes with M-T6.90; pre-fix the identity map handed both loads
+ *    one tracked instance, so `addTwice` resolved instead of 409ing.
+ *  - java: FAILS the same way EF did — the JPA persistence context returns one
+ *    managed instance for both loads, so the version CAS in `save` reads the
+ *    already-bumped version and `addTwice` resolves (M-T6.93).
+ *  - elixir (`vanilla`): FAILS earlier — a contained-part removal
+ *    (`lines -= …`) does not persist even over the single-handle operation
+ *    route (`expected 2 to be 1`, M-T6.94); the stale save would then
+ *    answer M-T6.92's (now fixed) 409. */
+const INDEPENDENT_HANDLES: readonly Backend[] = ["node", "python", "dotnet"];
 
 /** The backends that compile a hosted `X id[]` whose target aggregate lives in a
  *  sibling context the deployable does NOT host (claims eval D18's list position).
@@ -266,12 +282,20 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Added with #2864 D7/T2: no corpus fixture reached a payload-typed workflow param, and all five backends emitted a request record naming a wire type none of them declared.",
   },
   {
+    id: "workflow-two-handles-containment",
+    title:
+      "two `getById` loads of one row inside a workflow are two handles over a contained collection — each saves its own child graph with the version it read",
+    doc: "workflow",
+    backends: INDEPENDENT_HANDLES,
+    note: "Added with M-T6.90.  .NET EF handed both loads ONE tracked instance (identity map); the fix loads a second handle of a tracked row into a forked change tracker.  That puts the second handle's OWNED `lines` graph on a different context from the first, so this case pins that a child INSERT and a child DELETE through the second handle persist exactly once, and that two handles both adding a child still conflict (409, neither persisted).  Backend scope is the named `INDEPENDENT_HANDLES` set above.",
+  },
+  {
     id: "transactional-workflow-event-rollback",
     title:
       "an aggregate event raised inside a `transactional` workflow whose later save fails — the event must not outlive the rollback",
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
-    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409), plus the .NET Dapper adapter armed through `ADAPTER_ONLY_CASES` by #3224, where the same e2e gates the Dapper unit of work's atomicity (pre-fix `expected 80 to be 90`).",
+    note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
   },
   {
     id: "transactional-workflow-post-commit-dispatch",

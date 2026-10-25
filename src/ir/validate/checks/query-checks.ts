@@ -130,11 +130,18 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
   // silently emit nothing (Drizzle/Ecto) or fail at C# render (.NET).
   // `currentUser.<scalar>` is admitted here exactly as in find filters:
   // the backend threads the request principal in (row-level
-  // soft-delete / tenancy filters are the motivating case).
+  // soft-delete / tenancy filters are the motivating case).  Unlike a find,
+  // a capability filter also admits a column-free principal term
+  // (`currentUser.role == "agent"`, see `principalTerm`): it is the only
+  // place a per-role row split can be written, and it covers the
+  // synthesised by-id read that no `requires` can reach.
   for (const agg of ctx.aggregates) {
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
     for (const predicate of filters) {
-      const offending = firstNonQueryablePredicate(predicate, { thisTypesUnresolved: true });
+      const offending = firstNonQueryablePredicate(predicate, {
+        thisTypesUnresolved: true,
+        admitPrincipalTerms: true,
+      });
       if (offending) {
         diags.push({
           severity: "error",
@@ -291,6 +298,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         code: "loom.retrieval-where-not-queryable",
         message: diagMessage("loom.retrieval-where-not-queryable", { name: r.name, offending }),
         source: src,
+        origin: r.origin,
       });
     } else if (agg) {
       // Same reasoning as the find site above — `agg` is an ordinary aggregate,
@@ -308,6 +316,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             aggName: agg.name,
           }),
           source: src,
+          origin: r.origin,
         });
       }
       const bothCols = firstColumnVsColumn(r.where);
@@ -317,6 +326,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
           code: "loom.retrieval-where-column-column",
           message: diagMessage("loom.retrieval-where-column-column", { name: r.name, bothCols }),
           source: src,
+          origin: r.origin,
         });
       }
     }
@@ -337,6 +347,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
             suggestion: nearestAggregateMember(agg, head.name),
           }),
           source: src,
+          origin: r.origin,
         });
       }
     }
@@ -357,6 +368,7 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
         code: "loom.retrieval-loads-unsupported",
         message: diagMessage("loom.retrieval-loads-unsupported", { name: r.name }),
         source: src,
+        origin: r.origin,
       });
     }
   }
